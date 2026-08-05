@@ -1,0 +1,3288 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Vidhai ERP API — multi-site mushroom farming production orchestration
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: users
+    description: User management
+  - name: locations
+    description: Farm locations
+  - name: alertColors
+    description: Alert color master
+  - name: materials
+    description: Raw material master
+  - name: inventory
+    description: Raw material inventory stock
+  - name: spawn
+    description: Spawn inventory
+  - name: batches
+    description: Production batch management
+  - name: batchMaterials
+    description: Batch formulation materials
+  - name: batchStages
+    description: Batch stage progression
+  - name: chambers
+    description: Rooms and chambers
+  - name: chamberReadings
+    description: Chamber sensor readings
+  - name: dashboard
+    description: Dashboard aggregates
+  - name: coimbatore
+    description: Coimbatore casing soil batches (Location C)
+  - name: lab
+    description: Lab spawn production batches (Location D)
+  - name: ooty
+    description: Ooty mushroom growing rooms (Location B)
+  - name: traceability
+    description: Cross-location batch genealogy
+  - name: scheduling
+    description: Orchestration scheduling engine
+  - name: sales
+    description: Unified sales and dispatch orders
+  - name: fleet
+    description: Vehicle and fleet management
+  - name: reports
+    description: Production and operational reports
+  - name: tasks
+    description: Task management board
+  - name: inventoryMovements
+    description: Inter-location inventory transfers
+  - name: casingSoil
+    description: Casing soil buy/sell transactions
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Log out current session
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /locations:
+    get:
+      operationId: listLocations
+      tags: [locations]
+      summary: List all farm locations
+      responses:
+        "200":
+          description: Locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Location"
+
+  /alert-colors:
+    get:
+      operationId: listAlertColors
+      tags: [alertColors]
+      summary: List all alert color definitions
+      responses:
+        "200":
+          description: Alert colors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlertColor"
+    post:
+      operationId: createAlertColor
+      tags: [alertColors]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertColorInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertColor"
+
+  /alert-colors/{id}:
+    patch:
+      operationId: updateAlertColor
+      tags: [alertColors]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertColorUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertColor"
+    delete:
+      operationId: deleteAlertColor
+      tags: [alertColors]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /materials:
+    get:
+      operationId: listMaterials
+      tags: [materials]
+      summary: List all raw material definitions
+      responses:
+        "200":
+          description: Materials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Material"
+    post:
+      operationId: createMaterial
+      tags: [materials]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+
+  /materials/{id}:
+    patch:
+      operationId: updateMaterial
+      tags: [materials]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+    delete:
+      operationId: deleteMaterial
+      tags: [materials]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /contacts:
+    get:
+      operationId: listContacts
+      tags: [contacts]
+      summary: List all CRM contacts
+      responses:
+        "200":
+          description: Contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contact"
+    post:
+      operationId: createContact
+      tags: [contacts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+
+  /contacts/{id}:
+    patch:
+      operationId: updateContact
+      tags: [contacts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+    delete:
+      operationId: deleteContact
+      tags: [contacts]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /inventory:
+    get:
+      operationId: listInventory
+      tags: [inventory]
+      summary: List current raw material stock levels
+      responses:
+        "200":
+          description: Inventory
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InventoryItem"
+    post:
+      operationId: createInventoryAdjustment
+      tags: [inventory]
+      summary: Add or adjust stock for a material
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryAdjustmentInput"
+      responses:
+        "201":
+          description: Adjustment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+
+  /spawn:
+    get:
+      operationId: listSpawnEntries
+      tags: [spawn]
+      summary: List spawn inventory entries
+      responses:
+        "200":
+          description: Spawn entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SpawnEntry"
+    post:
+      operationId: createSpawnEntry
+      tags: [spawn]
+      summary: Add spawn stock entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpawnEntryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpawnEntry"
+
+  /batches:
+    get:
+      operationId: listBatches
+      tags: [batches]
+      summary: List all batches
+      parameters:
+        - name: locationId
+          in: query
+          required: false
+          schema: { type: ["integer", "null"] }
+        - name: stage
+          in: query
+          required: false
+          schema: { type: ["string", "null"] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: ["string", "null"] }
+      responses:
+        "200":
+          description: Batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Batch"
+    post:
+      operationId: createBatch
+      tags: [batches]
+      summary: Create a new batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Batch"
+
+  /batches/{id}:
+    get:
+      operationId: getBatch
+      tags: [batches]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Batch detail with full stage history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchDetail"
+    patch:
+      operationId: updateBatch
+      tags: [batches]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Batch"
+
+  /batches/{id}/advance:
+    post:
+      operationId: advanceBatchStage
+      tags: [batches]
+      summary: Advance batch to next stage
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StageAdvanceInput"
+      responses:
+        "200":
+          description: Batch with updated stage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Batch"
+
+  /batches/{id}/materials:
+    get:
+      operationId: getBatchMaterials
+      tags: [batchMaterials]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Batch material rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BatchMaterial"
+    post:
+      operationId: addBatchMaterial
+      tags: [batchMaterials]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchMaterialInput"
+      responses:
+        "201":
+          description: Material row added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchMaterial"
+
+  /batches/{id}/materials/{materialRowId}:
+    patch:
+      operationId: updateBatchMaterial
+      tags: [batchMaterials]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: materialRowId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchMaterialUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchMaterial"
+    delete:
+      operationId: deleteBatchMaterial
+      tags: [batchMaterials]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: materialRowId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /batches/{id}/stage-logs:
+    get:
+      operationId: getBatchStageLogs
+      tags: [batchStages]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Stage history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StageLog"
+
+  /chambers:
+    get:
+      operationId: listChambers
+      tags: [chambers]
+      parameters:
+        - name: locationId
+          in: query
+          required: false
+          schema: { type: ["integer", "null"] }
+      responses:
+        "200":
+          description: Chambers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chamber"
+    post:
+      operationId: createChamber
+      tags: [chambers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChamberInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chamber"
+
+  /chambers/{id}:
+    get:
+      operationId: getChamber
+      tags: [chambers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Chamber detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chamber"
+    patch:
+      operationId: updateChamber
+      tags: [chambers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChamberUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chamber"
+    delete:
+      operationId: deleteChamber
+      tags: [chambers]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /chambers/{id}/readings:
+    get:
+      operationId: getChamberReadings
+      tags: [chamberReadings]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Recent readings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChamberReading"
+    post:
+      operationId: createChamberReading
+      tags: [chamberReadings]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChamberReadingInput"
+      responses:
+        "201":
+          description: Reading recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChamberReading"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Dashboard aggregate stats
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/activity:
+    get:
+      operationId: getDashboardActivity
+      tags: [dashboard]
+      summary: Recent batch activity feed
+      responses:
+        "200":
+          description: Activity entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEntry"
+
+  # ── COIMBATORE ──────────────────────────────────────────────────────────────
+  /coimbatore/batches:
+    get:
+      operationId: listCoimbatoreBatches
+      tags: [coimbatore]
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CoimbatoreBatch" }
+    post:
+      operationId: createCoimbatoreBatch
+      tags: [coimbatore]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CoimbatoreBatchInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CoimbatoreBatch" }
+
+  /coimbatore/batches/{id}:
+    get:
+      operationId: getCoimbatoreBatch
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Batch detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CoimbatoreBatchDetail" }
+    patch:
+      operationId: updateCoimbatoreBatch
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CoimbatoreBatchUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CoimbatoreBatch" }
+
+  /coimbatore/batches/{id}/materials:
+    get:
+      operationId: listCoimbatoreBatchMaterials
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Materials
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CoimbatoreBatchMaterial" }
+    post:
+      operationId: addCoimbatoreBatchMaterial
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CoimbatoreBatchMaterialInput" }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CoimbatoreBatchMaterial" }
+
+  /coimbatore/batches/{id}/materials/{materialId}:
+    delete:
+      operationId: deleteCoimbatoreBatchMaterial
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: materialId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /coimbatore/batches/{id}/config:
+    put:
+      operationId: setCoimbatoreConfig
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CoimbatoreConfigInput" }
+      responses:
+        "200":
+          description: Config saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CoimbatoreConfig" }
+
+  /coimbatore/batches/{id}/turns:
+    get:
+      operationId: listCoimbatoreTurns
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Turns
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CoimbatoreTurn" }
+    post:
+      operationId: recordCoimbatoreTurn
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CoimbatoreTurnInput" }
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CoimbatoreTurn" }
+
+  /coimbatore/batches/{id}/qc:
+    post:
+      operationId: submitCoimbatoreQc
+      tags: [coimbatore]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QcDecisionInput" }
+      responses:
+        "200":
+          description: QC decision recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QcDecision" }
+
+  # ── LAB ──────────────────────────────────────────────────────────────────────
+  /lab/batches:
+    get:
+      operationId: listLabBatches
+      tags: [lab]
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LabBatch" }
+    post:
+      operationId: createLabBatch
+      tags: [lab]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LabBatchInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabBatch" }
+
+  /lab/batches/{id}:
+    get:
+      operationId: getLabBatch
+      tags: [lab]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Lab batch detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabBatchDetail" }
+    patch:
+      operationId: updateLabBatch
+      tags: [lab]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LabBatchUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabBatch" }
+
+  /lab/batches/{id}/advance:
+    post:
+      operationId: advanceLabBatchStage
+      tags: [lab]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LabStageAdvanceInput" }
+      responses:
+        "200":
+          description: Stage advanced
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabBatch" }
+
+  /lab/batches/{id}/spawn-output:
+    post:
+      operationId: recordLabSpawnOutput
+      tags: [lab]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LabSpawnOutputInput" }
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabSpawnOutput" }
+
+  /lab/spawn-transactions:
+    get:
+      operationId: listSpawnTransactions
+      tags: [lab]
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SpawnTransaction" }
+    post:
+      operationId: createSpawnTransaction
+      tags: [lab]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpawnTransactionInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpawnTransaction" }
+
+  # ── OOTY ─────────────────────────────────────────────────────────────────────
+  /ooty/rooms:
+    get:
+      operationId: listOotyRooms
+      tags: [ooty]
+      responses:
+        "200":
+          description: All rooms with current status
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OotyRoom" }
+    post:
+      operationId: createOotyRoom
+      tags: [ooty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyRoomInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyRoom" }
+
+  /ooty/rooms/{id}:
+    get:
+      operationId: getOotyRoom
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Room detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyRoomDetail" }
+    patch:
+      operationId: updateOotyRoom
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyRoomUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyRoom" }
+    delete:
+      operationId: deleteOotyRoom
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+        "409":
+          description: Room has active batch
+
+  /ooty/growing-batches:
+    get:
+      operationId: listOotyGrowingBatches
+      tags: [ooty]
+      responses:
+        "200":
+          description: All growing batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OotyGrowingBatch" }
+    post:
+      operationId: createOotyGrowingBatch
+      tags: [ooty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyGrowingBatchInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyGrowingBatch" }
+
+  /ooty/growing-batches/{id}:
+    get:
+      operationId: getOotyGrowingBatch
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Growing batch detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyGrowingBatchDetail" }
+    patch:
+      operationId: updateOotyGrowingBatch
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyGrowingBatchUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyGrowingBatch" }
+
+  /ooty/growing-batches/{id}/advance:
+    post:
+      operationId: advanceOotyPhase
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyPhaseAdvanceInput" }
+      responses:
+        "200":
+          description: Phase advanced
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyGrowingBatch" }
+
+  /ooty/growing-batches/{id}/observations:
+    get:
+      operationId: listOotyObservations
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Observations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OotyObservation" }
+    post:
+      operationId: addOotyObservation
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyObservationInput" }
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyObservation" }
+
+  /ooty/growing-batches/{id}/harvests:
+    get:
+      operationId: listOotyHarvests
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Harvests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OotyHarvest" }
+    post:
+      operationId: addOotyHarvest
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyHarvestInput" }
+      responses:
+        "201":
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyHarvest" }
+
+  /ooty/growing-batches/{id}/approve-phase:
+    post:
+      operationId: approveOotyPhase
+      tags: [ooty]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhaseApprovalInput" }
+      responses:
+        "200":
+          description: Approval recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhaseApproval" }
+
+  # ── TRACEABILITY ─────────────────────────────────────────────────────────────
+  /traceability/links:
+    get:
+      operationId: listBatchLinks
+      tags: [traceability]
+      responses:
+        "200":
+          description: All batch links
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BatchLink" }
+    post:
+      operationId: createBatchLink
+      tags: [traceability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BatchLinkInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BatchLink" }
+
+  /traceability/trace/{ootyGrowingBatchId}:
+    get:
+      operationId: traceGrowingBatch
+      tags: [traceability]
+      parameters:
+        - { name: ootyGrowingBatchId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Full traceability chain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TraceabilityChain" }
+
+  # ── SCHEDULING ───────────────────────────────────────────────────────────────
+  /scheduling/events:
+    get:
+      operationId: listScheduleEvents
+      tags: [scheduling]
+      parameters:
+        - { name: locationCode, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Schedule events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ScheduleEvent" }
+    post:
+      operationId: createScheduleEvent
+      tags: [scheduling]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleEventInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleEvent" }
+
+  /scheduling/events/{id}:
+    patch:
+      operationId: updateScheduleEvent
+      tags: [scheduling]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleEventUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScheduleEvent" }
+    delete:
+      operationId: deleteScheduleEvent
+      tags: [scheduling]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /scheduling/suggest:
+    post:
+      operationId: generateScheduleSuggestions
+      tags: [scheduling]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleSuggestInput" }
+      responses:
+        "200":
+          description: Backward-calculated suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ScheduleSuggestion" }
+
+  # ── SALES ────────────────────────────────────────────────────────────────────
+  /sales:
+    get:
+      operationId: listSalesOrders
+      tags: [sales]
+      responses:
+        "200":
+          description: All sales orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SalesOrder" }
+    post:
+      operationId: createSalesOrder
+      tags: [sales]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SalesOrderInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SalesOrder" }
+
+  /sales/{id}:
+    get:
+      operationId: getSalesOrder
+      tags: [sales]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Sales order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SalesOrder" }
+    patch:
+      operationId: updateSalesOrder
+      tags: [sales]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SalesOrderUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SalesOrder" }
+    delete:
+      operationId: deleteSalesOrder
+      tags: [sales]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  # ── FLEET ────────────────────────────────────────────────────────────────────
+  /fleet/vehicles:
+    get:
+      operationId: listVehicles
+      tags: [fleet]
+      responses:
+        "200":
+          description: All vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Vehicle" }
+    post:
+      operationId: createVehicle
+      tags: [fleet]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Vehicle" }
+
+  /fleet/vehicles/{id}:
+    patch:
+      operationId: updateVehicle
+      tags: [fleet]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Vehicle" }
+
+  /fleet/fuel-logs:
+    get:
+      operationId: listFuelLogs
+      tags: [fleet]
+      responses:
+        "200":
+          description: Fuel logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FuelLog" }
+    post:
+      operationId: createFuelLog
+      tags: [fleet]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FuelLogInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FuelLog" }
+
+  /fleet/maintenance-logs:
+    get:
+      operationId: listMaintenanceLogs
+      tags: [fleet]
+      responses:
+        "200":
+          description: Maintenance logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MaintenanceLog" }
+    post:
+      operationId: createMaintenanceLog
+      tags: [fleet]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MaintenanceLogInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceLog" }
+
+  /fleet/usage-logs:
+    get:
+      operationId: listVehicleUsageLogs
+      tags: [fleet]
+      responses:
+        "200":
+          description: Usage logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VehicleUsageLog" }
+    post:
+      operationId: createVehicleUsageLog
+      tags: [fleet]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VehicleUsageLogInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VehicleUsageLog" }
+
+  # ── REPORTS ──────────────────────────────────────────────────────────────────
+  /reports/batch-summary:
+    get:
+      operationId: getReportBatchSummary
+      tags: [reports]
+      parameters:
+        - { name: locationCode, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Batch summary report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportBatchSummary" }
+
+  /reports/monthly-production:
+    get:
+      operationId: getReportMonthlyProduction
+      tags: [reports]
+      parameters:
+        - { name: year, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Monthly production report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportMonthlyProduction" }
+
+  /reports/quality-trend:
+    get:
+      operationId: getReportQualityTrend
+      tags: [reports]
+      parameters:
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Quality trend report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportQualityTrend" }
+
+  /reports/vehicle-utilization:
+    get:
+      operationId: getReportVehicleUtilization
+      tags: [reports]
+      parameters:
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Vehicle utilization report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportVehicleUtilization" }
+
+  /reports/fuel-consumption:
+    get:
+      operationId: getReportFuelConsumption
+      tags: [reports]
+      parameters:
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Fuel consumption report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportFuelConsumption" }
+
+  # ── TASKS ──────────────────────────────────────────────────────────────────
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: assigneeId, in: query, schema: { type: integer } }
+        - { name: locationId, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Task" }
+    post:
+      operationId: createTask
+      tags: [tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Task detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskDetail" }
+    patch:
+      operationId: updateTask
+      tags: [tasks]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+    delete:
+      operationId: deleteTask
+      tags: [tasks]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204":
+          description: Deleted
+
+  /tasks/{id}/time-logs:
+    post:
+      operationId: createTaskTimeLog
+      tags: [tasks]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskTimeLogInput" }
+      responses:
+        "201":
+          description: Time log created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskTimeLog" }
+
+  # ── INVENTORY MOVEMENTS ──────────────────────────────────────────────────────
+  /inventory/movements:
+    get:
+      operationId: listInventoryMovements
+      tags: [inventoryMovements]
+      responses:
+        "200":
+          description: Movement list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InventoryMovement" }
+    post:
+      operationId: createInventoryMovement
+      tags: [inventoryMovements]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InventoryMovementInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InventoryMovement" }
+
+  # ── CASING SOIL TRANSACTIONS ──────────────────────────────────────────────────
+  /coimbatore/soil-transactions:
+    get:
+      operationId: listCasingSoilTransactions
+      tags: [casingSoil]
+      responses:
+        "200":
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CasingSoilTransaction" }
+    post:
+      operationId: createCasingSoilTransaction
+      tags: [casingSoil]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CasingSoilTransactionInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CasingSoilTransaction" }
+
+  /reports/batch-costing:
+    get:
+      operationId: getReportBatchCosting
+      tags: [reports]
+      parameters:
+        - { name: batchId, in: query, schema: { type: integer } }
+        - { name: locationCode, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Batch costing report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportBatchCosting" }
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+
+    LoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+
+    AuthResponse:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, username, displayName, role, locationScope]
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        displayName: { type: string }
+        role:
+          type: string
+          enum: [admin, manager, operator, viewer]
+        locationScope:
+          type: array
+          items: { type: string }
+        createdAt: { type: string }
+
+    UserInput:
+      type: object
+      required: [username, password, displayName, role, locationScope]
+      properties:
+        username: { type: string }
+        password: { type: string }
+        displayName: { type: string }
+        role:
+          type: string
+          enum: [admin, manager, operator, viewer]
+        locationScope:
+          type: array
+          items: { type: string }
+
+    UserUpdate:
+      type: object
+      properties:
+        displayName: { type: string }
+        role:
+          type: string
+          enum: [admin, manager, operator, viewer]
+        locationScope:
+          type: array
+          items: { type: string }
+        password: { type: string }
+
+    Location:
+      type: object
+      required: [id, code, name, description]
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        description: { type: string }
+
+    AlertColor:
+      type: object
+      required: [id, name, hexColor, condition, description]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        hexColor: { type: string }
+        condition: { type: string }
+        description: { type: string }
+        sortOrder: { type: integer }
+
+    AlertColorInput:
+      type: object
+      required: [name, hexColor, condition, description]
+      properties:
+        name: { type: string }
+        hexColor: { type: string }
+        condition: { type: string }
+        description: { type: string }
+        sortOrder: { type: integer }
+
+    AlertColorUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        hexColor: { type: string }
+        condition: { type: string }
+        description: { type: string }
+        sortOrder: { type: integer }
+
+    Material:
+      type: object
+      required: [id, name, unit, category]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        sku: { type: ["string", "null"] }
+        category: { type: string }
+        unit: { type: string }
+        defaultMoisturePercent: { type: ["number", "null"] }
+        defaultNitrogenPercent: { type: ["number", "null"] }
+        buyPricePerUnit: { type: ["number", "null"] }
+        sellPricePerUnit: { type: ["number", "null"] }
+        imageUrl: { type: ["string", "null"] }
+        qrCode: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        active: { type: boolean }
+        createdAt: { type: string }
+
+    MaterialInput:
+      type: object
+      required: [name, unit]
+      properties:
+        name: { type: string }
+        sku: { type: ["string", "null"] }
+        category: { type: string }
+        unit: { type: string }
+        defaultMoisturePercent: { type: ["number", "null"] }
+        defaultNitrogenPercent: { type: ["number", "null"] }
+        buyPricePerUnit: { type: ["number", "null"] }
+        sellPricePerUnit: { type: ["number", "null"] }
+        imageUrl: { type: ["string", "null"] }
+        qrCode: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    MaterialUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        sku: { type: ["string", "null"] }
+        category: { type: string }
+        unit: { type: string }
+        defaultMoisturePercent: { type: ["number", "null"] }
+        defaultNitrogenPercent: { type: ["number", "null"] }
+        buyPricePerUnit: { type: ["number", "null"] }
+        sellPricePerUnit: { type: ["number", "null"] }
+        imageUrl: { type: ["string", "null"] }
+        qrCode: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        active: { type: boolean }
+
+    Contact:
+      type: object
+      required: [id, type, name, company, phone, email, address, notes, createdAt]
+      properties:
+        id: { type: integer }
+        type: { type: string, enum: [client, vendor, other] }
+        name: { type: string }
+        company: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        address: { type: string }
+        notes: { type: string }
+        createdAt: { type: string }
+
+    ContactInput:
+      type: object
+      required: [type, name]
+      properties:
+        type: { type: string, enum: [client, vendor, other] }
+        name: { type: string, minLength: 1 }
+        company: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        address: { type: string }
+        notes: { type: string }
+
+    ContactUpdate:
+      type: object
+      properties:
+        type: { type: string, enum: [client, vendor, other] }
+        name: { type: string, minLength: 1 }
+        company: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        address: { type: string }
+        notes: { type: string }
+
+    InventoryItem:
+      type: object
+      required: [id, materialId, materialName, unit, quantityOnHand, lastUpdated]
+      properties:
+        id: { type: integer }
+        materialId: { type: integer }
+        materialName: { type: string }
+        sku: { type: ["string", "null"] }
+        category: { type: string }
+        unit: { type: string }
+        quantityOnHand: { type: number }
+        locationId: { type: ["integer", "null"] }
+        locationName: { type: ["string", "null"] }
+        costBasis: { type: ["number", "null"] }
+        buyPricePerUnit: { type: ["number", "null"] }
+        sellPricePerUnit: { type: ["number", "null"] }
+        imageUrl: { type: ["string", "null"] }
+        qrCode: { type: ["string", "null"] }
+        lastUpdated: { type: string }
+
+    InventoryAdjustmentInput:
+      type: object
+      required: [materialId, quantityDelta, reason]
+      properties:
+        materialId: { type: integer }
+        locationId: { type: ["integer", "null"] }
+        quantityDelta: { type: number }
+        reason: { type: string }
+        notes: { type: ["string", "null"] }
+
+    InventoryMovement:
+      type: object
+      required: [id, materialId, materialName, quantityKg, createdAt]
+      properties:
+        id: { type: integer }
+        materialId: { type: integer }
+        materialName: { type: string }
+        fromLocationId: { type: ["integer", "null"] }
+        fromLocationName: { type: ["string", "null"] }
+        toLocationId: { type: ["integer", "null"] }
+        toLocationName: { type: ["string", "null"] }
+        quantityKg: { type: number }
+        reason: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        createdByName: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    InventoryMovementInput:
+      type: object
+      required: [materialId, quantityKg]
+      properties:
+        materialId: { type: integer }
+        fromLocationId: { type: ["integer", "null"] }
+        toLocationId: { type: ["integer", "null"] }
+        quantityKg: { type: number }
+        reason: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    SpawnEntry:
+      type: object
+      required: [id, strainName, quantityKg, source, receivedAt, status]
+      properties:
+        id: { type: integer }
+        strainName: { type: string }
+        quantityKg: { type: number }
+        source: { type: string }
+        receivedAt: { type: string }
+        expiresAt: { type: ["string", "null"] }
+        status:
+          type: string
+          enum: [available, consumed, expired]
+        notes: { type: ["string", "null"] }
+
+    SpawnEntryInput:
+      type: object
+      required: [strainName, quantityKg, source, receivedAt]
+      properties:
+        strainName: { type: string }
+        quantityKg: { type: number }
+        source: { type: string }
+        receivedAt: { type: string }
+        expiresAt: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    Batch:
+      type: object
+      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, createdByName]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        currentStage:
+          type: string
+          enum: [PRE_WETTING, T1, T2, T3, T4, BULK_CHAMBER, QUALITY_CHECK, SPAWN_MIXING, DISPATCH, COMPLETED]
+        status:
+          type: string
+          enum: [active, on_hold, completed, failed]
+        nitrogenContent: { type: ["number", "null"] }
+        targetBags: { type: ["integer", "null"] }
+        actualBags: { type: ["integer", "null"] }
+        spawnEntryId: { type: ["integer", "null"] }
+        spawnBatchRef: { type: ["string", "null"] }
+        spawnBatchType: { type: ["string", "null"] }
+        dispatchLocationId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        createdByName: { type: string }
+        stageEnteredAt: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+
+    BatchDetail:
+      type: object
+      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, createdByName, materials, stageLogs]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        currentStage:
+          type: string
+          enum: [PRE_WETTING, T1, T2, T3, T4, BULK_CHAMBER, QUALITY_CHECK, SPAWN_MIXING, DISPATCH, COMPLETED]
+        status:
+          type: string
+          enum: [active, on_hold, completed, failed]
+        nitrogenContent: { type: ["number", "null"] }
+        targetBags: { type: ["integer", "null"] }
+        actualBags: { type: ["integer", "null"] }
+        spawnEntryId: { type: ["integer", "null"] }
+        dispatchLocationId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        createdByName: { type: string }
+        stageEnteredAt: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatchMaterial"
+        stageLogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageLog"
+
+    BatchInput:
+      type: object
+      required: [locationId]
+      properties:
+        locationId: { type: integer }
+        targetBags: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    BatchUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, on_hold, completed, failed]
+        targetBags: { type: ["integer", "null"] }
+        actualBags: { type: ["integer", "null"] }
+        dispatchLocationId: { type: ["integer", "null"] }
+        spawnEntryId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    StageAdvanceInput:
+      type: object
+      required: [nextStage]
+      properties:
+        nextStage:
+          type: string
+          enum: [PRE_WETTING, T1, T2, T3, T4, BULK_CHAMBER, QUALITY_CHECK, SPAWN_MIXING, DISPATCH, COMPLETED]
+        notes: { type: ["string", "null"] }
+        nh3Ppm: { type: ["number", "null"] }
+        temperatureCelsius: { type: ["number", "null"] }
+        spawnBatchRef: { type: ["string", "null"] }
+        spawnBatchType:
+          type: string
+          enum: [internal, external]
+          nullable: true
+
+    BatchMaterial:
+      type: object
+      required: [id, batchId, materialId, materialName, unit, wetWeightKg, moisturePercent, nitrogenPercent]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        materialId: { type: integer }
+        materialName: { type: string }
+        unit: { type: string }
+        wetWeightKg: { type: number }
+        moisturePercent: { type: number }
+        nitrogenPercent: { type: number }
+        dryWeightKg: { type: number }
+        n2Kg: { type: number }
+
+    BatchMaterialInput:
+      type: object
+      required: [materialId, wetWeightKg, moisturePercent, nitrogenPercent]
+      properties:
+        materialId: { type: integer }
+        wetWeightKg: { type: number }
+        moisturePercent: { type: number }
+        nitrogenPercent: { type: number }
+
+    BatchMaterialUpdate:
+      type: object
+      properties:
+        wetWeightKg: { type: number }
+        moisturePercent: { type: number }
+        nitrogenPercent: { type: number }
+
+    StageLog:
+      type: object
+      required: [id, batchId, stage, enteredAt, enteredByName]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        stage: { type: string }
+        enteredAt: { type: string }
+        exitedAt: { type: ["string", "null"] }
+        enteredByName: { type: string }
+        notes: { type: ["string", "null"] }
+        nh3Ppm: { type: ["number", "null"] }
+        temperatureCelsius: { type: ["number", "null"] }
+
+    Chamber:
+      type: object
+      required: [id, name, locationId, locationCode, chamberType, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        chamberType:
+          type: string
+          enum: [pre_wetting, turn, bulk]
+        status:
+          type: string
+          enum: [idle, active, maintenance]
+        capacity: { type: ["integer", "null"] }
+        currentBatchId: { type: ["integer", "null"] }
+        currentBatchCode: { type: ["string", "null"] }
+        lastTemperature: { type: ["number", "null"] }
+        lastNh3: { type: ["number", "null"] }
+        lastReadingAt: { type: ["string", "null"] }
+        lengthM: { type: ["number", "null"] }
+        widthM: { type: ["number", "null"] }
+        heightM: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    ChamberInput:
+      type: object
+      required: [name, locationId, chamberType]
+      properties:
+        name: { type: string }
+        locationId: { type: integer }
+        chamberType:
+          type: string
+          enum: [pre_wetting, turn, bulk]
+        capacity: { type: ["integer", "null"] }
+        lengthM: { type: ["number", "null"] }
+        widthM: { type: ["number", "null"] }
+        heightM: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    ChamberUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        chamberType:
+          type: string
+          enum: [pre_wetting, turn, bulk]
+        status:
+          type: string
+          enum: [idle, active, maintenance]
+        capacity: { type: ["integer", "null"] }
+        currentBatchId: { type: ["integer", "null"] }
+        lengthM: { type: ["number", "null"] }
+        widthM: { type: ["number", "null"] }
+        heightM: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    ChamberReading:
+      type: object
+      required: [id, chamberId, chamberName, recordedAt, recordedByName]
+      properties:
+        id: { type: integer }
+        chamberId: { type: integer }
+        chamberName: { type: string }
+        temperatureCelsius: { type: ["number", "null"] }
+        nh3Ppm: { type: ["number", "null"] }
+        co2Percent: { type: ["number", "null"] }
+        humidity: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        recordedAt: { type: string }
+        recordedByName: { type: string }
+
+    ChamberReadingInput:
+      type: object
+      properties:
+        temperatureCelsius: { type: ["number", "null"] }
+        nh3Ppm: { type: ["number", "null"] }
+        co2Percent: { type: ["number", "null"] }
+        humidity: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    DashboardSummary:
+      type: object
+      required: [activeBatches, bagsProducedThisMonth, pendingQualityChecks, chamberOccupancy, stageBreakdown, spawnStockKg, rawMaterialAlerts]
+      properties:
+        activeBatches: { type: integer }
+        bagsProducedThisMonth: { type: integer }
+        pendingQualityChecks: { type: integer }
+        chamberOccupancy:
+          type: object
+          required: [total, occupied, idle]
+          properties:
+            total: { type: integer }
+            occupied: { type: integer }
+            idle: { type: integer }
+        stageBreakdown:
+          type: array
+          items:
+            type: object
+            required: [stage, count]
+            properties:
+              stage: { type: string }
+              count: { type: integer }
+        spawnStockKg: { type: number }
+        rawMaterialAlerts: { type: integer }
+
+    ActivityEntry:
+      type: object
+      required: [id, batchCode, action, stage, performedByName, performedAt]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        action: { type: string }
+        stage: { type: string }
+        performedByName: { type: string }
+        performedAt: { type: string }
+        notes: { type: ["string", "null"] }
+
+    # ── COIMBATORE ──────────────────────────────────────────────────────────────
+    CoimbatoreBatch:
+      type: object
+      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        currentStage: { type: string }
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+        createdAt: { type: string }
+        stageEnteredAt: { type: ["string", "null"] }
+        createdByName: { type: ["string", "null"] }
+
+    CoimbatoreBatchDetail:
+      type: object
+      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, materials, turns]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        currentStage: { type: string }
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+        createdAt: { type: string }
+        stageEnteredAt: { type: ["string", "null"] }
+        createdByName: { type: ["string", "null"] }
+        materials:
+          type: array
+          items: { $ref: "#/components/schemas/CoimbatoreBatchMaterial" }
+        config: { $ref: "#/components/schemas/CoimbatoreConfig", nullable: true }
+        turns:
+          type: array
+          items: { $ref: "#/components/schemas/CoimbatoreTurn" }
+        qcDecision: { $ref: "#/components/schemas/QcDecision", nullable: true }
+
+    CoimbatoreBatchInput:
+      type: object
+      properties:
+        notes: { type: ["string", "null"] }
+
+    CoimbatoreBatchUpdate:
+      type: object
+      properties:
+        status: { type: string }
+        currentStage: { type: string }
+        notes: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+
+    CoimbatoreBatchMaterial:
+      type: object
+      required: [id, batchId, materialId, materialName, unit, weightKg]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        materialId: { type: integer }
+        materialName: { type: string }
+        unit: { type: string }
+        weightKg: { type: number }
+        notes: { type: ["string", "null"] }
+
+    CoimbatoreBatchMaterialInput:
+      type: object
+      required: [materialId, weightKg]
+      properties:
+        materialId: { type: integer }
+        weightKg: { type: number }
+        notes: { type: ["string", "null"] }
+
+    CoimbatoreConfig:
+      type: object
+      required: [id, batchId, totalTurns]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        totalTurns: { type: integer }
+        turnScheduleJson: { type: string }
+
+    CoimbatoreConfigInput:
+      type: object
+      required: [totalTurns]
+      properties:
+        totalTurns: { type: integer }
+        turnScheduleJson:
+          type: array
+          items:
+            type: object
+            properties:
+              turnNumber: { type: integer }
+              intervalDays: { type: integer }
+
+    CoimbatoreTurn:
+      type: object
+      required: [id, batchId, turnNumber]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        turnNumber: { type: integer }
+        plannedDate: { type: ["string", "null"] }
+        actualDate: { type: ["string", "null"] }
+        durationDays: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        recordedAt: { type: ["string", "null"] }
+
+    CoimbatoreTurnInput:
+      type: object
+      required: [turnNumber]
+      properties:
+        turnNumber: { type: integer }
+        plannedDate: { type: ["string", "null"] }
+        actualDate: { type: ["string", "null"] }
+        durationDays: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    QcDecision:
+      type: object
+      required: [id, batchId, moduleType, decision, decidedAt]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        moduleType: { type: string }
+        decision:
+          type: string
+          enum: [approve, reject]
+        notes: { type: ["string", "null"] }
+        decidedByUserId: { type: ["integer", "null"] }
+        decidedAt: { type: string }
+
+    QcDecisionInput:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+        notes: { type: ["string", "null"] }
+
+    # ── LAB ──────────────────────────────────────────────────────────────────────
+    LabBatch:
+      type: object
+      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        currentStage:
+          type: string
+          enum: [MEDIA_PREP, MOTHER_CULTURE, MILLET_1, MILLET_2, MOISTURE, AUTOCLAVE, INOCULATION, SHAKING_1, SHAKING_2, COMPLETED]
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+        createdAt: { type: string }
+        stageEnteredAt: { type: ["string", "null"] }
+        createdByName: { type: ["string", "null"] }
+
+    LabBatchDetail:
+      type: object
+      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, stageLogs, spawnOutputs]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        locationId: { type: integer }
+        locationCode: { type: string }
+        currentStage: { type: string }
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        alertLevel: { type: ["string", "null"] }
+        createdAt: { type: string }
+        stageEnteredAt: { type: ["string", "null"] }
+        createdByName: { type: ["string", "null"] }
+        stageLogs:
+          type: array
+          items: { $ref: "#/components/schemas/StageLog" }
+        spawnOutputs:
+          type: array
+          items: { $ref: "#/components/schemas/LabSpawnOutput" }
+
+    LabBatchInput:
+      type: object
+      properties:
+        notes: { type: ["string", "null"] }
+
+    LabBatchUpdate:
+      type: object
+      properties:
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+
+    LabStageAdvanceInput:
+      type: object
+      required: [nextStage]
+      properties:
+        nextStage:
+          type: string
+          enum: [MOTHER_CULTURE, MILLET_1, MILLET_2, MOISTURE, AUTOCLAVE, INOCULATION, SHAKING_1, SHAKING_2, COMPLETED]
+        notes: { type: ["string", "null"] }
+
+    LabSpawnOutput:
+      type: object
+      required: [id, batchId, strainName, quantityKg, status, createdAt]
+      properties:
+        id: { type: integer }
+        batchId: { type: integer }
+        strainName: { type: string }
+        quantityKg: { type: number }
+        producedAt: { type: ["string", "null"] }
+        status:
+          type: string
+          enum: [available, consumed, allocated]
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    LabSpawnOutputInput:
+      type: object
+      required: [strainName, quantityKg]
+      properties:
+        strainName: { type: string }
+        quantityKg: { type: number }
+        producedAt: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    SpawnTransaction:
+      type: object
+      required: [id, transactionType, strainName, quantityKg, transactionDate, createdAt]
+      properties:
+        id: { type: integer }
+        transactionType:
+          type: string
+          enum: [purchase, sale, internal_transfer]
+        strainName: { type: string }
+        quantityKg: { type: number }
+        counterparty: { type: ["string", "null"] }
+        unitPrice: { type: ["number", "null"] }
+        transactionDate: { type: string }
+        notes: { type: ["string", "null"] }
+        labSpawnOutputId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+
+    SpawnTransactionInput:
+      type: object
+      required: [transactionType, strainName, quantityKg, transactionDate]
+      properties:
+        transactionType:
+          type: string
+          enum: [purchase, sale, internal_transfer]
+        strainName: { type: string }
+        quantityKg: { type: number }
+        counterparty: { type: ["string", "null"] }
+        unitPrice: { type: ["number", "null"] }
+        transactionDate: { type: string }
+        notes: { type: ["string", "null"] }
+        labSpawnOutputId: { type: ["integer", "null"] }
+
+    # ── OOTY ─────────────────────────────────────────────────────────────────────
+    OotyRoom:
+      type: object
+      required: [id, name, locationId, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        locationId: { type: integer }
+        status:
+          type: string
+          enum: [idle, active, maintenance]
+        capacity: { type: ["integer", "null"] }
+        currentGrowingBatchId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        currentBatch: { type: object, nullable: true }
+        alertLevel: { type: string }
+
+    OotyRoomDetail:
+      type: object
+      required: [id, name, locationId, status, batches]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        locationId: { type: integer }
+        status: { type: string }
+        capacity: { type: ["integer", "null"] }
+        currentGrowingBatchId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        batches:
+          type: array
+          items: { $ref: "#/components/schemas/OotyGrowingBatch" }
+
+    OotyRoomInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        capacity: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    OotyRoomUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        capacity: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        currentGrowingBatchId: { type: ["integer", "null"] }
+
+    OotyGrowingBatch:
+      type: object
+      required: [id, batchCode, roomId, currentPhase, status, createdAt]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        roomId: { type: integer }
+        annurBatchId: { type: ["integer", "null"] }
+        coimBatchId: { type: ["integer", "null"] }
+        currentPhase:
+          type: string
+          enum: [SPAWN_RUN, CASING_RUN, DF, COOKOUT, COMPLETED]
+        phaseEnteredAt: { type: ["string", "null"] }
+        status: { type: string }
+        spawnRunStartDate: { type: ["string", "null"] }
+        casingAppliedDate: { type: ["string", "null"] }
+        cookoutDate: { type: ["string", "null"] }
+        substrateWeightKg: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    OotyGrowingBatchDetail:
+      type: object
+      required: [id, batchCode, roomId, currentPhase, status, createdAt, dayInPhase, observations, harvests, approvals]
+      properties:
+        id: { type: integer }
+        batchCode: { type: string }
+        roomId: { type: integer }
+        annurBatchId: { type: ["integer", "null"] }
+        coimBatchId: { type: ["integer", "null"] }
+        currentPhase: { type: string }
+        phaseEnteredAt: { type: ["string", "null"] }
+        dayInPhase: { type: ["integer", "null"] }
+        status: { type: string }
+        spawnRunStartDate: { type: ["string", "null"] }
+        casingAppliedDate: { type: ["string", "null"] }
+        cookoutDate: { type: ["string", "null"] }
+        substrateWeightKg: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        observations:
+          type: array
+          items: { $ref: "#/components/schemas/OotyObservation" }
+        harvests:
+          type: array
+          items: { $ref: "#/components/schemas/OotyHarvest" }
+        approvals:
+          type: array
+          items: { $ref: "#/components/schemas/PhaseApproval" }
+
+    OotyGrowingBatchInput:
+      type: object
+      required: [roomId]
+      properties:
+        roomId: { type: integer }
+        annurBatchId: { type: ["integer", "null"] }
+        coimBatchId: { type: ["integer", "null"] }
+        spawnRunStartDate: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    OotyGrowingBatchUpdate:
+      type: object
+      properties:
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        casingAppliedDate: { type: ["string", "null"] }
+        cookoutDate: { type: ["string", "null"] }
+        substrateWeightKg: { type: ["number", "null"] }
+
+    OotyPhaseAdvanceInput:
+      type: object
+      required: [nextPhase]
+      properties:
+        nextPhase:
+          type: string
+          enum: [CASING_RUN, DF, COOKOUT, COMPLETED]
+        notes: { type: ["string", "null"] }
+        cookoutDate: { type: ["string", "null"] }
+        substrateWeightKg: { type: ["number", "null"] }
+
+    OotyObservation:
+      type: object
+      required: [id, growingBatchId, observationDate, observationType, createdAt]
+      properties:
+        id: { type: integer }
+        growingBatchId: { type: integer }
+        observationDate: { type: string }
+        temperatureCelsius: { type: ["number", "null"] }
+        observationNote: { type: ["string", "null"] }
+        observationType: { type: string }
+        createdAt: { type: string }
+
+    OotyObservationInput:
+      type: object
+      required: [observationDate]
+      properties:
+        observationDate: { type: string }
+        temperatureCelsius: { type: ["number", "null"] }
+        observationNote: { type: ["string", "null"] }
+        observationType: { type: string }
+
+    OotyHarvest:
+      type: object
+      required: [id, growingBatchId, harvestDate, weightKg, flushNumber, createdAt]
+      properties:
+        id: { type: integer }
+        growingBatchId: { type: integer }
+        harvestDate: { type: string }
+        weightKg: { type: number }
+        mushroomCount: { type: ["integer", "null"] }
+        avgWeightG: { type: ["number", "null"] }
+        qualityNote: { type: ["string", "null"] }
+        flushNumber: { type: integer }
+        createdAt: { type: string }
+
+    OotyHarvestInput:
+      type: object
+      required: [harvestDate, weightKg]
+      properties:
+        harvestDate: { type: string }
+        weightKg: { type: number }
+        mushroomCount: { type: ["integer", "null"] }
+        avgWeightG: { type: ["number", "null"] }
+        qualityNote: { type: ["string", "null"] }
+        flushNumber: { type: integer }
+
+    PhaseApproval:
+      type: object
+      required: [id, entityType, entityId, fromPhase, toPhase, createdAt]
+      properties:
+        id: { type: integer }
+        entityType: { type: string }
+        entityId: { type: integer }
+        fromPhase: { type: string }
+        toPhase: { type: string }
+        decision: { type: ["string", "null"] }
+        approvedByUserId: { type: ["integer", "null"] }
+        decidedAt: { type: ["string", "null"] }
+        rejectionReason: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    PhaseApprovalInput:
+      type: object
+      required: [fromPhase, toPhase, decision]
+      properties:
+        fromPhase: { type: string }
+        toPhase: { type: string }
+        decision:
+          type: string
+          enum: [approve, reject]
+        rejectionReason: { type: ["string", "null"] }
+
+    # ── TRACEABILITY ─────────────────────────────────────────────────────────────
+    BatchLink:
+      type: object
+      required: [id, createdAt]
+      properties:
+        id: { type: integer }
+        ootyGrowingBatchId: { type: ["integer", "null"] }
+        annurBatchId: { type: ["integer", "null"] }
+        coimBatchId: { type: ["integer", "null"] }
+        labSpawnOutputId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    BatchLinkInput:
+      type: object
+      properties:
+        ootyGrowingBatchId: { type: ["integer", "null"] }
+        annurBatchId: { type: ["integer", "null"] }
+        coimBatchId: { type: ["integer", "null"] }
+        labSpawnOutputId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    TraceabilityChain:
+      type: object
+      required: [ootyGrowingBatch, links]
+      properties:
+        ootyGrowingBatch: { type: object }
+        annurBatch: { type: object, nullable: true }
+        coimBatch: { type: object, nullable: true }
+        labSpawnOutputs:
+          type: array
+          items: { type: object }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/BatchLink" }
+
+    # ── SCHEDULING ───────────────────────────────────────────────────────────────
+    ScheduleEvent:
+      type: object
+      required: [id, locationCode, entityType, eventType, plannedDate, isManualOverride, isSuggestion, createdAt]
+      properties:
+        id: { type: integer }
+        locationCode: { type: string }
+        entityType: { type: string }
+        entityId: { type: ["integer", "null"] }
+        eventType: { type: string }
+        plannedDate: { type: string }
+        actualDate: { type: ["string", "null"] }
+        isManualOverride: { type: boolean }
+        isSuggestion: { type: boolean }
+        parentEventId: { type: ["integer", "null"] }
+        planCode: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    ScheduleEventInput:
+      type: object
+      required: [locationCode, entityType, eventType, plannedDate]
+      properties:
+        locationCode: { type: string }
+        entityType: { type: string }
+        entityId: { type: ["integer", "null"] }
+        eventType: { type: string }
+        plannedDate: { type: string }
+        planCode: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        isManualOverride: { type: boolean }
+
+    ScheduleEventUpdate:
+      type: object
+      properties:
+        plannedDate: { type: string }
+        actualDate: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        isManualOverride: { type: boolean }
+
+    ScheduleSuggestInput:
+      type: object
+      required: [ootypRoomFreeDate]
+      properties:
+        ootypRoomFreeDate: { type: string }
+        ootyRoomId: { type: ["integer", "null"] }
+
+    ScheduleSuggestion:
+      type: object
+      required: [locationCode, entityType, eventType, plannedDate, isSuggestion, planCode]
+      properties:
+        locationCode: { type: string }
+        entityType: { type: string }
+        entityId: { type: ["integer", "null"] }
+        eventType: { type: string }
+        plannedDate: { type: string }
+        planCode: { type: string }
+        isSuggestion: { type: boolean }
+        notes: { type: ["string", "null"] }
+
+    # ── SALES ────────────────────────────────────────────────────────────────────
+    SalesOrder:
+      type: object
+      required: [id, orderCode, productType, saleType, transactionDate, qtyKg, unit, createdAt]
+      properties:
+        id: { type: integer }
+        orderCode: { type: string }
+        productType:
+          type: string
+          enum: [grow_bag, mushroom, manure]
+        saleType:
+          type: string
+          enum: [external, internal_transfer]
+        transactionDate: { type: string }
+        qtyKg: { type: number }
+        unit: { type: string }
+        buyerName: { type: ["string", "null"] }
+        destinationLocationId: { type: ["integer", "null"] }
+        fromBatchId: { type: ["integer", "null"] }
+        fromBatchCode: { type: ["string", "null"] }
+        qualityNote: { type: ["string", "null"] }
+        unitPrice: { type: ["number", "null"] }
+        totalValue: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        createdByName: { type: ["string", "null"] }
+
+    SalesOrderInput:
+      type: object
+      required: [productType, transactionDate, qtyKg]
+      properties:
+        productType:
+          type: string
+          enum: [grow_bag, mushroom, manure]
+        saleType:
+          type: string
+          enum: [external, internal_transfer]
+        transactionDate: { type: string }
+        qtyKg: { type: number }
+        unit: { type: string }
+        buyerName: { type: ["string", "null"] }
+        destinationLocationId: { type: ["integer", "null"] }
+        fromBatchId: { type: ["integer", "null"] }
+        fromBatchCode: { type: ["string", "null"] }
+        qualityNote: { type: ["string", "null"] }
+        unitPrice: { type: ["number", "null"] }
+        totalValue: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    SalesOrderUpdate:
+      type: object
+      properties:
+        qtyKg: { type: number }
+        unitPrice: { type: ["number", "null"] }
+        totalValue: { type: ["number", "null"] }
+        buyerName: { type: ["string", "null"] }
+        qualityNote: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        saleType: { type: string }
+
+    # ── FLEET ────────────────────────────────────────────────────────────────────
+    Vehicle:
+      type: object
+      required: [id, name, regNo, vehicleType, status, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        regNo: { type: string }
+        homeLocationId: { type: ["integer", "null"] }
+        homeLocationCode: { type: ["string", "null"] }
+        homeLocationName: { type: ["string", "null"] }
+        vehicleType:
+          type: string
+          enum: [truck, van, motorcycle, tractor, other]
+        status:
+          type: string
+          enum: [available, in_use, maintenance, retired]
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    VehicleInput:
+      type: object
+      required: [name, regNo]
+      properties:
+        name: { type: string }
+        regNo: { type: string }
+        homeLocationId: { type: ["integer", "null"] }
+        vehicleType: { type: string }
+        notes: { type: ["string", "null"] }
+
+    VehicleUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        status: { type: string }
+        vehicleType: { type: string }
+        homeLocationId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    FuelLog:
+      type: object
+      required: [id, vehicleId, vehicleName, vehicleRegNo, fuelDate, litres, createdAt]
+      properties:
+        id: { type: integer }
+        vehicleId: { type: integer }
+        vehicleName: { type: string }
+        vehicleRegNo: { type: string }
+        fuelDate: { type: string }
+        litres: { type: number }
+        costPerLitre: { type: ["number", "null"] }
+        totalCost: { type: ["number", "null"] }
+        odometer: { type: ["number", "null"] }
+        startKm: { type: ["number", "null"] }
+        endKm: { type: ["number", "null"] }
+        distanceKm: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        recordedByName: { type: ["string", "null"] }
+
+    FuelLogInput:
+      type: object
+      required: [vehicleId, fuelDate, litres]
+      properties:
+        vehicleId: { type: integer }
+        fuelDate: { type: string }
+        litres: { type: number }
+        costPerLitre: { type: ["number", "null"] }
+        odometer: { type: ["number", "null"] }
+        startKm: { type: ["number", "null"] }
+        endKm: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    MaintenanceLog:
+      type: object
+      required: [id, vehicleId, vehicleName, vehicleRegNo, serviceDate, description, createdAt]
+      properties:
+        id: { type: integer }
+        vehicleId: { type: integer }
+        vehicleName: { type: string }
+        vehicleRegNo: { type: string }
+        serviceDate: { type: string }
+        description: { type: string }
+        cost: { type: ["number", "null"] }
+        nextServiceDue: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+        recordedByName: { type: ["string", "null"] }
+
+    MaintenanceLogInput:
+      type: object
+      required: [vehicleId, serviceDate, description]
+      properties:
+        vehicleId: { type: integer }
+        serviceDate: { type: string }
+        description: { type: string }
+        cost: { type: ["number", "null"] }
+        nextServiceDue: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    VehicleUsageLog:
+      type: object
+      required: [id, vehicleId, vehicleName, vehicleRegNo, usageDate, workType, createdAt]
+      properties:
+        id: { type: integer }
+        vehicleId: { type: integer }
+        vehicleName: { type: string }
+        vehicleRegNo: { type: string }
+        usageDate: { type: string }
+        driverId: { type: ["integer", "null"] }
+        driverName: { type: ["string", "null"] }
+        hoursWorked: { type: ["number", "null"] }
+        workType: { type: string }
+        fromLocationId: { type: ["integer", "null"] }
+        toLocationId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    VehicleUsageLogInput:
+      type: object
+      required: [vehicleId, usageDate, workType]
+      properties:
+        vehicleId: { type: integer }
+        usageDate: { type: string }
+        driverId: { type: ["integer", "null"] }
+        hoursWorked: { type: ["number", "null"] }
+        workType: { type: string }
+        fromLocationId: { type: ["integer", "null"] }
+        toLocationId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    # ── REPORTS ──────────────────────────────────────────────────────────────────
+    ReportBatchSummary:
+      type: object
+      required: [total, active, completed, failed, onHold, totalBags, batches]
+      properties:
+        total: { type: integer }
+        active: { type: integer }
+        completed: { type: integer }
+        failed: { type: integer }
+        onHold: { type: integer }
+        totalBags: { type: integer }
+        batches: { type: array, items: { type: object } }
+
+    ReportMonthlyProduction:
+      type: object
+      required: [year, months]
+      properties:
+        year: { type: integer }
+        months:
+          type: array
+          items:
+            type: object
+            required: [month, mushroomKg, growBagsProduced]
+            properties:
+              month: { type: integer }
+              mushroomKg: { type: number }
+              growBagsProduced: { type: integer }
+
+    ReportQualityTrend:
+      type: object
+      required: [totalHarvests, avgMushroomWeightG, totalKg, meetsQualityStandard, qualityPercent, harvests]
+      properties:
+        totalHarvests: { type: integer }
+        avgMushroomWeightG: { type: number }
+        totalKg: { type: number }
+        meetsQualityStandard: { type: integer }
+        qualityPercent: { type: integer }
+        harvests: { type: array, items: { type: object } }
+
+    ReportVehicleUtilization:
+      type: object
+      required: [vehicles, usageLogs]
+      properties:
+        vehicles: { type: array, items: { type: object } }
+        usageLogs: { type: array, items: { type: object } }
+
+    ReportFuelConsumption:
+      type: object
+      required: [totalLitres, totalCost, vehicles, logs]
+      properties:
+        totalLitres: { type: number }
+        totalCost: { type: number }
+        vehicles: { type: array, items: { type: object } }
+        logs: { type: array, items: { type: object } }
+
+    ReportBatchCosting:
+      type: object
+      required: [totalMaterialKg, totalRevenue, salesOrders, coimMaterials]
+      properties:
+        batchId: { type: ["integer", "null"] }
+        totalMaterialKg: { type: number }
+        totalRevenue: { type: number }
+        salesOrders: { type: array, items: { type: object } }
+        coimMaterials: { type: array, items: { type: object } }
+
+    # ── TASKS ────────────────────────────────────────────────────────────────────
+    Task:
+      type: object
+      required: [id, title, status, priority, createdAt]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        assigneeId: { type: ["integer", "null"] }
+        assigneeName: { type: ["string", "null"] }
+        locationId: { type: ["integer", "null"] }
+        locationName: { type: ["string", "null"] }
+        status:
+          type: string
+          enum: [todo, in_progress, done, cancelled]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        startTime: { type: ["string", "null"] }
+        estimatedMinutes: { type: ["integer", "null"] }
+        actualMinutes: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        batchRef: { type: ["string", "null"] }
+        createdByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+
+    TaskDetail:
+      type: object
+      required: [id, title, status, priority, createdAt, timeLogs]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        assigneeId: { type: ["integer", "null"] }
+        assigneeName: { type: ["string", "null"] }
+        locationId: { type: ["integer", "null"] }
+        locationName: { type: ["string", "null"] }
+        status: { type: string }
+        priority: { type: string }
+        startTime: { type: ["string", "null"] }
+        estimatedMinutes: { type: ["integer", "null"] }
+        actualMinutes: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        batchRef: { type: ["string", "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        timeLogs:
+          type: array
+          items: { $ref: "#/components/schemas/TaskTimeLog" }
+
+    TaskInput:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        assigneeId: { type: ["integer", "null"] }
+        locationId: { type: ["integer", "null"] }
+        status: { type: string }
+        priority: { type: string }
+        startTime: { type: ["string", "null"] }
+        estimatedMinutes: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        batchRef: { type: ["string", "null"] }
+
+    TaskUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        assigneeId: { type: ["integer", "null"] }
+        locationId: { type: ["integer", "null"] }
+        status: { type: string }
+        priority: { type: string }
+        startTime: { type: ["string", "null"] }
+        estimatedMinutes: { type: ["integer", "null"] }
+        actualMinutes: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        batchRef: { type: ["string", "null"] }
+
+    TaskTimeLog:
+      type: object
+      required: [id, taskId, startTime, createdAt]
+      properties:
+        id: { type: integer }
+        taskId: { type: integer }
+        userId: { type: ["integer", "null"] }
+        userName: { type: ["string", "null"] }
+        startTime: { type: string }
+        endTime: { type: ["string", "null"] }
+        durationMinutes: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: string }
+
+    TaskTimeLogInput:
+      type: object
+      required: [startTime]
+      properties:
+        startTime: { type: string }
+        endTime: { type: ["string", "null"] }
+        durationMinutes: { type: ["number", "null"] }
+        notes: { type: ["string", "null"] }
+
+    # ── CASING SOIL ──────────────────────────────────────────────────────────────
+    CasingSoilTransaction:
+      type: object
+      required: [id, transactionType, quantityKg, transactionDate, createdAt]
+      properties:
+        id: { type: integer }
+        transactionType:
+          type: string
+          enum: [buy, sell, produce]
+        quantityKg: { type: number }
+        counterparty: { type: ["string", "null"] }
+        unitPrice: { type: ["number", "null"] }
+        totalCost: { type: ["number", "null"] }
+        transactionDate: { type: string }
+        coimbatoreBatchId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        recordedByUserId: { type: ["integer", "null"] }
+        createdAt: { type: string }
+
+    CasingSoilTransactionInput:
+      type: object
+      required: [transactionType, quantityKg, transactionDate]
+      properties:
+        transactionType:
+          type: string
+          enum: [buy, sell, produce]
+        quantityKg: { type: number }
+        counterparty: { type: ["string", "null"] }
+        unitPrice: { type: ["number", "null"] }
+        totalCost: { type: ["number", "null"] }
+        transactionDate: { type: string }
+        coimbatoreBatchId: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }

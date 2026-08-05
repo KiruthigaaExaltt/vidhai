@@ -1,0 +1,257 @@
+import { useState } from "react";
+import { useListBatches, useListLocations } from "@workspace/api-client-react";
+import { Shell } from "@/components/layout/Shell";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Plus, Trash2, Search, Filter, X } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { StatusBadge } from "@/components/ui/StatusBadge";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+const ALL_STAGES = [
+  "PRE_WETTING","T1","T2","T3","T4","BULK_CHAMBER","QUALITY_CHECK","SPAWN_MIXING","DISPATCH","COMPLETED"
+];
+
+export default function Batches() {
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+
+  const { data: locations } = useListLocations();
+  const annurLoc = locations?.find(l => l.code === "A" || l.name.toLowerCase().includes("annur"));
+
+  const { data: batches, isLoading, refetch } = useListBatches(
+    { locationId: annurLoc?.id || undefined },
+    { query: { enabled: true } } as any
+  );
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  const [filterStage,  setFilterStage]  = useState("__all__");
+  const [filterStatus, setFilterStatus] = useState("__all__");
+  const [filterFrom,   setFilterFrom]   = useState("");
+  const [filterTo,     setFilterTo]     = useState("");
+  const [filterSearch, setFilterSearch] = useState("");
+
+  const clearFilters = () => {
+    setFilterStage("__all__");
+    setFilterStatus("__all__");
+    setFilterFrom("");
+    setFilterTo("");
+    setFilterSearch("");
+  };
+  const hasFilters = filterStage !== "__all__" || filterStatus !== "__all__" || filterFrom || filterTo || filterSearch;
+
+  const filtered = (batches ?? []).filter(b => {
+    if (filterStage !== "__all__" && b.currentStage !== filterStage) return false;
+    if (filterStatus !== "__all__" && b.status !== filterStatus) return false;
+    if (filterFrom && new Date(b.createdAt) < new Date(filterFrom)) return false;
+    if (filterTo && new Date(b.createdAt) > new Date(filterTo + "T23:59:59")) return false;
+    if (filterSearch && !b.batchCode.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+    return true;
+  });
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; code: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/batches/${deleteTarget.id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? "Delete failed");
+      }
+      toast.success(`Batch ${deleteTarget.code} deleted`);
+      queryClient.invalidateQueries({ queryKey: ["listBatches"] });
+      refetch();
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to delete batch");
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
+
+  return (
+    <Shell>
+      <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-5">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Annur Location A — Batches</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Active and historical production batches</p>
+          </div>
+          <Link href="/annur/batches/new">
+            <Button className="rounded-sm font-medium h-9">
+              <Plus className="w-4 h-4 mr-2" /> New Batch
+            </Button>
+          </Link>
+        </div>
+
+        {/* Filter bar */}
+        <Card className="rounded-sm border-border shadow-none">
+          <CardContent className="p-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <Filter className="w-4 h-4 text-muted-foreground mt-5 shrink-0" />
+
+              {/* Search */}
+              <div className="space-y-1 min-w-[160px]">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Batch Code</Label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={filterSearch}
+                    onChange={e => setFilterSearch(e.target.value)}
+                    placeholder="Search..."
+                    className="h-8 rounded-sm text-sm pl-8"
+                  />
+                </div>
+              </div>
+
+              {/* Stage */}
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Stage</Label>
+                <Select value={filterStage} onValueChange={setFilterStage}>
+                  <SelectTrigger className="h-8 rounded-sm text-sm w-[160px]">
+                    <SelectValue placeholder="All stages" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All stages</SelectItem>
+                    {ALL_STAGES.map(s => <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Status */}
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Status</Label>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="h-8 rounded-sm text-sm w-[130px]">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All statuses</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="dispatched">Dispatched</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="archived">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Date From */}
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">From Date</Label>
+                <Input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="h-8 rounded-sm text-sm font-mono w-[140px]" />
+              </div>
+
+              {/* Date To */}
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">To Date</Label>
+                <Input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="h-8 rounded-sm text-sm font-mono w-[140px]" />
+              </div>
+
+              {hasFilters && (
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 px-2 text-muted-foreground hover:text-foreground">
+                  <X className="w-3.5 h-3.5 mr-1" /> Clear
+                </Button>
+              )}
+
+              <span className="ml-auto text-xs text-muted-foreground self-end pb-1">
+                {filtered.length} batch{filtered.length !== 1 ? "es" : ""}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Table */}
+        <Card className="rounded-sm border-border shadow-none">
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">Loading...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left whitespace-nowrap">
+                  <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
+                    <tr>
+                      <th className="px-4 py-2.5 font-medium">Batch Code</th>
+                      <th className="px-4 py-2.5 font-medium">Stage</th>
+                      <th className="px-4 py-2.5 font-medium">Status</th>
+                      <th className="px-4 py-2.5 font-medium text-right">N %</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Target Bags</th>
+                      <th className="px-4 py-2.5 font-medium">Created</th>
+                      <th className="px-4 py-2.5 font-medium">By</th>
+                      <th className="px-4 py-2.5 font-medium w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filtered.map(b => (
+                      <tr
+                        key={b.id}
+                        onClick={() => setLocation(`/annur/batches/${b.id}`)}
+                        className="hover:bg-muted/30 cursor-pointer h-[38px] transition-colors"
+                      >
+                        <td className="px-4 font-mono font-bold text-primary">{b.batchCode}</td>
+                        <td className="px-4"><StatusBadge status={b.currentStage} /></td>
+                        <td className="px-4"><StatusBadge status={b.status} /></td>
+                        <td className="px-4 font-mono text-right">{b.nitrogenContent?.toFixed(2) ?? "—"}</td>
+                        <td className="px-4 font-mono text-right">{b.targetBags ?? "—"}</td>
+                        <td className="px-4 font-mono text-xs text-muted-foreground">{new Date(b.createdAt).toLocaleDateString("en-IN")}</td>
+                        <td className="px-4 text-xs text-muted-foreground">{b.createdByName}</td>
+                        <td className="px-4 text-right" onClick={e => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setDeleteTarget({ id: b.id, code: b.batchCode })}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filtered.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                          {hasFilters ? "No batches match the current filters." : "No batches found for this location."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Delete confirmation */}
+        <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
+          <AlertDialogContent className="rounded-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Batch?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete <strong>{deleteTarget?.code}</strong> along with all its materials and stage history. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="rounded-sm" disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="rounded-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting}
+                onClick={handleDelete}
+              >
+                {deleting ? "Deleting…" : "Delete Batch"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </Shell>
+  );
+}

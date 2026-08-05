@@ -1,0 +1,19 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx ./src/hello.ts",
+    "migrate:mongodb": "tsx ./migrate-postgresql-to-mongodb.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@workspace/db": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/pg": "^8.20.0",
+    "mongoose": "^8.19.4",
+    "pg": "^8.22.0",
+    "tsx": "catalog:"
+  }
+}
