@@ -2,11 +2,10 @@ import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useLogout } from "@workspace/api-client-react";
 import {
-  LogOut, Home, Box, Thermometer, Layers, Database, Droplets,
+  LogOut, Home, Box, Thermometer, Layers,
   Users, MapPin, FlaskConical, GitBranch, CalendarDays, Sparkles,
   ShoppingCart, Truck, BarChart2, ShieldCheck, CheckSquare,
-  Settings as SettingsIcon, BookUser, UserCircle,
-  RefreshCw, Download,
+  Settings as SettingsIcon, BookUser, UserCircle, RefreshCw, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
@@ -32,8 +31,8 @@ export function Sidebar() {
     try {
       await logoutMutation.mutateAsync();
       clearUser();
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -131,7 +130,7 @@ export function Sidebar() {
       </div>
 
       {/* ── User card — click to open profile ── */}
-      <div className="border-t border-sidebar-border bg-sidebar">
+      <div className="hidden">
         <Link
           href="/profile"
           className={`flex items-center gap-3 px-4 py-3 w-full transition-colors ${
