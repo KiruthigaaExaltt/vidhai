@@ -169,7 +169,7 @@ export default function Chambers() {
             <h1 className="text-3xl font-bold tracking-tight font-display">Chamber Control</h1>
             
           </div>
-          <Button onClick={handleOpenCreate} className="rounded-sm shadow-sm h-10 px-4">
+          <Button onClick={handleOpenCreate} className="rounded-md shadow-sm h-10 px-4">
             <Plus className="w-4 h-4 mr-2" />
             New Chamber
           </Button>
@@ -187,7 +187,7 @@ export default function Chambers() {
               return (
                 <Card 
                   key={c.id} 
-                  className={`relative overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 border ${
+                  className={`relative overflow-hidden cursor-pointer transition-all rounded-md shadow-md hover:shadow-lg hover:-translate-y-0.5 border ${
                     c.status === 'active' ? 'border-primary/50 ring-1 ring-primary/20' : 'border-border'
                   }`}
                   onClick={() => handleOpenDetail(c.id)}
@@ -206,7 +206,7 @@ export default function Chambers() {
                           {c.chamberType.replace('_', ' ')}
                         </div>
                       </div>
-                      <Badge variant="outline" className={`border-0 rounded-sm uppercase tracking-wider text-[10px] shadow-sm ${
+                      <Badge variant="outline" className={`border-0 rounded-md uppercase tracking-wider text-[10px] shadow-sm ${
                         c.status === 'active' ? 'bg-primary text-primary-foreground' : 
                         c.status === 'maintenance' ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground'
                       }`}>
@@ -250,7 +250,7 @@ export default function Chambers() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10 rounded-sm"
+                          className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10 rounded-md"
                           onClick={(e) => handleOpenReading(e, c.id)}
                         >
                           <Plus className="w-4 h-4" />
@@ -266,7 +266,7 @@ export default function Chambers() {
 
         {/* Create/Edit Modal */}
         <Dialog open={isManageModalOpen} onOpenChange={setIsManageModalOpen}>
-          <DialogContent className="rounded-sm border-border shadow-lg max-w-md">
+          <DialogContent className="rounded-md border-border shadow-lg max-w-md">
             <DialogHeader>
               <DialogTitle>{manageMode === 'create' ? 'Create Chamber' : 'Edit Chamber'}</DialogTitle>
               <DialogDescription>Configure structural and functional parameters.</DialogDescription>
@@ -274,13 +274,13 @@ export default function Chambers() {
             <form onSubmit={handleManageSubmit} className="space-y-4 pt-2">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">Name</Label>
-                <Input required value={chamberForm.name} onChange={e => setChamberForm({ ...chamberForm, name: e.target.value })} className="rounded-sm font-medium" placeholder="e.g. Bulk Room 1" />
+                <Input required value={chamberForm.name} onChange={e => setChamberForm({ ...chamberForm, name: e.target.value })} className="rounded-md font-medium" placeholder="e.g. Bulk Room 1" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Type</Label>
                   <Select value={chamberForm.chamberType} onValueChange={(v) => setChamberForm({ ...chamberForm, chamberType: v })}>
-                    <SelectTrigger className="h-9 text-sm rounded-sm">
+                    <SelectTrigger className="h-9 text-sm rounded-md">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -292,30 +292,30 @@ export default function Chambers() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Capacity (Bags)</Label>
-                  <Input type="number" value={chamberForm.capacity} onChange={e => setChamberForm({ ...chamberForm, capacity: e.target.value })} className="rounded-sm font-mono" />
+                  <Input type="number" value={chamberForm.capacity} onChange={e => setChamberForm({ ...chamberForm, capacity: e.target.value })} className="rounded-md font-mono" />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Length (m)</Label>
-                  <Input type="number" step="0.1" value={chamberForm.lengthM} onChange={e => setChamberForm({ ...chamberForm, lengthM: e.target.value })} className="rounded-sm font-mono" />
+                  <Input type="number" step="0.1" value={chamberForm.lengthM} onChange={e => setChamberForm({ ...chamberForm, lengthM: e.target.value })} className="rounded-md font-mono" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Width (m)</Label>
-                  <Input type="number" step="0.1" value={chamberForm.widthM} onChange={e => setChamberForm({ ...chamberForm, widthM: e.target.value })} className="rounded-sm font-mono" />
+                  <Input type="number" step="0.1" value={chamberForm.widthM} onChange={e => setChamberForm({ ...chamberForm, widthM: e.target.value })} className="rounded-md font-mono" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Height (m)</Label>
-                  <Input type="number" step="0.1" value={chamberForm.heightM} onChange={e => setChamberForm({ ...chamberForm, heightM: e.target.value })} className="rounded-sm font-mono" />
+                  <Input type="number" step="0.1" value={chamberForm.heightM} onChange={e => setChamberForm({ ...chamberForm, heightM: e.target.value })} className="rounded-md font-mono" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
-                <Input value={chamberForm.notes} onChange={e => setChamberForm({ ...chamberForm, notes: e.target.value })} className="rounded-sm" />
+                <Input value={chamberForm.notes} onChange={e => setChamberForm({ ...chamberForm, notes: e.target.value })} className="rounded-md" />
               </div>
               <div className="pt-4 border-t flex justify-end gap-2">
-                <DialogClose asChild><Button variant="outline" type="button" className="rounded-sm">Cancel</Button></DialogClose>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="rounded-sm px-6">
+                <DialogClose asChild><Button variant="outline" type="button" className="rounded-md">Cancel</Button></DialogClose>
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="rounded-md px-6">
                   {manageMode === 'create' ? 'Create' : 'Save Changes'}
                 </Button>
               </div>
@@ -325,7 +325,7 @@ export default function Chambers() {
 
         {/* Detail / History Modal */}
         <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-          <DialogContent className="rounded-sm border-border shadow-xl max-w-3xl overflow-hidden p-0 gap-0 bg-background flex flex-col max-h-[85vh]">
+          <DialogContent className="rounded-md border-border shadow-xl max-w-3xl overflow-hidden p-0 gap-0 bg-background flex flex-col max-h-[85vh]">
             <div className="bg-muted/30 border-b p-6 flex items-start justify-between">
               <div>
                 <DialogTitle className="text-2xl font-display tracking-tight flex items-center gap-3">
@@ -341,10 +341,10 @@ export default function Chambers() {
                 </DialogDescription>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setIsDetailModalOpen(false); handleOpenEdit(selectedChamber); }} className="h-8 rounded-sm">
+                <Button variant="outline" size="sm" onClick={() => { setIsDetailModalOpen(false); handleOpenEdit(selectedChamber); }} className="h-8 rounded-md">
                   <Edit2 className="w-3 h-3 mr-2" /> Edit
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleDelete} className="h-8 rounded-sm text-destructive hover:text-destructive">
+                <Button variant="outline" size="sm" onClick={handleDelete} className="h-8 rounded-md text-destructive hover:text-destructive">
                   <Trash2 className="w-3 h-3 mr-2" /> Delete
                 </Button>
               </div>
@@ -352,9 +352,9 @@ export default function Chambers() {
             
             <div className="p-6 flex-1 overflow-y-auto space-y-8">
               {selectedChamber?.status === 'active' && (
-                <div className="bg-primary/5 border border-primary/20 rounded p-4 flex items-center justify-between">
+                <div className="bg-primary/5 border border-primary/20 rounded-md p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="bg-primary text-primary-foreground p-2 rounded">
+                    <div className="bg-primary text-primary-foreground p-2 rounded-md">
                       <Box className="w-5 h-5" />
                     </div>
                     <div>
@@ -362,7 +362,7 @@ export default function Chambers() {
                       <div className="font-mono text-lg font-bold">{selectedChamber.currentBatchCode}</div>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" className="rounded-sm border-primary/20 text-primary">View Batch</Button>
+                  <Button variant="outline" size="sm" className="rounded-md border-primary/20 text-primary">View Batch</Button>
                 </div>
               )}
 
@@ -372,11 +372,11 @@ export default function Chambers() {
                     <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                       <Thermometer className="w-4 h-4" /> Environmental Log
                     </h3>
-                    <Button size="sm" onClick={(e) => handleOpenReading(e, selectedChamber.id)} className="h-8 rounded-sm text-xs px-3">
+                    <Button size="sm" onClick={(e) => handleOpenReading(e, selectedChamber.id)} className="h-8 rounded-md text-xs px-3">
                       <Plus className="w-3 h-3 mr-1" /> Log Reading
                     </Button>
                   </div>
-                  <div className="border rounded-sm overflow-hidden">
+                  <div className="border rounded-md overflow-hidden">
                     <table className="w-full text-sm text-left">
                       <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                         <tr>
@@ -407,7 +407,7 @@ export default function Chambers() {
               )}
 
               {selectedChamber?.chamberType !== 'bulk' && (
-                <div className="py-8 text-center text-muted-foreground border border-dashed rounded flex items-center justify-center gap-2">
+                <div className="py-8 text-center text-muted-foreground border border-dashed rounded-md flex items-center justify-center gap-2">
                   <Info className="w-4 h-4" /> This chamber type does not require hourly environmental monitoring.
                 </div>
               )}
@@ -417,41 +417,41 @@ export default function Chambers() {
 
         {/* Add Reading Modal */}
         <Dialog open={isReadingModalOpen} onOpenChange={setIsReadingModalOpen}>
-          <DialogContent className="rounded-sm border-border shadow-xl max-w-sm">
+          <DialogContent className="rounded-md border-border shadow-xl max-w-sm">
             <DialogHeader>
               <DialogTitle>Log Environment Reading</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleAddReading} className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">Chamber</Label>
-                <div className="px-3 py-2 bg-muted rounded-sm text-sm border font-medium font-mono">
+                <div className="px-3 py-2 bg-muted rounded-md text-sm border font-medium font-mono">
                   {selectedChamber?.name}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Temperature (°C)</Label>
-                  <Input type="number" step="0.1" value={readingForm.temperatureCelsius} onChange={e => setReadingForm({ ...readingForm, temperatureCelsius: e.target.value })} className="rounded-sm font-mono h-10" />
+                  <Input type="number" step="0.1" value={readingForm.temperatureCelsius} onChange={e => setReadingForm({ ...readingForm, temperatureCelsius: e.target.value })} className="rounded-md font-mono h-10" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">NH3 (ppm)</Label>
-                  <Input type="number" step="0.01" value={readingForm.nh3Ppm} onChange={e => setReadingForm({ ...readingForm, nh3Ppm: e.target.value })} className="rounded-sm font-mono h-10" />
+                  <Input type="number" step="0.01" value={readingForm.nh3Ppm} onChange={e => setReadingForm({ ...readingForm, nh3Ppm: e.target.value })} className="rounded-md font-mono h-10" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">CO2 (%)</Label>
-                  <Input type="number" step="0.01" value={readingForm.co2Percent} onChange={e => setReadingForm({ ...readingForm, co2Percent: e.target.value })} className="rounded-sm font-mono h-10" />
+                  <Input type="number" step="0.01" value={readingForm.co2Percent} onChange={e => setReadingForm({ ...readingForm, co2Percent: e.target.value })} className="rounded-md font-mono h-10" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Humidity (%)</Label>
-                  <Input type="number" step="0.1" value={readingForm.humidity} onChange={e => setReadingForm({ ...readingForm, humidity: e.target.value })} className="rounded-sm font-mono h-10" />
+                  <Input type="number" step="0.1" value={readingForm.humidity} onChange={e => setReadingForm({ ...readingForm, humidity: e.target.value })} className="rounded-md font-mono h-10" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
-                <Input value={readingForm.notes} onChange={e => setReadingForm({ ...readingForm, notes: e.target.value })} className="rounded-sm h-10" placeholder="Optional conditions..." />
+                <Input value={readingForm.notes} onChange={e => setReadingForm({ ...readingForm, notes: e.target.value })} className="rounded-md h-10" placeholder="Optional conditions..." />
               </div>
               <div className="pt-4 border-t">
-                <Button type="submit" disabled={createReadingMutation.isPending} className="w-full rounded-sm h-10">Submit Log</Button>
+                <Button type="submit" disabled={createReadingMutation.isPending} className="w-full rounded-md h-10">Submit Log</Button>
               </div>
             </form>
           </DialogContent>

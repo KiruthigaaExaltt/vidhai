@@ -57,7 +57,7 @@ const PRIORITY_OPTIONS = [
 function StatusBadge({ status }: { status: string }) {
   const opt = STATUS_OPTIONS.find((s) => s.value === status);
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${opt?.color ?? "bg-muted text-muted-foreground"}`}>
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${opt?.color ?? "bg-muted text-muted-foreground"}`}>
       {opt?.label ?? status}
     </span>
   );
@@ -189,20 +189,20 @@ export default function Tasks() {
     <form onSubmit={onSubmit} className="space-y-4 pt-2">
       <div className="space-y-2">
         <Label className="text-xs uppercase tracking-wider text-muted-foreground">Task Name <span className="text-destructive">*</span></Label>
-        <Input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Apply gypsum in Chamber 3" className="rounded-sm h-10" />
+        <Input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Apply gypsum in Chamber 3" className="rounded-lg h-10 shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10" />
       </div>
       <div className="space-y-2">
         <Label className="text-xs uppercase tracking-wider text-muted-foreground">Description</Label>
-        <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Task details..." className="rounded-sm min-h-[72px]" />
+        <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Task details..." className="rounded-lg min-h-[72px] shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">Assignee <span className="text-destructive">*</span></Label>
           <Select value={form.assigneeId} onValueChange={(v) => setForm({ ...form, assigneeId: v })}>
-            <SelectTrigger className="rounded-sm h-10">
+            <SelectTrigger className="rounded-lg h-10 shadow-sm">
               <SelectValue placeholder="Select person" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="rounded-lg">
               {(users ?? []).map((u: any) => (
                 <SelectItem key={u.id} value={String(u.id)}>{u.displayName}</SelectItem>
               ))}
@@ -212,10 +212,10 @@ export default function Tasks() {
         <div className="space-y-2">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">Batch Mapping <span className="text-destructive">*</span></Label>
           <Select value={form.batchRef} onValueChange={(v) => setForm({ ...form, batchRef: v })}>
-            <SelectTrigger className="rounded-sm h-10">
+            <SelectTrigger className="rounded-lg h-10 shadow-sm">
               <SelectValue placeholder="Link to batch" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="rounded-lg">
               {(batches ?? []).map((b: any) => (
                 <SelectItem key={b.id} value={b.batchCode}>{b.batchCode}</SelectItem>
               ))}
@@ -228,8 +228,8 @@ export default function Tasks() {
           <div className="space-y-2">
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">Status</Label>
             <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-              <SelectTrigger className="rounded-sm h-10"><SelectValue /></SelectTrigger>
-              <SelectContent>
+              <SelectTrigger className="rounded-lg h-10 shadow-sm"><SelectValue /></SelectTrigger>
+              <SelectContent className="rounded-lg">
                 {STATUS_OPTIONS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -238,8 +238,8 @@ export default function Tasks() {
         <div className="space-y-2">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">Priority</Label>
           <Select value={form.priority} onValueChange={(v) => setForm({ ...form, priority: v })}>
-            <SelectTrigger className="rounded-sm h-10"><SelectValue /></SelectTrigger>
-            <SelectContent>
+            <SelectTrigger className="rounded-lg h-10 shadow-sm"><SelectValue /></SelectTrigger>
+            <SelectContent className="rounded-lg">
               {PRIORITY_OPTIONS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -249,16 +249,16 @@ export default function Tasks() {
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">Start Time</Label>
-            <Input type="datetime-local" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="rounded-sm h-10" />
+            <Input type="datetime-local" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="rounded-lg h-10 shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10" />
           </div>
           <div className="space-y-2">
             <Label className="text-xs uppercase tracking-wider text-muted-foreground">Duration (minutes)</Label>
-            <Input type="number" min="0" value={form.estimatedMinutes} onChange={(e) => setForm({ ...form, estimatedMinutes: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="e.g. 60" />
+            <Input type="number" min="0" value={form.estimatedMinutes} onChange={(e) => setForm({ ...form, estimatedMinutes: e.target.value })} className="rounded-lg h-10 font-mono shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10" placeholder="e.g. 60" />
           </div>
         </div>
       )}
       <DialogFooter className="pt-2">
-        <Button type="submit" disabled={submitting} className="w-full rounded-sm h-10">
+        <Button type="submit" disabled={submitting} className="w-full rounded-lg h-10 shadow-sm hover:shadow-md transition-all">
           {submitting ? "Saving..." : editTask ? "Update Task" : "Create Task"}
         </Button>
       </DialogFooter>
@@ -274,10 +274,9 @@ export default function Tasks() {
             <CheckSquare className="w-6 h-6 text-primary" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">Tasks</h1>
-              
             </div>
           </div>
-          <Button onClick={() => { setForm(EMPTY_FORM); setOpen(true); }} className="rounded-sm h-10 px-4 shadow-sm">
+          <Button onClick={() => { setForm(EMPTY_FORM); setOpen(true); }} className="rounded-lg h-10 px-4 shadow-sm hover:shadow-md transition-all">
             <Plus className="w-4 h-4 mr-2" /> New Task
           </Button>
         </div>
@@ -289,10 +288,10 @@ export default function Tasks() {
             <button
               key={s.value}
               onClick={() => setFilterStatus(s.value)}
-              className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-all ${
                 filterStatus === s.value
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-white border-border text-muted-foreground hover:border-primary/50"
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-white border-border text-muted-foreground hover:border-primary/50 hover:shadow-sm"
               }`}
             >
               {s.label}
@@ -302,38 +301,38 @@ export default function Tasks() {
         </div>
 
         {/* Table */}
-        <Card className="rounded-sm border-border shadow-md">
+        <Card className="rounded-xl border-border/60 shadow-sm ring-1 ring-black/[0.03] overflow-hidden">
           <CardContent className="p-0">
             {isLoading ? (
               <div className="py-20 text-center text-sm text-muted-foreground">Loading tasks...</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
+                  <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider border-b border-border/60">
                     <tr>
-                      <th className="px-4 py-3 font-semibold">Task</th>
-                      <th className="px-4 py-3 font-semibold">Assignee</th>
-                      <th className="px-4 py-3 font-semibold">Batch</th>
-                      <th className="px-4 py-3 font-semibold">Status</th>
-                      <th className="px-4 py-3 font-semibold">Priority</th>
-                      <th className="px-4 py-3 font-semibold">Start Time</th>
-                      <th className="px-4 py-3 font-semibold">Duration</th>
-                      <th className="px-4 py-3 font-semibold w-10"></th>
+                      <th className="px-4 py-3.5 font-semibold">Task</th>
+                      <th className="px-4 py-3.5 font-semibold">Assignee</th>
+                      <th className="px-4 py-3.5 font-semibold">Batch</th>
+                      <th className="px-4 py-3.5 font-semibold">Status</th>
+                      <th className="px-4 py-3.5 font-semibold">Priority</th>
+                      <th className="px-4 py-3.5 font-semibold">Start Time</th>
+                      <th className="px-4 py-3.5 font-semibold">Duration</th>
+                      <th className="px-4 py-3.5 font-semibold w-10"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className="divide-y divide-border/60">
                     {filtered.map((t) => (
                       <tr key={t.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 max-w-[260px]">
+                        <td className="px-4 py-3.5 max-w-[260px]">
                           <div className="font-medium text-foreground truncate">{t.title}</div>
                           {t.description && (
                             <div className="text-xs text-muted-foreground truncate mt-0.5">{t.description}</div>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           {t.assigneeName ? (
-                            <span className="inline-flex items-center gap-1.5 text-sm">
-                              <span className="w-6 h-6 rounded-full bg-primary/10 text-primary font-semibold text-[10px] flex items-center justify-center uppercase">
+                            <span className="inline-flex items-center gap-2 text-sm">
+                              <span className="w-6 h-6 rounded-full bg-primary/10 text-primary font-semibold text-[10px] flex items-center justify-center uppercase ring-1 ring-primary/15">
                                 {t.assigneeName.charAt(0)}
                               </span>
                               {t.assigneeName}
@@ -342,40 +341,40 @@ export default function Tasks() {
                             <span className="text-muted-foreground italic text-xs">Unassigned</span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           {(t as any).batchRef ? (
-                            <span className="font-mono text-xs bg-muted border px-2 py-0.5 rounded">{(t as any).batchRef}</span>
+                            <span className="font-mono text-xs bg-muted border border-border/60 px-2 py-0.5 rounded-md">{(t as any).batchRef}</span>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           <StatusBadge status={t.status} />
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           <PriorityBadge priority={t.priority} />
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
+                        <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
                           {t.startTime
                             ? new Date(t.startTime).toLocaleString([], { dateStyle: "short", timeStyle: "short" })
                             : "—"}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                        <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
                           {t.estimatedMinutes ? `${t.estimatedMinutes} min` : "—"}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg">
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openEdit(t)}>
+                            <DropdownMenuContent align="end" className="rounded-lg">
+                              <DropdownMenuItem onClick={() => openEdit(t)} className="rounded-md">
                                 <Pencil className="w-3.5 h-3.5 mr-2" /> Edit
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                className="text-destructive"
+                                className="text-destructive rounded-md"
                                 onClick={() => deleteTask.mutate({ id: t.id })}
                               >
                                 <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
@@ -403,7 +402,7 @@ export default function Tasks() {
 
         {/* Create Dialog */}
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setForm(EMPTY_FORM); }}>
-          <DialogContent className="rounded-sm shadow-xl max-w-lg">
+          <DialogContent className="rounded-xl shadow-xl max-w-lg">
             <DialogHeader>
               <DialogTitle>New Task</DialogTitle>
             </DialogHeader>
@@ -413,7 +412,7 @@ export default function Tasks() {
 
         {/* Edit Dialog */}
         <Dialog open={!!editTask} onOpenChange={(v) => { if (!v) setEditTask(null); }}>
-          <DialogContent className="rounded-sm shadow-xl max-w-lg">
+          <DialogContent className="rounded-xl shadow-xl max-w-lg">
             <DialogHeader>
               <DialogTitle>Edit Task</DialogTitle>
             </DialogHeader>
