@@ -5,6 +5,15 @@
   "scripts": {
     "preinstall": "node ./scripts/ensure-pnpm.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "build:demo": "node ./scripts/build-environment.mjs demo",
+    "build:staging": "node ./scripts/build-environment.mjs staging",
+    "build:prod": "node ./scripts/build-environment.mjs prod",
+    "build:client:demo": "node ./scripts/build-environment.mjs demo --client-only",
+    "build:client:staging": "node ./scripts/build-environment.mjs staging --client-only",
+    "build:client:prod": "node ./scripts/build-environment.mjs prod --client-only",
+    "build:server:demo": "node ./scripts/build-environment.mjs demo --server-only",
+    "build:server:staging": "node ./scripts/build-environment.mjs staging --server-only",
+    "build:server:prod": "node ./scripts/build-environment.mjs prod --server-only",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

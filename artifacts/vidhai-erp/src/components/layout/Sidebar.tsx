@@ -23,7 +23,7 @@ const VidhaiLogo = () => (
 
 export function Sidebar() {
   const [location] = useLocation();
-  const { user, logout: clearUser } = useAuth();
+  const { user, logout: clearUser, can } = useAuth();
   const logoutMutation = useLogout();
   const pwa = usePwa();
 
@@ -124,7 +124,7 @@ export function Sidebar() {
         {/* ── System ── */}
         <SectionTitle>SYSTEM</SectionTitle>
         <NavItem href="/inventory" icon={Layers} label="Inventory" />
-        {user?.role === "admin" && (
+        {(can("settings.user_management.view") || can("settings.templates.view")) && (
           <NavItem href="/settings" icon={SettingsIcon} label="Settings" />
         )}
       </div>

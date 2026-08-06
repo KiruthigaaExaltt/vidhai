@@ -19,3 +19,4 @@ export * from "./fleet";
 export * from "./roles";
 export * from "./tasks";
 export * from "./contacts";
+export * from "./templates";

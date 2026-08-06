@@ -21,12 +21,15 @@ import reportsRouter from "./reports";
 import rolesRouter from "./roles";
 import tasksRouter from "./tasks";
 import contactsRouter from "./contacts";
+import templatesRouter from "./templates";
+import permissionsRouter from "./permissions";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use("/auth", authRouter);
 router.use("/users", usersRouter);
+router.use("/settings/users", usersRouter);
 router.use("/locations", locationsRouter);
 router.use("/alert-colors", alertColorsRouter);
 router.use("/materials", materialsRouter);
@@ -44,7 +47,11 @@ router.use("/sales", salesRouter);
 router.use("/fleet", fleetRouter);
 router.use("/reports", reportsRouter);
 router.use("/roles", rolesRouter);
+router.use("/settings/roles", rolesRouter);
 router.use("/tasks", tasksRouter);
 router.use("/contacts", contactsRouter);
+router.use(templatesRouter);
+router.use("/settings", templatesRouter);
+router.use(permissionsRouter);
 
 export default router;

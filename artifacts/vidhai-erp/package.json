@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
+    "build:demo": "vite build --config vite.config.ts --mode demo",
+    "build:staging": "vite build --config vite.config.ts --mode staging",
+    "build:prod": "vite build --config vite.config.ts --mode prod",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "test:pwa": "node ./scripts/verify-pwa.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"

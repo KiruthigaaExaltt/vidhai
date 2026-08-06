@@ -1,67 +1,29 @@
 import { Router } from "express";
-import { db, usersTable } from "@workspace/db";
-import { eq } from "@workspace/db";
-import { createHash } from "crypto";
+import { and, db, eq, usersTable } from "@workspace/db";
+import { effectivePermissions, getAuthUser, organizationId, requirePermission } from "../lib/access";
+import { hashPassword, temporaryPassword, verifyPassword } from "../lib/password";
 
 const router = Router();
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const usernamePattern = /^[a-z0-9_]+$/;
+const parse = <T>(value: unknown, fallback: T): T => { try { return typeof value === "string" ? JSON.parse(value) : value as T; } catch { return fallback; } };
+const safe = (u:any) => { const { passwordHash, ...rest }=u; return {...rest,locationScope:parse(rest.locationScope,[]),permissionOverrides:parse(rest.permissionOverrides,[])}; };
+const protectedUser = (u:any) => u.role === "admin" && (u.isSystemGenerated || u.systemKey || u.username === process.env.BOOTSTRAP_ADMIN_USERNAME);
 
-function hashPassword(pw: string) {
-  return createHash("sha256").update(pw + "vidhai-salt-2024").digest("hex");
-}
+async function activeUsers(org:number){return (await db.select().from(usersTable).where(eq(usersTable.organizationId,org))).filter((u:any)=>u.isDeleted!==true);}
+function identity(body:any){const username=String(body.username??"").trim().toLowerCase(),email=String(body.email??"").trim().toLowerCase();if(!username&&!email)throw new Error("At least email or username is required");if(username&&!usernamePattern.test(username))throw new Error("Username may contain only lowercase letters, numbers, and underscore");if(email&&!emailPattern.test(email))throw new Error("A valid email is required");return{username,email};}
 
-router.get("/", async (req, res) => {
-  const users = await db.select().from(usersTable);
-  res.json(
-    users.map((u) => ({
-      id: u.id,
-      username: u.username,
-      displayName: u.displayName,
-      role: u.role,
-      locationScope: JSON.parse(u.locationScope ?? "[]"),
-      createdAt: u.createdAt,
-    }))
-  );
-});
-
-router.post("/", async (req, res) => {
-  const { username, password, displayName, role, locationScope } = req.body;
-  const [user] = await db
-    .insert(usersTable)
-    .values({
-      username,
-      passwordHash: hashPassword(password),
-      displayName,
-      role: role ?? "operator",
-      locationScope: JSON.stringify(locationScope ?? []),
-    })
-    .returning();
-  const { passwordHash: _ph, ...safe } = user;
-  res.status(201).json({ ...safe, locationScope: JSON.parse(user.locationScope ?? "[]") });
-});
-
-router.get("/:id", async (req, res) => {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, Number(req.params.id)));
-  if (!user) return res.status(404).json({ error: "Not found" });
-  const { passwordHash: _ph, ...safe } = user;
-  return res.json({ ...safe, locationScope: JSON.parse(user.locationScope ?? "[]") });
-});
-
-router.patch("/:id", async (req, res) => {
-  const { displayName, role, locationScope, password } = req.body;
-  const updates: Record<string, unknown> = {};
-  if (displayName !== undefined) updates.displayName = displayName;
-  if (role !== undefined) updates.role = role;
-  if (locationScope !== undefined) updates.locationScope = JSON.stringify(locationScope);
-  if (password !== undefined) updates.passwordHash = hashPassword(password);
-  const [user] = await db.update(usersTable).set(updates).where(eq(usersTable.id, Number(req.params.id))).returning();
-  if (!user) return res.status(404).json({ error: "Not found" });
-  const { passwordHash: _ph, ...safe } = user;
-  return res.json({ ...safe, locationScope: JSON.parse(user.locationScope ?? "[]") });
-});
-
-router.delete("/:id", async (req, res) => {
-  await db.delete(usersTable).where(eq(usersTable.id, Number(req.params.id)));
-  res.status(204).send();
-});
+router.get("/", requirePermission("settings.user_management.view"), async(req,res)=>res.json((await activeUsers(organizationId(req))).filter(u=>!protectedUser(u)).map(safe)));
+router.post("/", requirePermission("settings.user_management.create"), async(req,res)=>{try{const org=organizationId(req),{username,email}=identity(req.body),name=String(req.body.name??req.body.displayName??"").trim();if(!name)return res.status(400).json({error:"Name is required"});if(req.body.role==="admin")return res.status(403).json({error:"Super Admin cannot be assigned"});const users=await activeUsers(org);if(users.some(u=>username&&String(u.username).toLowerCase()===username))return res.status(400).json({error:"Username already exists"});if(users.some(u=>email&&String(u.email??"").toLowerCase()===email))return res.status(400).json({error:"Email already exists"});const password=temporaryPassword();const [user]=await db.insert(usersTable).values({username,email:email||null,passwordHash:hashPassword(password),displayName:name,role:req.body.role||"viewer",locationScope:JSON.stringify(req.body.locationScope??[]),organizationId:org,employeeId:req.body.employeeId??null,employeeName:req.body.employeeName??null,permissionOverrides:"[]",sessionVersion:0,isDeleted:false,isSystemGenerated:false}).returning();return res.status(201).json({...safe(user),temporaryPassword:password});}catch(e:any){return res.status(400).json({error:e.message});}});
+router.get("/:id", requirePermission("settings.user_management.view"), async(req,res)=>{const [u]=await db.select().from(usersTable).where(and(eq(usersTable.id,Number(req.params.id)),eq(usersTable.organizationId,organizationId(req))));if(!u||u.isDeleted)return res.status(404).json({error:"User not found"});return res.json(safe(u));});
+router.get("/:id/access", requirePermission("settings.user_management.view"), async(req,res)=>{const [u]=await db.select().from(usersTable).where(and(eq(usersTable.id,Number(req.params.id)),eq(usersTable.organizationId,organizationId(req))));if(!u||u.isDeleted||protectedUser(u))return res.status(404).json({error:"User not found"});return res.json({...safe(u),effectivePermissions:await effectivePermissions(u)});});
+router.put("/:id/access", requirePermission("settings.user_management.update"), async(req,res)=>{const org=organizationId(req),id=Number(req.params.id),[u]=await db.select().from(usersTable).where(and(eq(usersTable.id,id),eq(usersTable.organizationId,org)));if(!u||u.isDeleted)return res.status(404).json({error:"User not found"});if(protectedUser(u))return res.status(403).json({error:"Protected user cannot be edited"});if(req.body.role==="admin")return res.status(403).json({error:"Super Admin cannot be assigned"});const updates:any={sessionVersion:Number(u.sessionVersion??0)+1};for(const key of ["role","employeeId","employeeName"])if(req.body[key]!==undefined)updates[key]=req.body[key];if(req.body.locationScope!==undefined)updates.locationScope=JSON.stringify(req.body.locationScope);if(req.body.permissionOverrides!==undefined)updates.permissionOverrides=JSON.stringify(req.body.permissionOverrides);const [updated]=await db.update(usersTable).set(updates).where(and(eq(usersTable.id,id),eq(usersTable.organizationId,org))).returning();return res.json(safe(updated));});
+router.patch("/:id", requirePermission("settings.user_management.update"), async(req,res)=>{const org=organizationId(req),id=Number(req.params.id),[u]=await db.select().from(usersTable).where(and(eq(usersTable.id,id),eq(usersTable.organizationId,org)));if(!u||u.isDeleted)return res.status(404).json({error:"User not found"});if(protectedUser(u))return res.status(403).json({error:"Protected user cannot be edited"});try{const updates:any={sessionVersion:Number(u.sessionVersion??0)+1};if(req.body.email!==undefined||req.body.username!==undefined)Object.assign(updates,identity({email:req.body.email??u.email,username:req.body.username??u.username}));for(const key of ["displayName","role","employeeId","employeeName"])if(req.body[key]!==undefined)updates[key]=req.body[key];if(updates.role==="admin")return res.status(403).json({error:"Super Admin cannot be assigned"});if(req.body.locationScope!==undefined)updates.locationScope=JSON.stringify(req.body.locationScope);const all=await activeUsers(org);if(all.some(x=>x.id!==id&&updates.username&&String(x.username).toLowerCase()===updates.username))return res.status(400).json({error:"Username already exists"});if(all.some(x=>x.id!==id&&updates.email&&String(x.email??"").toLowerCase()===updates.email))return res.status(400).json({error:"Email already exists"});const [updated]=await db.update(usersTable).set(updates).where(eq(usersTable.id,id)).returning();return res.json(safe(updated));}catch(e:any){return res.status(400).json({error:e.message});}});
+router.patch("/:id/role", requirePermission("settings.user_management.update"), async(req,res)=>{req.body={role:req.body.role};return res.status(307).set("Location",`${req.baseUrl}/${req.params.id}`).send();});
+router.patch("/:id/email", requirePermission("settings.user_management.update"), async(req,res)=>{const org=organizationId(req),id=Number(req.params.id),[u]=await db.select().from(usersTable).where(and(eq(usersTable.id,id),eq(usersTable.organizationId,org)));if(!u||u.isDeleted)return res.status(404).json({error:"User not found"});try{const ids=identity({email:req.body.email,username:req.body.username??u.username});const all=await activeUsers(org);if(all.some(x=>x.id!==id&&ids.email&&String(x.email??"").toLowerCase()===ids.email))return res.status(400).json({error:"Email already exists"});const [updated]=await db.update(usersTable).set({...ids,sessionVersion:Number(u.sessionVersion??0)+1}).where(eq(usersTable.id,id)).returning();return res.json(safe(updated));}catch(e:any){return res.status(400).json({error:e.message});}});
+router.post("/:id/reset-password", requirePermission("settings.user_management.update"), async(req,res)=>{const org=organizationId(req),id=Number(req.params.id),[u]=await db.select().from(usersTable).where(and(eq(usersTable.id,id),eq(usersTable.organizationId,org)));if(!u||u.isDeleted)return res.status(404).json({error:"User not found"});if(protectedUser(u))return res.status(403).json({error:"Super Admin password cannot be reset here"});const password=String(req.body.newPassword??"");if(password.length<8)return res.status(400).json({error:"Password must contain at least 8 characters"});if(password!==req.body.confirmPassword)return res.status(400).json({error:"Passwords do not match"});await db.update(usersTable).set({passwordHash:hashPassword(password),sessionVersion:Number(u.sessionVersion??0)+1}).where(eq(usersTable.id,id));return res.json({success:true});});
+router.post("/me/password", async(req,res)=>{const u=await getAuthUser(req);if(!u)return res.status(401).json({error:"Not authenticated"});const next=String(req.body.newPassword??"");if(!verifyPassword(String(req.body.oldPassword??""),u.passwordHash))return res.status(400).json({error:"Current password is incorrect"});if(next.length<8)return res.status(400).json({error:"Password must contain at least 8 characters"});if(next!==req.body.confirmPassword)return res.status(400).json({error:"Passwords do not match"});await db.update(usersTable).set({passwordHash:hashPassword(next),sessionVersion:Number(u.sessionVersion??0)+1}).where(eq(usersTable.id,u.id));return res.json({success:true});});
+router.post("/sync-roles", requirePermission("settings.user_management.update"), async(req,res)=>{const users=(await activeUsers(organizationId(req))).filter(u=>!protectedUser(u));for(const u of users)await db.update(usersTable).set({sessionVersion:Number(u.sessionVersion??0)+1}).where(eq(usersTable.id,u.id));return res.json({success:true,syncedUsers:users.length});});
+router.delete("/:id", requirePermission("settings.user_management.delete"), async(req,res)=>{const actor=await getAuthUser(req),id=Number(req.params.id);if(actor?.id===id)return res.status(400).json({error:"You cannot deactivate your own account"});const [u]=await db.select().from(usersTable).where(and(eq(usersTable.id,id),eq(usersTable.organizationId,organizationId(req))));if(!u||u.isDeleted)return res.status(404).json({error:"User not found"});if(protectedUser(u))return res.status(403).json({error:"Protected user cannot be deactivated"});await db.update(usersTable).set({isDeleted:true,sessionVersion:Number(u.sessionVersion??0)+1}).where(eq(usersTable.id,id));return res.status(204).send();});
 
 export default router;
