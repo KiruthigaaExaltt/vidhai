@@ -85,8 +85,8 @@ async function packageFrontend() {
   await requireFile(path.join(source, "index.html"), "Compiled frontend");
   const target = await nextPackage(`vidhai-frontend-${environment}-build`);
   await mkdir(target.directory, { recursive: false });
-  await cp(source, path.join(target.directory, "public"), { recursive: true });
-  const readme = `# Vidhai ERP frontend\n\nEnvironment: ${label}\nBuild: ${target.number}\nGenerated: ${new Date().toISOString()}\nAPI origin: ${frontendApiOrigin ?? "same-origin /api proxy"}\n\nDeploy the contents of \`public/\` to an empty web-server document root and configure SPA fallback to \`index.html\`. Remove the previous release first; extracting over existing files can cause hosting panels to create \`_copy\` filenames.\n`;
+  await cp(source, target.directory, { recursive: true });
+  const readme = `# Vidhai ERP frontend\n\nEnvironment: ${label}\nBuild: ${target.number}\nGenerated: ${new Date().toISOString()}\nAPI origin: ${frontendApiOrigin ?? "same-origin /api proxy"}\n\nExtract this archive directly into an empty web-server document root. The archive root contains \`index.html\`, \`assets/\`, and \`sw.js\`; do not place them inside another \`public/\` folder. Remove the previous release first because extracting over existing files can cause hosting panels to create \`_copy\` filenames.\n`;
   await writeFile(path.join(target.directory, "README.md"), readme);
   await zipDirectory(target.directory, target.zip);
   if (frontendApiOrigin) await verifyFrontendApi(target.directory, frontendApiOrigin);

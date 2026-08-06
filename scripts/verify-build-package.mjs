@@ -30,10 +30,10 @@ export function verifyEntries(entries, kind, environment) {
   }
   const has = name => lower.has(name.toLowerCase());
   if (kind === "frontend") {
-    for (const required of ["public/index.html", "public/manifest.webmanifest", "public/sw.js", "README.md"]) if (!has(required)) fail(`frontend is missing ${required}`);
-    if (!files.some(name => /^public\/assets\/.*\.js$/i.test(name))) fail("frontend has no compiled JavaScript asset");
-    if (!files.some(name => /^public\/assets\/.*\.css$/i.test(name))) fail("frontend has no compiled CSS asset");
-    if (files.some(name => !name.startsWith("public/") && name !== "README.md")) fail("frontend contains files outside public/ other than README.md");
+    for (const required of ["index.html", "manifest.webmanifest", "sw.js", ".htaccess", "web.config", "README.md"]) if (!has(required)) fail(`frontend is missing ${required}`);
+    if (!files.some(name => /^assets\/.*\.js$/i.test(name))) fail("frontend has no compiled JavaScript asset");
+    if (!files.some(name => /^assets\/.*\.css$/i.test(name))) fail("frontend has no compiled CSS asset");
+    if (files.some(name => name.startsWith("public/"))) fail("frontend contains an unnecessary public/ wrapper; files must extract directly into the document root");
   } else if (kind === "backend") {
     for (const required of ["dist/index.mjs", `.env.${environment}`, "ecosystem.config.cjs", "package.json", "README.md"]) if (!has(required)) fail(`backend is missing ${required}`);
     if (!files.some(name => name === "uploads/.gitkeep" || name.startsWith("uploads/"))) fail("backend is missing the persistent uploads directory marker");
@@ -50,7 +50,7 @@ export async function verifyZip(zipFile, kind, environment) {
 }
 
 export async function verifyFrontendApi(frontendDirectory, expectedOrigin) {
-  const assets = path.join(frontendDirectory, "public", "assets");
+  const assets = path.join(frontendDirectory, "assets");
   const scripts = (await readdir(assets)).filter(name => name.endsWith(".js"));
   if (!scripts.length) fail("compiled frontend JavaScript is missing");
   const found = (await Promise.all(scripts.map(name => readFile(path.join(assets, name), "utf8")))).some(code => code.includes(expectedOrigin));
