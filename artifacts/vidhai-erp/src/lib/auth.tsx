@@ -6,6 +6,8 @@ interface AuthContextType {
   isLoading: boolean;
   login: (user: User) => void;
   logout: () => void;
+  permissions: string[];
+  can: (permission: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -13,6 +15,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const { data: meData, isLoading: meLoading, isError } = useGetMe();
 
   useEffect(() => {
@@ -23,6 +26,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [meData, isError]);
 
+  useEffect(() => {
+    if (!user) { setPermissions([]); return; }
+    if (user.role === "admin") { setPermissions(["*"]); return; }
+    const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+    fetch(`${base}/api/permissions/me`, { credentials: "include" })
+      .then((response) => response.ok ? response.json() : { permissions: [] })
+      .then((data) => setPermissions(Array.isArray(data.permissions) ? data.permissions : []))
+      .catch(() => setPermissions([]));
+  }, [user]);
+
   const login = (newUser: User) => {
     setLoggedOut(false);
     setUser(newUser);
@@ -31,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     setLoggedOut(true);
     setUser(null);
+    setPermissions([]);
   };
 
   // meData can arrive one render before the effect syncs it into `user`;
@@ -38,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isLoading = meLoading || (!loggedOut && !!meData && !isError && user === null);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, permissions, can: (permission) => user?.role === "admin" || permissions.includes("*") || permissions.includes(permission) }}>
       {children}
     </AuthContext.Provider>
   );

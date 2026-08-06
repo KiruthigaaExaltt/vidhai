@@ -41,8 +41,8 @@ import Profile from "@/pages/profile";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ component: Component, adminOnly, ...rest }: any) {
-  const { user, isLoading } = useAuth();
+function ProtectedRoute({ component: Component, adminOnly, permission, ...rest }: any) {
+  const { user, isLoading, can } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -61,7 +61,7 @@ function ProtectedRoute({ component: Component, adminOnly, ...rest }: any) {
 
   if (!user) return null;
 
-  if (adminOnly && user.role !== 'admin') {
+  if ((adminOnly && user.role !== 'admin') || (permission && !can(permission))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-sm font-mono text-destructive">ACCESS DENIED</div>
@@ -82,7 +82,7 @@ function Router() {
       </Route>
       
       <Route path="/settings">
-        <ProtectedRoute component={Settings} adminOnly />
+        <ProtectedRoute component={Settings} permission="settings.user_management.view" />
       </Route>
 
       {/* Inventory Routes */}

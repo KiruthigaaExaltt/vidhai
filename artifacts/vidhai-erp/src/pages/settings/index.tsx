@@ -1,6 +1,8 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight, MapPin, Palette, Settings as SettingsIcon, ShieldCheck, Users } from "lucide-react";
 import { Shell } from "@/components/layout/Shell";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings as SettingsIcon } from "lucide-react";
+import UserManagement from "./user-management";
+import TemplateManager from "./templates";
 import Locations from "./locations";
 import AlertColors from "./alert-colors";
 import Users from "./users";
@@ -14,7 +16,7 @@ export default function Settings() {
           <SettingsIcon className="w-6 h-6 text-primary" />
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
-            
+            <p className="text-sm text-muted-foreground">Manage your system preferences and configurations.</p>
           </div>
         </div>
 
