@@ -274,7 +274,7 @@ export default function Tasks() {
             <CheckSquare className="w-6 h-6 text-primary" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">Tasks</h1>
-              <p className="text-sm text-muted-foreground">Track and assign work across production batches</p>
+              
             </div>
           </div>
           <Button onClick={() => { setForm(EMPTY_FORM); setOpen(true); }} className="rounded-sm h-10 px-4 shadow-sm">

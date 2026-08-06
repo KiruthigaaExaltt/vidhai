@@ -14,7 +14,7 @@ export default function Settings() {
           <SettingsIcon className="w-6 h-6 text-primary" />
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Settings</h1>
-            <p className="text-sm text-muted-foreground">Manage your system preferences and configurations.</p>
+            
           </div>
         </div>
 

@@ -250,7 +250,7 @@ export default function InventoryModule() {
           <TabsContent value="dashboard" className="outline-none mt-0 space-y-6">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight font-display">Inventory Overview</h1>
-                <p className="text-sm text-muted-foreground mt-1">Real-time view across all warehouses and stock</p>
+                
               </div>
               <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 <SummaryCard icon={IndianRupee} label="Total Inventory Value" value={`₹${totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`} sub="based on buy price" />

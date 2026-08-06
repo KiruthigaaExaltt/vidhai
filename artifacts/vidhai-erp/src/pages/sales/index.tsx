@@ -164,9 +164,7 @@ export default function Sales() {
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <ShoppingCart className="w-6 h-6 text-primary" /> Sales & Dispatch
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              All outbound transactions — external sales and internal transfers across Grow Bags, Mushroom, and Manure.
-            </p>
+            
           </div>
           <Button size="sm" className="rounded-sm h-8" onClick={openNew}>
             <Plus className="w-3.5 h-3.5 mr-1.5" /> New Order

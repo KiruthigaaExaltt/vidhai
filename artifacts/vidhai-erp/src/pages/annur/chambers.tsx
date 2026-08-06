@@ -167,7 +167,7 @@ export default function Chambers() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight font-display">Chamber Control</h1>
-            <p className="text-base text-muted-foreground mt-1">Manage active capacities and environmental limits</p>
+            
           </div>
           <Button onClick={handleOpenCreate} className="rounded-sm shadow-sm h-10 px-4">
             <Plus className="w-4 h-4 mr-2" />

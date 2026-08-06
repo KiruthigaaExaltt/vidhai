@@ -85,7 +85,7 @@ export default function Batches() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Annur Location A — Batches</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Active and historical production batches</p>
+            
           </div>
           <Link href="/annur/batches/new">
             <Button className="rounded-sm font-medium h-9">

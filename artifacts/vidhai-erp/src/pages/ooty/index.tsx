@@ -253,9 +253,7 @@ export default function OotyRooms() {
               <Thermometer className="w-5 h-5 text-primary" />
               <h1 className="text-2xl font-semibold tracking-tight">Ooty Location B — Growing Rooms</h1>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Spawn Run → Casing Run → Differentiation &amp; Fruiting → Cookout
-            </p>
+            
           </div>
 
           <Button className="rounded-sm font-medium h-9" onClick={() => setRoomOpen(true)}>

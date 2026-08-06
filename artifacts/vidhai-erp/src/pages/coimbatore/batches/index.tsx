@@ -184,12 +184,7 @@ export default function CoimbatoreBatches() {
               <Leaf className="w-5 h-5 text-primary" />
               <h1 className="text-2xl font-semibold tracking-tight">Coimbatore — Casing Soil Batches</h1>
             </div>
-            <p className="text-sm text-muted-foreground">
-              In-house casing soil production batches ·{" "}
-              <span className="text-primary font-medium">
-                External purchases → Inventory → Stock Movements (Inward)
-              </span>
-            </p>
+            
           </div>
 
           <Dialog open={batchOpen} onOpenChange={setBatchOpen}>

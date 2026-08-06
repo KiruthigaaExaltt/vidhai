@@ -170,7 +170,7 @@ export default function CRMPage() {
             <Users className="w-6 h-6 text-primary" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">CRM</h1>
-              <p className="text-sm text-muted-foreground">Clients, vendors, and other contact directory</p>
+              
             </div>
           </div>
           <Button onClick={openNew} className="rounded-sm h-10 px-4 shadow-sm">

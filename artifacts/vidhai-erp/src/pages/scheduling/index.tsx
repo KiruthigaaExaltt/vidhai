@@ -257,7 +257,7 @@ export default function SchedulingCalendar() {
             <h1 className="text-3xl font-bold tracking-tight font-display flex items-center gap-3 text-foreground">
               <CalendarDays className="w-8 h-8 text-primary" /> Orchestration Calendar
             </h1>
-            <p className="text-base text-muted-foreground mt-1">Cross-site production and operation schedules</p>
+            
           </div>
           <div className="flex gap-3">
             <Button variant="outline" className="rounded-sm shadow-sm h-10 px-4 font-medium" onClick={() => setLocation("/scheduling/suggest")}>
