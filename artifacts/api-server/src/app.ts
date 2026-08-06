@@ -4,8 +4,10 @@ import pinoHttp from "pino-http";
 import session from "express-session";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { configuredCorsOrigins, corsOriginHandler } from "./lib/cors";
 
 const app: Express = express();
+const corsOrigins = configuredCorsOrigins();
 
 app.use(
   pinoHttp({
@@ -29,8 +31,10 @@ app.use(
 
 app.use(
   cors({
-    origin: true,
+    origin: corsOriginHandler(corsOrigins),
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 app.use(express.json({ limit: "50mb" }));

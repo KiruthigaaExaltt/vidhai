@@ -38,6 +38,7 @@ import ReportBatchCosting from "@/pages/reports/batch-costing";
 import ReportAnnurBatchYield from "@/pages/reports/annur-batch-yield";
 import Tasks from "@/pages/tasks/index";
 import Profile from "@/pages/profile";
+import Crew from "@/pages/crew";
 
 const queryClient = new QueryClient();
 
@@ -158,6 +159,9 @@ function Router() {
 
       <Route path="/profile">
         <ProtectedRoute component={Profile} />
+      </Route>
+      <Route path="/crew">
+        <ProtectedRoute component={Crew} />
       </Route>
 
       {/* Lab Routes */}

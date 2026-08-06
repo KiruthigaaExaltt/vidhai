@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyEcosystemText, verifyFrontendApi, verifyZip } from "./verify-build-package.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const frontendDir = path.join(root, "artifacts", "vidhai-erp");
@@ -23,6 +24,7 @@ const frontendEnv = path.join(frontendDir, envFileName);
 const backendEnv = path.join(backendDir, envFileName);
 const label = environment === "prod" ? "production" : environment;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const { apiOrigin: frontendApiOrigin } = await frontendBuildConfig();
 
 async function exists(file) {
   try { await access(file, constants.F_OK); return true; } catch { return false; }
@@ -30,6 +32,24 @@ async function exists(file) {
 
 async function requireFile(file, purpose) {
   if (!await exists(file)) throw new Error(`${purpose} is missing: ${path.relative(root, file)}`);
+}
+
+async function frontendBuildConfig() {
+  const values = Object.fromEntries((await readFile(frontendEnv, "utf8")).split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith("#") && line.includes("=")).map(line => { const i=line.indexOf("="); return [line.slice(0,i).trim(),line.slice(i+1).trim()]; }));
+  if (!values.BASE_PATH?.startsWith("/") || !values.BASE_PATH.endsWith("/")) throw new Error(`${envFileName}: BASE_PATH must start and end with /`);
+  const raw = values.VITE_API_BASE;
+  if (environment === "staging" && !raw) throw new Error(`${envFileName}: VITE_API_BASE is required so deployed API calls do not fall through to SPA index.html`);
+  const backendValues = Object.fromEntries((await readFile(backendEnv, "utf8")).split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith("#") && line.includes("=")).map(line => { const i=line.indexOf("="); return [line.slice(0,i).trim(),line.slice(i+1).trim()]; }));
+  const corsRaw = backendValues.CORS_ALLOWED_ORIGINS || backendValues.CORS_ORIGIN;
+  if (["staging", "prod"].includes(environment) && !corsRaw) throw new Error(`${envFileName}: backend CORS_ALLOWED_ORIGINS is required`);
+  for (const origin of String(corsRaw || "").split(",").map(value => value.trim()).filter(Boolean)) {
+    let corsUrl; try { corsUrl = new URL(origin); } catch { throw new Error(`${envFileName}: invalid CORS origin ${origin}`); }
+    if (!["http:", "https:"].includes(corsUrl.protocol) || corsUrl.origin !== origin.replace(/\/$/, "")) throw new Error(`${envFileName}: CORS origins must not contain paths`);
+  }
+  if (!raw) return { apiOrigin: null };
+  let url; try { url = new URL(raw); } catch { throw new Error(`${envFileName}: VITE_API_BASE must be an absolute HTTP(S) URL`); }
+  if (!["http:","https:"].includes(url.protocol) || (url.pathname !== "/" && url.pathname !== "")) throw new Error(`${envFileName}: VITE_API_BASE must contain only the API origin, without /api or another path`);
+  return { apiOrigin: url.origin };
 }
 
 function run(command, args, options = {}) {
@@ -66,9 +86,11 @@ async function packageFrontend() {
   const target = await nextPackage(`vidhai-frontend-${environment}-build`);
   await mkdir(target.directory, { recursive: false });
   await cp(source, path.join(target.directory, "public"), { recursive: true });
-  const readme = `# Vidhai ERP frontend\n\nEnvironment: ${label}\nBuild: ${target.number}\nGenerated: ${new Date().toISOString()}\n\nDeploy the contents of \`public/\` to the web-server document root and configure SPA fallback to \`index.html\`.\n`;
+  const readme = `# Vidhai ERP frontend\n\nEnvironment: ${label}\nBuild: ${target.number}\nGenerated: ${new Date().toISOString()}\nAPI origin: ${frontendApiOrigin ?? "same-origin /api proxy"}\n\nDeploy the contents of \`public/\` to an empty web-server document root and configure SPA fallback to \`index.html\`. Remove the previous release first; extracting over existing files can cause hosting panels to create \`_copy\` filenames.\n`;
   await writeFile(path.join(target.directory, "README.md"), readme);
   await zipDirectory(target.directory, target.zip);
+  if (frontendApiOrigin) await verifyFrontendApi(target.directory, frontendApiOrigin);
+  await verifyZip(target.zip, "frontend", environment);
   console.log(`Created ${path.relative(root, target.directory)} and ${path.relative(root, target.zip)}`);
 }
 
@@ -83,16 +105,32 @@ async function packageBackend() {
   const sourceUploads = path.join(backendDir, "uploads");
   if (await exists(sourceUploads)) await cp(sourceUploads, packagedUploads, { recursive: true });
   else await mkdir(packagedUploads, { recursive: true });
-  for (const candidate of environment === "staging" ? ["ecosystem.staging.config.cjs", "ecosystem.config.cjs", "ecosystem.config.js"] : ["ecosystem.config.cjs", "ecosystem.config.js"]) {
-    const sourceFile = path.join(backendDir, candidate);
-    if (await exists(sourceFile)) { await copyFile(sourceFile, path.join(target.directory, "ecosystem.config.cjs")); break; }
-  }
+  const ecosystem = `module.exports = {
+  apps: [{
+    name: "vidhai-api-server",
+    cwd: __dirname,
+    script: "./dist/index.mjs",
+    interpreter: "node",
+    node_args: "--env-file=${envFileName} --enable-source-maps",
+    instances: 1,
+    exec_mode: "fork",
+    autorestart: true,
+    watch: false,
+    max_memory_restart: "1G",
+    time: true,
+    env: { NODE_ENV: "${label}" }
+  }]
+};
+`;
+  await writeFile(path.join(target.directory, "ecosystem.config.cjs"), ecosystem);
+  verifyEcosystemText(ecosystem, environment);
   const sourcePackage = JSON.parse(await readFile(path.join(backendDir, "package.json"), "utf8"));
   const runtimePackage = { name: "vidhai-api-server", version: sourcePackage.version, private: true, type: "module", main: "./dist/index.mjs", scripts: { start: `node --env-file=${envFileName} --enable-source-maps ./dist/index.mjs` }, engines: { node: ">=20.19.0" } };
   await writeFile(path.join(target.directory, "package.json"), `${JSON.stringify(runtimePackage, null, 2)}\n`);
   const readme = `# Vidhai ERP API\n\nEnvironment: ${label}\nBuild: ${target.number}\nGenerated: ${new Date().toISOString()}\n\nStart with \`npm start\` or \`pm2 start ecosystem.config.cjs\`. The runtime configuration is loaded from \`${envFileName}\`. Protect that file because it may contain secrets. Keep the \`uploads/\` directory persistent between deployments.\n`;
   await writeFile(path.join(target.directory, "README.md"), readme);
   await zipDirectory(target.directory, target.zip);
+  await verifyZip(target.zip, "backend", environment);
   console.log(`Created ${path.relative(root, target.directory)} and ${path.relative(root, target.zip)}`);
 }
 
