@@ -29,13 +29,13 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-3">
             <Link href="/annur/chambers" className="flex-1 sm:flex-none">
-              <Button variant="outline" className="w-full sm:w-auto font-medium rounded-sm shadow-sm h-10 px-4">
+              <Button variant="outline" className="w-full sm:w-auto font-medium rounded-lg shadow-sm h-10 px-4">
                 <Thermometer className="w-4 h-4 mr-2" />
                 Add Reading
               </Button>
             </Link>
             <Link href="/annur/batches/new" className="flex-1 sm:flex-none">
-              <Button className="w-full sm:w-auto font-medium rounded-sm shadow-sm h-10 px-4">
+              <Button className="w-full sm:w-auto font-medium rounded-lg shadow-sm h-10 px-4">
                 <Plus className="w-4 h-4 mr-2" />
                 Initiate Batch
               </Button>

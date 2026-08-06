@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -173,14 +174,14 @@ export default function CRMPage() {
               
             </div>
           </div>
-          <Button onClick={openNew} className="rounded-sm h-10 px-4 shadow-sm">
+          <Button onClick={openNew} >
             <Plus className="w-4 h-4 mr-2" /> Add Contact
           </Button>
         </div>
 
         {/* Tab bar + search */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <div className="flex gap-1 bg-muted/40 p-1 rounded-sm border border-border">
+          <div className="flex gap-1 ">
             {TABS.map((t) => (
               <button
                 key={t.value}
@@ -198,15 +199,17 @@ export default function CRMPage() {
               </button>
             ))}
           </div>
-          <div className="flex-1 sm:max-w-xs">
-            <Input
-              placeholder="Search by name, company, phone…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="rounded-sm h-9 text-sm"
-            />
-          </div>
-        </div>
+          <div className="relative flex-1 sm:max-w-xs">
+  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+
+  <Input
+    placeholder="Search by name, company, phone..."
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+    className="rounded-full h-11 pl-11 pr-5 text-sm border border-gray-300 transition-all duration-300 ease-in-out focus:scale-[1.02] focus:border-primary focus:ring-2 focus:ring-primary/20 hover:border-primary/50"
+  />
+</div>
+</div>
 
         {/* Contacts table */}
         <Card className="rounded-sm border-border shadow-md">
