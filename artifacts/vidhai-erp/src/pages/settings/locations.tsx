@@ -20,14 +20,14 @@ export default function Locations() {
             {isLoading ? (
               <div className="p-6 text-center text-sm text-muted-foreground">Loading...</div>
             ) : (
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
-                  <tr>
-                    <th className="px-4 py-2 font-medium">Code</th>
-                    <th className="px-4 py-2 font-medium">Name</th>
-                    <th className="px-4 py-2 font-medium">Description</th>
-                  </tr>
-                </thead>
+              <table className="w-full table-fixed text-sm text-left">
+<thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
+  <tr>
+    <th className="w-1/3 px-4 py-2 font-medium text-center">Code</th>
+    <th className="w-1/3 px-4 py-2 font-medium text-center">Name</th>
+    <th className="w-1/3 px-4 py-2 font-medium text-center">Description</th>
+  </tr>
+</thead>
                 <tbody className="divide-y divide-border">
                   {locations?.map((loc) => (
                     <tr key={loc.id} className="hover:bg-muted/30 h-[36px]">

@@ -88,14 +88,14 @@ export default function AlertColors() {
             ) : (
               <table className="w-full text-sm text-left">
                 <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
-                  <tr>
-                    <th className="px-4 py-2 font-medium w-16">Swatch</th>
-                    <th className="px-4 py-2 font-medium">Name</th>
-                    <th className="px-4 py-2 font-medium">Hex</th>
-                    <th className="px-4 py-2 font-medium">Condition</th>
-                    <th className="px-4 py-2 font-medium">Description</th>
-                    <th className="px-4 py-2 font-medium w-16"></th>
-                  </tr>
+                 <tr>
+  <th className="w-[8%] px-4 py-2 font-medium">Swatch</th>
+  <th className="w-[20%] px-4 py-2 font-medium">Name</th>
+  <th className="w-[15%] px-4 py-2 font-medium">Hex</th>
+  <th className="w-[20%] px-4 py-2 font-medium">Condition</th>
+  <th className="w-[32%] px-4 py-2 font-medium">Description</th>
+  <th className="w-[5%] px-4 py-2 font-medium"></th>
+</tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {colors?.map((c) => (
