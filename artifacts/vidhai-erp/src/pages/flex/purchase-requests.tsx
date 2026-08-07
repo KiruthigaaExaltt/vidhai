@@ -84,7 +84,13 @@ export interface PurchaseRequestItem {
   priority: string;
   department: string;
   requestedBy: string;
-  status: "Draft" | "Submitted" | "Approved" | "Rejected" | "Closed" | "PO Created";
+  status:
+    | "Draft"
+    | "Submitted"
+    | "Approved"
+    | "Rejected"
+    | "Closed"
+    | "PO Created";
   itemName?: string;
   quantity?: number;
   unit?: string;
@@ -95,177 +101,24 @@ export interface PurchaseRequestItem {
   versionLogs?: VersionLog[];
 }
 
-const DEFAULT_PRS: PurchaseRequestItem[] = [
-  {
-    id: 23,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0023",
-    version: "Submitted V1 - 12:37:14 pm",
-    reqDate: "07 Aug 2026",
-    requiredDate: "07 Aug 2026",
-    priority: "Normal",
-    department: "Admin",
-    requestedBy: "Aakash T",
-    status: "Submitted",
-    itemName: "Trapezoidal Roofing Sheet",
-    quantity: 100,
-    unit: "sheets",
-    project: "Vidhai Factory Phase 1",
-    attachmentName: "Roofing_Spec_v1.pdf",
-    versionLogs: [
-      { version: "Draft V1", updatedBy: "Aakash T", timestamp: "07 Aug 2026 12:30 pm", status: "Draft" },
-      { version: "Submitted V1", updatedBy: "Aakash T", timestamp: "07 Aug 2026 12:37 pm", status: "Submitted" },
-    ],
-  },
-  {
-    id: 17,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0017",
-    version: "Submitted V1 - 12:37:14 pm",
-    reqDate: "07 Aug 2026",
-    requiredDate: "07 Aug 2026",
-    priority: "Normal",
-    department: "Admin",
-    requestedBy: "Aakash T",
-    status: "Submitted",
-    itemName: "Trapezoidal Roofing Sheet",
-    quantity: 100,
-    unit: "sheets",
-    project: "Vidhai Factory Phase 1",
-  },
-  {
-    id: 12,
-    vendorId: "CON00005",
-    vendor: "Nish",
-    prNumber: "PR-26-27-0012",
-    version: "Version V1 - 10:06:41 am",
-    reqDate: "21 Jul 2026",
-    requiredDate: "21 Jul 2026",
-    priority: "Normal",
-    department: "Development",
-    requestedBy: "Kavin",
-    status: "Closed",
-    itemName: "Steel Rod 12mm",
-    quantity: 50,
-    unit: "kg",
-  },
-  {
-    id: 11,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0011",
-    version: "Version V1 - 12:35:28 pm",
-    reqDate: "20 Jul 2026",
-    requiredDate: "20 Jul 2026",
-    priority: "Normal",
-    department: "Admin",
-    requestedBy: "Kavin",
-    status: "Closed",
-    itemName: "Cement Bags",
-    quantity: 200,
-    unit: "bags",
-  },
-  {
-    id: 10,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0010",
-    version: "Version V1 - 12:33:18 pm",
-    reqDate: "20 Jul 2026",
-    requiredDate: "20 Jul 2026",
-    priority: "Normal",
-    department: "Admin",
-    requestedBy: "Kavin",
-    status: "Closed",
-    itemName: "Structural Beams",
-    quantity: 15,
-    unit: "units",
-  },
-  {
-    id: 9,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0009",
-    version: "Version V1 - 04:58:34 pm",
-    reqDate: "17 Jul 2026",
-    requiredDate: "17 Jul 2026",
-    priority: "Normal",
-    department: "Admin",
-    requestedBy: "Kavin",
-    status: "Closed",
-    itemName: "Fastener Screws",
-    quantity: 500,
-    unit: "pcs",
-  },
-  {
-    id: 7,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0007",
-    version: "Submitted V1 - 04:52:07 pm",
-    reqDate: "17 Jul 2026",
-    requiredDate: "17 Jul 2026",
-    priority: "Normal",
-    department: "Engineering",
-    requestedBy: "Kavin",
-    status: "Submitted",
-    itemName: "Safety Helmets",
-    quantity: 30,
-    unit: "pcs",
-  },
-  {
-    id: 6,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    prNumber: "PR-26-27-0006",
-    version: "Version V1 - 01:33:53 pm",
-    reqDate: "17 Jul 2026",
-    requiredDate: "17 Jul 2026",
-    priority: "Normal",
-    department: "Admin",
-    requestedBy: "Kavin",
-    status: "Closed",
-    itemName: "Office Supplies",
-    quantity: 1,
-    unit: "set",
-  },
-];
-
-const DEFAULT_VENDOR_AVAILABILITY: VendorAvailabilityItem[] = [
-  {
-    prNumber: "PR-26-27-0017",
-    version: "Submitted V1",
-    date: "07 Aug 2026",
-    status: "Submitted",
-    vendorCount: 1,
-    vendors: [{ name: "Jagadeep", quote: "₹ 55,000", status: "Available" }],
-  },
-  {
-    prNumber: "PR-26-27-0007",
-    version: "Submitted V1",
-    date: "17 Jul 2026",
-    status: "Submitted",
-    vendorCount: 2,
-    vendors: [
-      { name: "Jagadeep", quote: "₹ 15,000", status: "Available" },
-      { name: "Nish", quote: "₹ 14,500", status: "Quoted" },
-    ],
-  },
-];
-
-import { mergeVendors, addStoredVendor, mergePRs, addStoredPR } from "@/lib/flexStore";
+import {
+  mergeVendors,
+  addStoredVendor,
+  mergePRs,
+  addStoredPR,
+} from "@/lib/flexStore";
 
 async function fetchPurchaseRequests(): Promise<PurchaseRequestItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/purchase-requests`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/purchase-requests`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
-      return mergePRs(data, DEFAULT_PRS);
+      return mergePRs(data);
     }
   } catch {}
-  return mergePRs([], DEFAULT_PRS);
+  return mergePRs([]);
 }
 
 async function createPurchaseRequest(payload: any) {
@@ -317,18 +170,22 @@ async function deletePurchaseRequest(id: number) {
 }
 
 async function convertPrToPo(id: number) {
-  const res = await fetch(`${BASE}/api/flex/purchase-requests/${id}/convert-to-po`, {
-    method: "POST",
-    credentials: "include",
-  });
+  const res = await fetch(
+    `${BASE}/api/flex/purchase-requests/${id}/convert-to-po`,
+    {
+      method: "POST",
+      credentials: "include",
+    },
+  );
   if (!res.ok) throw new Error("Failed to convert PR to Purchase Order");
   return res.json();
 }
 
-
 async function fetchVendorsList() {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/vendors`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       return mergeVendors(data);
@@ -339,7 +196,11 @@ async function fetchVendorsList() {
 
 export default function PurchaseRequestsPage() {
   const queryClient = useQueryClient();
-  const { data: prs = DEFAULT_PRS, refetch, isFetching } = useQuery({
+  const {
+    data: prs = [],
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["get", "/api/flex/purchase-requests"],
     queryFn: fetchPurchaseRequests,
   });
@@ -349,7 +210,24 @@ export default function PurchaseRequestsPage() {
     queryFn: fetchVendorsList,
   });
 
-  const [activeSubTab, setActiveSubTab] = useState<"requests" | "availability">("requests");
+  const vendorAvailability = useMemo<VendorAvailabilityItem[]>(
+    () =>
+      prs
+        .filter((pr) => pr.vendor)
+        .map((pr) => ({
+          prNumber: pr.prNumber,
+          version: pr.version,
+          date: pr.reqDate,
+          status: pr.status,
+          vendorCount: 1,
+          vendors: [{ name: pr.vendor, quote: "", status: pr.status }],
+        })),
+    [prs],
+  );
+
+  const [activeSubTab, setActiveSubTab] = useState<"requests" | "availability">(
+    "requests",
+  );
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -360,23 +238,39 @@ export default function PurchaseRequestsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isAddVendorOpen, setIsAddVendorOpen] = useState(false);
   const [isAddInventoryOpen, setIsAddInventoryOpen] = useState(false);
-  const [selectedPr, setSelectedPr] = useState<PurchaseRequestItem | null>(null);
+  const [selectedPr, setSelectedPr] = useState<PurchaseRequestItem | null>(
+    null,
+  );
   const [editingPr, setEditingPr] = useState<PurchaseRequestItem | null>(null);
-  const [selectedVendorAvailability, setSelectedVendorAvailability] = useState<VendorAvailabilityItem | null>(null);
+  const [selectedVendorAvailability, setSelectedVendorAvailability] =
+    useState<VendorAvailabilityItem | null>(null);
 
   // Edit PR State Fields
   const [editVendorName, setEditVendorName] = useState("Jagadeep");
   const [editVendorsTable, setEditVendorsTable] = useState<any[]>([
-    { name: "Jagadeep", whatsapp: "9753124680", phone: "9753124680", email: "j@gmail.com" }
+    {
+      name: "Jagadeep",
+      whatsapp: "9753124680",
+      phone: "9753124680",
+      email: "j@gmail.com",
+    },
   ]);
   const [editLineItems, setEditLineItems] = useState<any[]>([
-    { id: "1", product: "HP LED 1080p (MONI-HP-LED-0001) (245", description: "HP LED 1080p", qty: 1, unit: "Nos" }
+    {
+      id: "1",
+      product: "HP LED 1080p (MONI-HP-LED-0001) (245",
+      description: "HP LED 1080p",
+      qty: 1,
+      unit: "Nos",
+    },
   ]);
   const [editReqDate, setEditReqDate] = useState("2026-08-07");
   const [editRequiredDate, setEditRequiredDate] = useState("2026-08-07");
   const [editPriority, setEditPriority] = useState("Normal");
   const [editDepartment, setEditDepartment] = useState("Admin");
-  const [editRequestedBy, setEditRequestedBy] = useState("Aakash T (UI/UX Designer) (13)");
+  const [editRequestedBy, setEditRequestedBy] = useState(
+    "Aakash T (UI/UX Designer) (13)",
+  );
   const [editProject, setEditProject] = useState("");
   const [editNotes, setEditNotes] = useState("");
 
@@ -417,10 +311,20 @@ export default function PurchaseRequestsPage() {
   // Form states for Create PR
   const [vendorName, setVendorName] = useState("CON00006 - Jagadeep");
   const [lineItems, setLineItems] = useState<LineItem[]>([
-    { id: "1", item: "Trapezoidal Roofing Sheet", description: "", qty: 1, unit: "Nos" },
+    {
+      id: "1",
+      item: "Trapezoidal Roofing Sheet",
+      description: "",
+      qty: 1,
+      unit: "Nos",
+    },
   ]);
-  const [requestDate, setRequestDate] = useState(new Date().toISOString().split("T")[0]);
-  const [requiredDate, setRequiredDate] = useState(new Date().toISOString().split("T")[0]);
+  const [requestDate, setRequestDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [requiredDate, setRequiredDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [priority, setPriority] = useState("Normal");
   const [department, setDepartment] = useState("Admin");
   const [requestedBy, setRequestedBy] = useState("Aakash T");
@@ -431,8 +335,12 @@ export default function PurchaseRequestsPage() {
   const createMutation = useMutation({
     mutationFn: createPurchaseRequest,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-requests"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
     },
     onError: (err: any) => {
       console.error("PR backend save log:", err);
@@ -442,8 +350,12 @@ export default function PurchaseRequestsPage() {
   const updateMutation = useMutation({
     mutationFn: updatePurchaseRequest,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-requests"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Purchase Request updated successfully");
       setSelectedPr(null);
     },
@@ -455,8 +367,12 @@ export default function PurchaseRequestsPage() {
   const deleteMutation = useMutation({
     mutationFn: deletePurchaseRequest,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-requests"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Purchase Request deleted");
       setSelectedPr(null);
     },
@@ -468,9 +384,15 @@ export default function PurchaseRequestsPage() {
   const convertPoMutation = useMutation({
     mutationFn: convertPrToPo,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-requests"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-orders"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-requests"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-orders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Purchase Order generated from approved PR!");
       setSelectedPr(null);
     },
@@ -480,7 +402,15 @@ export default function PurchaseRequestsPage() {
   });
 
   const resetForm = () => {
-    setLineItems([{ id: "1", item: "Trapezoidal Roofing Sheet", description: "", qty: 1, unit: "Nos" }]);
+    setLineItems([
+      {
+        id: "1",
+        item: "Trapezoidal Roofing Sheet",
+        description: "",
+        qty: 1,
+        unit: "Nos",
+      },
+    ]);
     setNotes("");
     setVendorName("CON00006 - Jagadeep");
     setPriority("Normal");
@@ -523,7 +453,12 @@ export default function PurchaseRequestsPage() {
     } catch {
       // Local fallback
     }
-    const newVendorObj = { id: nextContactId, name: vName.trim(), phone: vPhone.trim(), address: vAddress.trim() };
+    const newVendorObj = {
+      id: nextContactId,
+      name: vName.trim(),
+      phone: vPhone.trim(),
+      address: vAddress.trim(),
+    };
     addStoredVendor(newVendorObj);
     setLocalVendors((prev) => [...prev, newVendorObj]);
     setVendorName(`${nextContactId} - ${vName.trim()}`);
@@ -554,7 +489,13 @@ export default function PurchaseRequestsPage() {
     }
     setLineItems((prev) => [
       ...prev.filter((i) => i.item !== ""),
-      { id: String(Date.now()), item: invItemName.trim(), description: `${invCategory} - SKU ${invSku}`, qty: 1, unit: invUom },
+      {
+        id: String(Date.now()),
+        item: invItemName.trim(),
+        description: `${invCategory} - SKU ${invSku}`,
+        qty: 1,
+        unit: invUom,
+      },
     ]);
     toast.success(`Inventory Item added: ${invItemName.trim()}`);
     setIsAddInventoryOpen(false);
@@ -565,7 +506,13 @@ export default function PurchaseRequestsPage() {
   const handleAddLineItem = () => {
     setLineItems((prev) => [
       ...prev,
-      { id: String(Date.now()), item: "", description: "", qty: 1, unit: "Nos" },
+      {
+        id: String(Date.now()),
+        item: "",
+        description: "",
+        qty: 1,
+        unit: "Nos",
+      },
     ]);
   };
 
@@ -577,15 +524,27 @@ export default function PurchaseRequestsPage() {
     setLineItems((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleLineItemChange = (id: string, field: keyof LineItem, value: any) => {
+  const handleLineItemChange = (
+    id: string,
+    field: keyof LineItem,
+    value: any,
+  ) => {
     setLineItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
     );
   };
 
   const handleDuplicatePR = (pr: PurchaseRequestItem) => {
     setVendorName(`${pr.vendorId} - ${pr.vendor}`);
-    setLineItems([{ id: "1", item: pr.itemName || "", description: "", qty: pr.quantity || 1, unit: pr.unit || "Nos" }]);
+    setLineItems([
+      {
+        id: "1",
+        item: pr.itemName || "",
+        description: "",
+        qty: pr.quantity || 1,
+        unit: pr.unit || "Nos",
+      },
+    ]);
     setPriority(pr.priority || "Normal");
     setDepartment(pr.department || "Admin");
     setRequestedBy(pr.requestedBy || "Aakash T");
@@ -629,7 +588,8 @@ export default function PurchaseRequestsPage() {
 
   const filtered = useMemo(() => {
     return prs.filter((pr) => {
-      const matchesVendor = selectedVendor === "All" || pr.vendor === selectedVendor;
+      const matchesVendor =
+        selectedVendor === "All" || pr.vendor === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         pr.prNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -638,8 +598,10 @@ export default function PurchaseRequestsPage() {
         pr.requestedBy.toLowerCase().includes(search.toLowerCase());
 
       const prDate = new Date(pr.reqDate).getTime();
-      const matchesFromDate = !fromDate || isNaN(prDate) || prDate >= new Date(fromDate).getTime();
-      const matchesToDate = !toDate || isNaN(prDate) || prDate <= new Date(toDate).getTime();
+      const matchesFromDate =
+        !fromDate || isNaN(prDate) || prDate >= new Date(fromDate).getTime();
+      const matchesToDate =
+        !toDate || isNaN(prDate) || prDate <= new Date(toDate).getTime();
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
@@ -647,7 +609,8 @@ export default function PurchaseRequestsPage() {
 
   const handleSubmitPR = (status: "Submitted" | "Draft") => {
     const firstItem = lineItems[0];
-    const itemName = (firstItem?.item && firstItem.item.trim()) || "Trapezoidal Roofing Sheet";
+    const itemName =
+      (firstItem?.item && firstItem.item.trim()) || "Trapezoidal Roofing Sheet";
     const quantity = Number(firstItem?.qty) || 100;
     const unit = firstItem?.unit || "sheets";
 
@@ -656,8 +619,17 @@ export default function PurchaseRequestsPage() {
     const vName = vParts[1] || vParts[0] || "Jagadeep";
 
     const now = new Date();
-    const formattedTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
-    const formattedDate = now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const formattedTime = now.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    const formattedDate = now.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
 
     const newPRItem: PurchaseRequestItem = {
       id: Date.now(),
@@ -681,13 +653,20 @@ export default function PurchaseRequestsPage() {
     addStoredVendor({ id: vId, name: vName });
 
     // Optimistically update query cache immediately
-    queryClient.setQueryData(["get", "/api/flex/purchase-requests"], (oldData: any) => {
-      const currentList = Array.isArray(oldData) ? oldData : DEFAULT_PRS;
-      return [newPRItem, ...currentList];
-    });
+    queryClient.setQueryData(
+      ["get", "/api/flex/purchase-requests"],
+      (oldData: any) => {
+        const currentList = Array.isArray(oldData) ? oldData : [];
+        return [newPRItem, ...currentList];
+      },
+    );
 
     const isDraft = status === "Draft";
-    toast.success(isDraft ? "Purchase Request saved as Draft" : "Purchase Request submitted successfully!");
+    toast.success(
+      isDraft
+        ? "Purchase Request saved as Draft"
+        : "Purchase Request submitted successfully!",
+    );
     setIsCreateOpen(false);
     resetForm();
 
@@ -742,7 +721,9 @@ export default function PurchaseRequestsPage() {
             {/* Title Header Row with Action Buttons */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight text-foreground">Purchase Requests</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                  Purchase Requests
+                </h1>
                 <Button
                   variant="outline"
                   size="icon"
@@ -753,7 +734,9 @@ export default function PurchaseRequestsPage() {
                   }}
                   title="Refresh Records"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`} />
+                  <RefreshCw
+                    className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
+                  />
                 </Button>
               </div>
 
@@ -782,7 +765,9 @@ export default function PurchaseRequestsPage() {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <div className="text-[11px] text-muted-foreground mb-1 font-medium">From Date</div>
+                  <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                    From Date
+                  </div>
                   <Input
                     type="date"
                     value={fromDate}
@@ -791,7 +776,9 @@ export default function PurchaseRequestsPage() {
                   />
                 </div>
                 <div>
-                  <div className="text-[11px] text-muted-foreground mb-1 font-medium">To Date</div>
+                  <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                    To Date
+                  </div>
                   <Input
                     type="date"
                     value={toDate}
@@ -802,8 +789,13 @@ export default function PurchaseRequestsPage() {
               </div>
 
               <div>
-                <div className="text-[11px] text-muted-foreground mb-1 font-medium">Vendor</div>
-                <Select value={selectedVendor} onValueChange={setSelectedVendor}>
+                <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                  Vendor
+                </div>
+                <Select
+                  value={selectedVendor}
+                  onValueChange={setSelectedVendor}
+                >
                   <SelectTrigger className="bg-background text-xs h-9 rounded-md">
                     <SelectValue placeholder="All vendors" />
                   </SelectTrigger>
@@ -828,51 +820,83 @@ export default function PurchaseRequestsPage() {
                         <th className="px-4 py-3 font-semibold">PR NUMBER</th>
                         <th className="px-4 py-3 font-semibold">VERSION</th>
                         <th className="px-4 py-3 font-semibold">REQ DATE</th>
-                        <th className="px-4 py-3 font-semibold">REQUIRED DATE</th>
+                        <th className="px-4 py-3 font-semibold">
+                          REQUIRED DATE
+                        </th>
                         <th className="px-4 py-3 font-semibold">PRIORITY</th>
                         <th className="px-4 py-3 font-semibold">DEPARTMENT</th>
-                        <th className="px-4 py-3 font-semibold">REQUESTED BY</th>
+                        <th className="px-4 py-3 font-semibold">
+                          REQUESTED BY
+                        </th>
                         <th className="px-4 py-3 font-semibold">STATUS</th>
-                        <th className="px-4 py-3 font-semibold text-right">ACTION</th>
+                        <th className="px-4 py-3 font-semibold text-right">
+                          ACTION
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {filtered.length === 0 ? (
                         <tr>
-                          <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                          <td
+                            colSpan={11}
+                            className="px-4 py-8 text-center text-muted-foreground text-sm"
+                          >
                             No purchase requests found.
                           </td>
                         </tr>
                       ) : (
                         filtered.map((pr) => (
-                          <tr key={pr.id} className="hover:bg-muted/40 transition-colors">
-                            <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{pr.vendorId}</td>
-                            <td className="px-4 py-3 font-semibold text-foreground">{pr.vendor}</td>
-                            <td className="px-4 py-3 font-bold text-foreground">{pr.prNumber}</td>
+                          <tr
+                            key={pr.id}
+                            className="hover:bg-muted/40 transition-colors"
+                          >
+                            <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                              {pr.vendorId}
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-foreground">
+                              {pr.vendor}
+                            </td>
+                            <td className="px-4 py-3 font-bold text-foreground">
+                              {pr.prNumber}
+                            </td>
                             <td className="px-4 py-3">
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] ${
-                                pr.version.startsWith("Submitted")
-                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                                  : "bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"
-                              }`}>
+                              <span
+                                className={`inline-flex px-2 py-0.5 rounded-full text-[10px] ${
+                                  pr.version.startsWith("Submitted")
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                                    : "bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300"
+                                }`}
+                              >
                                 {pr.version}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-muted-foreground">{pr.reqDate}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{pr.requiredDate}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{pr.priority}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{pr.department}</td>
-                            <td className="px-4 py-3 font-medium text-foreground">{pr.requestedBy}</td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {pr.reqDate}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {pr.requiredDate}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {pr.priority}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {pr.department}
+                            </td>
+                            <td className="px-4 py-3 font-medium text-foreground">
+                              {pr.requestedBy}
+                            </td>
                             <td className="px-4 py-3">
-                              <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                pr.status === "Submitted"
-                                  ? "bg-amber-50 text-amber-600 border-amber-200"
-                                  : pr.status === "Approved"
-                                  ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                                  : pr.status === "Rejected"
-                                  ? "bg-red-50 text-red-600 border-red-200"
-                                  : "bg-muted/70 text-muted-foreground border-border"
-                              }`}>
+                              <span
+                                className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                  pr.status === "Submitted"
+                                    ? "bg-amber-50 text-amber-600 border-amber-200"
+                                    : pr.status === "Approved"
+                                      ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                                      : pr.status === "Rejected"
+                                        ? "bg-red-50 text-red-600 border-red-200"
+                                        : "bg-muted/70 text-muted-foreground border-border"
+                                }`}
+                              >
                                 {pr.status}
                               </span>
                             </td>
@@ -896,16 +920,35 @@ export default function PurchaseRequestsPage() {
                                   setEditingPr(pr);
                                   setEditVendorName(pr.vendor || "Jagadeep");
                                   setEditVendorsTable([
-                                    { name: pr.vendor || "Jagadeep", whatsapp: "9753124680", phone: "9753124680", email: "j@gmail.com" }
+                                    {
+                                      name: pr.vendor || "Jagadeep",
+                                      whatsapp: "9753124680",
+                                      phone: "9753124680",
+                                      email: "j@gmail.com",
+                                    },
                                   ]);
                                   setEditLineItems([
-                                    { id: "1", product: pr.itemName || "HP LED 1080p (MONI-HP-LED-0001) (245", description: pr.itemName || "HP LED 1080p", qty: pr.quantity || 1, unit: pr.unit || "Nos" }
+                                    {
+                                      id: "1",
+                                      product:
+                                        pr.itemName ||
+                                        "HP LED 1080p (MONI-HP-LED-0001) (245",
+                                      description:
+                                        pr.itemName || "HP LED 1080p",
+                                      qty: pr.quantity || 1,
+                                      unit: pr.unit || "Nos",
+                                    },
                                   ]);
                                   setEditReqDate(pr.reqDate || "2026-08-07");
-                                  setEditRequiredDate(pr.requiredDate || "2026-08-07");
+                                  setEditRequiredDate(
+                                    pr.requiredDate || "2026-08-07",
+                                  );
                                   setEditPriority(pr.priority || "Normal");
                                   setEditDepartment(pr.department || "Admin");
-                                  setEditRequestedBy(pr.requestedBy || "Aakash T (UI/UX Designer) (13)");
+                                  setEditRequestedBy(
+                                    pr.requestedBy ||
+                                      "Aakash T (UI/UX Designer) (13)",
+                                  );
                                   setEditProject(pr.project || "");
                                   setEditNotes(pr.notes || "");
                                 }}
@@ -925,14 +968,24 @@ export default function PurchaseRequestsPage() {
                 {/* Pagination Footer */}
                 <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
                   <div>
-                    Showing <span className="font-semibold text-foreground">1</span> to{" "}
-                    <span className="font-semibold text-foreground">{filtered.length}</span> of{" "}
-                    <span className="font-semibold text-foreground">{filtered.length}</span> records
+                    Showing{" "}
+                    <span className="font-semibold text-foreground">1</span> to{" "}
+                    <span className="font-semibold text-foreground">
+                      {filtered.length}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-semibold text-foreground">
+                      {filtered.length}
+                    </span>{" "}
+                    records
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                       <span>Rows per page:</span>
-                      <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
+                      <Select
+                        value={rowsPerPage}
+                        onValueChange={setRowsPerPage}
+                      >
                         <SelectTrigger className="h-7 w-16 text-xs bg-background">
                           <SelectValue placeholder="25" />
                         </SelectTrigger>
@@ -971,15 +1024,26 @@ export default function PurchaseRequestsPage() {
                       <th className="px-4 py-3.5 font-semibold">VERSION</th>
                       <th className="px-4 py-3.5 font-semibold">DATE</th>
                       <th className="px-4 py-3.5 font-semibold">STATUS</th>
-                      <th className="px-4 py-3.5 font-semibold text-right">ACTIONS</th>
+                      <th className="px-4 py-3.5 font-semibold text-right">
+                        ACTIONS
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {DEFAULT_VENDOR_AVAILABILITY.map((item, i) => (
-                      <tr key={i} className="hover:bg-muted/40 transition-colors">
-                        <td className="px-4 py-3.5 font-bold text-foreground">{item.prNumber}</td>
-                        <td className="px-4 py-3.5 text-muted-foreground font-medium">{item.version}</td>
-                        <td className="px-4 py-3.5 text-muted-foreground">{item.date}</td>
+                    {vendorAvailability.map((item, i) => (
+                      <tr
+                        key={i}
+                        className="hover:bg-muted/40 transition-colors"
+                      >
+                        <td className="px-4 py-3.5 font-bold text-foreground">
+                          {item.prNumber}
+                        </td>
+                        <td className="px-4 py-3.5 text-muted-foreground font-medium">
+                          {item.version}
+                        </td>
+                        <td className="px-4 py-3.5 text-muted-foreground">
+                          {item.date}
+                        </td>
                         <td className="px-4 py-3.5">
                           <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300">
                             {item.status}
@@ -1028,7 +1092,9 @@ export default function PurchaseRequestsPage() {
                 <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
                   PURCHASE REQUEST NUMBER
                 </div>
-                <div className="text-base font-bold text-foreground mt-0.5 font-mono">{nextPrNumber}</div>
+                <div className="text-base font-bold text-foreground mt-0.5 font-mono">
+                  {nextPrNumber}
+                </div>
               </div>
 
               {/* 2. VENDOR SELECTION */}
@@ -1064,7 +1130,9 @@ export default function PurchaseRequestsPage() {
               {/* 3. LINE ITEMS SECTION */}
               <div className="border border-border/80 rounded-lg p-3.5 space-y-3 bg-background shadow-2xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-foreground">Line Items</span>
+                  <span className="text-xs font-bold text-foreground">
+                    Line Items
+                  </span>
                   <div className="flex items-center gap-2">
                     <Button
                       type="button"
@@ -1096,23 +1164,42 @@ export default function PurchaseRequestsPage() {
                   </div>
 
                   {lineItems.map((itemRow) => (
-                    <div key={itemRow.id} className="grid grid-cols-12 gap-2 items-center">
+                    <div
+                      key={itemRow.id}
+                      className="grid grid-cols-12 gap-2 items-center"
+                    >
                       <div className="col-span-4">
                         <Select
                           value={itemRow.item}
-                          onValueChange={(val) => handleLineItemChange(itemRow.id, "item", val)}
+                          onValueChange={(val) =>
+                            handleLineItemChange(itemRow.id, "item", val)
+                          }
                         >
                           <SelectTrigger className="h-8 text-xs bg-background">
                             <SelectValue placeholder="Select or type product/service" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Trapezoidal Roofing Sheet">Trapezoidal Roofing Sheet</SelectItem>
-                            <SelectItem value="Steel Rod 12mm">Steel Rod 12mm</SelectItem>
-                            <SelectItem value="Cement Bags">Cement Bags</SelectItem>
-                            <SelectItem value="Structural Beams">Structural Beams</SelectItem>
-                            <SelectItem value="Fastener Screws">Fastener Screws</SelectItem>
-                            <SelectItem value="Safety Helmets">Safety Helmets</SelectItem>
-                            <SelectItem value="Office Supplies">Office Supplies</SelectItem>
+                            <SelectItem value="Trapezoidal Roofing Sheet">
+                              Trapezoidal Roofing Sheet
+                            </SelectItem>
+                            <SelectItem value="Steel Rod 12mm">
+                              Steel Rod 12mm
+                            </SelectItem>
+                            <SelectItem value="Cement Bags">
+                              Cement Bags
+                            </SelectItem>
+                            <SelectItem value="Structural Beams">
+                              Structural Beams
+                            </SelectItem>
+                            <SelectItem value="Fastener Screws">
+                              Fastener Screws
+                            </SelectItem>
+                            <SelectItem value="Safety Helmets">
+                              Safety Helmets
+                            </SelectItem>
+                            <SelectItem value="Office Supplies">
+                              Office Supplies
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1120,7 +1207,13 @@ export default function PurchaseRequestsPage() {
                         <Input
                           placeholder="Description"
                           value={itemRow.description}
-                          onChange={(e) => handleLineItemChange(itemRow.id, "description", e.target.value)}
+                          onChange={(e) =>
+                            handleLineItemChange(
+                              itemRow.id,
+                              "description",
+                              e.target.value,
+                            )
+                          }
                           className="h-8 text-xs bg-background"
                         />
                       </div>
@@ -1128,14 +1221,22 @@ export default function PurchaseRequestsPage() {
                         <Input
                           type="number"
                           value={itemRow.qty}
-                          onChange={(e) => handleLineItemChange(itemRow.id, "qty", parseFloat(e.target.value) || 1)}
+                          onChange={(e) =>
+                            handleLineItemChange(
+                              itemRow.id,
+                              "qty",
+                              parseFloat(e.target.value) || 1,
+                            )
+                          }
                           className="h-8 text-xs bg-background"
                         />
                       </div>
                       <div className="col-span-1">
                         <Select
                           value={itemRow.unit}
-                          onValueChange={(val) => handleLineItemChange(itemRow.id, "unit", val)}
+                          onValueChange={(val) =>
+                            handleLineItemChange(itemRow.id, "unit", val)
+                          }
                         >
                           <SelectTrigger className="h-8 text-xs bg-background px-2">
                             <SelectValue placeholder="Nos" />
@@ -1189,7 +1290,9 @@ export default function PurchaseRequestsPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Priority</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    Priority
+                  </Label>
                   <Select value={priority} onValueChange={setPriority}>
                     <SelectTrigger className="h-9 text-xs bg-background">
                       <SelectValue placeholder="Normal" />
@@ -1240,15 +1343,21 @@ export default function PurchaseRequestsPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Project</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    Project
+                  </Label>
                   <Select value={project} onValueChange={setProject}>
                     <SelectTrigger className="h-9 text-xs bg-background">
                       <SelectValue placeholder="Optional..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Vidhai Factory Phase 1">Vidhai Factory Phase 1</SelectItem>
+                      <SelectItem value="Vidhai Factory Phase 1">
+                        Vidhai Factory Phase 1
+                      </SelectItem>
                       <SelectItem value="ERP Upgrade">ERP Upgrade</SelectItem>
-                      <SelectItem value="General Procurement">General Procurement</SelectItem>
+                      <SelectItem value="General Procurement">
+                        General Procurement
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1256,7 +1365,9 @@ export default function PurchaseRequestsPage() {
 
               {/* 6. ATTACHMENT UPLOAD */}
               <div className="space-y-1">
-                <Label className="text-xs font-semibold text-muted-foreground">Supporting Attachments</Label>
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Supporting Attachments
+                </Label>
                 <div className="flex items-center gap-2">
                   <Input
                     type="file"
@@ -1279,7 +1390,9 @@ export default function PurchaseRequestsPage() {
 
               {/* 7. NOTES */}
               <div className="space-y-1">
-                <Label className="text-xs font-semibold text-muted-foreground">Notes</Label>
+                <Label className="text-xs font-semibold text-muted-foreground">
+                  Notes
+                </Label>
                 <Textarea
                   placeholder="Additional notes"
                   value={notes}
@@ -1292,7 +1405,12 @@ export default function PurchaseRequestsPage() {
 
             {/* 8. FOOTER BUTTONS */}
             <DialogFooter className="pt-3 border-t border-border flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsCreateOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCreateOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
@@ -1319,22 +1437,37 @@ export default function PurchaseRequestsPage() {
         </Dialog>
 
         {/* ── 1. ADD CONTACT (ADD VENDOR) MODAL DIALOG ─────────────────────── */}
-        <Dialog open={isAddVendorOpen} onOpenChange={(open) => !open && handleCloseAddVendor()}>
+        <Dialog
+          open={isAddVendorOpen}
+          onOpenChange={(open) => !open && handleCloseAddVendor()}
+        >
           <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto p-6">
             <form onSubmit={handleAddVendorSubmit}>
               <DialogHeader className="pb-2 border-b border-border">
-                <DialogTitle className="text-lg font-bold text-foreground">Add Contact</DialogTitle>
-                <p className="text-xs text-muted-foreground">Creates a new entry in Orbit Contact Directory.</p>
+                <DialogTitle className="text-lg font-bold text-foreground">
+                  Add Contact
+                </DialogTitle>
+                <p className="text-xs text-muted-foreground">
+                  Creates a new entry in Orbit Contact Directory.
+                </p>
               </DialogHeader>
 
               <div className="space-y-3.5 py-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Contact ID</Label>
-                  <Input value={nextContactId} readOnly className="h-9 text-xs bg-muted/40 font-mono" />
+                  <Label className="text-xs text-muted-foreground">
+                    Contact ID
+                  </Label>
+                  <Input
+                    value={nextContactId}
+                    readOnly
+                    className="h-9 text-xs bg-muted/40 font-mono"
+                  />
                 </div>
 
                 <div>
-                  <Label className="text-xs text-foreground font-medium">Vendor Name *</Label>
+                  <Label className="text-xs text-foreground font-medium">
+                    Vendor Name *
+                  </Label>
                   <Input
                     placeholder="Enter vendor name"
                     value={vName}
@@ -1346,7 +1479,9 @@ export default function PurchaseRequestsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-foreground font-medium">Phone *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      Phone *
+                    </Label>
                     <Input
                       placeholder="Phone number"
                       value={vPhone}
@@ -1356,7 +1491,9 @@ export default function PurchaseRequestsPage() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">WhatsApp</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      WhatsApp
+                    </Label>
                     <Input
                       placeholder="WhatsApp number"
                       value={vWhatsapp}
@@ -1378,7 +1515,9 @@ export default function PurchaseRequestsPage() {
                 </div>
 
                 <div>
-                  <Label className="text-xs text-foreground font-medium">Address *</Label>
+                  <Label className="text-xs text-foreground font-medium">
+                    Address *
+                  </Label>
                   <Textarea
                     placeholder="Vendor address"
                     value={vAddress}
@@ -1391,7 +1530,9 @@ export default function PurchaseRequestsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-muted-foreground">GST Number</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      GST Number
+                    </Label>
                     <Input
                       placeholder="GSTIN"
                       value={vGst}
@@ -1400,7 +1541,9 @@ export default function PurchaseRequestsPage() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Contact Person</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Contact Person
+                    </Label>
                     <Input
                       placeholder="Contact person name"
                       value={vPerson}
@@ -1411,7 +1554,9 @@ export default function PurchaseRequestsPage() {
                 </div>
 
                 <div>
-                  <Label className="text-xs text-muted-foreground">Contact Type</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Contact Type
+                  </Label>
                   <Select value="Vendor" disabled>
                     <SelectTrigger className="h-9 text-xs bg-muted/30">
                       <SelectValue placeholder="Vendor" />
@@ -1424,10 +1569,19 @@ export default function PurchaseRequestsPage() {
               </div>
 
               <DialogFooter className="pt-3 border-t border-border flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={handleCloseAddVendor}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCloseAddVendor}
+                >
                   Cancel
                 </Button>
-                <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
+                >
                   Add Contact
                 </Button>
               </DialogFooter>
@@ -1436,16 +1590,23 @@ export default function PurchaseRequestsPage() {
         </Dialog>
 
         {/* ── 2. ADD INVENTORY (ADD TO ITEM MASTER) MODAL DIALOG ───────────── */}
-        <Dialog open={isAddInventoryOpen} onOpenChange={(open) => !open && handleCloseAddInventory()}>
+        <Dialog
+          open={isAddInventoryOpen}
+          onOpenChange={(open) => !open && handleCloseAddInventory()}
+        >
           <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto p-6">
             <form onSubmit={handleAddInventorySubmit}>
               <DialogHeader className="pb-2 border-b border-border">
-                <DialogTitle className="text-lg font-bold text-foreground">Add Inventory</DialogTitle>
+                <DialogTitle className="text-lg font-bold text-foreground">
+                  Add Inventory
+                </DialogTitle>
               </DialogHeader>
 
               <div className="space-y-3.5 py-3">
                 <div>
-                  <Label className="text-xs text-foreground font-medium">Item Name *</Label>
+                  <Label className="text-xs text-foreground font-medium">
+                    Item Name *
+                  </Label>
                   <Input
                     placeholder="Search or select item"
                     value={invItemName}
@@ -1457,27 +1618,37 @@ export default function PurchaseRequestsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-foreground font-medium">Category *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      Category *
+                    </Label>
                     <Select value={invCategory} onValueChange={setInvCategory}>
                       <SelectTrigger className="h-9 text-xs">
                         <SelectValue placeholder="Search or select category" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Raw Material">Raw Material</SelectItem>
-                        <SelectItem value="Finished Goods">Finished Goods</SelectItem>
+                        <SelectItem value="Raw Material">
+                          Raw Material
+                        </SelectItem>
+                        <SelectItem value="Finished Goods">
+                          Finished Goods
+                        </SelectItem>
                         <SelectItem value="Packaging">Packaging</SelectItem>
                         <SelectItem value="Hardware">Hardware</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Type</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Type
+                    </Label>
                     <Select value={invType} onValueChange={setInvType}>
                       <SelectTrigger className="h-9 text-xs">
                         <SelectValue placeholder="Raw Material" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Raw Material">Raw Material</SelectItem>
+                        <SelectItem value="Raw Material">
+                          Raw Material
+                        </SelectItem>
                         <SelectItem value="Consumable">Consumable</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1486,7 +1657,9 @@ export default function PurchaseRequestsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-foreground font-medium">Generated SKU *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      Generated SKU *
+                    </Label>
                     <Input
                       value={invSku}
                       onChange={(e) => setInvSku(e.target.value)}
@@ -1495,7 +1668,9 @@ export default function PurchaseRequestsPage() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs text-foreground font-medium">HSN/SAC *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      HSN/SAC *
+                    </Label>
                     <Input
                       value={invHsn}
                       onChange={(e) => setInvHsn(e.target.value)}
@@ -1507,7 +1682,9 @@ export default function PurchaseRequestsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-foreground font-medium">Buying Price (₹) *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      Buying Price (₹) *
+                    </Label>
                     <Input
                       type="number"
                       value={invBuyingPrice}
@@ -1517,7 +1694,9 @@ export default function PurchaseRequestsPage() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs text-foreground font-medium">Selling Price (₹) *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      Selling Price (₹) *
+                    </Label>
                     <Input
                       type="number"
                       value={invSellingPrice}
@@ -1530,7 +1709,9 @@ export default function PurchaseRequestsPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-foreground font-medium">UOM *</Label>
+                    <Label className="text-xs text-foreground font-medium">
+                      UOM *
+                    </Label>
                     <Select value={invUom} onValueChange={setInvUom}>
                       <SelectTrigger className="h-9 text-xs">
                         <SelectValue placeholder="Nos" />
@@ -1546,7 +1727,9 @@ export default function PurchaseRequestsPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Critical Level</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Critical Level
+                    </Label>
                     <Input
                       type="number"
                       value={invCriticalLevel}
@@ -1558,12 +1741,19 @@ export default function PurchaseRequestsPage() {
 
                 {/* Image Upload box */}
                 <div>
-                  <Label className="text-xs text-muted-foreground">Product Image</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Product Image
+                  </Label>
                   <div className="flex items-center gap-3 mt-1">
                     <div className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted/30 text-muted-foreground">
                       <ImageIcon className="w-6 h-6" />
                     </div>
-                    <Button type="button" variant="outline" size="sm" className="text-xs h-8">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-8"
+                    >
                       Upload image
                     </Button>
                   </div>
@@ -1572,8 +1762,13 @@ export default function PurchaseRequestsPage() {
                 {/* Warehouse Stock */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground font-medium">Stock by Warehouse</span>
-                    <button type="button" className="text-primary hover:underline text-[11px] font-semibold">
+                    <span className="text-muted-foreground font-medium">
+                      Stock by Warehouse
+                    </span>
+                    <button
+                      type="button"
+                      className="text-primary hover:underline text-[11px] font-semibold"
+                    >
                       + Add Warehouse
                     </button>
                   </div>
@@ -1587,21 +1782,35 @@ export default function PurchaseRequestsPage() {
                         <SelectItem value="Chennai">Chennai (2)</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input type="number" defaultValue={0} className="h-9 text-xs" />
+                    <Input
+                      type="number"
+                      defaultValue={0}
+                      className="h-9 text-xs"
+                    />
                   </div>
                 </div>
 
                 {/* QR Code section */}
                 <div className="bg-muted/40 p-2.5 rounded-lg border border-border/60 text-[11px] text-muted-foreground">
-                  Product QR Code: Complete category selections to generate the QR code.
+                  Product QR Code: Complete category selections to generate the
+                  QR code.
                 </div>
               </div>
 
               <DialogFooter className="pt-3 border-t border-border flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={handleCloseAddInventory}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCloseAddInventory}
+                >
                   Cancel
                 </Button>
-                <Button type="submit" size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
+                >
                   Add Inventory
                 </Button>
               </DialogFooter>
@@ -1610,7 +1819,10 @@ export default function PurchaseRequestsPage() {
         </Dialog>
 
         {/* ── 3. VENDOR AVAILABILITY DETAILS DIALOG MODAL ────────────────── */}
-        <Dialog open={!!selectedVendorAvailability} onOpenChange={() => setSelectedVendorAvailability(null)}>
+        <Dialog
+          open={!!selectedVendorAvailability}
+          onOpenChange={() => setSelectedVendorAvailability(null)}
+        >
           <DialogContent className="sm:max-w-md p-6">
             {selectedVendorAvailability && (
               <div className="space-y-4">
@@ -1622,12 +1834,20 @@ export default function PurchaseRequestsPage() {
 
                 <div className="space-y-2 py-2 text-xs">
                   {selectedVendorAvailability.vendors.map((v, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border">
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border"
+                    >
                       <div className="flex items-center gap-2">
                         <Users className="w-4 h-4 text-primary" />
                         <div>
                           <p className="font-bold text-foreground">{v.name}</p>
-                          <p className="text-[11px] text-muted-foreground">Quote: <span className="font-semibold text-foreground">{v.quote}</span></p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Quote:{" "}
+                            <span className="font-semibold text-foreground">
+                              {v.quote}
+                            </span>
+                          </p>
                         </div>
                       </div>
                       <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200">
@@ -1638,7 +1858,11 @@ export default function PurchaseRequestsPage() {
                 </div>
 
                 <DialogFooter className="pt-3 border-t border-border">
-                  <Button variant="outline" size="sm" onClick={() => setSelectedVendorAvailability(null)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedVendorAvailability(null)}
+                  >
                     Close
                   </Button>
                 </DialogFooter>
@@ -1654,7 +1878,9 @@ export default function PurchaseRequestsPage() {
               <div className="space-y-4">
                 <DialogHeader className="pb-2 border-b border-border">
                   <DialogTitle className="flex items-center justify-between">
-                    <span className="text-lg font-bold text-foreground">{selectedPr.prNumber} Details</span>
+                    <span className="text-lg font-bold text-foreground">
+                      {selectedPr.prNumber} Details
+                    </span>
                     <span className="text-xs font-mono bg-muted/60 px-2 py-0.5 rounded text-muted-foreground">
                       {selectedPr.vendorId}
                     </span>
@@ -1665,37 +1891,54 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3 text-xs bg-muted/40 p-3.5 rounded-lg border border-border/80">
                   <div>
                     <span className="text-muted-foreground">Item Name:</span>
-                    <p className="font-semibold text-foreground text-sm">{selectedPr.itemName || "Trapezoidal Roofing Sheet"}</p>
+                    <p className="font-semibold text-foreground text-sm">
+                      {selectedPr.itemName || "Trapezoidal Roofing Sheet"}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Quantity:</span>
-                    <p className="font-semibold text-foreground text-sm">{selectedPr.quantity || 100} {selectedPr.unit || "sheets"}</p>
+                    <p className="font-semibold text-foreground text-sm">
+                      {selectedPr.quantity || 100} {selectedPr.unit || "sheets"}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Vendor:</span>
-                    <p className="font-medium text-foreground">{selectedPr.vendor}</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPr.vendor}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Requested By:</span>
-                    <p className="font-medium text-foreground">{selectedPr.requestedBy}</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPr.requestedBy}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Department:</span>
-                    <p className="font-medium text-foreground">{selectedPr.department}</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPr.department}
+                    </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Current Status:</span>
-                    <p className="font-semibold text-primary">{selectedPr.status}</p>
+                    <span className="text-muted-foreground">
+                      Current Status:
+                    </span>
+                    <p className="font-semibold text-primary">
+                      {selectedPr.status}
+                    </p>
                   </div>
                   {selectedPr.project && (
                     <div className="col-span-2">
                       <span className="text-muted-foreground">Project:</span>
-                      <p className="font-medium text-foreground">{selectedPr.project}</p>
+                      <p className="font-medium text-foreground">
+                        {selectedPr.project}
+                      </p>
                     </div>
                   )}
                   {selectedPr.attachmentName && (
                     <div className="col-span-2 flex items-center gap-1.5 text-primary font-medium">
-                      <Paperclip className="w-3.5 h-3.5" /> Attachment: {selectedPr.attachmentName}
+                      <Paperclip className="w-3.5 h-3.5" /> Attachment:{" "}
+                      {selectedPr.attachmentName}
                     </div>
                   )}
                 </div>
@@ -1703,17 +1946,36 @@ export default function PurchaseRequestsPage() {
                 {/* Audit & Version History */}
                 <div className="space-y-2 pt-1 border-t border-border">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                    <History className="w-3.5 h-3.5 text-primary" /> Version Audit History
+                    <History className="w-3.5 h-3.5 text-primary" /> Version
+                    Audit History
                   </div>
                   <div className="bg-background border border-border rounded-lg p-2.5 space-y-1.5 text-[11px]">
-                    {(selectedPr.versionLogs || [
-                      { version: selectedPr.version, updatedBy: selectedPr.requestedBy, timestamp: selectedPr.reqDate, status: selectedPr.status }
-                    ]).map((log, idx) => (
-                      <div key={idx} className="flex items-center justify-between py-1 border-b border-border/40 last:border-0">
-                        <span className="font-medium text-foreground">{log.version}</span>
-                        <span className="text-muted-foreground">{log.updatedBy}</span>
-                        <span className="text-muted-foreground">{log.timestamp}</span>
-                        <span className="font-semibold text-primary">{log.status}</span>
+                    {(
+                      selectedPr.versionLogs || [
+                        {
+                          version: selectedPr.version,
+                          updatedBy: selectedPr.requestedBy,
+                          timestamp: selectedPr.reqDate,
+                          status: selectedPr.status,
+                        },
+                      ]
+                    ).map((log, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between py-1 border-b border-border/40 last:border-0"
+                      >
+                        <span className="font-medium text-foreground">
+                          {log.version}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {log.updatedBy}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {log.timestamp}
+                        </span>
+                        <span className="font-semibold text-primary">
+                          {log.status}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1722,7 +1984,8 @@ export default function PurchaseRequestsPage() {
                 {/* Workflow Actions */}
                 <div className="space-y-2 pt-2 border-t border-border">
                   <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-primary" /> Approval & Workflow Actions
+                    <ShieldCheck className="w-3.5 h-3.5 text-primary" />{" "}
+                    Approval & Workflow Actions
                   </Label>
                   <div className="flex flex-wrap gap-2">
                     {selectedPr.status === "Submitted" && (
@@ -1730,15 +1993,26 @@ export default function PurchaseRequestsPage() {
                         <Button
                           size="sm"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-                          onClick={() => updateMutation.mutate({ id: selectedPr.id, status: "Approved" })}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: selectedPr.id,
+                              status: "Approved",
+                            })
+                          }
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve Request
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                          Request
                         </Button>
                         <Button
                           size="sm"
                           variant="destructive"
                           className="gap-1.5"
-                          onClick={() => updateMutation.mutate({ id: selectedPr.id, status: "Rejected" })}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: selectedPr.id,
+                              status: "Rejected",
+                            })
+                          }
                         >
                           <XCircle className="w-3.5 h-3.5" /> Reject Request
                         </Button>
@@ -1749,19 +2023,26 @@ export default function PurchaseRequestsPage() {
                       <Button
                         size="sm"
                         className="bg-amber-600 hover:bg-amber-700 text-white gap-1.5"
-                        onClick={() => updateMutation.mutate({ id: selectedPr.id, status: "Submitted" })}
+                        onClick={() =>
+                          updateMutation.mutate({
+                            id: selectedPr.id,
+                            status: "Submitted",
+                          })
+                        }
                       >
                         Re-submit Request
                       </Button>
                     )}
 
-                    {(selectedPr.status === "Approved" || selectedPr.status === "Submitted") && (
+                    {(selectedPr.status === "Approved" ||
+                      selectedPr.status === "Submitted") && (
                       <Button
                         size="sm"
                         className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 font-semibold"
                         onClick={() => convertPoMutation.mutate(selectedPr.id)}
                       >
-                        <ShoppingCart className="w-3.5 h-3.5" /> Generate Purchase Order
+                        <ShoppingCart className="w-3.5 h-3.5" /> Generate
+                        Purchase Order
                       </Button>
                     )}
 
@@ -1786,7 +2067,11 @@ export default function PurchaseRequestsPage() {
                 </div>
 
                 <DialogFooter className="pt-3 border-t border-border">
-                  <Button variant="outline" size="sm" onClick={() => setSelectedPr(null)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedPr(null)}
+                  >
                     Close
                   </Button>
                 </DialogFooter>
@@ -1796,7 +2081,10 @@ export default function PurchaseRequestsPage() {
         </Dialog>
 
         {/* ── EDIT PURCHASE REQUEST MODAL DIALOG ─────────────────────────────── */}
-        <Dialog open={!!editingPr} onOpenChange={(open) => !open && setEditingPr(null)}>
+        <Dialog
+          open={!!editingPr}
+          onOpenChange={(open) => !open && setEditingPr(null)}
+        >
           <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6 bg-background rounded-2xl border border-border shadow-2xl">
             {editingPr && (
               <div className="space-y-4 text-xs">
@@ -1806,7 +2094,9 @@ export default function PurchaseRequestsPage() {
                     <div className="w-8 h-8 rounded-lg bg-pink-100 dark:bg-pink-950/50 text-pink-600 dark:text-pink-400 flex items-center justify-center">
                       <FileText className="w-4 h-4" />
                     </div>
-                    <h2 className="text-lg font-bold text-foreground">Edit Purchase Request</h2>
+                    <h2 className="text-lg font-bold text-foreground">
+                      Edit Purchase Request
+                    </h2>
                   </div>
                 </div>
 
@@ -1816,7 +2106,9 @@ export default function PurchaseRequestsPage() {
                     <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
                       REQUEST NUMBER
                     </div>
-                    <div className="text-base font-bold text-foreground font-mono">{editingPr.prNumber}</div>
+                    <div className="text-base font-bold text-foreground font-mono">
+                      {editingPr.prNumber}
+                    </div>
                     <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800">
                       {editingPr.version || "Submitted V1 · 12:37:14 pm"}
                     </div>
@@ -1830,7 +2122,8 @@ export default function PurchaseRequestsPage() {
 
                 {/* NOTICE BANNER */}
                 <div className="bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs px-4 py-2.5 rounded-lg border border-blue-200 dark:border-blue-900 font-medium">
-                  Saving will create a new submitted version from this locked request.
+                  Saving will create a new submitted version from this locked
+                  request.
                 </div>
 
                 {/* VENDOR SELECTION CARD */}
@@ -1853,7 +2146,9 @@ export default function PurchaseRequestsPage() {
                   </div>
 
                   <div>
-                    <div className="text-muted-foreground font-medium mb-1 text-[11px]">Select Vendor</div>
+                    <div className="text-muted-foreground font-medium mb-1 text-[11px]">
+                      Select Vendor
+                    </div>
                     <Select
                       value={editVendorName}
                       onValueChange={(val) => {
@@ -1861,7 +2156,12 @@ export default function PurchaseRequestsPage() {
                         if (!editVendorsTable.some((v) => v.name === val)) {
                           setEditVendorsTable((prev) => [
                             ...prev,
-                            { name: val, whatsapp: "9753124680", phone: "9753124680", email: "j@gmail.com" },
+                            {
+                              name: val,
+                              whatsapp: "9753124680",
+                              phone: "9753124680",
+                              email: "j@gmail.com",
+                            },
                           ]);
                         }
                       }}
@@ -1871,7 +2171,9 @@ export default function PurchaseRequestsPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {vendorsList.map((v: any) => (
-                          <SelectItem key={v.id} value={v.name}>{v.id} - {v.name}</SelectItem>
+                          <SelectItem key={v.id} value={v.name}>
+                            {v.id} - {v.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1892,15 +2194,27 @@ export default function PurchaseRequestsPage() {
                       <tbody className="divide-y divide-border">
                         {editVendorsTable.map((v, i) => (
                           <tr key={i} className="hover:bg-muted/40">
-                            <td className="px-3 py-2.5 font-bold text-foreground">{v.name}</td>
-                            <td className="px-3 py-2.5 text-muted-foreground font-mono">{v.whatsapp}</td>
-                            <td className="px-3 py-2.5 text-muted-foreground font-mono">{v.phone}</td>
-                            <td className="px-3 py-2.5 text-muted-foreground">{v.email}</td>
+                            <td className="px-3 py-2.5 font-bold text-foreground">
+                              {v.name}
+                            </td>
+                            <td className="px-3 py-2.5 text-muted-foreground font-mono">
+                              {v.whatsapp}
+                            </td>
+                            <td className="px-3 py-2.5 text-muted-foreground font-mono">
+                              {v.phone}
+                            </td>
+                            <td className="px-3 py-2.5 text-muted-foreground">
+                              {v.email}
+                            </td>
                             <td className="px-3 py-2.5 text-right">
                               <button
                                 type="button"
                                 className="text-red-500 hover:text-red-700 p-1 font-bold text-xs"
-                                onClick={() => setEditVendorsTable((prev) => prev.filter((_, idx) => idx !== i))}
+                                onClick={() =>
+                                  setEditVendorsTable((prev) =>
+                                    prev.filter((_, idx) => idx !== i),
+                                  )
+                                }
                               >
                                 ✕
                               </button>
@@ -1915,7 +2229,9 @@ export default function PurchaseRequestsPage() {
                 {/* LINE ITEMS SECTION */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-foreground text-sm">Line Items</span>
+                    <span className="font-bold text-foreground text-sm">
+                      Line Items
+                    </span>
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
@@ -1934,7 +2250,13 @@ export default function PurchaseRequestsPage() {
                         onClick={() => {
                           setEditLineItems((prev) => [
                             ...prev,
-                            { id: String(Date.now()), product: "Trapezoidal Roofing Sheet", description: "Standard Sheet", qty: 1, unit: "sheets" }
+                            {
+                              id: String(Date.now()),
+                              product: "Trapezoidal Roofing Sheet",
+                              description: "Standard Sheet",
+                              qty: 1,
+                              unit: "sheets",
+                            },
                           ]);
                         }}
                       >
@@ -1953,7 +2275,10 @@ export default function PurchaseRequestsPage() {
                     </div>
 
                     {editLineItems.map((item, idx) => (
-                      <div key={item.id} className="grid grid-cols-12 gap-2 items-center">
+                      <div
+                        key={item.id}
+                        className="grid grid-cols-12 gap-2 items-center"
+                      >
                         <div className="col-span-5">
                           <Select
                             value={item.product}
@@ -1971,9 +2296,15 @@ export default function PurchaseRequestsPage() {
                               <SelectItem value="HP LED 1080p (MONI-HP-LED-0001) (245">
                                 HP LED 1080p (MONI-HP-LED-0001) (245
                               </SelectItem>
-                              <SelectItem value="Trapezoidal Roofing Sheet">Trapezoidal Roofing Sheet</SelectItem>
-                              <SelectItem value="Steel Rod 12mm">Steel Rod 12mm</SelectItem>
-                              <SelectItem value="Cement Bags">Cement Bags</SelectItem>
+                              <SelectItem value="Trapezoidal Roofing Sheet">
+                                Trapezoidal Roofing Sheet
+                              </SelectItem>
+                              <SelectItem value="Steel Rod 12mm">
+                                Steel Rod 12mm
+                              </SelectItem>
+                              <SelectItem value="Cement Bags">
+                                Cement Bags
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -2007,7 +2338,11 @@ export default function PurchaseRequestsPage() {
                           <button
                             type="button"
                             className="text-muted-foreground hover:text-red-500 p-1"
-                            onClick={() => setEditLineItems((prev) => prev.filter((_, i) => i !== idx))}
+                            onClick={() =>
+                              setEditLineItems((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              )
+                            }
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -2020,7 +2355,9 @@ export default function PurchaseRequestsPage() {
                 {/* 3-COLUMN FORM FIELDS ROW 1 */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   <div>
-                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">Request Date</Label>
+                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Request Date
+                    </Label>
                     <Input
                       type="date"
                       value={editReqDate}
@@ -2040,8 +2377,13 @@ export default function PurchaseRequestsPage() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</Label>
-                    <Select value={editPriority} onValueChange={setEditPriority}>
+                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Priority
+                    </Label>
+                    <Select
+                      value={editPriority}
+                      onValueChange={setEditPriority}
+                    >
                       <SelectTrigger className="h-9 text-xs bg-background rounded-lg border-border">
                         <SelectValue />
                       </SelectTrigger>
@@ -2060,7 +2402,10 @@ export default function PurchaseRequestsPage() {
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
                       Department <span className="text-red-500">*</span>
                     </Label>
-                    <Select value={editDepartment} onValueChange={setEditDepartment}>
+                    <Select
+                      value={editDepartment}
+                      onValueChange={setEditDepartment}
+                    >
                       <SelectTrigger className="h-9 text-xs bg-background rounded-lg border-border">
                         <SelectValue />
                       </SelectTrigger>
@@ -2076,26 +2421,37 @@ export default function PurchaseRequestsPage() {
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
                       Requested By <span className="text-red-500">*</span>
                     </Label>
-                    <Select value={editRequestedBy} onValueChange={setEditRequestedBy}>
+                    <Select
+                      value={editRequestedBy}
+                      onValueChange={setEditRequestedBy}
+                    >
                       <SelectTrigger className="h-9 text-xs bg-background rounded-lg border-border">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Aakash T (UI/UX Designer) (13)">Aakash T (UI/UX Designer) (13)</SelectItem>
+                        <SelectItem value="Aakash T (UI/UX Designer) (13)">
+                          Aakash T (UI/UX Designer) (13)
+                        </SelectItem>
                         <SelectItem value="Kavin">Kavin</SelectItem>
                         <SelectItem value="Jagadeep S">Jagadeep S</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">Project</Label>
+                    <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                      Project
+                    </Label>
                     <Select value={editProject} onValueChange={setEditProject}>
                       <SelectTrigger className="h-9 text-xs bg-background rounded-lg border-border">
                         <SelectValue placeholder="Optional..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Vidhai Factory Phase 1">Vidhai Factory Phase 1</SelectItem>
-                        <SelectItem value="Ooty Solar Panel Installation">Ooty Solar Panel Installation</SelectItem>
+                        <SelectItem value="Vidhai Factory Phase 1">
+                          Vidhai Factory Phase 1
+                        </SelectItem>
+                        <SelectItem value="Ooty Solar Panel Installation">
+                          Ooty Solar Panel Installation
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2103,7 +2459,9 @@ export default function PurchaseRequestsPage() {
 
                 {/* NOTES */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1 block">Notes</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1 block">
+                    Notes
+                  </Label>
                   <Textarea
                     value={editNotes}
                     onChange={(e) => setEditNotes(e.target.value)}
@@ -2132,7 +2490,8 @@ export default function PurchaseRequestsPage() {
                         ...editingPr,
                         vendor: editVendorName,
                         version: updatedVersion,
-                        itemName: editLineItems[0]?.product || editingPr.itemName,
+                        itemName:
+                          editLineItems[0]?.product || editingPr.itemName,
                         quantity: editLineItems[0]?.qty || editingPr.quantity,
                         unit: editLineItems[0]?.unit || editingPr.unit,
                         department: editDepartment,
@@ -2142,8 +2501,12 @@ export default function PurchaseRequestsPage() {
                         requiredDate: editRequiredDate,
                       };
                       addStoredPR(updatedPR);
-                      queryClient.setQueryData(["get", "/api/flex/purchase-requests"], (old: any) =>
-                        (Array.isArray(old) ? old : []).map((p: any) => (p.id === editingPr.id ? updatedPR : p))
+                      queryClient.setQueryData(
+                        ["get", "/api/flex/purchase-requests"],
+                        (old: any) =>
+                          (Array.isArray(old) ? old : []).map((p: any) =>
+                            p.id === editingPr.id ? updatedPR : p,
+                          ),
                       );
                       toast.success("Purchase Request updated successfully!");
                       setEditingPr(null);

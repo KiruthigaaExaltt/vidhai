@@ -60,40 +60,18 @@ interface InvoiceLineItem {
   total: number;
 }
 
-const DEFAULT_INVOICES: PurchaseInvoiceItem[] = [
-  {
-    id: 1,
-    vendorId: "CON00005",
-    vendor: "Nish",
-    invoiceNumber: "INV001 10:09:47 am",
-    poReference: "PO-26-27-0006",
-    date: "2026-07-21",
-    invoiceAmt: 11800,
-    poAmt: 11800,
-    grnAmt: 11800,
-    match: "Matched",
-    payment: "Paid",
-  },
-  {
-    id: 2,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    invoiceNumber: "INV002 04:15:30 pm",
-    poReference: "PO-26-27-0005",
-    date: "2026-07-20",
-    invoiceAmt: 24500,
-    poAmt: 24500,
-    grnAmt: 24500,
-    match: "Matched",
-    payment: "Paid",
-  },
-];
-
-import { mergeVendors, addStoredVendor, mergeInvoices, addStoredInvoice } from "@/lib/flexStore";
+import {
+  mergeVendors,
+  addStoredVendor,
+  mergeInvoices,
+  addStoredInvoice,
+} from "@/lib/flexStore";
 
 async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/purchase-invoices`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/purchase-invoices`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       const serverMapped = (data || []).map((inv: any, i: number) => ({
@@ -109,10 +87,10 @@ async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
         match: "Matched",
         payment: inv.status || "Paid",
       }));
-      return mergeInvoices(serverMapped, DEFAULT_INVOICES);
+      return mergeInvoices(serverMapped);
     }
   } catch {}
-  return mergeInvoices([], DEFAULT_INVOICES);
+  return mergeInvoices([]);
 }
 
 async function createPurchaseInvoice(payload: any) {
@@ -126,10 +104,11 @@ async function createPurchaseInvoice(payload: any) {
   return res.json();
 }
 
-
 async function fetchVendorsList() {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/vendors`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       return mergeVendors(data);
@@ -140,7 +119,11 @@ async function fetchVendorsList() {
 
 export default function PurchaseInvoices() {
   const queryClient = useQueryClient();
-  const { data: invoices = DEFAULT_INVOICES, refetch, isFetching } = useQuery({
+  const {
+    data: invoices = [],
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["get", "/api/flex/purchase-invoices"],
     queryFn: fetchPurchaseInvoices,
   });
@@ -172,8 +155,12 @@ export default function PurchaseInvoices() {
   const createMutation = useMutation({
     mutationFn: createPurchaseInvoice,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-invoices"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Purchase invoice logged successfully");
       setIsAddOpen(false);
       resetForm();
@@ -197,7 +184,8 @@ export default function PurchaseInvoices() {
 
   const filtered = useMemo(() => {
     return invoices.filter((inv) => {
-      const matchesVendor = selectedVendor === "All" || inv.vendor === selectedVendor;
+      const matchesVendor =
+        selectedVendor === "All" || inv.vendor === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -205,8 +193,10 @@ export default function PurchaseInvoices() {
         inv.vendorId.toLowerCase().includes(search.toLowerCase());
 
       const invTime = new Date(inv.date).getTime();
-      const matchesFromDate = !fromDate || isNaN(invTime) || invTime >= new Date(fromDate).getTime();
-      const matchesToDate = !toDate || isNaN(invTime) || invTime <= new Date(toDate).getTime();
+      const matchesFromDate =
+        !fromDate || isNaN(invTime) || invTime >= new Date(fromDate).getTime();
+      const matchesToDate =
+        !toDate || isNaN(invTime) || invTime <= new Date(toDate).getTime();
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
@@ -229,7 +219,10 @@ export default function PurchaseInvoices() {
     e.preventDefault();
     const invNum = invoiceNumber.trim() || `INV-2026-00${invoices.length + 1}`;
     const vendorName = vendor.trim() || "Nish";
-    const amt = parseFloat(invoiceTotalAmount) || (lineItems.reduce((acc, l) => acc + l.total, 0) || 11800);
+    const amt =
+      parseFloat(invoiceTotalAmount) ||
+      lineItems.reduce((acc, l) => acc + l.total, 0) ||
+      11800;
 
     const newInvoiceItem: PurchaseInvoiceItem = {
       id: Date.now(),
@@ -320,7 +313,9 @@ export default function PurchaseInvoices() {
         {/* Title Header Row */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Purchase Invoices</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Purchase Invoices
+            </h1>
             <Button
               variant="outline"
               size="icon"
@@ -331,7 +326,9 @@ export default function PurchaseInvoices() {
               }}
               title="Refresh Records"
             >
-              <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
+              />
             </Button>
           </div>
 
@@ -360,7 +357,9 @@ export default function PurchaseInvoices() {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">From Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                From Date
+              </div>
               <Input
                 type="date"
                 value={fromDate}
@@ -369,7 +368,9 @@ export default function PurchaseInvoices() {
               />
             </div>
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">To Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                To Date
+              </div>
               <Input
                 type="date"
                 value={toDate}
@@ -380,7 +381,9 @@ export default function PurchaseInvoices() {
           </div>
 
           <div>
-            <div className="text-[11px] text-muted-foreground mb-1 font-medium">Vendor</div>
+            <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+              Vendor
+            </div>
             <Select value={selectedVendor} onValueChange={setSelectedVendor}>
               <SelectTrigger className="bg-background text-xs h-9 rounded-md">
                 <SelectValue placeholder="All vendors" />
@@ -410,26 +413,48 @@ export default function PurchaseInvoices() {
                     <th className="px-4 py-3 font-semibold">GRN AMT</th>
                     <th className="px-4 py-3 font-semibold">MATCH</th>
                     <th className="px-4 py-3 font-semibold">PAYMENT</th>
-                    <th className="px-4 py-3 font-semibold text-right">ACTION</th>
+                    <th className="px-4 py-3 font-semibold text-right">
+                      ACTION
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                      <td
+                        colSpan={10}
+                        className="px-4 py-8 text-center text-muted-foreground text-sm"
+                      >
                         No purchase invoices found.
                       </td>
                     </tr>
                   ) : (
                     filtered.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{inv.vendorId}</td>
-                        <td className="px-4 py-3 font-semibold text-foreground">{inv.vendor}</td>
-                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">{inv.invoiceNumber}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{inv.date}</td>
-                        <td className="px-4 py-3 font-bold text-foreground">₹ {inv.invoiceAmt.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-3 text-muted-foreground">₹ {inv.poAmt.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-3 text-muted-foreground">₹ {inv.grnAmt.toLocaleString("en-IN")}</td>
+                      <tr
+                        key={inv.id}
+                        className="hover:bg-muted/40 transition-colors"
+                      >
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {inv.vendorId}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-foreground">
+                          {inv.vendor}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">
+                          {inv.invoiceNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {inv.date}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-foreground">
+                          ₹ {inv.invoiceAmt.toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          ₹ {inv.poAmt.toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          ₹ {inv.grnAmt.toLocaleString("en-IN")}
+                        </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
                             {inv.match}
@@ -459,9 +484,19 @@ export default function PurchaseInvoices() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
               <div>
-                Showing <span className="font-semibold text-foreground">{filtered.length > 0 ? 1 : 0}</span> to{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> of{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> records
+                Showing{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length > 0 ? 1 : 0}
+                </span>{" "}
+                to{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                records
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
@@ -538,7 +573,9 @@ export default function PurchaseInvoices() {
                 {/* Source Mapping Box */}
                 <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-4 space-y-3.5">
                   <p className="text-[11px] text-slate-500 leading-normal">
-                    Map either purchase order(s) or goods receipt(s). Select one source type only. Multi-select is allowed within the same type.
+                    Map either purchase order(s) or goods receipt(s). Select one
+                    source type only. Multi-select is allowed within the same
+                    type.
                   </p>
 
                   {/* Map Purchase Order(s) */}
@@ -560,8 +597,12 @@ export default function PurchaseInvoices() {
                         <SelectValue placeholder="Type to filter and select purchase order(s)..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PO-26-27-0006">PO-26-27-0006 (Nish - ₹ 11,800)</SelectItem>
-                        <SelectItem value="PO-26-27-0005">PO-26-27-0005 (Jagadeep - ₹ 24,500)</SelectItem>
+                        <SelectItem value="PO-26-27-0006">
+                          PO-26-27-0006 (Nish - ₹ 11,800)
+                        </SelectItem>
+                        <SelectItem value="PO-26-27-0005">
+                          PO-26-27-0005 (Jagadeep - ₹ 24,500)
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-slate-400 mt-1">
@@ -588,8 +629,12 @@ export default function PurchaseInvoices() {
                         <SelectValue placeholder="Type to filter and select goods receipt(s)..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="GRN-650573">GRN-650573 (Nish - ₹ 11,800)</SelectItem>
-                        <SelectItem value="GRN-448612">GRN-448612 (Jagadeep - ₹ 24,500)</SelectItem>
+                        <SelectItem value="GRN-650573">
+                          GRN-650573 (Nish - ₹ 11,800)
+                        </SelectItem>
+                        <SelectItem value="GRN-448612">
+                          GRN-448612 (Jagadeep - ₹ 24,500)
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-slate-400 mt-1">
@@ -610,7 +655,9 @@ export default function PurchaseInvoices() {
                       </SelectTrigger>
                       <SelectContent>
                         {vendorsList.map((v: any) => (
-                          <SelectItem key={v.id} value={v.name}>{v.id} - {v.name}</SelectItem>
+                          <SelectItem key={v.id} value={v.name}>
+                            {v.id} - {v.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -642,7 +689,8 @@ export default function PurchaseInvoices() {
                 {/* Invoice Total Amount (Rs) * */}
                 <div>
                   <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                    Invoice Total Amount (Rs) <span className="text-red-500">*</span>
+                    Invoice Total Amount (Rs){" "}
+                    <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -655,7 +703,9 @@ export default function PurchaseInvoices() {
                 {/* LINE ITEMS Header & Empty Box */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold tracking-wider text-slate-500 uppercase">LINE ITEMS</span>
+                    <span className="text-xs font-bold tracking-wider text-slate-500 uppercase">
+                      LINE ITEMS
+                    </span>
                     <button
                       type="button"
                       onClick={handleAddItem}
@@ -672,9 +722,19 @@ export default function PurchaseInvoices() {
                   ) : (
                     <div className="border border-slate-200 rounded-xl p-3 bg-white space-y-2">
                       {lineItems.map((line) => (
-                        <div key={line.id} className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-none">
-                          <span className="font-semibold text-slate-800">{line.item}</span>
-                          <span className="text-slate-500">{line.qty} x ₹{line.price} = <strong className="text-slate-900">₹{line.total}</strong></span>
+                        <div
+                          key={line.id}
+                          className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-none"
+                        >
+                          <span className="font-semibold text-slate-800">
+                            {line.item}
+                          </span>
+                          <span className="text-slate-500">
+                            {line.qty} x ₹{line.price} ={" "}
+                            <strong className="text-slate-900">
+                              ₹{line.total}
+                            </strong>
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -683,19 +743,33 @@ export default function PurchaseInvoices() {
 
                 {/* 2-WAY MATCH PREVIEW Card */}
                 <div className="space-y-1.5 pt-1">
-                  <span className="text-xs font-bold tracking-wider text-slate-500 uppercase block">2-WAY MATCH PREVIEW</span>
+                  <span className="text-xs font-bold tracking-wider text-slate-500 uppercase block">
+                    2-WAY MATCH PREVIEW
+                  </span>
                   <div className="bg-slate-50/80 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between text-center">
                     <div className="w-1/3 text-left">
-                      <span className="text-xs text-slate-400 italic font-medium">No PO Linked</span>
+                      <span className="text-xs text-slate-400 italic font-medium">
+                        No PO Linked
+                      </span>
                     </div>
                     <div className="w-1/3 text-center">
-                      <div className="text-[11px] font-semibold text-slate-400">GRN Amount</div>
-                      <div className="text-sm font-bold text-slate-800 mt-0.5">₹ 0</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">₹ 0 + ₹ 0</div>
+                      <div className="text-[11px] font-semibold text-slate-400">
+                        GRN Amount
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 mt-0.5">
+                        ₹ 0
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        ₹ 0 + ₹ 0
+                      </div>
                     </div>
                     <div className="w-1/3 text-right">
-                      <div className="text-[11px] font-semibold text-slate-400">Invoice Amount</div>
-                      <div className="text-sm font-bold text-slate-800 mt-0.5">-</div>
+                      <div className="text-[11px] font-semibold text-slate-400">
+                        Invoice Amount
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 mt-0.5">
+                        -
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -706,7 +780,9 @@ export default function PurchaseInvoices() {
                     Supporting Document (optional)
                   </Label>
                   <div
-                    onClick={() => document.getElementById("pi-file-input")?.click()}
+                    onClick={() =>
+                      document.getElementById("pi-file-input")?.click()
+                    }
                     className="border border-slate-200 rounded-xl p-3.5 bg-white flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -717,12 +793,16 @@ export default function PurchaseInvoices() {
                         <Label className="text-xs font-bold text-slate-800 cursor-pointer block">
                           Click to attach file
                         </Label>
-                        <span className="text-[10px] text-slate-400">PDF, JPG, PNG, WebP - Max 250 KB</span>
+                        <span className="text-[10px] text-slate-400">
+                          PDF, JPG, PNG, WebP - Max 250 KB
+                        </span>
                       </div>
                     </div>
                     {attachmentName ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-primary font-semibold">{attachmentName}</span>
+                        <span className="text-xs text-primary font-semibold">
+                          {attachmentName}
+                        </span>
                         <button
                           type="button"
                           onClick={(e) => {

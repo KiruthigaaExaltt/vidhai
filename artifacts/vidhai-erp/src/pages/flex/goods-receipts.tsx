@@ -64,45 +64,27 @@ export interface GoodsReceiptItem {
   status: string;
 }
 
-const DEFAULT_GRNS: GoodsReceiptItem[] = [
-  {
-    id: 1,
-    vendorId: "CON00005",
-    vendor: "Nish",
-    grnNumber: "GRN-650573 10:08:05 am",
-    poNumber: "PO-26-27-0006",
-    receivedDate: "2026-07-21",
-    receivedBy: "Kavin",
-    receivedOrdered: "100 / 100",
-    pending: "-",
-    status: "Complete",
-  },
-  {
-    id: 2,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    grnNumber: "GRN-448612 06:47:44 pm",
-    poNumber: "PO-26-27-0005",
-    receivedDate: "2026-07-20",
-    receivedBy: "Nishanth",
-    receivedOrdered: "100 / 100",
-    pending: "-",
-    status: "Complete",
-  },
-];
-
-import { mergeVendors, addStoredVendor, mergeGRNs, addStoredGRN } from "@/lib/flexStore";
+import {
+  mergeVendors,
+  addStoredVendor,
+  mergeGRNs,
+  addStoredGRN,
+} from "@/lib/flexStore";
 
 async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/goods-receipts`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       const serverMapped = (data || []).map((g: any, i: number) => ({
         id: g.id,
         vendorId: `CON0000${(i % 3) + 5}`,
         vendor: g.vendor || "Nish",
-        grnNumber: g.grnNumber || `GRN-${Math.floor(100000 + Math.random() * 900000)} 10:00:00 am`,
+        grnNumber:
+          g.grnNumber ||
+          `GRN-${Math.floor(100000 + Math.random() * 900000)} 10:00:00 am`,
         poNumber: g.poReference || "PO-26-27-0006",
         receivedDate: g.receivedDate || "2026-07-21",
         receivedBy: g.inspectedBy || "Kavin",
@@ -110,10 +92,10 @@ async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
         pending: "-",
         status: g.status || "Complete",
       }));
-      return mergeGRNs(serverMapped, DEFAULT_GRNS);
+      return mergeGRNs(serverMapped);
     }
   } catch {}
-  return mergeGRNs([], DEFAULT_GRNS);
+  return mergeGRNs([]);
 }
 
 async function createGoodsReceipt(payload: any) {
@@ -127,10 +109,11 @@ async function createGoodsReceipt(payload: any) {
   return res.json();
 }
 
-
 async function fetchVendorsList() {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/vendors`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       return mergeVendors(data);
@@ -141,7 +124,11 @@ async function fetchVendorsList() {
 
 export default function GoodsReceipts() {
   const queryClient = useQueryClient();
-  const { data: grns = DEFAULT_GRNS, refetch, isFetching } = useQuery({
+  const {
+    data: grns = [],
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["get", "/api/flex/goods-receipts"],
     queryFn: fetchGoodsReceipts,
   });
@@ -165,7 +152,9 @@ export default function GoodsReceipts() {
   const [vendorAddress, setVendorAddress] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
   const [placeOfSupply, setPlaceOfSupply] = useState("27");
-  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [receivedDate, setReceivedDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [receivedBy, setReceivedBy] = useState("Kavin");
   const [notes, setNotes] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
@@ -178,7 +167,10 @@ export default function GoodsReceipts() {
   }, [lineItems]);
 
   const calculatedTax = useMemo(() => {
-    return lineItems.reduce((acc, l) => acc + (l.recvQty * l.price * (l.cgstPct + l.sgstPct)) / 100, 0);
+    return lineItems.reduce(
+      (acc, l) => acc + (l.recvQty * l.price * (l.cgstPct + l.sgstPct)) / 100,
+      0,
+    );
   }, [lineItems]);
 
   const calculatedGrandTotal = useMemo(() => {
@@ -188,8 +180,12 @@ export default function GoodsReceipts() {
   const createMutation = useMutation({
     mutationFn: createGoodsReceipt,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/goods-receipts"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/goods-receipts"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Goods Receipt logged successfully");
       setIsAddOpen(false);
       resetForm();
@@ -232,7 +228,11 @@ export default function GoodsReceipts() {
     setLineItems((prev) => prev.filter((l) => l.id !== id));
   };
 
-  const handleLineChange = (id: string, field: keyof GRNLineItem, value: any) => {
+  const handleLineChange = (
+    id: string,
+    field: keyof GRNLineItem,
+    value: any,
+  ) => {
     setLineItems((prev) =>
       prev.map((l) => {
         if (l.id !== id) return l;
@@ -241,13 +241,14 @@ export default function GoodsReceipts() {
         const tx = (sub * (updated.cgstPct + updated.sgstPct)) / 100;
         updated.total = sub + tx;
         return updated;
-      })
+      }),
     );
   };
 
   const filtered = useMemo(() => {
     return grns.filter((g) => {
-      const matchesVendor = selectedVendor === "All" || g.vendor === selectedVendor;
+      const matchesVendor =
+        selectedVendor === "All" || g.vendor === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         g.grnNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -256,8 +257,10 @@ export default function GoodsReceipts() {
         g.vendorId.toLowerCase().includes(search.toLowerCase());
 
       const gTime = new Date(g.receivedDate).getTime();
-      const matchesFromDate = !fromDate || isNaN(gTime) || gTime >= new Date(fromDate).getTime();
-      const matchesToDate = !toDate || isNaN(gTime) || gTime <= new Date(toDate).getTime();
+      const matchesFromDate =
+        !fromDate || isNaN(gTime) || gTime >= new Date(fromDate).getTime();
+      const matchesToDate =
+        !toDate || isNaN(gTime) || gTime <= new Date(toDate).getTime();
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
@@ -318,7 +321,8 @@ export default function GoodsReceipts() {
       grnNumber: autoGrnNumber,
       poReference: mappedPo || "PO-26-27-0006",
       vendorName: vName,
-      itemsReceived: lineItems.map((l) => l.itemMaster).join(", ") || "Steel rod (600 kg)",
+      itemsReceived:
+        lineItems.map((l) => l.itemMaster).join(", ") || "Steel rod (600 kg)",
       inspectedByName: receivedBy.trim() || "Kavin",
       status: "Complete",
     });
@@ -332,7 +336,9 @@ export default function GoodsReceipts() {
         {/* Title Header Row */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Goods Receipts (GRN)</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Goods Receipts (GRN)
+            </h1>
             <Button
               variant="outline"
               size="icon"
@@ -343,7 +349,9 @@ export default function GoodsReceipts() {
               }}
               title="Refresh Records"
             >
-              <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
+              />
             </Button>
           </div>
 
@@ -372,7 +380,9 @@ export default function GoodsReceipts() {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">From Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                From Date
+              </div>
               <Input
                 type="date"
                 value={fromDate}
@@ -381,7 +391,9 @@ export default function GoodsReceipts() {
               />
             </div>
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">To Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                To Date
+              </div>
               <Input
                 type="date"
                 value={toDate}
@@ -392,7 +404,9 @@ export default function GoodsReceipts() {
           </div>
 
           <div>
-            <div className="text-[11px] text-muted-foreground mb-1 font-medium">Vendor</div>
+            <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+              Vendor
+            </div>
             <Select value={selectedVendor} onValueChange={setSelectedVendor}>
               <SelectTrigger className="bg-background text-xs h-9 rounded-md">
                 <SelectValue placeholder="All vendors" />
@@ -400,7 +414,9 @@ export default function GoodsReceipts() {
               <SelectContent>
                 <SelectItem value="All">All vendors</SelectItem>
                 {vendorsList.map((v: any) => (
-                  <SelectItem key={v.id} value={v.name}>{v.name}</SelectItem>
+                  <SelectItem key={v.id} value={v.name}>
+                    {v.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -420,30 +436,56 @@ export default function GoodsReceipts() {
                     <th className="px-4 py-3 font-semibold">PO #</th>
                     <th className="px-4 py-3 font-semibold">RECEIVED DATE</th>
                     <th className="px-4 py-3 font-semibold">RECEIVED BY</th>
-                    <th className="px-4 py-3 font-semibold">RECEIVED / ORDERED</th>
+                    <th className="px-4 py-3 font-semibold">
+                      RECEIVED / ORDERED
+                    </th>
                     <th className="px-4 py-3 font-semibold">PENDING</th>
                     <th className="px-4 py-3 font-semibold">STATUS</th>
-                    <th className="px-4 py-3 font-semibold text-right">ACTION</th>
+                    <th className="px-4 py-3 font-semibold text-right">
+                      ACTION
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                      <td
+                        colSpan={10}
+                        className="px-4 py-8 text-center text-muted-foreground text-sm"
+                      >
                         No goods receipt notes found.
                       </td>
                     </tr>
                   ) : (
                     filtered.map((g) => (
-                      <tr key={g.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{g.vendorId}</td>
-                        <td className="px-4 py-3 font-semibold text-foreground">{g.vendor}</td>
-                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">{g.grnNumber}</td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{g.poNumber}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{g.receivedDate}</td>
-                        <td className="px-4 py-3 font-medium text-foreground">{g.receivedBy}</td>
-                        <td className="px-4 py-3 font-medium text-foreground">{g.receivedOrdered}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{g.pending}</td>
+                      <tr
+                        key={g.id}
+                        className="hover:bg-muted/40 transition-colors"
+                      >
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {g.vendorId}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-foreground">
+                          {g.vendor}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">
+                          {g.grnNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {g.poNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {g.receivedDate}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {g.receivedBy}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-foreground">
+                          {g.receivedOrdered}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {g.pending}
+                        </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
                             {g.status}
@@ -468,9 +510,19 @@ export default function GoodsReceipts() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
               <div>
-                Showing <span className="font-semibold text-foreground">{filtered.length > 0 ? 1 : 0}</span> to{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> of{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> records
+                Showing{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length > 0 ? 1 : 0}
+                </span>{" "}
+                to{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                records
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
@@ -527,9 +579,15 @@ export default function GoodsReceipts() {
                         <SelectValue placeholder="Type to filter and select purchase order(s)..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PO-26-27-0006">PO-26-27-0006 (Steel Rod)</SelectItem>
-                        <SelectItem value="PO-26-27-0005">PO-26-27-0005 (Cement Bags)</SelectItem>
-                        <SelectItem value="PO-26-27-0004">PO-26-27-0004 (Structural Beams)</SelectItem>
+                        <SelectItem value="PO-26-27-0006">
+                          PO-26-27-0006 (Steel Rod)
+                        </SelectItem>
+                        <SelectItem value="PO-26-27-0005">
+                          PO-26-27-0005 (Cement Bags)
+                        </SelectItem>
+                        <SelectItem value="PO-26-27-0004">
+                          PO-26-27-0004 (Structural Beams)
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -557,8 +615,12 @@ export default function GoodsReceipts() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Nish">CON00005 - Nish</SelectItem>
-                        <SelectItem value="Jagadeep">CON00006 - Jagadeep</SelectItem>
-                        <SelectItem value="Elakiya Shri">CON00007 - Elakiya Shri</SelectItem>
+                        <SelectItem value="Jagadeep">
+                          CON00006 - Jagadeep
+                        </SelectItem>
+                        <SelectItem value="Elakiya Shri">
+                          CON00007 - Elakiya Shri
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -598,7 +660,8 @@ export default function GoodsReceipts() {
                     className="h-9 text-xs bg-background font-mono"
                   />
                   <p className="text-[11px] text-muted-foreground mt-1">
-                    Add line items manually or map purchase order(s) above to auto-fill vendor and items.
+                    Add line items manually or map purchase order(s) above to
+                    auto-fill vendor and items.
                   </p>
                 </div>
 
@@ -636,7 +699,9 @@ export default function GoodsReceipts() {
                 {/* Line Items Section */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs font-bold text-foreground">Line Items</Label>
+                    <Label className="text-xs font-bold text-foreground">
+                      Line Items
+                    </Label>
                     <Button
                       type="button"
                       variant="outline"
@@ -650,13 +715,16 @@ export default function GoodsReceipts() {
 
                   {lineItems.length === 0 ? (
                     <div className="border border-dashed border-border rounded-lg p-6 text-center text-xs text-muted-foreground bg-muted/20">
-                      No line items yet. Add items manually or map purchase order(s).
+                      No line items yet. Add items manually or map purchase
+                      order(s).
                     </div>
                   ) : (
                     <div className="border border-border/80 rounded-lg p-2.5 bg-background space-y-2 shadow-2xs overflow-x-auto">
                       <div className="min-w-[800px]">
                         <div className="grid grid-cols-12 gap-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-1">
-                          <div className="col-span-3">ITEM / PRODUCT / ASSET</div>
+                          <div className="col-span-3">
+                            ITEM / PRODUCT / ASSET
+                          </div>
                           <div className="col-span-2">WAREHOUSE</div>
                           <div className="col-span-1 text-center">QTY</div>
                           <div className="col-span-1 text-center">PRICE</div>
@@ -666,27 +734,46 @@ export default function GoodsReceipts() {
                         </div>
 
                         {lineItems.map((line) => (
-                          <div key={line.id} className="grid grid-cols-12 gap-2 items-start py-1">
+                          <div
+                            key={line.id}
+                            className="grid grid-cols-12 gap-2 items-start py-1"
+                          >
                             {/* Item / Product / Asset + Custom Specification */}
                             <div className="col-span-3 space-y-1">
                               <Select
                                 value={line.itemMaster}
-                                onValueChange={(val) => handleLineChange(line.id, "itemMaster", val)}
+                                onValueChange={(val) =>
+                                  handleLineChange(line.id, "itemMaster", val)
+                                }
                               >
                                 <SelectTrigger className="h-8 text-xs bg-background">
                                   <SelectValue placeholder="Select master item..." />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="Trapezoidal Roofing Sheet">Trapezoidal Roofing Sheet</SelectItem>
-                                  <SelectItem value="Steel Rod 12mm">Steel Rod 12mm</SelectItem>
-                                  <SelectItem value="Cement Bags">Cement Bags</SelectItem>
-                                  <SelectItem value="Structural Beams">Structural Beams</SelectItem>
+                                  <SelectItem value="Trapezoidal Roofing Sheet">
+                                    Trapezoidal Roofing Sheet
+                                  </SelectItem>
+                                  <SelectItem value="Steel Rod 12mm">
+                                    Steel Rod 12mm
+                                  </SelectItem>
+                                  <SelectItem value="Cement Bags">
+                                    Cement Bags
+                                  </SelectItem>
+                                  <SelectItem value="Structural Beams">
+                                    Structural Beams
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
                               <Input
                                 placeholder="Custom specification"
                                 value={line.customSpec}
-                                onChange={(e) => handleLineChange(line.id, "customSpec", e.target.value)}
+                                onChange={(e) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "customSpec",
+                                    e.target.value,
+                                  )
+                                }
                                 className="h-7 text-[11px] bg-background"
                               />
                             </div>
@@ -695,15 +782,23 @@ export default function GoodsReceipts() {
                             <div className="col-span-2">
                               <Select
                                 value={line.warehouse}
-                                onValueChange={(val) => handleLineChange(line.id, "warehouse", val)}
+                                onValueChange={(val) =>
+                                  handleLineChange(line.id, "warehouse", val)
+                                }
                               >
                                 <SelectTrigger className="h-8 text-xs bg-background">
                                   <SelectValue placeholder="Bangalore (4)" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="Bangalore (4)">Bangalore (4)</SelectItem>
-                                  <SelectItem value="Chennai (2)">Chennai (2)</SelectItem>
-                                  <SelectItem value="Coimbatore (1)">Coimbatore (1)</SelectItem>
+                                  <SelectItem value="Bangalore (4)">
+                                    Bangalore (4)
+                                  </SelectItem>
+                                  <SelectItem value="Chennai (2)">
+                                    Chennai (2)
+                                  </SelectItem>
+                                  <SelectItem value="Coimbatore (1)">
+                                    Coimbatore (1)
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
@@ -713,7 +808,13 @@ export default function GoodsReceipts() {
                               <Input
                                 type="number"
                                 value={line.qty}
-                                onChange={(e) => handleLineChange(line.id, "qty", parseFloat(e.target.value) || 1)}
+                                onChange={(e) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "qty",
+                                    parseFloat(e.target.value) || 1,
+                                  )
+                                }
                                 className="h-8 text-xs bg-background text-center px-1"
                               />
                             </div>
@@ -723,7 +824,13 @@ export default function GoodsReceipts() {
                               <Input
                                 type="number"
                                 value={line.price}
-                                onChange={(e) => handleLineChange(line.id, "price", parseFloat(e.target.value) || 0)}
+                                onChange={(e) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "price",
+                                    parseFloat(e.target.value) || 0,
+                                  )
+                                }
                                 className="h-8 text-xs bg-background text-center px-1"
                               />
                             </div>
@@ -733,7 +840,13 @@ export default function GoodsReceipts() {
                               <Input
                                 type="number"
                                 value={line.recvQty}
-                                onChange={(e) => handleLineChange(line.id, "recvQty", parseFloat(e.target.value) || 1)}
+                                onChange={(e) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "recvQty",
+                                    parseFloat(e.target.value) || 1,
+                                  )
+                                }
                                 className="h-8 text-xs bg-background text-center px-1 font-bold"
                               />
                             </div>
@@ -742,7 +855,13 @@ export default function GoodsReceipts() {
                             <div className="col-span-2 grid grid-cols-3 gap-1">
                               <Select
                                 value={`${line.cgstPct}%`}
-                                onValueChange={(val) => handleLineChange(line.id, "cgstPct", parseFloat(val) || 0)}
+                                onValueChange={(val) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "cgstPct",
+                                    parseFloat(val) || 0,
+                                  )
+                                }
                               >
                                 <SelectTrigger className="h-8 text-[10px] bg-background px-1">
                                   <SelectValue placeholder="9%" />
@@ -754,7 +873,13 @@ export default function GoodsReceipts() {
                               </Select>
                               <Select
                                 value={`${line.sgstPct}%`}
-                                onValueChange={(val) => handleLineChange(line.id, "sgstPct", parseFloat(val) || 0)}
+                                onValueChange={(val) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "sgstPct",
+                                    parseFloat(val) || 0,
+                                  )
+                                }
                               >
                                 <SelectTrigger className="h-8 text-[10px] bg-background px-1">
                                   <SelectValue placeholder="9%" />
@@ -766,7 +891,13 @@ export default function GoodsReceipts() {
                               </Select>
                               <Select
                                 value={`${line.igstPct}%`}
-                                onValueChange={(val) => handleLineChange(line.id, "igstPct", parseFloat(val) || 0)}
+                                onValueChange={(val) =>
+                                  handleLineChange(
+                                    line.id,
+                                    "igstPct",
+                                    parseFloat(val) || 0,
+                                  )
+                                }
                               >
                                 <SelectTrigger className="h-8 text-[10px] bg-background px-1">
                                   <SelectValue placeholder="18%" />
@@ -796,8 +927,12 @@ export default function GoodsReceipts() {
                       {/* Right-aligned Total Amount Box */}
                       <div className="flex justify-end pt-2">
                         <div className="bg-muted/40 px-4 py-2 rounded-lg border border-border/80 text-xs font-semibold text-foreground">
-                          Total Amount: ₹ {calculatedSubtotal.toLocaleString("en-IN")} + ₹ {calculatedTax.toLocaleString("en-IN")} ={" "}
-                          <span className="text-primary font-bold font-mono">₹ {calculatedGrandTotal.toLocaleString("en-IN")}</span>
+                          Total Amount: ₹{" "}
+                          {calculatedSubtotal.toLocaleString("en-IN")} + ₹{" "}
+                          {calculatedTax.toLocaleString("en-IN")} ={" "}
+                          <span className="text-primary font-bold font-mono">
+                            ₹ {calculatedGrandTotal.toLocaleString("en-IN")}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -806,7 +941,9 @@ export default function GoodsReceipts() {
 
                 {/* Notes */}
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Notes</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    Notes
+                  </Label>
                   <Textarea
                     placeholder="Additional notes"
                     value={notes}
@@ -822,7 +959,9 @@ export default function GoodsReceipts() {
                     Attach Goods Delivery Slip / Photo (optional)
                   </Label>
                   <div
-                    onClick={() => document.getElementById("grn-file-input")?.click()}
+                    onClick={() =>
+                      document.getElementById("grn-file-input")?.click()
+                    }
                     className="border border-slate-200 rounded-xl p-3.5 bg-white flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -833,12 +972,16 @@ export default function GoodsReceipts() {
                         <Label className="text-xs font-bold text-slate-800 cursor-pointer block">
                           Click to attach file
                         </Label>
-                        <span className="text-[10px] text-slate-400">PDF, JPG, PNG, WebP - Max 250 KB</span>
+                        <span className="text-[10px] text-slate-400">
+                          PDF, JPG, PNG, WebP - Max 250 KB
+                        </span>
                       </div>
                     </div>
                     {attachmentName ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-primary font-semibold">{attachmentName}</span>
+                        <span className="text-xs text-primary font-semibold">
+                          {attachmentName}
+                        </span>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -873,7 +1016,12 @@ export default function GoodsReceipts() {
 
               {/* Footer Actions */}
               <DialogFooter className="pt-3 border-t border-border flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setIsAddOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsAddOpen(false)}
+                >
                   Cancel
                 </Button>
                 <Button

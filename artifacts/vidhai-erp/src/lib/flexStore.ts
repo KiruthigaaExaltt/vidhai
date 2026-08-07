@@ -13,13 +13,6 @@ const GRN_KEY = "vidhai_shared_grns_v2";
 const INV_KEY = "vidhai_shared_invoices_v2";
 const PAY_KEY = "vidhai_shared_payments_v2";
 
-export const DEFAULT_SHARED_VENDORS: VendorItem[] = [
-  { id: "CON00005", name: "Nish", phone: "9876543210", email: "nish@example.com" },
-  { id: "CON00006", name: "Jagadeep", phone: "9876543211", email: "jagadeep@example.com" },
-  { id: "CON00007", name: "Elakiya Shri", phone: "9876543212", email: "elakiya@example.com" },
-  { id: "CON00008", name: "sample", phone: "9876543213", email: "sample@example.com" },
-];
-
 function getStorage<T>(key: string): T[] {
   try {
     const raw = localStorage.getItem(key);
@@ -46,7 +39,9 @@ export function getStoredVendors(): VendorItem[] {
 
 export function addStoredVendor(vendor: VendorItem): VendorItem[] {
   const current = getStoredVendors();
-  const exists = current.some((v) => v.name.toLowerCase() === vendor.name.toLowerCase());
+  const exists = current.some(
+    (v) => v.name.toLowerCase() === vendor.name.toLowerCase(),
+  );
   if (exists) return current;
   const updated = [vendor, ...current];
   saveStorage(VENDOR_KEY, updated);
@@ -56,7 +51,7 @@ export function addStoredVendor(vendor: VendorItem): VendorItem[] {
 export function mergeVendors(apiVendors: VendorItem[]): VendorItem[] {
   const local = getStoredVendors();
   const map = new Map<string, VendorItem>();
-  DEFAULT_SHARED_VENDORS.forEach((v) => map.set(v.name.toLowerCase(), v));
+
   if (Array.isArray(apiVendors)) {
     apiVendors.forEach((v) => map.set(v.name.toLowerCase(), v));
   }
@@ -76,11 +71,9 @@ export function addStoredPR(pr: any): any[] {
   return updated;
 }
 
-export function mergePRs(serverData: any[], defaults: any[]): any[] {
+export function mergePRs(serverData: any[]): any[] {
   const local = getStoredPRs();
   const map = new Map<string | number, any>();
-  
-  defaults.forEach((d) => map.set(d.id || d.prNumber, d));
   if (Array.isArray(serverData)) {
     serverData.forEach((s) => map.set(s.id || s.prNumber, s));
   }
@@ -101,10 +94,9 @@ export function addStoredPO(po: any): any[] {
   return updated;
 }
 
-export function mergePOs(serverData: any[], defaults: any[]): any[] {
+export function mergePOs(serverData: any[]): any[] {
   const local = getStoredPOs();
   const map = new Map<string | number, any>();
-  defaults.forEach((d) => map.set(d.id || d.poNumber, d));
   if (Array.isArray(serverData)) {
     serverData.forEach((s) => map.set(s.id || s.poNumber, s));
   }
@@ -124,10 +116,9 @@ export function addStoredGRN(grn: any): any[] {
   return updated;
 }
 
-export function mergeGRNs(serverData: any[], defaults: any[]): any[] {
+export function mergeGRNs(serverData: any[]): any[] {
   const local = getStoredGRNs();
   const map = new Map<string | number, any>();
-  defaults.forEach((d) => map.set(d.id || d.grnNumber, d));
   if (Array.isArray(serverData)) {
     serverData.forEach((s) => map.set(s.id || s.grnNumber, s));
   }
@@ -147,10 +138,9 @@ export function addStoredInvoice(inv: any): any[] {
   return updated;
 }
 
-export function mergeInvoices(serverData: any[], defaults: any[]): any[] {
+export function mergeInvoices(serverData: any[]): any[] {
   const local = getStoredInvoices();
   const map = new Map<string | number, any>();
-  defaults.forEach((d) => map.set(d.id || d.invoiceNumber, d));
   if (Array.isArray(serverData)) {
     serverData.forEach((s) => map.set(s.id || s.invoiceNumber, s));
   }
@@ -170,10 +160,10 @@ export function addStoredPayment(pay: any): any[] {
   return updated;
 }
 
-export function mergePayments(serverData: any[], defaults: any[]): any[] {
+export function mergePayments(serverData: any[]): any[] {
   const local = getStoredPayments();
   const map = new Map<string | number, any>();
-  defaults.forEach((d) => map.set(d.id || d.billNumber, d));
+
   if (Array.isArray(serverData)) {
     serverData.forEach((s) => map.set(s.id || s.billNumber, s));
   }

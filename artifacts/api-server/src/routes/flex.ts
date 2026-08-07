@@ -32,7 +32,10 @@ function currentUserId(req: any): number {
 
 // Helper to look up user display names
 async function getUserMap(org: number) {
-  const users = await db.select().from(usersTable).where(eq(usersTable.organizationId, org));
+  const users = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.organizationId, org));
   const map = new Map<number, string>();
   users.forEach((u: any) => map.set(u.id, u.displayName || u.username));
   return map;
@@ -42,16 +45,37 @@ async function getUserMap(org: number) {
 router.get("/dashboard", requireAuth, async (req, res) => {
   const org = orgId(req);
 
-  const prs = await db.select().from(purchaseRequestsTable).where(eq(purchaseRequestsTable.organizationId, org));
-  const pos = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.organizationId, org));
-  const grns = await db.select().from(goodsReceiptsTable).where(eq(goodsReceiptsTable.organizationId, org));
-  const invoices = await db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.organizationId, org));
-  const returns = await db.select().from(purchaseReturnsTable).where(eq(purchaseReturnsTable.organizationId, org));
+  const prs = await db
+    .select()
+    .from(purchaseRequestsTable)
+    .where(eq(purchaseRequestsTable.organizationId, org));
+  const pos = await db
+    .select()
+    .from(purchaseOrdersTable)
+    .where(eq(purchaseOrdersTable.organizationId, org));
+  const grns = await db
+    .select()
+    .from(goodsReceiptsTable)
+    .where(eq(goodsReceiptsTable.organizationId, org));
+  const invoices = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(eq(purchaseInvoicesTable.organizationId, org));
+  const returns = await db
+    .select()
+    .from(purchaseReturnsTable)
+    .where(eq(purchaseReturnsTable.organizationId, org));
 
-  const pendingPurchaseRequests = prs.filter((pr: any) => pr.status === "Submitted").length;
-  const pendingPOs = pos.filter((po: any) => po.status === "Issued" || po.status === "Draft").length;
+  const pendingPurchaseRequests = prs.filter(
+    (pr: any) => pr.status === "Submitted",
+  ).length;
+  const pendingPOs = pos.filter(
+    (po: any) => po.status === "Issued" || po.status === "Draft",
+  ).length;
   const pendingGRNs = grns.filter((g: any) => g.status === "Pending").length;
-  const unpaidInvoices = invoices.filter((i: any) => i.status === "Unpaid" || i.status === "Overdue").length;
+  const unpaidInvoices = invoices.filter(
+    (i: any) => i.status === "Unpaid" || i.status === "Overdue",
+  ).length;
 
   const totalSpend = invoices
     .filter((i: any) => i.status === "Paid")
@@ -67,7 +91,10 @@ router.get("/dashboard", requireAuth, async (req, res) => {
   invoices.forEach((inv: any) => {
     const v = inv.vendorName || "Unknown";
     const existing = vendorSpendMap.get(v) || { spend: 0, count: 0 };
-    vendorSpendMap.set(v, { spend: existing.spend + Number(inv.amount || 0), count: existing.count + 1 });
+    vendorSpendMap.set(v, {
+      spend: existing.spend + Number(inv.amount || 0),
+      count: existing.count + 1,
+    });
   });
 
   const topVendors = Array.from(vendorSpendMap.entries())
@@ -83,13 +110,22 @@ router.get("/dashboard", requireAuth, async (req, res) => {
   // Fallback to contacts table if topVendors is empty
   if (topVendors.length === 0 && vendors.length > 0) {
     vendors.slice(0, 5).forEach((v: any) => {
-      topVendors.push({ id: v.id, name: v.name, spend: 0, onTimePercent: 100, returns: 0 });
+      topVendors.push({
+        id: v.id,
+        name: v.name,
+        spend: 0,
+        onTimePercent: 100,
+        returns: 0,
+      });
     });
   }
 
   // Recent activities list
   const recentPrs = [...prs]
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
     .slice(0, 5)
     .map((pr: any) => ({
       id: `pr-${pr.id}`,
@@ -105,7 +141,10 @@ router.get("/dashboard", requireAuth, async (req, res) => {
     }));
 
   const recentInvoices = [...invoices]
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .sort(
+      (a: any, b: any) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
     .slice(0, 5)
     .map((inv: any) => ({
       id: `inv-${inv.id}`,
@@ -144,28 +183,14 @@ router.get("/vendors", requireAuth, async (_req, res) => {
     .from(contactsTable)
     .where(eq(contactsTable.type, "vendor"));
 
-  const defaultList = [
-    { id: "CON00005", name: "Nish", phone: "9876543210", email: "nish@example.com" },
-    { id: "CON00006", name: "Jagadeep", phone: "9876543211", email: "jagadeep@example.com" },
-    { id: "CON00007", name: "Elakiya Shri", phone: "9876543212", email: "elakiya@example.com" },
-    { id: "CON00008", name: "sample", phone: "9876543213", email: "sample@example.com" },
-  ];
-
-  if (!vendors || vendors.length === 0) {
-    return res.json(defaultList);
-  }
-
-  const mapped = vendors.map((v: any) => ({
-    id: `CON0000${v.id}`,
-    name: v.name,
-    phone: v.phone,
-    email: v.email,
-  }));
-
-  const existingNames = new Set(mapped.map((m: any) => m.name.toLowerCase()));
-  const missingDefaults = defaultList.filter((d) => !existingNames.has(d.name.toLowerCase()));
-
-  return res.json([...mapped, ...missingDefaults]);
+  return res.json(
+    vendors.map((v: any) => ({
+      id: String(v.id),
+      name: v.name,
+      phone: v.phone,
+      email: v.email,
+    })),
+  );
 });
 
 // ── Purchase Requests ────────────────────────────────────────────────────────
@@ -182,9 +207,19 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
   return res.json(
     prs.map((pr: any, index: number) => {
       const createdDateObj = new Date(pr.createdAt);
-      const formattedTime = createdDateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
-      const formattedDate = createdDateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-      const prCode = pr.prNumber || `PR-26-27-${String(pr.id).padStart(4, "0")}`;
+      const formattedTime = createdDateObj.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      });
+      const formattedDate = createdDateObj.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+      const prCode =
+        pr.prNumber || `PR-26-27-${String(pr.id).padStart(4, "0")}`;
 
       return {
         id: pr.id,
@@ -196,7 +231,8 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
         requiredDate: pr.requiredDate || formattedDate,
         priority: pr.priority || "Normal",
         department: pr.department || "Admin",
-        requestedBy: pr.requestedByName || userMap.get(pr.requestedByUserId) || "Kavin",
+        requestedBy:
+          pr.requestedByName || userMap.get(pr.requestedByUserId) || "Kavin",
         status: pr.status || "Submitted",
         itemName: pr.itemName,
         quantity: Number(pr.quantity || 1),
@@ -204,7 +240,7 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
         notes: pr.notes || "",
         approvalNotes: pr.approvalNotes || "",
       };
-    })
+    }),
   );
 });
 
@@ -217,18 +253,36 @@ router.post("/purchase-requests", requireAuth, async (req, res) => {
   const itemName = String(req.body.itemName ?? "").trim();
   const quantity = Number(req.body.quantity ?? 1);
   const unit = String(req.body.unit ?? "units").trim();
-  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "Jagadeep").trim();
+  const vendorName = String(
+    req.body.vendorName ?? req.body.vendor ?? "Jagadeep",
+  ).trim();
   const vendorId = String(req.body.vendorId ?? "CON00006").trim();
   const priority = String(req.body.priority ?? "Normal").trim();
   const department = String(req.body.department ?? "Admin").trim();
-  const requiredDate = String(req.body.requiredDate ?? new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+  const requiredDate = String(
+    req.body.requiredDate ??
+      new Date().toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+  );
   const initialStatus = String(req.body.status ?? "Submitted").trim();
 
-  if (!itemName) return res.status(400).json({ error: "Item name is required" });
+  if (!itemName)
+    return res.status(400).json({ error: "Item name is required" });
 
   const now = new Date();
-  const formattedTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
-  const countRes = await db.select().from(purchaseRequestsTable).where(eq(purchaseRequestsTable.organizationId, org));
+  const formattedTime = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  const countRes = await db
+    .select()
+    .from(purchaseRequestsTable)
+    .where(eq(purchaseRequestsTable.organizationId, org));
   const prNum = `PR-26-27-${String(countRes.length + 1).padStart(4, "0")}`;
   const versionStr = `${initialStatus} V1 - ${formattedTime}`;
 
@@ -262,18 +316,38 @@ router.patch("/purchase-requests/:id", requireAuth, async (req, res) => {
   const [pr] = await db
     .select()
     .from(purchaseRequestsTable)
-    .where(and(eq(purchaseRequestsTable.id, id), eq(purchaseRequestsTable.organizationId, org)));
+    .where(
+      and(
+        eq(purchaseRequestsTable.id, id),
+        eq(purchaseRequestsTable.organizationId, org),
+      ),
+    );
 
   if (!pr) return res.status(404).json({ error: "Purchase request not found" });
 
   const updates: Record<string, unknown> = {};
-  for (const key of ["itemName", "quantity", "unit", "status", "priority", "department", "notes", "approvalNotes", "requiredDate"]) {
+  for (const key of [
+    "itemName",
+    "quantity",
+    "unit",
+    "status",
+    "priority",
+    "department",
+    "notes",
+    "approvalNotes",
+    "requiredDate",
+  ]) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
 
   // Update version on edit or status change
   if (req.body.status && req.body.status !== pr.status) {
-    const formattedTime = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true });
+    const formattedTime = new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
     updates["version"] = `${req.body.status} V1 - ${formattedTime}`;
   }
 
@@ -286,49 +360,72 @@ router.patch("/purchase-requests/:id", requireAuth, async (req, res) => {
   return res.json(updated);
 });
 
-router.post("/purchase-requests/:id/convert-to-po", requireAuth, async (req, res) => {
-  const org = orgId(req);
-  const userId = currentUserId(req);
-  const id = Number(req.params.id);
+router.post(
+  "/purchase-requests/:id/convert-to-po",
+  requireAuth,
+  async (req, res) => {
+    const org = orgId(req);
+    const userId = currentUserId(req);
+    const id = Number(req.params.id);
 
-  const [pr] = await db
-    .select()
-    .from(purchaseRequestsTable)
-    .where(and(eq(purchaseRequestsTable.id, id), eq(purchaseRequestsTable.organizationId, org)));
+    const [pr] = await db
+      .select()
+      .from(purchaseRequestsTable)
+      .where(
+        and(
+          eq(purchaseRequestsTable.id, id),
+          eq(purchaseRequestsTable.organizationId, org),
+        ),
+      );
 
-  if (!pr) return res.status(404).json({ error: "Purchase request not found" });
+    if (!pr)
+      return res.status(404).json({ error: "Purchase request not found" });
 
-  await db
-    .update(purchaseRequestsTable)
-    .set({ status: "Closed" })
-    .where(eq(purchaseRequestsTable.id, id));
+    await db
+      .update(purchaseRequestsTable)
+      .set({ status: "Closed" })
+      .where(eq(purchaseRequestsTable.id, id));
 
-  const countRes = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.organizationId, org));
-  const poNum = `PO-26-27-${String(countRes.length + 1).padStart(4, "0")}`;
+    const countRes = await db
+      .select()
+      .from(purchaseOrdersTable)
+      .where(eq(purchaseOrdersTable.organizationId, org));
+    const poNum = `PO-26-27-${String(countRes.length + 1).padStart(4, "0")}`;
 
-  const [createdPo] = await db
-    .insert(purchaseOrdersTable)
-    .values({
-      organizationId: org,
-      poNumber: poNum,
-      vendorName: pr.vendorName || "Jagadeep",
-      prReference: pr.prNumber || `PR #${pr.id}`,
-      items: `${pr.itemName} (${pr.quantity} ${pr.unit})`,
-      totalAmount: Number(pr.quantity) * 100,
-      status: "Issued",
-      createdByUserId: userId,
-    })
-    .returning();
+    const [createdPo] = await db
+      .insert(purchaseOrdersTable)
+      .values({
+        organizationId: org,
+        poNumber: poNum,
+        vendorName: pr.vendorName || "Jagadeep",
+        prReference: pr.prNumber || `PR #${pr.id}`,
+        items: `${pr.itemName} (${pr.quantity} ${pr.unit})`,
+        totalAmount: Number(pr.quantity) * 100,
+        status: "Issued",
+        createdByUserId: userId,
+      })
+      .returning();
 
-  return res.status(201).json({ message: "Successfully converted PR to PO", purchaseOrder: createdPo });
-});
+    return res
+      .status(201)
+      .json({
+        message: "Successfully converted PR to PO",
+        purchaseOrder: createdPo,
+      });
+  },
+);
 
 router.delete("/purchase-requests/:id", requireAuth, async (req, res) => {
   const org = orgId(req);
   const id = Number(req.params.id);
   await db
     .delete(purchaseRequestsTable)
-    .where(and(eq(purchaseRequestsTable.id, id), eq(purchaseRequestsTable.organizationId, org)));
+    .where(
+      and(
+        eq(purchaseRequestsTable.id, id),
+        eq(purchaseRequestsTable.organizationId, org),
+      ),
+    );
   return res.json({ success: true });
 });
 
@@ -346,7 +443,11 @@ router.get("/purchase-orders", requireAuth, async (req, res) => {
   return res.json(
     pos.map((po: any, index: number) => {
       const createdDateObj = new Date(po.createdAt);
-      const formattedDate = createdDateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+      const formattedDate = createdDateObj.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
       const poNum = po.poNumber || `PO-26-27-${String(po.id).padStart(4, "0")}`;
 
       return {
@@ -358,8 +459,12 @@ router.get("/purchase-orders", requireAuth, async (req, res) => {
         items: po.items || "Steel Rod (600 kg)",
         poDate: formattedDate,
         deliveryDate: po.deliveryDate || formattedDate,
-        subtotal: Number(po.subtotal || po.totalAmount ? Number(po.totalAmount) * 0.84 : 5000),
-        tax: Number(po.taxAmount || po.totalAmount ? Number(po.totalAmount) * 0.16 : 900),
+        subtotal: Number(
+          po.subtotal || po.totalAmount ? Number(po.totalAmount) * 0.84 : 5000,
+        ),
+        tax: Number(
+          po.taxAmount || po.totalAmount ? Number(po.totalAmount) * 0.16 : 900,
+        ),
         grandTotal: Number(po.totalAmount || 5900),
         paymentTerms: po.paymentTerms || "Net 30",
         shippingMethod: po.shippingMethod || "Road Transport",
@@ -371,7 +476,7 @@ router.get("/purchase-orders", requireAuth, async (req, res) => {
         status: po.status || "Completed",
         createdBy: userMap.get(po.createdByUserId) || "SuperAdmin",
       };
-    })
+    }),
   );
 });
 
@@ -379,23 +484,43 @@ router.post("/purchase-orders", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
 
-  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "Nish").trim();
+  const vendorName = String(
+    req.body.vendorName ?? req.body.vendor ?? "Nish",
+  ).trim();
   const vendorId = String(req.body.vendorId ?? "CON00005").trim();
   const prReference = String(req.body.prReference ?? "").trim();
   const items = String(req.body.items ?? "Supplies").trim();
   const subtotal = Number(req.body.subtotal ?? 0);
   const taxAmount = Number(req.body.tax ?? req.body.taxAmount ?? 0);
-  const totalAmount = Number(req.body.grandTotal ?? req.body.totalAmount ?? subtotal + taxAmount);
-  const deliveryDate = String(req.body.deliveryDate ?? new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }));
+  const totalAmount = Number(
+    req.body.grandTotal ?? req.body.totalAmount ?? subtotal + taxAmount,
+  );
+  const deliveryDate = String(
+    req.body.deliveryDate ??
+      new Date().toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+  );
   const paymentTerms = String(req.body.paymentTerms ?? "Net 30").trim();
-  const shippingMethod = String(req.body.shippingMethod ?? "Road Transport").trim();
-  const warehouse = String(req.body.warehouse ?? "Bangalore Central Warehouse").trim();
+  const shippingMethod = String(
+    req.body.shippingMethod ?? "Road Transport",
+  ).trim();
+  const warehouse = String(
+    req.body.warehouse ?? "Bangalore Central Warehouse",
+  ).trim();
   const project = String(req.body.project ?? "Vidhai Factory Phase 1").trim();
   const department = String(req.body.department ?? "Admin").trim();
   const status = String(req.body.status ?? "Issued").trim();
 
-  const countRes = await db.select().from(purchaseOrdersTable).where(eq(purchaseOrdersTable.organizationId, org));
-  const poNumber = req.body.poNumber || `PO-26-27-${String(countRes.length + 1).padStart(4, "0")}`;
+  const countRes = await db
+    .select()
+    .from(purchaseOrdersTable)
+    .where(eq(purchaseOrdersTable.organizationId, org));
+  const poNumber =
+    req.body.poNumber ||
+    `PO-26-27-${String(countRes.length + 1).padStart(4, "0")}`;
 
   const [created] = await db
     .insert(purchaseOrdersTable)
@@ -455,7 +580,12 @@ router.patch("/purchase-orders/:id", requireAuth, async (req, res) => {
   const [updated] = await db
     .update(purchaseOrdersTable)
     .set(updates)
-    .where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.organizationId, org)))
+    .where(
+      and(
+        eq(purchaseOrdersTable.id, id),
+        eq(purchaseOrdersTable.organizationId, org),
+      ),
+    )
     .returning();
 
   return res.json(updated);
@@ -466,7 +596,12 @@ router.delete("/purchase-orders/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await db
     .delete(purchaseOrdersTable)
-    .where(and(eq(purchaseOrdersTable.id, id), eq(purchaseOrdersTable.organizationId, org)));
+    .where(
+      and(
+        eq(purchaseOrdersTable.id, id),
+        eq(purchaseOrdersTable.organizationId, org),
+      ),
+    );
   return res.json({ success: true });
 });
 
@@ -488,10 +623,17 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
       poReference: g.poReference,
       vendor: g.vendorName,
       itemsReceived: g.itemsReceived,
-      inspectedBy: userMap.get(g.inspectedByUserId) || g.inspectedByName || "Quality Inspector",
+      inspectedBy:
+        userMap.get(g.inspectedByUserId) ||
+        g.inspectedByName ||
+        "Quality Inspector",
       status: g.status,
-      receivedDate: new Date(g.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
-    }))
+      receivedDate: new Date(g.createdAt).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+    })),
   );
 });
 
@@ -499,10 +641,14 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
   const grnNumber = String(req.body.grnNumber ?? "").trim();
-  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "").trim();
+  const vendorName = String(
+    req.body.vendorName ?? req.body.vendor ?? "",
+  ).trim();
 
-  if (!grnNumber) return res.status(400).json({ error: "GRN Number is required" });
-  if (!vendorName) return res.status(400).json({ error: "Vendor name is required" });
+  if (!grnNumber)
+    return res.status(400).json({ error: "GRN Number is required" });
+  if (!vendorName)
+    return res.status(400).json({ error: "Vendor name is required" });
 
   const [created] = await db
     .insert(goodsReceiptsTable)
@@ -526,14 +672,25 @@ router.patch("/goods-receipts/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
 
   const updates: Record<string, unknown> = {};
-  for (const key of ["grnNumber", "poReference", "vendorName", "itemsReceived", "status"]) {
+  for (const key of [
+    "grnNumber",
+    "poReference",
+    "vendorName",
+    "itemsReceived",
+    "status",
+  ]) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
 
   const [updated] = await db
     .update(goodsReceiptsTable)
     .set(updates)
-    .where(and(eq(goodsReceiptsTable.id, id), eq(goodsReceiptsTable.organizationId, org)))
+    .where(
+      and(
+        eq(goodsReceiptsTable.id, id),
+        eq(goodsReceiptsTable.organizationId, org),
+      ),
+    )
     .returning();
 
   return res.json(updated);
@@ -544,7 +701,12 @@ router.delete("/goods-receipts/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await db
     .delete(goodsReceiptsTable)
-    .where(and(eq(goodsReceiptsTable.id, id), eq(goodsReceiptsTable.organizationId, org)));
+    .where(
+      and(
+        eq(goodsReceiptsTable.id, id),
+        eq(goodsReceiptsTable.organizationId, org),
+      ),
+    );
   return res.json({ success: true });
 });
 
@@ -571,7 +733,7 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
       status: inv.status,
       notes: inv.notes,
       createdBy: userMap.get(inv.createdByUserId) || "SuperAdmin",
-    }))
+    })),
   );
 });
 
@@ -579,12 +741,17 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
   const invoiceNumber = String(req.body.invoiceNumber ?? "").trim();
-  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "").trim();
+  const vendorName = String(
+    req.body.vendorName ?? req.body.vendor ?? "",
+  ).trim();
   const amount = Number(req.body.amount ?? 0);
 
-  if (!invoiceNumber) return res.status(400).json({ error: "Invoice Number is required" });
-  if (!vendorName) return res.status(400).json({ error: "Vendor name is required" });
-  if (!amount || amount <= 0) return res.status(400).json({ error: "Amount must be greater than 0" });
+  if (!invoiceNumber)
+    return res.status(400).json({ error: "Invoice Number is required" });
+  if (!vendorName)
+    return res.status(400).json({ error: "Vendor name is required" });
+  if (!amount || amount <= 0)
+    return res.status(400).json({ error: "Amount must be greater than 0" });
 
   const [created] = await db
     .insert(purchaseInvoicesTable)
@@ -594,8 +761,12 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       vendorName,
       poReference: String(req.body.poReference ?? ""),
       amount,
-      invoiceDate: String(req.body.invoiceDate ?? new Date().toISOString().split("T")[0]),
-      dueDate: String(req.body.dueDate ?? new Date().toISOString().split("T")[0]),
+      invoiceDate: String(
+        req.body.invoiceDate ?? new Date().toISOString().split("T")[0],
+      ),
+      dueDate: String(
+        req.body.dueDate ?? new Date().toISOString().split("T")[0],
+      ),
       status: String(req.body.status ?? "Unpaid"),
       notes: String(req.body.notes ?? ""),
       createdByUserId: userId,
@@ -610,14 +781,28 @@ router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
 
   const updates: Record<string, unknown> = {};
-  for (const key of ["invoiceNumber", "vendorName", "poReference", "amount", "invoiceDate", "dueDate", "status", "notes"]) {
+  for (const key of [
+    "invoiceNumber",
+    "vendorName",
+    "poReference",
+    "amount",
+    "invoiceDate",
+    "dueDate",
+    "status",
+    "notes",
+  ]) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
 
   const [updated] = await db
     .update(purchaseInvoicesTable)
     .set(updates)
-    .where(and(eq(purchaseInvoicesTable.id, id), eq(purchaseInvoicesTable.organizationId, org)))
+    .where(
+      and(
+        eq(purchaseInvoicesTable.id, id),
+        eq(purchaseInvoicesTable.organizationId, org),
+      ),
+    )
     .returning();
 
   return res.json(updated);
@@ -628,7 +813,12 @@ router.delete("/purchase-invoices/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await db
     .delete(purchaseInvoicesTable)
-    .where(and(eq(purchaseInvoicesTable.id, id), eq(purchaseInvoicesTable.organizationId, org)));
+    .where(
+      and(
+        eq(purchaseInvoicesTable.id, id),
+        eq(purchaseInvoicesTable.organizationId, org),
+      ),
+    );
   return res.json({ success: true });
 });
 
@@ -654,7 +844,7 @@ router.get("/vendor-payments", requireAuth, async (req, res) => {
       paymentDate: p.paymentDate,
       status: p.status,
       createdBy: userMap.get(p.createdByUserId) || "SuperAdmin",
-    }))
+    })),
   );
 });
 
@@ -662,11 +852,15 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
   const paymentNumber = String(req.body.paymentNumber ?? "").trim();
-  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "").trim();
+  const vendorName = String(
+    req.body.vendorName ?? req.body.vendor ?? "",
+  ).trim();
   const amount = Number(req.body.amount ?? 0);
 
-  if (!paymentNumber) return res.status(400).json({ error: "Payment Number is required" });
-  if (!vendorName) return res.status(400).json({ error: "Vendor name is required" });
+  if (!paymentNumber)
+    return res.status(400).json({ error: "Payment Number is required" });
+  if (!vendorName)
+    return res.status(400).json({ error: "Vendor name is required" });
 
   const [created] = await db
     .insert(vendorPaymentsTable)
@@ -677,7 +871,9 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       invoiceReference: String(req.body.invoiceReference ?? ""),
       amount,
       paymentMode: String(req.body.paymentMode ?? "UPI / NetBanking"),
-      paymentDate: String(req.body.paymentDate ?? new Date().toLocaleDateString("en-IN")),
+      paymentDate: String(
+        req.body.paymentDate ?? new Date().toLocaleDateString("en-IN"),
+      ),
       status: String(req.body.status ?? "Completed"),
       createdByUserId: userId,
     })
@@ -691,14 +887,27 @@ router.patch("/vendor-payments/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
 
   const updates: Record<string, unknown> = {};
-  for (const key of ["paymentNumber", "vendorName", "invoiceReference", "amount", "paymentMode", "paymentDate", "status"]) {
+  for (const key of [
+    "paymentNumber",
+    "vendorName",
+    "invoiceReference",
+    "amount",
+    "paymentMode",
+    "paymentDate",
+    "status",
+  ]) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
 
   const [updated] = await db
     .update(vendorPaymentsTable)
     .set(updates)
-    .where(and(eq(vendorPaymentsTable.id, id), eq(vendorPaymentsTable.organizationId, org)))
+    .where(
+      and(
+        eq(vendorPaymentsTable.id, id),
+        eq(vendorPaymentsTable.organizationId, org),
+      ),
+    )
     .returning();
 
   return res.json(updated);
@@ -709,7 +918,12 @@ router.delete("/vendor-payments/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await db
     .delete(vendorPaymentsTable)
-    .where(and(eq(vendorPaymentsTable.id, id), eq(vendorPaymentsTable.organizationId, org)));
+    .where(
+      and(
+        eq(vendorPaymentsTable.id, id),
+        eq(vendorPaymentsTable.organizationId, org),
+      ),
+    );
   return res.json({ success: true });
 });
 
@@ -733,9 +947,13 @@ router.get("/purchase-returns", requireAuth, async (req, res) => {
       reason: r.reason,
       refundAmount: Number(r.refundAmount),
       status: r.status,
-      returnDate: new Date(r.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+      returnDate: new Date(r.createdAt).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
       createdBy: userMap.get(r.createdByUserId) || "SuperAdmin",
-    }))
+    })),
   );
 });
 
@@ -743,11 +961,15 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
   const returnNumber = String(req.body.returnNumber ?? "").trim();
-  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "").trim();
+  const vendorName = String(
+    req.body.vendorName ?? req.body.vendor ?? "",
+  ).trim();
   const reason = String(req.body.reason ?? "").trim();
 
-  if (!returnNumber) return res.status(400).json({ error: "Return Number is required" });
-  if (!vendorName) return res.status(400).json({ error: "Vendor name is required" });
+  if (!returnNumber)
+    return res.status(400).json({ error: "Return Number is required" });
+  if (!vendorName)
+    return res.status(400).json({ error: "Vendor name is required" });
 
   const [created] = await db
     .insert(purchaseReturnsTable)
@@ -771,14 +993,26 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
 
   const updates: Record<string, unknown> = {};
-  for (const key of ["returnNumber", "vendorName", "grnReference", "reason", "refundAmount", "status"]) {
+  for (const key of [
+    "returnNumber",
+    "vendorName",
+    "grnReference",
+    "reason",
+    "refundAmount",
+    "status",
+  ]) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
 
   const [updated] = await db
     .update(purchaseReturnsTable)
     .set(updates)
-    .where(and(eq(purchaseReturnsTable.id, id), eq(purchaseReturnsTable.organizationId, org)))
+    .where(
+      and(
+        eq(purchaseReturnsTable.id, id),
+        eq(purchaseReturnsTable.organizationId, org),
+      ),
+    )
     .returning();
 
   return res.json(updated);
@@ -789,7 +1023,12 @@ router.delete("/purchase-returns/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await db
     .delete(purchaseReturnsTable)
-    .where(and(eq(purchaseReturnsTable.id, id), eq(purchaseReturnsTable.organizationId, org)));
+    .where(
+      and(
+        eq(purchaseReturnsTable.id, id),
+        eq(purchaseReturnsTable.organizationId, org),
+      ),
+    );
   return res.json({ success: true });
 });
 

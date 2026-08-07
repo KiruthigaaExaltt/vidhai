@@ -78,86 +78,24 @@ export interface PurchaseOrderItem {
   createdBy?: string;
 }
 
-const DEFAULT_POS: PurchaseOrderItem[] = [
-  {
-    id: 6,
-    vendorId: "CON00005",
-    vendor: "Nish",
-    poNumber: "PO-26-27-0006 10:06:41 am",
-    prReference: "PR-26-27-0012",
-    contactPerson: "Nishanth K",
-    vendorGst: "33AAAAA0000A1Z5",
-    vendorAddress: "Industrial Estate, Coimbatore",
-    vendorPhone: "9876543210",
-    placeOfSupply: "27",
-    poDate: "2026-08-07",
-    deliveryDate: "2026-08-15",
-    warehouse: "Bangalore Central Warehouse",
-    subtotal: 5000,
-    cgstAmount: 450,
-    sgstAmount: 450,
-    grandTotal: 5900,
-    termsConditions: "Net 30 days payment terms upon receiving delivery.",
-    items: "Steel Rod (600 kg)",
-    status: "Completed",
-  },
-  {
-    id: 5,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    poNumber: "PO-26-27-0005 12:35:28 pm",
-    prReference: "PR-26-27-0011",
-    contactPerson: "Jagadeep S",
-    vendorGst: "33BBBBB1111B1Z2",
-    vendorAddress: "GST Road, Chennai",
-    vendorPhone: "9123456789",
-    placeOfSupply: "27",
-    poDate: "2026-08-05",
-    deliveryDate: "2026-08-12",
-    warehouse: "Chennai Hub",
-    subtotal: 100000,
-    cgstAmount: 9000,
-    sgstAmount: 9000,
-    grandTotal: 118000,
-    termsConditions: "Advance payment 50% required.",
-    items: "Cement Bags (200 bags)",
-    status: "Completed",
-  },
-  {
-    id: 4,
-    vendorId: "CON00006",
-    vendor: "Jagadeep",
-    poNumber: "PO-26-27-0004 12:33:18 pm",
-    prReference: "PR-26-27-0010",
-    contactPerson: "Jagadeep S",
-    vendorGst: "33BBBBB1111B1Z2",
-    vendorAddress: "GST Road, Chennai",
-    vendorPhone: "9123456789",
-    placeOfSupply: "27",
-    poDate: "2026-08-02",
-    deliveryDate: "2026-08-10",
-    warehouse: "Bangalore Central Warehouse",
-    subtotal: 0,
-    cgstAmount: 0,
-    sgstAmount: 0,
-    grandTotal: 0,
-    termsConditions: "Delivery within 5 business days.",
-    items: "Structural Beams (15 units)",
-    status: "Draft",
-  },
-];
-
-import { mergeVendors, addStoredVendor, mergePOs, addStoredPO } from "@/lib/flexStore";
+import {
+  mergeVendors,
+  addStoredVendor,
+  mergePOs,
+  addStoredPO,
+} from "@/lib/flexStore";
 
 async function fetchPurchaseOrders(): Promise<PurchaseOrderItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/purchase-orders`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/purchase-orders`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
-      return mergePOs(data, DEFAULT_POS);
+      return mergePOs(data);
     }
   } catch {}
-  return mergePOs([], DEFAULT_POS);
+  return mergePOs([]);
 }
 
 async function createPurchaseOrder(payload: any) {
@@ -191,10 +129,11 @@ async function deletePurchaseOrder(id: number) {
   return res.json();
 }
 
-
 async function fetchVendorsList() {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/vendors`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       return mergeVendors(data);
@@ -205,7 +144,11 @@ async function fetchVendorsList() {
 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
-  const { data: pos = DEFAULT_POS, refetch, isFetching } = useQuery({
+  const {
+    data: pos = [],
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["get", "/api/flex/purchase-orders"],
     queryFn: fetchPurchaseOrders,
   });
@@ -235,7 +178,9 @@ export default function PurchaseOrdersPage() {
   const [placeOfSupply, setPlaceOfSupply] = useState("27");
   const [poDate, setPoDate] = useState(new Date().toISOString().split("T")[0]);
   const [deliveryDate, setDeliveryDate] = useState("");
-  const [destinationWarehouse, setDestinationWarehouse] = useState("Bangalore Central Warehouse");
+  const [destinationWarehouse, setDestinationWarehouse] = useState(
+    "Bangalore Central Warehouse",
+  );
   const [termsConditions, setTermsConditions] = useState("");
 
   // Line Items inside PO Builder
@@ -259,11 +204,17 @@ export default function PurchaseOrdersPage() {
   }, [lineItems]);
 
   const calculatedCgst = useMemo(() => {
-    return lineItems.reduce((acc, item) => acc + (item.qty * item.rate * item.cgstPct) / 100, 0);
+    return lineItems.reduce(
+      (acc, item) => acc + (item.qty * item.rate * item.cgstPct) / 100,
+      0,
+    );
   }, [lineItems]);
 
   const calculatedSgst = useMemo(() => {
-    return lineItems.reduce((acc, item) => acc + (item.qty * item.rate * item.sgstPct) / 100, 0);
+    return lineItems.reduce(
+      (acc, item) => acc + (item.qty * item.rate * item.sgstPct) / 100,
+      0,
+    );
   }, [lineItems]);
 
   const calculatedGrandTotal = useMemo(() => {
@@ -273,10 +224,18 @@ export default function PurchaseOrdersPage() {
   const createMutation = useMutation({
     mutationFn: createPurchaseOrder,
     onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-orders"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-orders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       const isDraft = variables.status === "Draft";
-      toast.success(isDraft ? "Purchase Order saved as Draft" : "Purchase Order saved and sent successfully!");
+      toast.success(
+        isDraft
+          ? "Purchase Order saved as Draft"
+          : "Purchase Order saved and sent successfully!",
+      );
       setIsBuilderOpen(false);
       resetForm();
     },
@@ -288,8 +247,12 @@ export default function PurchaseOrdersPage() {
   const updateMutation = useMutation({
     mutationFn: updatePurchaseOrder,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-orders"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-orders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Purchase Order updated successfully");
       setSelectedPo(null);
     },
@@ -301,8 +264,12 @@ export default function PurchaseOrdersPage() {
   const deleteMutation = useMutation({
     mutationFn: deletePurchaseOrder,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-orders"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-orders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Purchase Order deleted");
       setSelectedPo(null);
     },
@@ -313,7 +280,17 @@ export default function PurchaseOrdersPage() {
 
   const resetForm = () => {
     setLineItems([
-      { id: "1", description: "", hsn: "", qty: 1, rate: 0, cgstPct: 9, sgstPct: 9, igstPct: 18, total: 0 },
+      {
+        id: "1",
+        description: "",
+        hsn: "",
+        qty: 1,
+        rate: 0,
+        cgstPct: 9,
+        sgstPct: 9,
+        igstPct: 18,
+        total: 0,
+      },
     ]);
     setContactPerson("");
     setVendorGst("");
@@ -348,7 +325,11 @@ export default function PurchaseOrdersPage() {
     setLineItems((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleLineChange = (id: string, field: keyof POLineItem, value: any) => {
+  const handleLineChange = (
+    id: string,
+    field: keyof POLineItem,
+    value: any,
+  ) => {
     setLineItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
@@ -357,7 +338,7 @@ export default function PurchaseOrdersPage() {
         const taxVal = (sub * (updated.cgstPct + updated.sgstPct)) / 100;
         updated.total = sub + taxVal;
         return updated;
-      })
+      }),
     );
   };
 
@@ -406,7 +387,8 @@ export default function PurchaseOrdersPage() {
 
   const filtered = useMemo(() => {
     return pos.filter((po) => {
-      const matchesVendor = selectedVendor === "All" || po.vendor === selectedVendor;
+      const matchesVendor =
+        selectedVendor === "All" || po.vendor === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         po.poNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -414,8 +396,10 @@ export default function PurchaseOrdersPage() {
         po.vendorId.toLowerCase().includes(search.toLowerCase());
 
       const poTime = new Date(po.poDate).getTime();
-      const matchesFromDate = !fromDate || isNaN(poTime) || poTime >= new Date(fromDate).getTime();
-      const matchesToDate = !toDate || isNaN(poTime) || poTime <= new Date(toDate).getTime();
+      const matchesFromDate =
+        !fromDate || isNaN(poTime) || poTime >= new Date(fromDate).getTime();
+      const matchesToDate =
+        !toDate || isNaN(poTime) || poTime <= new Date(toDate).getTime();
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
@@ -425,7 +409,11 @@ export default function PurchaseOrdersPage() {
     const vParts = vendorName.split(" - ");
     const vId = vParts[0] || "CON00006";
     const vName = vParts[1] || vParts[0] || "Jagadeep";
-    const itemSummary = lineItems.map((l) => l.description).filter(Boolean).join(", ") || "Order Line Items";
+    const itemSummary =
+      lineItems
+        .map((l) => l.description)
+        .filter(Boolean)
+        .join(", ") || "Order Line Items";
 
     const newPOItem = {
       id: Date.now(),
@@ -452,14 +440,24 @@ export default function PurchaseOrdersPage() {
 
     // Persist locally & optimistically update table
     addStoredPO(newPOItem);
-    addStoredVendor({ id: vId, name: vName, phone: vendorPhone, address: vendorAddress });
-    queryClient.setQueryData(["get", "/api/flex/purchase-orders"], (old: any) =>
-      [newPOItem, ...(Array.isArray(old) ? old : [])]
+    addStoredVendor({
+      id: vId,
+      name: vName,
+      phone: vendorPhone,
+      address: vendorAddress,
+    });
+    queryClient.setQueryData(
+      ["get", "/api/flex/purchase-orders"],
+      (old: any) => [newPOItem, ...(Array.isArray(old) ? old : [])],
     );
 
     // Close modal & show toast immediately
     const isDraft = status === "Draft";
-    toast.success(isDraft ? "Purchase Order saved as Draft" : "Purchase Order saved and sent successfully!");
+    toast.success(
+      isDraft
+        ? "Purchase Order saved as Draft"
+        : "Purchase Order saved and sent successfully!",
+    );
     setIsBuilderOpen(false);
     resetForm();
 
@@ -493,7 +491,9 @@ export default function PurchaseOrdersPage() {
         {/* Title Header Row with Action Buttons */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Purchase Orders</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Purchase Orders
+            </h1>
             <Button
               variant="outline"
               size="icon"
@@ -504,7 +504,9 @@ export default function PurchaseOrdersPage() {
               }}
               title="Refresh Records"
             >
-              <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
+              />
             </Button>
           </div>
 
@@ -533,7 +535,9 @@ export default function PurchaseOrdersPage() {
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">From Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                From Date
+              </div>
               <Input
                 type="date"
                 value={fromDate}
@@ -542,7 +546,9 @@ export default function PurchaseOrdersPage() {
               />
             </div>
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">To Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                To Date
+              </div>
               <Input
                 type="date"
                 value={toDate}
@@ -553,7 +559,9 @@ export default function PurchaseOrdersPage() {
           </div>
 
           <div>
-            <div className="text-[11px] text-muted-foreground mb-1 font-medium">Vendor</div>
+            <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+              Vendor
+            </div>
             <Select value={selectedVendor} onValueChange={setSelectedVendor}>
               <SelectTrigger className="bg-background text-xs h-9 rounded-md">
                 <SelectValue placeholder="All vendors" />
@@ -582,34 +590,60 @@ export default function PurchaseOrdersPage() {
                     <th className="px-4 py-3 font-semibold">SUBTOTAL</th>
                     <th className="px-4 py-3 font-semibold">GRAND TOTAL</th>
                     <th className="px-4 py-3 font-semibold">STATUS</th>
-                    <th className="px-4 py-3 font-semibold text-right">ACTION</th>
+                    <th className="px-4 py-3 font-semibold text-right">
+                      ACTION
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground text-sm">
+                      <td
+                        colSpan={9}
+                        className="px-4 py-8 text-center text-muted-foreground text-sm"
+                      >
                         No purchase orders found.
                       </td>
                     </tr>
                   ) : (
                     filtered.map((po) => (
-                      <tr key={po.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{po.vendorId}</td>
-                        <td className="px-4 py-3 font-semibold text-foreground">{po.vendor}</td>
-                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">{po.poNumber}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{po.poDate}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{po.deliveryDate || "-"}</td>
-                        <td className="px-4 py-3 font-semibold">₹ {po.subtotal.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-3 font-bold text-foreground">₹ {po.grandTotal.toLocaleString("en-IN")}</td>
+                      <tr
+                        key={po.id}
+                        className="hover:bg-muted/40 transition-colors"
+                      >
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {po.vendorId}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-foreground">
+                          {po.vendor}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">
+                          {po.poNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {po.poDate}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {po.deliveryDate || "-"}
+                        </td>
+                        <td className="px-4 py-3 font-semibold">
+                          ₹ {po.subtotal.toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-foreground">
+                          ₹ {po.grandTotal.toLocaleString("en-IN")}
+                        </td>
                         <td className="px-4 py-3">
-                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                            po.status === "Completed" || po.status === "Approved"
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-200"
-                              : po.status === "Product Dispatched" || po.status === "Issued"
-                              ? "bg-purple-50 text-purple-600 border-purple-200"
-                              : "bg-muted/70 text-muted-foreground border-border"
-                          }`}>
+                          <span
+                            className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                              po.status === "Completed" ||
+                              po.status === "Approved"
+                                ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                                : po.status === "Product Dispatched" ||
+                                    po.status === "Issued"
+                                  ? "bg-purple-50 text-purple-600 border-purple-200"
+                                  : "bg-muted/70 text-muted-foreground border-border"
+                            }`}
+                          >
                             {po.status}
                           </span>
                         </td>
@@ -646,9 +680,19 @@ export default function PurchaseOrdersPage() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
               <div>
-                Showing <span className="font-semibold text-foreground">{filtered.length > 0 ? 1 : 0}</span> to{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> of{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> records
+                Showing{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length > 0 ? 1 : 0}
+                </span>{" "}
+                to{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                records
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
@@ -696,7 +740,9 @@ export default function PurchaseOrdersPage() {
               {/* Row 1: PO Number | Vendor Name * | Contact Person */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">PO Number</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    PO Number
+                  </Label>
                   <Input
                     readOnly
                     value="Auto-assigned on save"
@@ -713,13 +759,17 @@ export default function PurchaseOrdersPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {vendorsList.map((v: any) => (
-                        <SelectItem key={v.id} value={`${v.id} - ${v.name}`}>{v.id} - {v.name}</SelectItem>
+                        <SelectItem key={v.id} value={`${v.id} - ${v.name}`}>
+                          {v.id} - {v.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Contact Person</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    Contact Person
+                  </Label>
                   <Input
                     placeholder="Vendor contact person"
                     value={contactPerson}
@@ -732,7 +782,9 @@ export default function PurchaseOrdersPage() {
               {/* Row 2: Vendor GST | Vendor Address * | Vendor Phone * */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Vendor GST</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    Vendor GST
+                  </Label>
                   <Input
                     placeholder="GST number"
                     value={vendorGst}
@@ -768,7 +820,8 @@ export default function PurchaseOrdersPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs font-semibold text-foreground mb-1 block">
-                    Place of Supply (State Code) <span className="text-primary">*</span>
+                    Place of Supply (State Code){" "}
+                    <span className="text-primary">*</span>
                   </Label>
                   <Input
                     value={placeOfSupply}
@@ -789,7 +842,9 @@ export default function PurchaseOrdersPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Delivery Date</Label>
+                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                    Delivery Date
+                  </Label>
                   <Input
                     type="date"
                     value={deliveryDate}
@@ -801,15 +856,24 @@ export default function PurchaseOrdersPage() {
 
               {/* Row 4: Destination Warehouse */}
               <div>
-                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Destination Warehouse</Label>
-                <Select value={destinationWarehouse} onValueChange={setDestinationWarehouse}>
+                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                  Destination Warehouse
+                </Label>
+                <Select
+                  value={destinationWarehouse}
+                  onValueChange={setDestinationWarehouse}
+                >
                   <SelectTrigger className="h-9 text-xs bg-background">
                     <SelectValue placeholder="Select warehouse for stock..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Bangalore Central Warehouse">Bangalore Central Warehouse</SelectItem>
+                    <SelectItem value="Bangalore Central Warehouse">
+                      Bangalore Central Warehouse
+                    </SelectItem>
                     <SelectItem value="Chennai Hub">Chennai Hub</SelectItem>
-                    <SelectItem value="Coimbatore Plant">Coimbatore Plant</SelectItem>
+                    <SelectItem value="Coimbatore Plant">
+                      Coimbatore Plant
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -842,12 +906,21 @@ export default function PurchaseOrdersPage() {
                   </div>
 
                   {lineItems.map((line) => (
-                    <div key={line.id} className="grid grid-cols-12 gap-2 items-center">
+                    <div
+                      key={line.id}
+                      className="grid grid-cols-12 gap-2 items-center"
+                    >
                       <div className="col-span-4">
                         <Input
                           placeholder="Select or type item/service"
                           value={line.description}
-                          onChange={(e) => handleLineChange(line.id, "description", e.target.value)}
+                          onChange={(e) =>
+                            handleLineChange(
+                              line.id,
+                              "description",
+                              e.target.value,
+                            )
+                          }
                           className="h-8 text-xs bg-background"
                         />
                       </div>
@@ -855,7 +928,9 @@ export default function PurchaseOrdersPage() {
                         <Input
                           placeholder="HSN"
                           value={line.hsn}
-                          onChange={(e) => handleLineChange(line.id, "hsn", e.target.value)}
+                          onChange={(e) =>
+                            handleLineChange(line.id, "hsn", e.target.value)
+                          }
                           className="h-8 text-xs bg-background font-mono px-1"
                         />
                       </div>
@@ -863,7 +938,13 @@ export default function PurchaseOrdersPage() {
                         <Input
                           type="number"
                           value={line.qty}
-                          onChange={(e) => handleLineChange(line.id, "qty", parseFloat(e.target.value) || 1)}
+                          onChange={(e) =>
+                            handleLineChange(
+                              line.id,
+                              "qty",
+                              parseFloat(e.target.value) || 1,
+                            )
+                          }
                           className="h-8 text-xs bg-background text-center px-1"
                         />
                       </div>
@@ -871,14 +952,26 @@ export default function PurchaseOrdersPage() {
                         <Input
                           type="number"
                           value={line.rate}
-                          onChange={(e) => handleLineChange(line.id, "rate", parseFloat(e.target.value) || 0)}
+                          onChange={(e) =>
+                            handleLineChange(
+                              line.id,
+                              "rate",
+                              parseFloat(e.target.value) || 0,
+                            )
+                          }
                           className="h-8 text-xs bg-background text-center px-1"
                         />
                       </div>
                       <div className="col-span-1">
                         <Select
                           value={`${line.cgstPct}%`}
-                          onValueChange={(val) => handleLineChange(line.id, "cgstPct", parseFloat(val) || 0)}
+                          onValueChange={(val) =>
+                            handleLineChange(
+                              line.id,
+                              "cgstPct",
+                              parseFloat(val) || 0,
+                            )
+                          }
                         >
                           <SelectTrigger className="h-8 text-[11px] bg-background px-1">
                             <SelectValue placeholder="9%" />
@@ -895,7 +988,13 @@ export default function PurchaseOrdersPage() {
                       <div className="col-span-1">
                         <Select
                           value={`${line.sgstPct}%`}
-                          onValueChange={(val) => handleLineChange(line.id, "sgstPct", parseFloat(val) || 0)}
+                          onValueChange={(val) =>
+                            handleLineChange(
+                              line.id,
+                              "sgstPct",
+                              parseFloat(val) || 0,
+                            )
+                          }
                         >
                           <SelectTrigger className="h-8 text-[11px] bg-background px-1">
                             <SelectValue placeholder="9%" />
@@ -912,7 +1011,13 @@ export default function PurchaseOrdersPage() {
                       <div className="col-span-1">
                         <Select
                           value={`${line.igstPct}%`}
-                          onValueChange={(val) => handleLineChange(line.id, "igstPct", parseFloat(val) || 0)}
+                          onValueChange={(val) =>
+                            handleLineChange(
+                              line.id,
+                              "igstPct",
+                              parseFloat(val) || 0,
+                            )
+                          }
                         >
                           <SelectTrigger className="h-8 text-[11px] bg-background px-1">
                             <SelectValue placeholder="18%" />
@@ -945,19 +1050,27 @@ export default function PurchaseOrdersPage() {
                   <div className="w-64 bg-muted/40 p-3 rounded-lg border border-border/80 space-y-1.5 text-xs">
                     <div className="flex justify-between text-muted-foreground">
                       <span>Subtotal</span>
-                      <span className="font-semibold text-foreground">₹ {calculatedSubtotal.toLocaleString("en-IN")}</span>
+                      <span className="font-semibold text-foreground">
+                        ₹ {calculatedSubtotal.toLocaleString("en-IN")}
+                      </span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
                       <span>CGST</span>
-                      <span className="font-semibold text-foreground">₹ {calculatedCgst.toLocaleString("en-IN")}</span>
+                      <span className="font-semibold text-foreground">
+                        ₹ {calculatedCgst.toLocaleString("en-IN")}
+                      </span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
                       <span>SGST</span>
-                      <span className="font-semibold text-foreground">₹ {calculatedSgst.toLocaleString("en-IN")}</span>
+                      <span className="font-semibold text-foreground">
+                        ₹ {calculatedSgst.toLocaleString("en-IN")}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm font-bold text-foreground pt-1.5 border-t border-border">
                       <span>Grand Total</span>
-                      <span className="text-primary font-mono">₹ {calculatedGrandTotal.toLocaleString("en-IN")}</span>
+                      <span className="text-primary font-mono">
+                        ₹ {calculatedGrandTotal.toLocaleString("en-IN")}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -965,7 +1078,9 @@ export default function PurchaseOrdersPage() {
 
               {/* Row 6: Terms & Conditions */}
               <div>
-                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">Terms & Conditions</Label>
+                <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                  Terms & Conditions
+                </Label>
                 <Textarea
                   placeholder="Payment terms, delivery conditions..."
                   value={termsConditions}
@@ -978,7 +1093,12 @@ export default function PurchaseOrdersPage() {
 
             {/* Footer Actions */}
             <DialogFooter className="pt-3 border-t border-border flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsBuilderOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsBuilderOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
@@ -1009,7 +1129,9 @@ export default function PurchaseOrdersPage() {
               <div className="space-y-4">
                 <DialogHeader className="pb-2 border-b border-border">
                   <DialogTitle className="flex items-center justify-between">
-                    <span className="text-lg font-bold text-foreground">{selectedPo.poNumber} Details</span>
+                    <span className="text-lg font-bold text-foreground">
+                      {selectedPo.poNumber} Details
+                    </span>
                     <span className="text-xs font-mono bg-muted/60 px-2 py-0.5 rounded text-muted-foreground">
                       {selectedPo.vendorId}
                     </span>
@@ -1020,38 +1142,55 @@ export default function PurchaseOrdersPage() {
                 <div className="grid grid-cols-2 gap-3 text-xs bg-muted/40 p-3.5 rounded-lg border border-border/80">
                   <div>
                     <span className="text-muted-foreground">Vendor:</span>
-                    <p className="font-semibold text-foreground text-sm">{selectedPo.vendor}</p>
+                    <p className="font-semibold text-foreground text-sm">
+                      {selectedPo.vendor}
+                    </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Contact Person:</span>
-                    <p className="font-medium text-foreground">{selectedPo.contactPerson || "-"}</p>
+                    <span className="text-muted-foreground">
+                      Contact Person:
+                    </span>
+                    <p className="font-medium text-foreground">
+                      {selectedPo.contactPerson || "-"}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Vendor Phone:</span>
-                    <p className="font-medium text-foreground">{selectedPo.vendorPhone || "-"}</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPo.vendorPhone || "-"}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Vendor GST:</span>
-                    <p className="font-mono text-foreground">{selectedPo.vendorGst || "-"}</p>
+                    <p className="font-mono text-foreground">
+                      {selectedPo.vendorGst || "-"}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Subtotal:</span>
-                    <p className="font-medium text-foreground">₹ {selectedPo.subtotal.toLocaleString("en-IN")}</p>
+                    <p className="font-medium text-foreground">
+                      ₹ {selectedPo.subtotal.toLocaleString("en-IN")}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Grand Total:</span>
-                    <p className="font-bold text-primary text-sm">₹ {selectedPo.grandTotal.toLocaleString("en-IN")}</p>
+                    <p className="font-bold text-primary text-sm">
+                      ₹ {selectedPo.grandTotal.toLocaleString("en-IN")}
+                    </p>
                   </div>
                   <div className="col-span-2">
                     <span className="text-muted-foreground">Warehouse:</span>
-                    <p className="font-medium text-foreground">{selectedPo.warehouse}</p>
+                    <p className="font-medium text-foreground">
+                      {selectedPo.warehouse}
+                    </p>
                   </div>
                 </div>
 
                 {/* Workflow Actions */}
                 <div className="space-y-2 pt-2 border-t border-border">
                   <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-primary" /> PO Approval & Workflow Actions
+                    <ShieldCheck className="w-3.5 h-3.5 text-primary" /> PO
+                    Approval & Workflow Actions
                   </Label>
                   <div className="flex flex-wrap gap-2">
                     {selectedPo.status !== "Completed" && (
@@ -1059,7 +1198,12 @@ export default function PurchaseOrdersPage() {
                         <Button
                           size="sm"
                           className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
-                          onClick={() => updateMutation.mutate({ id: selectedPo.id, status: "Approved" })}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: selectedPo.id,
+                              status: "Approved",
+                            })
+                          }
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" /> Approve PO
                         </Button>
@@ -1067,21 +1211,36 @@ export default function PurchaseOrdersPage() {
                           size="sm"
                           variant="destructive"
                           className="gap-1.5"
-                          onClick={() => updateMutation.mutate({ id: selectedPo.id, status: "Rejected" })}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: selectedPo.id,
+                              status: "Rejected",
+                            })
+                          }
                         >
                           <XCircle className="w-3.5 h-3.5" /> Reject PO
                         </Button>
                         <Button
                           size="sm"
                           className="bg-purple-600 hover:bg-purple-700 text-white gap-1.5"
-                          onClick={() => updateMutation.mutate({ id: selectedPo.id, status: "Product Dispatched" })}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: selectedPo.id,
+                              status: "Product Dispatched",
+                            })
+                          }
                         >
                           Mark Dispatched
                         </Button>
                         <Button
                           size="sm"
                           className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5"
-                          onClick={() => updateMutation.mutate({ id: selectedPo.id, status: "Completed" })}
+                          onClick={() =>
+                            updateMutation.mutate({
+                              id: selectedPo.id,
+                              status: "Completed",
+                            })
+                          }
                         >
                           Mark Completed
                         </Button>
@@ -1109,7 +1268,11 @@ export default function PurchaseOrdersPage() {
                 </div>
 
                 <DialogFooter className="pt-3 border-t border-border">
-                  <Button variant="outline" size="sm" onClick={() => setSelectedPo(null)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedPo(null)}
+                  >
                     Close
                   </Button>
                 </DialogFooter>

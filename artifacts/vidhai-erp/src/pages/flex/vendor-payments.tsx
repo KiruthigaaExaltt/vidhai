@@ -39,53 +39,18 @@ export interface OutstandingBillItem {
   paymentMode?: string;
 }
 
-const DEFAULT_BILLS: OutstandingBillItem[] = [
-  {
-    id: 1,
-    vendorId: "-",
-    vendor: "sample",
-    billNumber: "PAY-2026-08-2-ACCRUAL",
-    invoiceReference: "INV000",
-    date: "07 Aug 2026",
-    amount: 100,
-    paid: 0,
-    outstanding: 100,
-    status: "Completed",
-    paymentMode: "Bank Transfer",
-  },
-  {
-    id: 2,
-    vendorId: "-",
-    vendor: "Elakiya Shri",
-    billNumber: "PAY-2026-07-1-ACCRUAL",
-    invoiceReference: "INV001",
-    date: "17 Jul 2026",
-    amount: 6451.61,
-    paid: 0,
-    outstanding: 6451.61,
-    status: "Completed",
-    paymentMode: "Bank Transfer",
-  },
-  {
-    id: 3,
-    vendorId: "-",
-    vendor: "Elakiya Shri",
-    billNumber: "CCLM-1",
-    invoiceReference: "INV002",
-    date: "17 Jul 2026",
-    amount: 12000,
-    paid: 0,
-    outstanding: 12000,
-    status: "Completed",
-    paymentMode: "Bank Transfer",
-  },
-];
-
-import { mergeVendors, addStoredVendor, mergePayments, addStoredPayment } from "@/lib/flexStore";
+import {
+  mergeVendors,
+  addStoredVendor,
+  mergePayments,
+  addStoredPayment,
+} from "@/lib/flexStore";
 
 async function fetchVendorPayments(): Promise<OutstandingBillItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendor-payments`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/vendor-payments`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       const serverMapped = (data || []).map((p: any) => ({
@@ -101,10 +66,10 @@ async function fetchVendorPayments(): Promise<OutstandingBillItem[]> {
         status: p.status || "Completed",
         paymentMode: p.paymentMode || "Bank Transfer",
       }));
-      return mergePayments(serverMapped, DEFAULT_BILLS);
+      return mergePayments(serverMapped);
     }
   } catch {}
-  return mergePayments([], DEFAULT_BILLS);
+  return mergePayments([]);
 }
 
 async function createVendorPayment(payload: any) {
@@ -118,10 +83,11 @@ async function createVendorPayment(payload: any) {
   return res.json();
 }
 
-
 async function fetchVendorsList() {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, { credentials: "include" });
+    const res = await fetch(`${BASE}/api/flex/vendors`, {
+      credentials: "include",
+    });
     if (res.ok) {
       const data = await res.json();
       return mergeVendors(data);
@@ -132,7 +98,7 @@ async function fetchVendorsList() {
 
 export default function VendorPayments() {
   const queryClient = useQueryClient();
-  const { data: bills = DEFAULT_BILLS } = useQuery({
+  const { data: bills = [] } = useQuery({
     queryKey: ["get", "/api/flex/vendor-payments"],
     queryFn: fetchVendorPayments,
   });
@@ -160,8 +126,12 @@ export default function VendorPayments() {
   const createMutation = useMutation({
     mutationFn: createVendorPayment,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/vendor-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/vendor-payments"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
       toast.success("Payment recorded against bill");
       setIsAddOpen(false);
       resetForm();
@@ -189,7 +159,8 @@ export default function VendorPayments() {
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
     const vendorName = vendor.trim() || "Elakiya Shri";
-    const billNum = outstandingBill.trim() || `PAY-2026-08-${bills.length + 1}-ACCRUAL`;
+    const billNum =
+      outstandingBill.trim() || `PAY-2026-08-${bills.length + 1}-ACCRUAL`;
     const amt = parseFloat(amount) || 100;
 
     const newPaymentItem: OutstandingBillItem = {
@@ -234,7 +205,7 @@ export default function VendorPayments() {
   ];
 
   const filteredModes = paymentModeOptions.filter((m) =>
-    m.label.toLowerCase().includes(modeFilter.toLowerCase())
+    m.label.toLowerCase().includes(modeFilter.toLowerCase()),
   );
 
   return (
@@ -245,7 +216,9 @@ export default function VendorPayments() {
         {/* Title Header Row */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Vendor Payments</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              Vendor Payments
+            </h1>
             <p className="text-xs text-muted-foreground mt-1">
               Record payments against vendor bills and update accounts payable.
             </p>
@@ -264,7 +237,9 @@ export default function VendorPayments() {
 
         {/* Filter by Vendor */}
         <div className="space-y-1 max-w-xs">
-          <div className="text-xs text-muted-foreground font-medium">Filter by vendor</div>
+          <div className="text-xs text-muted-foreground font-medium">
+            Filter by vendor
+          </div>
           <Select value={selectedVendor} onValueChange={setSelectedVendor}>
             <SelectTrigger className="bg-background text-xs h-10 rounded-xl border-border shadow-2xs">
               <SelectValue placeholder="All vendors" />
@@ -272,7 +247,9 @@ export default function VendorPayments() {
             <SelectContent>
               <SelectItem value="All">All vendors</SelectItem>
               {vendorsList.map((v: any) => (
-                <SelectItem key={v.id} value={v.name}>{v.name}</SelectItem>
+                <SelectItem key={v.id} value={v.name}>
+                  {v.name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -281,7 +258,9 @@ export default function VendorPayments() {
         {/* Data Table Card Container */}
         <Card className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
           <div className="px-6 py-4 border-b border-border">
-            <h2 className="text-sm font-bold text-foreground">Outstanding Bills</h2>
+            <h2 className="text-sm font-bold text-foreground">
+              Outstanding Bills
+            </h2>
           </div>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -300,17 +279,31 @@ export default function VendorPayments() {
                 <tbody className="divide-y divide-border">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-muted-foreground text-sm">
+                      <td
+                        colSpan={7}
+                        className="px-6 py-8 text-center text-muted-foreground text-sm"
+                      >
                         No outstanding bills found.
                       </td>
                     </tr>
                   ) : (
                     filtered.map((b) => (
-                      <tr key={b.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="px-6 py-4 text-muted-foreground font-normal">{b.vendorId || "-"}</td>
-                        <td className="px-6 py-4 font-bold text-foreground">{b.vendor}</td>
-                        <td className="px-6 py-4 font-semibold text-muted-foreground font-mono text-[11px]">{b.billNumber}</td>
-                        <td className="px-6 py-4 text-muted-foreground">{b.date}</td>
+                      <tr
+                        key={b.id}
+                        className="hover:bg-muted/40 transition-colors"
+                      >
+                        <td className="px-6 py-4 text-muted-foreground font-normal">
+                          {b.vendorId || "-"}
+                        </td>
+                        <td className="px-6 py-4 font-bold text-foreground">
+                          {b.vendor}
+                        </td>
+                        <td className="px-6 py-4 font-semibold text-muted-foreground font-mono text-[11px]">
+                          {b.billNumber}
+                        </td>
+                        <td className="px-6 py-4 text-muted-foreground">
+                          {b.date}
+                        </td>
                         <td className="px-6 py-4 font-bold text-foreground">
                           ₹ {b.amount.toLocaleString("en-IN")}
                         </td>
@@ -335,7 +328,9 @@ export default function VendorPayments() {
             <form onSubmit={handleRecordPayment}>
               <DialogHeader className="pb-3 border-border">
                 <DialogTitle className="flex items-center gap-2.5 text-lg font-bold text-foreground">
-                  <span className="text-lg font-bold text-primary leading-none">₹</span>
+                  <span className="text-lg font-bold text-primary leading-none">
+                    ₹
+                  </span>
                   Record Vendor Payment
                 </DialogTitle>
               </DialogHeader>
@@ -343,14 +338,18 @@ export default function VendorPayments() {
               <div className="space-y-4 py-4 text-xs">
                 {/* Vendor */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Vendor</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Vendor
+                  </Label>
                   <Select value={vendor} onValueChange={setVendor}>
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
                       <SelectValue placeholder="Select vendor" />
                     </SelectTrigger>
                     <SelectContent>
                       {vendorsList.map((v: any) => (
-                        <SelectItem key={v.id} value={v.name}>{v.id} - {v.name}</SelectItem>
+                        <SelectItem key={v.id} value={v.name}>
+                          {v.id} - {v.name}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -358,7 +357,9 @@ export default function VendorPayments() {
 
                 {/* Outstanding bill */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Outstanding bill</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Outstanding bill
+                  </Label>
                   <Select
                     value={outstandingBill}
                     onValueChange={(val) => {
@@ -379,8 +380,12 @@ export default function VendorPayments() {
                       <SelectValue placeholder="Select bill" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="PAY-2026-08-2-ACCRUAL">PAY-2026-08-2-ACCRUAL (₹ 100)</SelectItem>
-                      <SelectItem value="PAY-2026-07-1-ACCRUAL">PAY-2026-07-1-ACCRUAL (₹ 6,451.61)</SelectItem>
+                      <SelectItem value="PAY-2026-08-2-ACCRUAL">
+                        PAY-2026-08-2-ACCRUAL (₹ 100)
+                      </SelectItem>
+                      <SelectItem value="PAY-2026-07-1-ACCRUAL">
+                        PAY-2026-07-1-ACCRUAL (₹ 6,451.61)
+                      </SelectItem>
                       <SelectItem value="CCLM-1">CCLM-1 (₹ 12,000)</SelectItem>
                     </SelectContent>
                   </Select>
@@ -388,7 +393,9 @@ export default function VendorPayments() {
 
                 {/* Payment date */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Payment date</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Payment date
+                  </Label>
                   <Input
                     type="date"
                     value={paymentDate}
@@ -399,7 +406,9 @@ export default function VendorPayments() {
 
                 {/* Payment amount */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Payment amount</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Payment amount
+                  </Label>
                   <Input
                     type="text"
                     value={amount}
@@ -411,13 +420,18 @@ export default function VendorPayments() {
 
                 {/* Payment mode */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Payment mode</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Payment mode
+                  </Label>
                   <Select value={paymentMode} onValueChange={setPaymentMode}>
                     <SelectTrigger className="h-10 text-xs bg-background border-border focus:border-primary focus:ring-1 focus:ring-primary rounded-xl font-semibold text-foreground">
                       <SelectValue placeholder="Select payment mode" />
                     </SelectTrigger>
                     <SelectContent className="p-1 border border-border shadow-lg rounded-xl">
-                      <div className="relative p-1.5 mb-1" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="relative p-1.5 mb-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input
                           placeholder="Type to filter..."
@@ -442,21 +456,29 @@ export default function VendorPayments() {
 
                 {/* Bank / Cash account */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Bank / Cash account</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Bank / Cash account
+                  </Label>
                   <Select value={bankAccount} onValueChange={setBankAccount}>
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
                       <SelectValue placeholder="Bank Account (1020) (1)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Bank Account (1020) (1)">Bank Account (1020) (1)</SelectItem>
-                      <SelectItem value="Petty Cash (1010)">Petty Cash (1010)</SelectItem>
+                      <SelectItem value="Bank Account (1020) (1)">
+                        Bank Account (1020) (1)
+                      </SelectItem>
+                      <SelectItem value="Petty Cash (1010)">
+                        Petty Cash (1010)
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 {/* Transaction reference */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Transaction reference</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Transaction reference
+                  </Label>
                   <Input
                     placeholder="UPI / cheque / NEFT reference"
                     value={transactionRef}
@@ -467,7 +489,9 @@ export default function VendorPayments() {
 
                 {/* Notes */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Notes</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Notes
+                  </Label>
                   <Input
                     placeholder="Optional payment notes"
                     value={notes}
@@ -478,9 +502,13 @@ export default function VendorPayments() {
 
                 {/* Invoice Attachment */}
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Invoice Attachment</Label>
+                  <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Invoice Attachment
+                  </Label>
                   <div
-                    onClick={() => document.getElementById("vendor-payment-file")?.click()}
+                    onClick={() =>
+                      document.getElementById("vendor-payment-file")?.click()
+                    }
                     className="border border-border rounded-xl p-3 bg-background flex items-center justify-between text-xs cursor-pointer hover:bg-muted/40 transition-colors"
                   >
                     <div className="flex items-center gap-2">
