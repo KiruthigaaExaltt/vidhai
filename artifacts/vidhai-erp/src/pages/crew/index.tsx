@@ -28,6 +28,12 @@ import {
   WalletCards,
 } from "lucide-react";
 import { AddMemberDialog } from "./AddMemberDialog";
+import { AttendanceModule } from "./AttendanceModule";
+import { ClaimsModule } from "./ClaimsModule";
+import { BonusModule } from "./BonusModule";
+import { DeductionsModule } from "./DeductionsModule";
+import { LeaveModule } from "./LeaveModule";
+import { OvertimeModule } from "./OvertimeModule";
 
 type Tab =
   | "employees"
@@ -119,7 +125,7 @@ export default function Crew() {
     setLoading(true);
     try {
       await loadEmployees();
-      if (tab !== "employees") setRows(await api(tab));
+      if (tab !== "employees" && tab !== "leave" && tab !== "claims" && tab !== "overtime" && tab !== "bonus" && tab !== "deductions") setRows(await api(tab));
     } catch (e: any) {
       toast({
         title: "Unable to load Crew",
@@ -307,13 +313,8 @@ export default function Crew() {
               </p>
             </div>
             <div className="flex gap-2">
-              {tab === "attendance" && canCreate && (
-                <Button variant="outline" onClick={punch}>
-                  <Clock3 className="mr-2 h-4 w-4" />
-                  Punch in / out
-                </Button>
-              )}
-              {canCreate && (
+
+              {canCreate && tab !== "attendance" && tab !== "leave" && tab !== "claims" && tab !== "overtime" && tab !== "bonus" && tab !== "deductions" && (
                 <Button onClick={() => begin()}>
                   <Plus className="mr-2 h-4 w-4" />
                   {tab === "employees" ? "Add Member" : `New ${label(tab)}`}
@@ -321,7 +322,7 @@ export default function Crew() {
               )}
             </div>
           </div>
-          {tab === "employees" && (
+          {["employees","attendance","leave","claims","overtime","bonus","deductions"].includes(tab) && (
             <div className="grid gap-4 md:grid-cols-4">
               <Metric
                 icon={Users}
@@ -348,6 +349,20 @@ export default function Crew() {
               />
             </div>
           )}
+          {tab === "attendance" ? (
+            <AttendanceModule employees={employees} logs={rows} user={user} can={can} refresh={load} edit={begin}/>
+          ) : tab === "leave" ? (
+            <LeaveModule employees={employees} user={user} can={can}/>
+          ) : tab === "claims" ? (
+            <ClaimsModule employees={employees} user={user} can={can}/>
+          ) : tab === "overtime" ? (
+            <OvertimeModule employees={employees} user={user} can={can}/>
+          ) : tab === "bonus" ? (
+            <BonusModule employees={employees} user={user} can={can}/>
+          ) : tab === "deductions" ? (
+            <DeductionsModule employees={employees} user={user} can={can}/>
+          ) : (
+            <>
           <div className="flex gap-3">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -403,6 +418,8 @@ export default function Crew() {
               />
             )}
           </div>
+            </>
+          )}
         </div>
       </div>
       {tab === "employees" && !editing ? (
@@ -458,7 +475,7 @@ function Metric({ icon: Icon, label, value, tone = "text-primary" }: any) {
 }
 function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
   const formatDate = (value: any) => {
-    if (!value) return "—";
+    if (!value) return "ï¿½";
     const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   };
@@ -471,8 +488,8 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
       </tr></thead>
       <tbody>{rows.map((employee:any)=><tr key={employee.id} className="border-t transition-colors hover:bg-muted/20">
         <td className="px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-semibold text-primary">{employee.photoUrl?<img src={`${base}${employee.photoUrl}`} alt="" className="h-full w-full object-cover"/>:initials(employee.name)}</span><span className="font-medium text-muted-foreground">{employee.employeeCode}</span></div></td>
-        <td className="px-4 py-3"><div className="font-semibold">{employee.name}</div><div className="text-xs text-muted-foreground">{employee.designation || "—"}</div></td>
-        <td className="px-4 py-3 text-muted-foreground">{employee.department || "—"}</td>
+        <td className="px-4 py-3"><div className="font-semibold">{employee.name}</div><div className="text-xs text-muted-foreground">{employee.designation || "ï¿½"}</div></td>
+        <td className="px-4 py-3 text-muted-foreground">{employee.department || "ï¿½"}</td>
         <td className="px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(employee.status)}`}>{employee.status}</span></td>
         <td className="px-4 py-3 text-muted-foreground">{formatDate(employee.joinDate)}</td>
         <td className="px-4 py-3"><div className="flex justify-center gap-1">{canEdit&&<Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={()=>edit(employee)} aria-label={`Edit ${employee.name}`}><Pencil className="h-4 w-4"/></Button>}{canDelete&&!employee.isSystemGenerated&&<Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={()=>remove(employee)}>Offboard</Button>}</div></td>

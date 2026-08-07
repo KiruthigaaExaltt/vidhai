@@ -5,7 +5,7 @@ import {
   LogOut, Home, Box, Thermometer, Layers,
   Users, MapPin, FlaskConical, GitBranch, CalendarDays, Sparkles,
   ShoppingCart, Truck, BarChart2, ShieldCheck, CheckSquare,
-  Settings as SettingsIcon, BookUser, UserCircle, RefreshCw, Download,
+  Settings as SettingsIcon, BookUser, UserCircle, RefreshCw, Download, Banknote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
@@ -118,6 +118,9 @@ export function Sidebar() {
         <SectionTitle>OPERATIONS</SectionTitle>
         {(can("crew.employees.view") || can("crew.attendance.view") || can("crew.leave.view") || can("crew.claims.view") || can("crew.overtime.view") || can("crew.bonus.view") || can("crew.deductions.view")) && (
           <NavItem href="/crew" icon={Users} label="Crew" />
+        )}
+        {can("crewpay.salary_slip.view") && (
+          <NavItem href="/crewpay" icon={Banknote} label="CrewPay" />
         )}
         <NavItem href="/sales" icon={ShoppingCart} label="Sales" />
         <NavItem href="/fleet" icon={Truck} label="Vehicle Fleet" />

@@ -24,6 +24,7 @@ import contactsRouter from "./contacts";
 import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
 import crewRouter from "./crew";
+import crewPayRouter from "./crewpay";
 
 const router: IRouter = Router();
 
@@ -55,5 +56,6 @@ router.use(templatesRouter);
 router.use("/settings", templatesRouter);
 router.use(permissionsRouter);
 router.use("/crew", crewRouter);
+router.use("/crewpay", crewPayRouter);
 
 export default router;
