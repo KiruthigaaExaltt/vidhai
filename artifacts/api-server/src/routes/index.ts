@@ -30,6 +30,8 @@ import servicesRouter from "./services";
 import categoriesRouter from "./categories";
 import vaultLocationsRouter from "./vaultLocations";
 import itemNamesRouter from "./itemNames";
+
+
 const router: IRouter = Router();
 router.use(healthRouter);
 router.use("/auth", authRouter);
