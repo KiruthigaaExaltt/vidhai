@@ -57,7 +57,7 @@ export default function LabBatches() {
               <FlaskConical className="w-5 h-5 text-primary" />
               <h1 className="text-2xl font-semibold tracking-tight">Lab Location D — Spawn Preparation</h1>
             </div>
-            <p className="text-sm text-muted-foreground">Mother Spawn → Plate Prep → Spawn · produces spawn stock for Annur</p>
+            
           </div>
 
           <Dialog open={open} onOpenChange={setOpen}>

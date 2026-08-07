@@ -126,6 +126,7 @@ export function Sidebar() {
         <NavItem href="/fleet" icon={Truck} label="Vehicle Fleet" />
         <NavItem href="/reports" icon={BarChart2} label="Reports" />
         <NavItem href="/traceability" icon={GitBranch} label="Traceability" />
+        <NavItem href="/flex" icon={Box} label="Flex" />
 
         {/* ── System ── */}
         <SectionTitle>SYSTEM</SectionTitle>

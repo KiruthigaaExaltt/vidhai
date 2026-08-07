@@ -134,9 +134,7 @@ export default function FleetList() {
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Truck className="w-6 h-6 text-primary" /> Vehicle Fleet
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Cross-site capable fleet — each vehicle has a home location but can be dispatched anywhere.
-            </p>
+            
           </div>
           <Button size="sm" className="rounded-sm h-8" onClick={openNew}>
             <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Vehicle

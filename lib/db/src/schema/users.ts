@@ -29,6 +29,18 @@ export const usersTable = mongoTable("users", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   deletedBy: integer("deleted_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+
+  // ── Profile page fields ──
+  department: text("department"),
+  designation: text("designation"),
+  phoneNumber: text("phone_number"),
+  workLocation: text("work_location"),
+  dob: timestamp("dob", { withTimezone: true }),
+  employeeCode: text("employee_code"),
+  reportingManager: text("reporting_manager"),
+  joiningDate: timestamp("joining_date", { withTimezone: true }),
+  employmentType: text("employment_type").default("Full-time"),
+  status: text("status").default("Active"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

@@ -23,6 +23,7 @@ import tasksRouter from "./tasks";
 import contactsRouter from "./contacts";
 import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
+import flexRouter from "./flex";
 import crewRouter from "./crew";
 import crewPayRouter from "./crewpay";
 import servicesRouter from "./services";
@@ -30,8 +31,8 @@ import categoriesRouter from "./categories";
 import vaultLocationsRouter from "./vaultLocations";
 import itemNamesRouter from "./itemNames";
 
-const router: IRouter = Router();
 
+const router: IRouter = Router();
 router.use(healthRouter);
 router.use("/auth", authRouter);
 router.use("/users", usersRouter);
@@ -59,6 +60,7 @@ router.use("/contacts", contactsRouter);
 router.use(templatesRouter);
 router.use("/settings", templatesRouter);
 router.use(permissionsRouter);
+router.use("/flex", flexRouter);
 router.use("/crew", crewRouter);
 router.use("/crewpay", crewPayRouter);
 router.use("/services", servicesRouter);

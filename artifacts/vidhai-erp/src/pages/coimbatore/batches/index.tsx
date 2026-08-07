@@ -51,6 +51,13 @@ function stageLabel(stage: string) {
   return stage.replace(/_/g, " ");
 }
 
+const DATE_INPUT_CLASS =
+  "h-8 rounded-md text-sm font-mono w-[140px] pl-2 pr-2 cursor-pointer " +
+  "[&::-webkit-calendar-picker-indicator]:cursor-pointer " +
+  "[&::-webkit-calendar-picker-indicator]:opacity-60 " +
+  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100 " +
+  "[&::-webkit-calendar-picker-indicator]:mr-0.5";
+
 export default function CoimbatoreBatches() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
@@ -58,10 +65,10 @@ export default function CoimbatoreBatches() {
   const { data: batches, isLoading, refetch } = useListCoimbatoreBatches();
 
   // ── Filters ────────────────────────────────────────────────────────────────
-  const [filterStage,  setFilterStage]  = useState("__all__");
+  const [filterStage, setFilterStage] = useState("__all__");
   const [filterStatus, setFilterStatus] = useState("__all__");
-  const [filterFrom,   setFilterFrom]   = useState("");
-  const [filterTo,     setFilterTo]     = useState("");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
 
   const clearFilters = () => {
@@ -111,7 +118,7 @@ export default function CoimbatoreBatches() {
 
   // ── Edit ───────────────────────────────────────────────────────────────────
   const [editTarget, setEditTarget] = useState<any | null>(null);
-  const [editNotes, setEditNotes]   = useState("");
+  const [editNotes, setEditNotes] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -184,28 +191,22 @@ export default function CoimbatoreBatches() {
               <Leaf className="w-5 h-5 text-primary" />
               <h1 className="text-2xl font-semibold tracking-tight">Coimbatore — Casing Soil Batches</h1>
             </div>
-            <p className="text-sm text-muted-foreground">
-              In-house casing soil production batches ·{" "}
-              <span className="text-primary font-medium">
-                External purchases → Inventory → Stock Movements (Inward)
-              </span>
-            </p>
           </div>
 
           <Dialog open={batchOpen} onOpenChange={setBatchOpen}>
             <DialogTrigger asChild>
-              <Button className="rounded-sm shadow-sm h-9 px-4 shrink-0">
+              <Button className="rounded-md shadow-md h-9 px-4 shrink-0">
                 <Plus className="w-4 h-4 mr-2" /> New Batch
               </Button>
             </DialogTrigger>
-            <DialogContent className="rounded-sm shadow-xl max-w-md">
+            <DialogContent className="rounded-md shadow-xl max-w-md">
               <DialogHeader>
                 <DialogTitle>Create Casing Soil Batch</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleCreateBatch} className="space-y-4 pt-2">
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Location</Label>
-                  <div className="px-3 py-2 bg-muted rounded-sm text-sm border font-medium">
+                  <div className="px-3 py-2 bg-muted rounded-md text-sm border font-medium">
                     Coimbatore (Location C)
                   </div>
                 </div>
@@ -216,7 +217,7 @@ export default function CoimbatoreBatches() {
                   <Input
                     value={batchNotes}
                     onChange={e => setBatchNotes(e.target.value)}
-                    className="rounded-sm h-9"
+                    className="rounded-md h-9"
                     placeholder="Any starting notes…"
                   />
                 </div>
@@ -228,7 +229,7 @@ export default function CoimbatoreBatches() {
                   <Button
                     type="submit"
                     disabled={createBatchMutation.isPending}
-                    className="w-full rounded-sm h-9"
+                    className="w-full rounded-md h-9"
                   >
                     {createBatchMutation.isPending ? "Creating…" : "Create Batch →"}
                   </Button>
@@ -239,10 +240,16 @@ export default function CoimbatoreBatches() {
         </div>
 
         {/* Filter bar */}
-        <Card className="rounded-sm border-border shadow-none">
+        <Card className="rounded-md border-border shadow-md">
           <CardContent className="p-3">
             <div className="flex flex-wrap items-end gap-3">
-              <Filter className="w-4 h-4 text-muted-foreground mt-5 shrink-0" />
+              {/* Filter icon — invisible label spacer keeps it bottom-aligned with the input row */}
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-wider text-muted-foreground opacity-0 select-none">.</Label>
+                <div className="flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted/40 shrink-0">
+                  <Filter className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </div>
 
               {/* Search */}
               <div className="space-y-1 min-w-[150px]">
@@ -253,7 +260,7 @@ export default function CoimbatoreBatches() {
                     value={filterSearch}
                     onChange={e => setFilterSearch(e.target.value)}
                     placeholder="Search…"
-                    className="h-8 rounded-sm text-sm pl-8"
+                    className="h-8 rounded-md text-sm pl-8"
                   />
                 </div>
               </div>
@@ -262,7 +269,7 @@ export default function CoimbatoreBatches() {
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Stage</Label>
                 <Select value={filterStage} onValueChange={setFilterStage}>
-                  <SelectTrigger className="h-8 rounded-sm text-sm w-[150px]">
+                  <SelectTrigger className="h-8 rounded-md text-sm w-[150px]">
                     <SelectValue placeholder="All stages" />
                   </SelectTrigger>
                   <SelectContent>
@@ -278,7 +285,7 @@ export default function CoimbatoreBatches() {
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Status</Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="h-8 rounded-sm text-sm w-[130px]">
+                  <SelectTrigger className="h-8 rounded-md text-sm w-[130px]">
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -297,7 +304,8 @@ export default function CoimbatoreBatches() {
                   type="date"
                   value={filterFrom}
                   onChange={e => setFilterFrom(e.target.value)}
-                  className="h-8 rounded-sm text-sm font-mono w-[140px]"
+                  onClick={e => (e.target as HTMLInputElement).showPicker?.()}
+                  className={DATE_INPUT_CLASS}
                 />
               </div>
 
@@ -308,7 +316,8 @@ export default function CoimbatoreBatches() {
                   type="date"
                   value={filterTo}
                   onChange={e => setFilterTo(e.target.value)}
-                  className="h-8 rounded-sm text-sm font-mono w-[140px]"
+                  onClick={e => (e.target as HTMLInputElement).showPicker?.()}
+                  className={DATE_INPUT_CLASS}
                 />
               </div>
 
@@ -331,7 +340,7 @@ export default function CoimbatoreBatches() {
         </Card>
 
         {/* Table */}
-        <Card className="rounded-sm border-border shadow-none">
+        <Card className="rounded-md border-border shadow-md">
           <CardContent className="p-0">
             {isLoading ? (
               <div className="p-12 text-center text-sm text-muted-foreground">
@@ -342,12 +351,12 @@ export default function CoimbatoreBatches() {
                 <table className="w-full text-sm text-left whitespace-nowrap">
                   <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Batch Code</th>
-                      <th className="px-4 py-3 font-medium">Stage</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Created</th>
-                      <th className="px-4 py-3 font-medium">By</th>
-                      <th className="px-4 py-3 font-medium">Notes</th>
+                      <th className="px-4 py-3 font-medium text-center">Batch Code</th>
+                      <th className="px-4 py-3 font-medium text-center">Stage</th>
+                      <th className="px-4 py-3 font-medium text-center">Status</th>
+                      <th className="px-4 py-3 font-medium text-center">Created</th>
+                      <th className="px-4 py-3 font-medium text-center">By</th>
+                      <th className="px-4 py-3 font-medium text-center">Notes</th>
                       <th className="px-4 py-3 w-20" />
                     </tr>
                   </thead>
@@ -358,18 +367,18 @@ export default function CoimbatoreBatches() {
                         onClick={() => setLocation(`/coimbatore/batches/${b.id}`)}
                         className="hover:bg-muted/30 cursor-pointer h-[44px] transition-colors"
                       >
-                        <td className="px-4 font-mono font-bold text-primary">{b.batchCode}</td>
-                        <td className="px-4">
+                        <td className="px-4 text-center font-mono font-bold text-primary">{b.batchCode}</td>
+                        <td className="px-4 text-center">
                           <StatusBadge status={b.currentStage} label={stageLabel(b.currentStage)} />
                         </td>
-                        <td className="px-4">
+                        <td className="px-4 text-center">
                           <StatusBadge status={b.status} />
                         </td>
-                        <td className="px-4 font-mono text-xs text-muted-foreground">
+                        <td className="px-4 text-center font-mono text-xs text-muted-foreground">
                           {new Date(b.createdAt).toLocaleDateString("en-IN")}
                         </td>
-                        <td className="px-4 text-xs text-muted-foreground">{b.createdByName ?? "—"}</td>
-                        <td className="px-4 text-xs text-muted-foreground max-w-[200px] truncate">
+                        <td className="px-4 text-center text-xs text-muted-foreground">{b.createdByName ?? "—"}</td>
+                        <td className="px-4 text-center text-xs text-muted-foreground max-w-[200px] truncate">
                           {b.notes ?? "—"}
                         </td>
                         <td
@@ -418,7 +427,7 @@ export default function CoimbatoreBatches() {
 
       {/* ── Edit dialog ────────────────────────────────────────────────────────── */}
       <Dialog open={!!editTarget} onOpenChange={open => !open && setEditTarget(null)}>
-        <DialogContent className="rounded-sm shadow-xl max-w-sm">
+        <DialogContent className="rounded-md shadow-xl max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-base">Edit Batch — {editTarget?.batchCode}</DialogTitle>
           </DialogHeader>
@@ -426,7 +435,7 @@ export default function CoimbatoreBatches() {
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Status</Label>
               <Select value={editStatus} onValueChange={setEditStatus}>
-                <SelectTrigger className="rounded-sm h-9">
+                <SelectTrigger className="rounded-md h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -441,16 +450,16 @@ export default function CoimbatoreBatches() {
               <Input
                 value={editNotes}
                 onChange={e => setEditNotes(e.target.value)}
-                className="rounded-sm h-9"
+                className="rounded-md h-9"
                 placeholder="Batch notes…"
               />
             </div>
           </div>
           <DialogFooter className="pt-3">
-            <Button variant="outline" className="rounded-sm" onClick={() => setEditTarget(null)}>
+            <Button variant="outline" className="rounded-md" onClick={() => setEditTarget(null)}>
               Cancel
             </Button>
-            <Button className="rounded-sm" disabled={saving} onClick={handleSaveEdit}>
+            <Button className="rounded-md" disabled={saving} onClick={handleSaveEdit}>
               {saving ? "Saving…" : "Save Changes"}
             </Button>
           </DialogFooter>
@@ -459,7 +468,7 @@ export default function CoimbatoreBatches() {
 
       {/* ── Delete confirmation ────────────────────────────────────────────────── */}
       <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
-        <AlertDialogContent className="rounded-sm">
+        <AlertDialogContent className="rounded-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Batch?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -469,11 +478,11 @@ export default function CoimbatoreBatches() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-sm" disabled={deleting}>
+            <AlertDialogCancel className="rounded-md" disabled={deleting}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              className="rounded-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleting}
               onClick={handleDelete}
             >

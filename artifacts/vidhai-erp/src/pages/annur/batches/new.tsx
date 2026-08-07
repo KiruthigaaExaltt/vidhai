@@ -207,7 +207,7 @@ export default function NewBatch() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <Card className="rounded-sm border-border shadow-none">
+          <Card className="rounded-md border-border shadow-md">
             <CardHeader className="pb-4 border-b bg-muted/20">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">General Parameters</CardTitle>
             </CardHeader>
@@ -215,7 +215,7 @@ export default function NewBatch() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">Location</Label>
-                  <div className="px-3 py-2 bg-muted rounded-sm text-sm border font-medium">
+                  <div className="px-3 py-2 bg-muted rounded-md text-sm border font-medium">
                     {annurLoc?.name || "Annur (Location A)"}
                   </div>
                 </div>
@@ -227,7 +227,7 @@ export default function NewBatch() {
                     required
                     value={targetBags} 
                     onChange={handleTargetBagsChange} 
-                    className="rounded-sm font-mono" 
+                    className="rounded-md font-mono" 
                   />
                 </div>
 
@@ -236,7 +236,7 @@ export default function NewBatch() {
                   <Input 
                     value={notes} 
                     onChange={e => setNotes(e.target.value)} 
-                    className="rounded-sm" 
+                    className="rounded-md" 
                     placeholder="Any starting notes..."
                   />
                 </div>
@@ -244,13 +244,13 @@ export default function NewBatch() {
             </CardContent>
           </Card>
 
-          <Card className="rounded-sm border-border shadow-none">
+          <Card className="rounded-sm border-border shadow-md">
             <CardHeader className="pb-4 border-b bg-muted/20 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Material Formulation</CardTitle>
                 <CardDescription className="mt-1">Adjust quantities. Target N% is 1.5–1.8%.</CardDescription>
               </div>
-              <div className="flex items-center gap-3 bg-background border px-4 py-2 rounded-sm shadow-sm">
+              <div className="flex items-center gap-3 bg-background border px-4 py-2 rounded-md shadow-sm">
                 <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Calculated N%</div>
                 <div className={`font-mono text-xl font-bold flex items-center gap-2 ${
                   n2Status === 'green' ? 'text-green-600' : 
@@ -363,7 +363,7 @@ export default function NewBatch() {
                 </table>
               </div>
               <div className="p-4 border-t border-border bg-muted/10">
-                <Button type="button" variant="outline" size="sm" onClick={addCustomMaterial} className="rounded-sm text-xs">
+                <Button type="button" variant="outline" size="sm" onClick={addCustomMaterial} className="rounded-md text-xs">
                   <Plus className="w-3 h-3 mr-1" /> Add Custom Material
                 </Button>
               </div>
@@ -371,7 +371,7 @@ export default function NewBatch() {
           </Card>
 
           <div className="flex justify-end pt-4">
-            <Button type="submit" disabled={createBatch.isPending || addMaterial.isPending} className="rounded-sm px-10 h-12 text-lg shadow-sm">
+            <Button type="submit" disabled={createBatch.isPending || addMaterial.isPending} className="rounded-md px-10 h-12 text-lg shadow-md">
               {createBatch.isPending || addMaterial.isPending ? "Initiating..." : "Initiate Batch"}
             </Button>
           </div>

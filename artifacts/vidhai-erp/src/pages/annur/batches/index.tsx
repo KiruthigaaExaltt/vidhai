@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Search, Filter, X } from "lucide-react";
+import { Plus, Trash2, Search, Filter, X, CalendarDays } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,17 @@ import { toast } from "sonner";
 const ALL_STAGES = [
   "PRE_WETTING","T1","T2","T3","T4","BULK_CHAMBER","QUALITY_CHECK","SPAWN_MIXING","DISPATCH","COMPLETED"
 ];
+
+const FILTER_INPUT =
+  "h-9 rounded-md text-sm border border-border bg-background transition-all duration-200 hover:border-primary/50 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20";
+
+const DATE_INPUT = [
+  FILTER_INPUT,
+  "font-mono w-[150px] pl-3 pr-2",
+  "[&::-webkit-calendar-picker-indicator]:cursor-pointer",
+  "[&::-webkit-calendar-picker-indicator]:opacity-50",
+  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100",
+].join(" ");
 
 export default function Batches() {
   const [, setLocation] = useLocation();
@@ -80,45 +91,44 @@ export default function Batches() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-5">
+      <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Annur Location A — Batches</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Active and historical production batches</p>
+            <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">Annur Location A — Batches</h1>
           </div>
           <Link href="/annur/batches/new">
-            <Button className="rounded-sm font-medium h-9">
+            <Button className="rounded-md font-medium h-9">
               <Plus className="w-4 h-4 mr-2" /> New Batch
             </Button>
           </Link>
         </div>
 
         {/* Filter bar */}
-        <Card className="rounded-sm border-border shadow-none">
-          <CardContent className="p-3">
+        <Card className="rounded-md border-border shadow-md">
+          <CardContent className="p-4">
             <div className="flex flex-wrap items-end gap-3">
-              <Filter className="w-4 h-4 text-muted-foreground mt-5 shrink-0" />
+              <Filter className="w-4 h-4 text-muted-foreground mt-6 shrink-0" />
 
               {/* Search */}
-              <div className="space-y-1 min-w-[160px]">
+              <div className="space-y-1.5 min-w-[180px] flex-1 sm:max-w-[220px]">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Batch Code</Label>
                 <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   <Input
                     value={filterSearch}
                     onChange={e => setFilterSearch(e.target.value)}
                     placeholder="Search..."
-                    className="h-8 rounded-sm text-sm pl-8"
+                    className={`${FILTER_INPUT} pl-9`}
                   />
                 </div>
               </div>
 
               {/* Stage */}
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Stage</Label>
                 <Select value={filterStage} onValueChange={setFilterStage}>
-                  <SelectTrigger className="h-8 rounded-sm text-sm w-[160px]">
+                  <SelectTrigger className={`${FILTER_INPUT} w-[160px]`}>
                     <SelectValue placeholder="All stages" />
                   </SelectTrigger>
                   <SelectContent>
@@ -129,10 +139,10 @@ export default function Batches() {
               </div>
 
               {/* Status */}
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Status</Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="h-8 rounded-sm text-sm w-[130px]">
+                  <SelectTrigger className={`${FILTER_INPUT} w-[140px]`}>
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -146,24 +156,42 @@ export default function Batches() {
               </div>
 
               {/* Date From */}
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">From Date</Label>
-                <Input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="h-8 rounded-sm text-sm font-mono w-[140px]" />
+                <div className="relative">
+                  <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    type="date"
+                    value={filterFrom}
+                    onChange={e => setFilterFrom(e.target.value)}
+                    onClick={e => (e.target as HTMLInputElement).showPicker?.()}
+                    className={`${DATE_INPUT} pl-9 cursor-pointer`}
+                  />
+                </div>
               </div>
 
               {/* Date To */}
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">To Date</Label>
-                <Input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="h-8 rounded-sm text-sm font-mono w-[140px]" />
+                <div className="relative">
+                  <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    type="date"
+                    value={filterTo}
+                    onChange={e => setFilterTo(e.target.value)}
+                    onClick={e => (e.target as HTMLInputElement).showPicker?.()}
+                    className={`${DATE_INPUT} pl-9 cursor-pointer`}
+                  />
+                </div>
               </div>
 
               {hasFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 px-2 text-muted-foreground hover:text-foreground">
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 px-2 rounded-md text-muted-foreground hover:text-foreground">
                   <X className="w-3.5 h-3.5 mr-1" /> Clear
                 </Button>
               )}
 
-              <span className="ml-auto text-xs text-muted-foreground self-end pb-1">
+              <span className="ml-auto text-xs text-muted-foreground self-end pb-2">
                 {filtered.length} batch{filtered.length !== 1 ? "es" : ""}
               </span>
             </div>
@@ -171,23 +199,23 @@ export default function Batches() {
         </Card>
 
         {/* Table */}
-        <Card className="rounded-sm border-border shadow-none">
+        <Card className="rounded-md border-border shadow-md">
           <CardContent className="p-0">
             {isLoading ? (
-              <div className="p-8 text-center text-sm text-muted-foreground">Loading...</div>
+              <div className="py-20 text-center text-sm text-muted-foreground">Loading batches...</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left whitespace-nowrap">
                   <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                     <tr>
-                      <th className="px-4 py-2.5 font-medium">Batch Code</th>
-                      <th className="px-4 py-2.5 font-medium">Stage</th>
-                      <th className="px-4 py-2.5 font-medium">Status</th>
-                      <th className="px-4 py-2.5 font-medium text-right">N %</th>
-                      <th className="px-4 py-2.5 font-medium text-right">Target Bags</th>
-                      <th className="px-4 py-2.5 font-medium">Created</th>
-                      <th className="px-4 py-2.5 font-medium">By</th>
-                      <th className="px-4 py-2.5 font-medium w-10"></th>
+                      <th className="px-4 py-3 font-semibold text-center">Batch Code</th>
+                      <th className="px-4 py-3 font-semibold text-center">Stage</th>
+                      <th className="px-4 py-3 font-semibold text-center">Status</th>
+                      <th className="px-4 py-3 font-semibold text-center">N %</th>
+                      <th className="px-4 py-3 font-semibold text-center">Target Bags</th>
+                      <th className="px-4 py-3 font-semibold text-center">Created</th>
+                      <th className="px-4 py-3 font-semibold text-center">By</th>
+                      <th className="px-4 py-3 w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -218,7 +246,7 @@ export default function Batches() {
                     ))}
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        <td colSpan={8} className="px-4 py-20 text-center text-sm text-muted-foreground">
                           {hasFilters ? "No batches match the current filters." : "No batches found for this location."}
                         </td>
                       </tr>
@@ -232,7 +260,7 @@ export default function Batches() {
 
         {/* Delete confirmation */}
         <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
-          <AlertDialogContent className="rounded-sm">
+          <AlertDialogContent className="rounded-md shadow-xl">
             <AlertDialogHeader>
               <AlertDialogTitle>Delete Batch?</AlertDialogTitle>
               <AlertDialogDescription>
@@ -240,9 +268,9 @@ export default function Batches() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="rounded-sm" disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel className="rounded-md" disabled={deleting}>Cancel</AlertDialogCancel>
               <AlertDialogAction
-                className="rounded-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                className="rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 disabled={deleting}
                 onClick={handleDelete}
               >

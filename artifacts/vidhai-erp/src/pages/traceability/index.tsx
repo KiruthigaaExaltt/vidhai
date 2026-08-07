@@ -103,9 +103,7 @@ export default function Traceability() {
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <GitBranch className="w-6 h-6 text-primary" /> Batch Traceability
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Backward genealogy — from an Ooty growing batch to its Annur, Lab, and Coimbatore source batches.
-          </p>
+          
         </div>
 
         {/* Picker */}

@@ -253,12 +253,10 @@ export default function OotyRooms() {
               <Thermometer className="w-5 h-5 text-primary" />
               <h1 className="text-2xl font-semibold tracking-tight">Ooty Location B — Growing Rooms</h1>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Spawn Run → Casing Run → Differentiation &amp; Fruiting → Cookout
-            </p>
+            
           </div>
 
-          <Button className="rounded-sm font-medium h-9" onClick={() => setRoomOpen(true)}>
+          <Button className="rounded-md font-medium h-9" onClick={() => setRoomOpen(true)}>
             <Plus className="w-4 h-4 mr-2" /> New Room
           </Button>
         </div>
@@ -286,7 +284,7 @@ export default function OotyRooms() {
                 <Card
                   key={room.id}
                   onClick={() => !isMaintenance && setLocation(`/ooty/rooms/${room.id}`)}
-                  className={`rounded-sm shadow-none transition-colors ${c.border} ${c.bg} ${!isMaintenance ? "cursor-pointer hover:opacity-90" : "cursor-default opacity-80"}`}
+                  className={`rounded-md shadow-none transition-colors ${c.border} ${c.bg} ${!isMaintenance ? "cursor-pointer hover:opacity-90" : "cursor-default opacity-80"}`}
                 >
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
@@ -299,7 +297,7 @@ export default function OotyRooms() {
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <Badge
                           variant="outline"
-                          className={`border-0 rounded-sm text-[10px] uppercase tracking-wider font-semibold ${c.bg} ${c.text}`}
+                          className={`border-0 rounded-md text-[10px] uppercase tracking-wider font-semibold ${c.bg} ${c.text}`}
                         >
                           {c.label}
                         </Badge>
@@ -386,7 +384,7 @@ export default function OotyRooms() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="rounded-sm w-full h-8 text-xs"
+                          className="rounded-md w-full h-8 text-xs"
                           onClick={(e) => {
                             e.stopPropagation();
                             setAssignRoom(room);
@@ -401,7 +399,7 @@ export default function OotyRooms() {
               );
             })}
             {rooms?.length === 0 && (
-              <div className="col-span-full p-8 text-center text-sm text-muted-foreground border border-dashed border-border rounded-sm">
+              <div className="col-span-full p-8 text-center text-sm text-muted-foreground border border-dashed border-border rounded-md">
                 No growing rooms yet. Add the first room to begin.
               </div>
             )}
@@ -411,7 +409,7 @@ export default function OotyRooms() {
 
       {/* ── Create Room Dialog ── */}
       <Dialog open={roomOpen} onOpenChange={setRoomOpen}>
-        <DialogContent className="rounded-sm border-border shadow-none max-w-md">
+        <DialogContent className="rounded-md border-border shadow-none max-w-md">
           <DialogHeader>
             <DialogTitle>Add Growing Room</DialogTitle>
           </DialogHeader>
@@ -422,7 +420,7 @@ export default function OotyRooms() {
                 required
                 value={roomForm.name}
                 onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })}
-                className="rounded-sm"
+                className="rounded-md"
                 placeholder="e.g. Room 43"
               />
             </div>
@@ -432,7 +430,7 @@ export default function OotyRooms() {
                 type="number"
                 value={roomForm.capacity}
                 onChange={(e) => setRoomForm({ ...roomForm, capacity: e.target.value })}
-                className="rounded-sm font-mono"
+                className="rounded-md font-mono"
               />
             </div>
             <div className="space-y-2">
@@ -440,12 +438,12 @@ export default function OotyRooms() {
               <Input
                 value={roomForm.notes}
                 onChange={(e) => setRoomForm({ ...roomForm, notes: e.target.value })}
-                className="rounded-sm"
+                className="rounded-md"
                 placeholder="Any notes about this room"
               />
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={createRoom.isPending || !roomForm.name} className="w-full rounded-sm">
+              <Button type="submit" disabled={createRoom.isPending || !roomForm.name} className="w-full rounded-md">
                 {createRoom.isPending ? "Creating..." : "Create Room"}
               </Button>
             </DialogFooter>
@@ -455,7 +453,7 @@ export default function OotyRooms() {
 
       {/* ── Edit Room Dialog ── */}
       <Dialog open={!!editRoom} onOpenChange={(o) => !o && setEditRoom(null)}>
-        <DialogContent className="rounded-sm border-border shadow-none max-w-md">
+        <DialogContent className="rounded-md border-border shadow-none max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Room — {editRoom?.name}</DialogTitle>
           </DialogHeader>
@@ -466,7 +464,7 @@ export default function OotyRooms() {
                 required
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                className="rounded-sm"
+                className="rounded-md"
               />
             </div>
             <div className="space-y-2">
@@ -475,7 +473,7 @@ export default function OotyRooms() {
                 type="number"
                 value={editForm.capacity}
                 onChange={(e) => setEditForm({ ...editForm, capacity: e.target.value })}
-                className="rounded-sm font-mono"
+                className="rounded-md font-mono"
                 placeholder="Leave blank to unset"
               />
             </div>
@@ -484,7 +482,7 @@ export default function OotyRooms() {
               <Input
                 value={editForm.notes}
                 onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                className="rounded-sm"
+                className="rounded-md"
                 placeholder="Optional notes"
               />
             </div>
@@ -492,7 +490,7 @@ export default function OotyRooms() {
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-sm"
+                className="rounded-md"
                 onClick={() => setEditRoom(null)}
               >
                 Cancel
@@ -500,7 +498,7 @@ export default function OotyRooms() {
               <Button
                 type="submit"
                 disabled={updateRoom.isPending || !editForm.name}
-                className="rounded-sm"
+                className="rounded-md"
               >
                 {updateRoom.isPending ? "Saving..." : "Save Changes"}
               </Button>
@@ -511,7 +509,7 @@ export default function OotyRooms() {
 
       {/* ── Delete Confirmation ── */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <AlertDialogContent className="rounded-sm">
+        <AlertDialogContent className="rounded-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -520,9 +518,9 @@ export default function OotyRooms() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-sm">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="rounded-md">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="rounded-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => deleteRoom.mutate({ id: deleteTarget.id })}
               disabled={deleteRoom.isPending}
             >
@@ -534,7 +532,7 @@ export default function OotyRooms() {
 
       {/* ── Assign Batch Dialog ── */}
       <Dialog open={!!assignRoom} onOpenChange={(o) => !o && setAssignRoom(null)}>
-        <DialogContent className="rounded-sm border-border shadow-none max-w-md">
+        <DialogContent className="rounded-md border-border shadow-none max-w-md">
           <DialogHeader>
             <DialogTitle>Start Growing Batch — {assignRoom?.name}</DialogTitle>
           </DialogHeader>
@@ -542,7 +540,7 @@ export default function OotyRooms() {
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Annur Bag Batch</Label>
               <select
-                className="w-full h-9 px-3 rounded-sm border border-border bg-background text-sm"
+                className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm"
                 value={assignForm.annurBatchId}
                 onChange={(e) => setAssignForm({ ...assignForm, annurBatchId: e.target.value })}
               >
@@ -575,7 +573,7 @@ export default function OotyRooms() {
                 placeholder="e.g. 500 bags"
                 value={assignForm.bagCount}
                 onChange={(e) => setAssignForm({ ...assignForm, bagCount: e.target.value })}
-                className="rounded-sm font-mono"
+                className="rounded-md font-mono"
               />
               <p className="text-[11px] text-muted-foreground">How many bags from this Annur batch are going into {assignRoom?.name}?</p>
             </div>
@@ -586,7 +584,7 @@ export default function OotyRooms() {
                 required
                 value={assignForm.startDate}
                 onChange={(e) => setAssignForm({ ...assignForm, startDate: e.target.value })}
-                className="rounded-sm font-mono"
+                className="rounded-md font-mono"
               />
             </div>
             <div className="space-y-2">
@@ -594,11 +592,11 @@ export default function OotyRooms() {
               <Input
                 value={assignForm.notes}
                 onChange={(e) => setAssignForm({ ...assignForm, notes: e.target.value })}
-                className="rounded-sm"
+                className="rounded-md"
               />
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={assignPending} className="w-full rounded-sm">
+              <Button type="submit" disabled={assignPending} className="w-full rounded-md">
                 {assignPending ? "Starting..." : "Start Spawn Run"}
               </Button>
             </DialogFooter>
