@@ -17,6 +17,8 @@ export const permissionCatalog = [
   { module:"Crew · Overtime", key:"crew.overtime", actions:["view","create","update","approve","reject","forOwn","forOthers"] },
   { module:"Crew · Bonus", key:"crew.bonus", actions:["view","create","update","approve","reject","forOwn","forOthers"] },
   { module:"Crew · Deductions", key:"crew.deductions", actions:["view","create","update","delete","approve","reject","forOwn","forOthers"] },
+  { module:"CrewPay · Salary Slip", key:"crewpay.salary_slip", actions:["view","create","update","forOwn","forOthers"] },
+  { module:"CrewPay · Payroll", key:"crewpay.payroll", actions:["view","create","update","forOwn","forOthers"] },
 ];
 router.get("/permissions/me", async(req,res)=>{const user=await getAuthUser(req);if(!user)return res.status(401).json({error:"Not authenticated"});return res.json({permissions:await effectivePermissions(user)});});
 router.get("/settings/permissions/catalog", requirePermission("settings.user_management.view"), (_req,res)=>res.json(permissionCatalog));

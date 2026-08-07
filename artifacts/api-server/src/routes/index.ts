@@ -23,14 +23,14 @@ import tasksRouter from "./tasks";
 import contactsRouter from "./contacts";
 import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
-<<<<<<< HEAD
 import flexRouter from "./flex";
-=======
 import crewRouter from "./crew";
->>>>>>> 9bcfa3daec05e1d35cb626329af9029962e94fc3
-
+import crewPayRouter from "./crewpay";
+import servicesRouter from "./services";
+import categoriesRouter from "./categories";
+import vaultLocationsRouter from "./vaultLocations";
+import itemNamesRouter from "./itemNames";
 const router: IRouter = Router();
-
 router.use(healthRouter);
 router.use("/auth", authRouter);
 router.use("/users", usersRouter);
@@ -60,5 +60,10 @@ router.use("/settings", templatesRouter);
 router.use(permissionsRouter);
 router.use("/flex", flexRouter);
 router.use("/crew", crewRouter);
+router.use("/crewpay", crewPayRouter);
+router.use("/services", servicesRouter);
+router.use("/categories", categoriesRouter);
+router.use("/vault/locations", vaultLocationsRouter);
+router.use("/vault/item-names", itemNamesRouter);
 
 export default router;

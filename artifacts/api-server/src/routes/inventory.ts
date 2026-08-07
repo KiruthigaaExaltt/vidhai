@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { inventoryTable, inventoryAdjustmentsTable, inventoryMovementsTable, materialsTable, locationsTable, usersTable } from "@workspace/db";
+import { inventoryTable, inventoryAdjustmentsTable, inventoryMovementsTable, materialsTable, inventoryLocationsTable, usersTable } from "@workspace/db";
 import { eq, desc } from "@workspace/db";
 
 const router = Router();
@@ -16,11 +16,11 @@ router.get("/", requireAuth, async (req, res) => {
     .select({
       inv: inventoryTable,
       material: materialsTable,
-      locationName: locationsTable.name,
+      locationName: inventoryLocationsTable.locationName,
     })
     .from(inventoryTable)
     .innerJoin(materialsTable, eq(inventoryTable.materialId, materialsTable.id))
-    .leftJoin(locationsTable, eq(inventoryTable.locationId, locationsTable.id))
+    .leftJoin(inventoryLocationsTable, eq(inventoryTable.locationId, inventoryLocationsTable.id))
     .orderBy(materialsTable.name);
 
   return res.json(

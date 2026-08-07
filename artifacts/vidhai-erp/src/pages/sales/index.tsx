@@ -5,17 +5,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SalesDocumentForm } from "./components/SalesDocumentForm";
 
+import { FileText, FileMinus, ShoppingCart, Truck, FileSpreadsheet, Undo2 } from "lucide-react";
+
 const SALES_SUBMODULES = [
-  "Quotation",
-  "Proforma Invoice",
-  "Sales Order",
-  "Delivery Challan",
-  "Invoices",
-  "Sales Return"
+  { id: "Quotation", label: "Quotation", icon: FileText },
+  { id: "Proforma Invoice", label: "Proforma Invoice", icon: FileMinus },
+  { id: "Sales Order", label: "Sales Order", icon: ShoppingCart },
+  { id: "Delivery Challan", label: "Delivery Challan", icon: Truck },
+  { id: "Invoices", label: "Invoices", icon: FileSpreadsheet },
+  { id: "Sales Return", label: "Sales Return", icon: Undo2 }
 ];
 
 export default function Sales() {
-  const [activeTab, setActiveTab] = useState(SALES_SUBMODULES[0]);
+  const [activeTab, setActiveTab] = useState(SALES_SUBMODULES[0].id);
   const [creatingType, setCreatingType] = useState<string | null>(null);
 
   if (creatingType) {
@@ -35,17 +37,18 @@ export default function Sales() {
       <div className="min-h-[calc(100vh-72px)] bg-muted/30">
         <div className="border-b bg-card px-6">
           <div className="flex gap-1 overflow-x-auto">
-            {SALES_SUBMODULES.map((tab) => (
+            {SALES_SUBMODULES.map(({ id, label, icon: Icon }) => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
+                key={id}
+                onClick={() => setActiveTab(id)}
                 className={`flex items-center gap-2 border-b-2 px-4 py-4 text-sm font-medium ${
-                  activeTab === tab
+                  activeTab === id
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {tab}
+                <Icon className="h-4 w-4" />
+                {label}
               </button>
             ))}
           </div>
@@ -55,9 +58,9 @@ export default function Sales() {
           {/* Header */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">{activeTab}</h1>
+              <h1 className="text-2xl font-bold text-foreground">Sales Management</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Manage {activeTab.toLowerCase()} operations
+                Manage sales operations and dispatch tracking
               </p>
             </div>
             <div className="flex gap-2">

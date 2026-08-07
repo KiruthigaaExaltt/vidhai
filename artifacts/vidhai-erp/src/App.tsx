@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -46,6 +47,7 @@ import PurchaseInvoices from "@/pages/flex/purchase-invoices";
 import VendorPayments from "@/pages/flex/vendor-payments";
 import PurchaseReturns from "@/pages/flex/purchase-returns";
 import Crew from "@/pages/crew";
+import CrewPay from "@/pages/crewpay";
 
 const queryClient = new QueryClient();
 
@@ -192,6 +194,9 @@ function Router() {
       <Route path="/crew">
         <ProtectedRoute component={Crew} />
       </Route>
+      <Route path="/crewpay">
+        <ProtectedRoute component={CrewPay} />
+      </Route>
 
       {/* Lab Routes */}
       <Route path="/lab/batches">
@@ -233,6 +238,7 @@ function App() {
           </WouterRouter>
         </AuthProvider>
         <Toaster />
+        <SonnerToaster position="bottom-right" />
       </TooltipProvider>
     </QueryClientProvider>
   );
