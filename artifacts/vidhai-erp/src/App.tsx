@@ -38,6 +38,13 @@ import ReportBatchCosting from "@/pages/reports/batch-costing";
 import ReportAnnurBatchYield from "@/pages/reports/annur-batch-yield";
 import Tasks from "@/pages/tasks/index";
 import Profile from "@/pages/profile";
+import FlexDashboard from "@/pages/flex/index";
+import PurchaseRequests from "@/pages/flex/purchase-requests";
+import PurchaseOrders from "@/pages/flex/purchase-orders";
+import GoodsReceipts from "@/pages/flex/goods-receipts";
+import PurchaseInvoices from "@/pages/flex/purchase-invoices";
+import VendorPayments from "@/pages/flex/vendor-payments";
+import PurchaseReturns from "@/pages/flex/purchase-returns";
 
 const queryClient = new QueryClient();
 
@@ -154,6 +161,28 @@ function Router() {
       </Route>
       <Route path="/tasks">
         <ProtectedRoute component={Tasks} />
+      </Route>
+      {/* Flex Routes */}
+      <Route path="/flex">
+        <ProtectedRoute component={FlexDashboard} />
+      </Route>
+      <Route path="/flex/purchase-requests">
+        <ProtectedRoute component={PurchaseRequests} />
+      </Route>
+      <Route path="/flex/purchase-orders">
+        <ProtectedRoute component={PurchaseOrders} />
+      </Route>
+      <Route path="/flex/goods-receipts">
+        <ProtectedRoute component={GoodsReceipts} />
+      </Route>
+      <Route path="/flex/purchase-invoices">
+        <ProtectedRoute component={PurchaseInvoices} />
+      </Route>
+      <Route path="/flex/vendor-payments">
+        <ProtectedRoute component={VendorPayments} />
+      </Route>
+      <Route path="/flex/purchase-returns">
+        <ProtectedRoute component={PurchaseReturns} />
       </Route>
 
       <Route path="/profile">
