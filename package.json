@@ -14,6 +14,7 @@
     "build:server:demo": "node ./scripts/build-environment.mjs demo --server-only",
     "build:server:staging": "node ./scripts/build-environment.mjs staging --server-only",
     "build:server:prod": "node ./scripts/build-environment.mjs prod --server-only",
+    "test:build-package": "node --test ./scripts/build-package.test.mjs",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },

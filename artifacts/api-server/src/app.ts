@@ -4,8 +4,10 @@ import pinoHttp from "pino-http";
 import session from "express-session";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { configuredCorsOrigins, corsOriginHandler } from "./lib/cors";
 
 const app: Express = express();
+const corsOrigins = configuredCorsOrigins();
 
 app.use(
   pinoHttp({
@@ -29,9 +31,11 @@ app.use(
 
 app.use(
   cors({
-    origin: true,
+    origin: corsOriginHandler(corsOrigins),
     credentials: true,
-  })
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
 );
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -46,9 +50,27 @@ app.use(
       httpOnly: true,
       maxAge: 8 * 60 * 60 * 1000,
     },
-  })
+  }),
 );
 
 app.use("/api", router);
+
+// Express 5 forwards rejected async handlers here. Always send a response
+// instead of letting an upstream request end with a reset connection.
+app.use(
+  (
+    error: unknown,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    logger.error(
+      { err: error, method: req.method, url: req.originalUrl.split("?")[0] },
+      "Unhandled request error",
+    );
+    if (res.headersSent) return next(error);
+    return res.status(500).json({ error: "Internal server error" });
+  },
+);
 
 export default app;

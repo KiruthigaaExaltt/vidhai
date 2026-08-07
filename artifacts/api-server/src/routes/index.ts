@@ -23,7 +23,11 @@ import tasksRouter from "./tasks";
 import contactsRouter from "./contacts";
 import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
+<<<<<<< HEAD
 import flexRouter from "./flex";
+=======
+import crewRouter from "./crew";
+>>>>>>> 9bcfa3daec05e1d35cb626329af9029962e94fc3
 
 const router: IRouter = Router();
 
@@ -55,5 +59,6 @@ router.use(templatesRouter);
 router.use("/settings", templatesRouter);
 router.use(permissionsRouter);
 router.use("/flex", flexRouter);
+router.use("/crew", crewRouter);
 
 export default router;

@@ -45,6 +45,7 @@ import GoodsReceipts from "@/pages/flex/goods-receipts";
 import PurchaseInvoices from "@/pages/flex/purchase-invoices";
 import VendorPayments from "@/pages/flex/vendor-payments";
 import PurchaseReturns from "@/pages/flex/purchase-returns";
+import Crew from "@/pages/crew";
 
 const queryClient = new QueryClient();
 
@@ -187,6 +188,9 @@ function Router() {
 
       <Route path="/profile">
         <ProtectedRoute component={Profile} />
+      </Route>
+      <Route path="/crew">
+        <ProtectedRoute component={Crew} />
       </Route>
 
       {/* Lab Routes */}

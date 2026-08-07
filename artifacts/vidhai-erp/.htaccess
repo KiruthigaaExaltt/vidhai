@@ -1,0 +1,7 @@
+Options -MultiViews
+RewriteEngine On
+RewriteRule ^api(?:/|$) - [R=502,L]
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+RewriteRule ^ index.html [L]
