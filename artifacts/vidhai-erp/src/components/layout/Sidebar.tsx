@@ -119,7 +119,7 @@ export function Sidebar() {
         {(can("crew.employees.view") || can("crew.attendance.view") || can("crew.leave.view") || can("crew.claims.view") || can("crew.overtime.view") || can("crew.bonus.view") || can("crew.deductions.view")) && (
           <NavItem href="/crew" icon={Users} label="Crew" />
         )}
-        <NavItem href="/sales" icon={ShoppingCart} label="Sales & Dispatch" />
+        <NavItem href="/sales" icon={ShoppingCart} label="Sales" />
         <NavItem href="/fleet" icon={Truck} label="Vehicle Fleet" />
         <NavItem href="/reports" icon={BarChart2} label="Reports" />
         <NavItem href="/traceability" icon={GitBranch} label="Traceability" />
