@@ -25,7 +25,7 @@ export function modelFor(table: MongoTable) {
   const definition: Record<string, any> = {};
   for (const [name, value] of Object.entries(table).filter(([, v]) => typeof v === "object")) {
     const f = value as Field;
-    const spec: any = f.kind === "decimal" ? { ...numericString } : { type: f.kind === "number" ? Number : f.kind === "boolean" ? Boolean : f.kind === "date" ? Date : String };
+    const spec: any = f.kind === "decimal" ? { ...numericString } : { type: f.kind === "number" ? Number : f.kind === "boolean" ? Boolean : f.kind === "date" ? Date : f.kind === "json" ? Schema.Types.Mixed : String };
     spec.required = f.required; spec.unique = f.uniqueValue;
     if (f.defaultValue !== undefined) spec.default = f.defaultValue;
     definition[name] = spec;

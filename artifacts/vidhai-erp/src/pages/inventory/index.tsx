@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useListInventory, useListMaterials, useCreateMaterial,
   useCreateInventoryAdjustment, useListInventoryMovements,
   useCreateInventoryMovement, useListLocations,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,13 +16,19 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   Package, Layers, Warehouse, ArrowRightLeft, ClipboardList,
   ShoppingBag, Wrench, Plus, IndianRupee, AlertTriangle,
-  QrCode, TrendingUp, Upload, Image as ImageIcon,
+  QrCode, TrendingUp, Upload, Image as ImageIcon, Eye, Edit2, Trash2, X,
 } from "lucide-react";
+import { CategoryDialog } from "./components/CategoryDialog";
+import { WarehouseDialog } from "./components/WarehouseDialog";
+import { ItemNameDialog } from "./components/ItemNameDialog";
 import { toast } from "sonner";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -87,6 +93,9 @@ export default function InventoryModule() {
         setProductForm(EMPTY_PRODUCT);
         toast.success("Item added to catalog");
       },
+      onError: (error: any) => {
+        toast.error(error?.data?.error || error?.message || "Failed to add inventory item");
+      },
     },
   });
   const createAdjustment = useCreateInventoryAdjustment({
@@ -119,15 +128,188 @@ export default function InventoryModule() {
   const [addAssetOpen, setAddAssetOpen] = useState(false);
   const [addIndentOpen, setAddIndentOpen] = useState(false);
   const [addStoreIssueOpen, setAddStoreIssueOpen] = useState(false);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
+
+  // ── api ──
+  const { data: services = [], refetch: refetchServices } = useQuery({
+    queryKey: ["services"],
+    queryFn: async () => {
+      const res = await fetch("/api/services");
+      return res.json();
+    },
+  });
+
+  const { data: itemNames } = useQuery({ queryKey: ["item-names"], queryFn: async () => (await fetch("/api/vault/item-names")).json() });
+
+  const createService = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch("/api/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchServices();
+      setAddServiceOpen(false);
+      setServiceForm(EMPTY_SERVICE);
+    },
+  });
+
+  const updateService = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`/api/services/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchServices();
+      setAddServiceOpen(false);
+      setServiceForm(EMPTY_SERVICE);
+      setEditingId(null);
+      toast.success("Service updated");
+    },
+  });
+
+  const deleteService = useMutation({
+    mutationFn: async (id: number) => {
+      await fetch(`/api/services/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      refetchServices();
+      toast.success("Service deleted");
+    },
+  });
+
+  const { data: categories = [], refetch: refetchCategories } = useQuery({
+    queryKey: ["categories"],
+    queryFn: async () => {
+      const res = await fetch("/api/categories");
+      return res.json();
+    },
+  });
+
+  const { data: vaultLocations = [] } = useQuery({
+    queryKey: ["vault-locations"],
+    queryFn: async () => {
+      const res = await fetch("/api/vault/locations");
+      return res.json();
+    }
+  });
+
+  const deleteWarehouse = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/vault/locations/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.json().then(e => e.error));
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vault-locations"] });
+      toast.success("Warehouse deleted");
+    },
+    onError: (err: any) => toast.error(err.message)
+  });
+
+  const createCategory = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchCategories();
+      setAddCategoryOpen(false);
+      setCategoryForm(EMPTY_CATEGORY);
+      toast.success("Category added");
+    },
+  });
+
+  const updateCategory = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`/api/categories/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchCategories();
+      setAddCategoryOpen(false);
+      setCategoryForm(EMPTY_CATEGORY);
+      setEditingCategoryId(null);
+      toast.success("Category updated");
+    },
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await fetch(`/api/categories/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      refetchCategories();
+      queryClient.invalidateQueries({ queryKey: ["materials"] });
+      toast.success("Category deleted");
+    },
+  });
+
+  const updateMaterial = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`/api/materials/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["materials"] });
+      setAddProductOpen(false);
+      setProductForm(EMPTY_PRODUCT);
+      setEditingId(null);
+      toast.success("Item updated");
+    },
+  });
+
+  const deleteMaterial = useMutation({
+    mutationFn: async (id: number) => {
+      await fetch(`/api/materials/${id}`, { method: "DELETE" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["materials"] });
+      toast.success("Item deleted");
+    },
+  });
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: number; type: "material" | "service" | "category" | "warehouse" | "item-name" } | null>(null);
+
+  const EMPTY_CATEGORY = { name: "", categoryCode: "", divisions: [] };
+  const [addCategoryOpen, setAddCategoryOpen] = useState(false);
+  const [categoryForm, setCategoryForm] = useState<any>(EMPTY_CATEGORY);
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+
+  const [addItemNameOpen, setAddItemNameOpen] = useState(false);
+  const [itemNameForm, setItemNameForm] = useState<any>({ name: "", categoryId: "" });
 
   // ── forms ──
-  const EMPTY_PRODUCT = { name: "", unit: "kg", sku: "", category: "", buyPricePerUnit: "", sellPricePerUnit: "", criticalLevel: "", locationId: "" };
+  const EMPTY_PRODUCT = { name: "", unit: "kg", sku: "", categoryId: "", attributeValues: {} as Record<string, string>, buyPricePerUnit: "", sellPricePerUnit: "", criticalLevel: "10", itemType: "Raw Material", hsnSac: "", imageUrl: "", warehouseStocks: [{ warehouseId: "", stock: "" }] };
   const EMPTY_MOV = { materialId: "", quantityDelta: "", type: "inward", reference: "", reason: "receipt", notes: "" };
   const EMPTY_TRANSFER = { materialId: "", fromLocationId: "", toLocationId: "", quantityKg: "", notes: "" };
   const EMPTY_WAREHOUSE = { name: "", type: "general", capacity: "" };
   const EMPTY_ASSET = { sku: "", name: "", purchaseValue: "", notes: "" };
   const EMPTY_INDENT = { item: "", requestedQty: "", requestedBy: "", department: "" };
   const EMPTY_STORE_ISSUE = { product: "", quantity: "", fromStore: "", soldBy: "" };
+  const EMPTY_SERVICE = { name: "", hsnSac: "", unit: "Nos", sellingPrice: "", gstPercent: "" };
 
   const [productForm, setProductForm] = useState(EMPTY_PRODUCT);
   const [movForm, setMovForm] = useState(EMPTY_MOV);
@@ -136,13 +318,9 @@ export default function InventoryModule() {
   const [assetForm, setAssetForm] = useState(EMPTY_ASSET);
   const [indentForm, setIndentForm] = useState(EMPTY_INDENT);
   const [storeIssueForm, setStoreIssueForm] = useState(EMPTY_STORE_ISSUE);
+  const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE);
+  const [productsSubTab, setProductsSubTab] = useState("inventory");
 
-  // local state for sections without dedicated backend endpoints yet
-  const [warehouses, setWarehouses] = useState([
-    { id: 1, name: "Annur Main Store", type: "general", capacity: "500 kg", reserved: false },
-    { id: 2, name: "Ooty Cold Store", type: "cold", capacity: "200 kg", reserved: false },
-    { id: 3, name: "Sales Reserved", type: "reserved", capacity: "—", reserved: true },
-  ]);
   const [assets, setAssets] = useState<any[]>([]);
   const [indents, setIndents] = useState<any[]>([]);
   const [storeIssues, setStoreIssues] = useState<any[]>([]);
@@ -156,17 +334,43 @@ export default function InventoryModule() {
   // ── handlers ──
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
-    createMaterial.mutate({
-      data: {
-        name: productForm.name,
-        unit: productForm.unit,
-        sku: productForm.sku || null,
-        category: productForm.category || undefined,
-        buyPricePerUnit: productForm.buyPricePerUnit ? Number(productForm.buyPricePerUnit) : null,
-        sellPricePerUnit: productForm.sellPricePerUnit ? Number(productForm.sellPricePerUnit) : null,
-        active: true,
-      } as any,
-    });
+    if (!productForm.name) {
+      toast.error("Please scroll up and select an Item Name first");
+      return;
+    }
+    if (!productForm.categoryId) {
+      toast.error("Please select a valid Item Name that has an associated Category");
+      return;
+    }
+    const data = {
+      name: productForm.name,
+      unit: productForm.unit,
+      sku: productForm.sku || null,
+      categoryId: productForm.categoryId ? Number(productForm.categoryId) : undefined,
+      buyPricePerUnit: productForm.buyPricePerUnit ? Number(productForm.buyPricePerUnit) : null,
+      sellPricePerUnit: productForm.sellPricePerUnit ? Number(productForm.sellPricePerUnit) : null,
+      attributeValues: productForm.attributeValues,
+      itemType: productForm.itemType,
+      hsnSac: productForm.hsnSac,
+      criticalLevel: productForm.criticalLevel ? Number(productForm.criticalLevel) : 10,
+      imageUrl: productForm.imageUrl,
+      warehouseStocks: productForm.warehouseStocks.filter((ws: any) => ws.warehouseId),
+      active: true,
+    };
+    if (editingId) {
+      updateMaterial.mutate({ ...data, id: editingId });
+    } else {
+      createMaterial.mutate({ data: data as any });
+    }
+  };
+
+  const handleServiceSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingId) {
+      updateService.mutate({ ...serviceForm, id: editingId });
+    } else {
+      createService.mutate(serviceForm);
+    }
   };
 
   const handleMovSubmit = (e: React.FormEvent) => {
@@ -194,13 +398,7 @@ export default function InventoryModule() {
     });
   };
 
-  const handleAddWarehouse = (e: React.FormEvent) => {
-    e.preventDefault();
-    setWarehouses((w) => [...w, { id: Date.now(), name: warehouseForm.name, type: warehouseForm.type, capacity: warehouseForm.capacity || "—", reserved: warehouseForm.type === "reserved" }]);
-    setWarehouseForm(EMPTY_WAREHOUSE);
-    setAddWarehouseOpen(false);
-    toast.success("Warehouse added");
-  };
+  // Deprecated handlers
 
   const handleAddAsset = (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,25 +424,63 @@ export default function InventoryModule() {
     toast.success("Store issue recorded");
   };
 
+  // SKU Generation Effect
+  useEffect(() => {
+    if (!productForm.categoryId) return;
+    
+    // Check if divisions are complete
+    const cat = categories.find((c: any) => String(c.id) === String(productForm.categoryId));
+    if (!cat) return;
+    
+    const divisionsComplete = (cat.divisions || []).every((d: any) => 
+      d.optionType === "color" || Boolean(productForm.attributeValues[d.id])
+    );
+    
+    if (!divisionsComplete) return;
+
+    const timer = setTimeout(() => {
+      fetch("/api/materials/generate-sku", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryId: Number(productForm.categoryId),
+          attributeValues: productForm.attributeValues,
+        }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.sku) {
+            setProductForm(current => ({ ...current, sku: data.sku }));
+          }
+        })
+        .catch(console.error);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [productForm.categoryId, productForm.attributeValues, categories]);
+
   // ── render ──
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-[1600px] mx-auto w-full">
-
-        <Tabs value={section} onValueChange={setSection} className="space-y-6">
+      <div className="min-h-[calc(100vh-72px)] bg-muted/30 flex flex-col">
+        <Tabs value={section} onValueChange={setSection} className="flex-1 flex flex-col">
           {/* Horizontal tab bar */}
-          <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 h-auto flex-wrap gap-0 -mb-px">
-            {NAV.map(({ id, icon: Icon, label }) => (
-              <TabsTrigger
-                key={id}
-                value={id}
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 pb-3 pt-2 font-medium text-sm text-muted-foreground flex items-center gap-2 shrink-0"
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="border-b bg-card px-6 w-full">
+            <TabsList className="w-full justify-start rounded-none bg-transparent p-0 h-auto flex-wrap gap-1">
+              {NAV.map(({ id, icon: Icon, label }) => (
+                <TabsTrigger
+                  key={id}
+                  value={id}
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 py-4 font-medium text-sm text-muted-foreground hover:text-foreground flex items-center gap-2 shrink-0"
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+
+          <div className="p-6 md:p-8 max-w-[1600px] mx-auto w-full flex-1">
 
           {/* ── DASHBOARD ── */}
           <TabsContent value="dashboard" className="outline-none mt-0 space-y-6">
@@ -256,7 +492,7 @@ export default function InventoryModule() {
                 <SummaryCard icon={IndianRupee} label="Total Inventory Value" value={`₹${totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`} sub="based on buy price" />
                 <SummaryCard icon={Package} label="Quantity on Hand" value={totalQOH.toFixed(1)} sub="kg total" />
                 <SummaryCard icon={Layers} label="Total Items" value={totalItems} sub="in catalog" />
-                <SummaryCard icon={Warehouse} label="Active Warehouses" value={warehouses.length} sub="locations" />
+                <SummaryCard icon={Warehouse} label="Active Warehouses" value={vaultLocations.length} sub="locations" />
                 <SummaryCard icon={ClipboardList} label="Pending Indents" value={indents.filter((i) => i.status === "pending").length} sub="awaiting issue" />
                 <SummaryCard icon={AlertTriangle} label="Critical Items" value={criticalItems} sub="low stock" accent />
               </div>
@@ -321,18 +557,35 @@ export default function InventoryModule() {
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" className="rounded-sm h-9 px-3 text-sm gap-2">
-                    <Upload className="w-3.5 h-3.5" /> Import XLSX
+                    <Upload className="w-3.5 h-3.5" /> Import
                   </Button>
-                  <Button onClick={() => setAddProductOpen(true)} className="rounded-sm h-9 px-3 text-sm gap-2">
-                    <Plus className="w-3.5 h-3.5" /> Add Item
-                  </Button>
+                  {productsSubTab === "inventory" && (
+                    <Button onClick={() => setAddProductOpen(true)} className="rounded-sm h-9 px-3 text-sm gap-2">
+                      <Plus className="w-3.5 h-3.5" /> Add Product
+                    </Button>
+                  )}
+                  {productsSubTab === "items" && (
+                    <Button onClick={() => { setItemNameForm({ name: "", categoryId: "" }); setEditingId(null); setAddItemNameOpen(true); }} className="rounded-sm h-9 px-3 text-sm gap-2">
+                      <Plus className="w-3.5 h-3.5" /> Add Item Name
+                    </Button>
+                  )}
+                  {productsSubTab === "category" && (
+                    <Button onClick={() => { setCategoryForm(EMPTY_CATEGORY); setEditingCategoryId(null); setAddCategoryOpen(true); }} className="rounded-sm h-9 px-3 text-sm gap-2">
+                      <Plus className="w-3.5 h-3.5" /> New Category
+                    </Button>
+                  )}
+                  {productsSubTab === "services" && (
+                    <Button onClick={() => setAddServiceOpen(true)} className="rounded-sm h-9 px-3 text-sm gap-2">
+                      <Plus className="w-3.5 h-3.5" /> New Service
+                    </Button>
+                  )}
                 </div>
               </div>
 
-              <Tabs defaultValue="inventory" className="w-full">
+              <Tabs value={productsSubTab} onValueChange={setProductsSubTab} className="w-full">
                 <TabsList className="w-full justify-start rounded-sm border-b border-border bg-transparent p-0 mb-6">
                   {["inventory", "items", "category", "services"].map((t) => (
-                    <TabsTrigger key={t} value={t} className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-5 pb-3 pt-2 capitalize font-medium text-sm">
+                    <TabsTrigger key={t} value={t} className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-5 pb-3 pt-2 capitalize font-medium text-sm">
                       {t === "inventory" ? "Inventory" : t === "items" ? "Items" : t === "category" ? "Category" : "Services"}
                     </TabsTrigger>
                   ))}
@@ -344,15 +597,6 @@ export default function InventoryModule() {
                     <div className="py-20 text-center text-sm text-muted-foreground">Loading...</div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
-                      {/* Add Product Card */}
-                      <button
-                        onClick={() => setAddProductOpen(true)}
-                        className="rounded-sm border-2 border-dashed border-primary/30 hover:border-primary/60 bg-primary/5 hover:bg-primary/10 transition-colors flex flex-col items-center justify-center gap-2 aspect-[4/5] text-primary"
-                      >
-                        <Plus className="w-8 h-8" />
-                        <span className="text-sm font-medium">Add Item</span>
-                      </button>
-
                       {(inventory ?? []).map((inv) => (
                         <Card key={inv.id} className="rounded-sm border-border shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col group">
                           <div className="aspect-square bg-muted/30 relative flex items-center justify-center overflow-hidden border-b">
@@ -393,6 +637,69 @@ export default function InventoryModule() {
                                 <p className="text-xs font-mono font-semibold">₹{inv.sellPricePerUnit ?? "—"}</p>
                               </div>
                             </div>
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-1 pt-2 mt-2 border-t border-border/50">
+                              <button
+                                onClick={() => {
+                                  setProductForm({
+                                    name: inv.materialName || "",
+                                    unit: inv.unit || "kg",
+                                    sku: inv.sku || "",
+                                    categoryId: inv.categoryId ? String(inv.categoryId) : "",
+                                    attributeValues: (inv as any).attributeValues || {},
+                                    buyPricePerUnit: inv.buyPricePerUnit ? String(inv.buyPricePerUnit) : "",
+                                    sellPricePerUnit: inv.sellPricePerUnit ? String(inv.sellPricePerUnit) : "",
+                                    criticalLevel: (inv as any).criticalLevel ? String((inv as any).criticalLevel) : "10",
+                                    itemType: (inv as any).itemType || "Raw Material",
+                                    hsnSac: (inv as any).hsnSac || "",
+                                    imageUrl: inv.imageUrl || "",
+                                    warehouseStocks: [{ warehouseId: "", stock: "" }],
+                                  });
+                                  setEditingId(inv.materialId);
+                                  setViewMode(true);
+                                  setAddProductOpen(true);
+                                }}
+                                className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors py-1 rounded-sm hover:bg-primary/5"
+                                title="View"
+                              >
+                                <Eye className="w-3.5 h-3.5" /> View
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setProductForm({
+                                    name: inv.materialName || "",
+                                    unit: inv.unit || "kg",
+                                    sku: inv.sku || "",
+                                    categoryId: inv.categoryId ? String(inv.categoryId) : "",
+                                    attributeValues: (inv as any).attributeValues || {},
+                                    buyPricePerUnit: inv.buyPricePerUnit ? String(inv.buyPricePerUnit) : "",
+                                    sellPricePerUnit: inv.sellPricePerUnit ? String(inv.sellPricePerUnit) : "",
+                                    criticalLevel: (inv as any).criticalLevel ? String((inv as any).criticalLevel) : "10",
+                                    itemType: (inv as any).itemType || "Raw Material",
+                                    hsnSac: (inv as any).hsnSac || "",
+                                    imageUrl: inv.imageUrl || "",
+                                    warehouseStocks: [{ warehouseId: "", stock: "" }],
+                                  });
+                                  setEditingId(inv.materialId);
+                                  setViewMode(false);
+                                  setAddProductOpen(true);
+                                }}
+                                className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors py-1 rounded-sm hover:bg-primary/5"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" /> Edit
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setItemToDelete({ id: inv.materialId, type: "material" });
+                                  setDeleteConfirmOpen(true);
+                                }}
+                                className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1 rounded-sm hover:bg-destructive/5"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> Delete
+                              </button>
+                            </div>
                           </CardContent>
                         </Card>
                       ))}
@@ -410,10 +717,6 @@ export default function InventoryModule() {
                 <TabsContent value="items" className="mt-0 outline-none">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-muted-foreground">Create and manage item names and categories</p>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="rounded-sm gap-1.5 text-xs"><Upload className="w-3 h-3" /> Import Categories</Button>
-                      <Button size="sm" onClick={() => setAddProductOpen(true)} className="rounded-sm gap-1.5 text-xs"><Plus className="w-3 h-3" /> New Item</Button>
-                    </div>
                   </div>
                   <Card className="rounded-sm border-border shadow-md">
                     <CardContent className="p-0">
@@ -422,22 +725,38 @@ export default function InventoryModule() {
                           <tr>
                             <th className="px-4 py-3 font-semibold">Item Name</th>
                             <th className="px-4 py-3 font-semibold">Category</th>
-                            <th className="px-4 py-3 font-semibold">Unit</th>
-                            <th className="px-4 py-3 font-semibold">SKU</th>
                             <th className="px-4 py-3 font-semibold">Status</th>
+                            <th className="px-4 py-3 font-semibold text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {(materials ?? []).map((m) => (
+                          {(itemNames ?? []).map((m: any) => (
                             <tr key={m.id} className="hover:bg-muted/30 transition-colors h-[44px]">
                               <td className="px-4 font-medium">{m.name}</td>
-                              <td className="px-4 text-muted-foreground">{(m as any).category || "—"}</td>
-                              <td className="px-4 font-mono text-xs">{m.unit}</td>
-                              <td className="px-4 font-mono text-xs text-muted-foreground">{(m as any).sku || "—"}</td>
+                              <td className="px-4 text-muted-foreground">{m.category || "—"}</td>
                               <td className="px-4">
-                                <Badge variant={(m as any).active !== false ? "default" : "secondary"} className="text-[10px]">
-                                  {(m as any).active !== false ? "Active" : "Inactive"}
+                                <Badge variant={m.isActive !== false ? "default" : "secondary"} className="text-[10px]">
+                                  {m.isActive !== false ? "Active" : "Inactive"}
                                 </Badge>
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="flex items-center justify-end gap-2 text-muted-foreground">
+                                  <button onClick={() => {
+                                    setItemNameForm({
+                                      id: m.id,
+                                      name: m.name,
+                                      categoryId: String(m.categoryId || ""),
+                                    });
+                                    setEditingId(m.id);
+                                    setViewMode(false);
+                                    setAddItemNameOpen(true);
+                                  }} className="hover:text-primary transition-colors p-1" title="Edit Item">
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => { setItemToDelete({ id: m.id, type: "item-name" as any }); setDeleteConfirmOpen(true); }} className="hover:text-destructive transition-colors p-1" title="Delete Item">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -453,43 +772,58 @@ export default function InventoryModule() {
                 {/* Category sub-tab */}
                 <TabsContent value="category" className="mt-0 outline-none">
                   <div className="flex items-center justify-between mb-4">
-                    <p className="text-sm text-muted-foreground">Manage product categories and divisions</p>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="rounded-sm gap-1.5 text-xs"><Upload className="w-3 h-3" /> Import</Button>
-                      <Button size="sm" className="rounded-sm gap-1.5 text-xs"><Plus className="w-3 h-3" /> New Category</Button>
-                    </div>
+                    <p className="text-sm text-muted-foreground">Manage product categories</p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {["Raw Materials", "Substrates", "Amendments", "Spawn", "Packaging", "Chemicals"].map((cat) => {
-                      const count = (materials ?? []).filter((m) => (m as any).category === cat).length;
-                      return (
-                        <Card key={cat} className="rounded-sm border-border shadow-sm hover:shadow-md transition-all cursor-pointer">
-                          <CardContent className="p-4 flex items-center justify-between">
-                            <div>
-                              <p className="font-semibold text-sm">{cat}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5">{count} item{count !== 1 ? "s" : ""}</p>
-                            </div>
-                            <Badge variant="secondary" className="font-mono text-sm">{count}</Badge>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-6">
-                    <SectionHeading title="Divisions" action={<Button size="sm" className="rounded-sm gap-1.5 text-xs h-8"><Plus className="w-3 h-3" /> Add Division</Button>} />
-                    <div className="flex flex-wrap gap-2">
-                      {["Production", "Sales", "Packaging", "Maintenance"].map((div) => (
-                        <span key={div} className="inline-flex items-center px-3 py-1.5 rounded border border-border bg-muted/30 text-sm font-medium text-muted-foreground">{div}</span>
-                      ))}
-                    </div>
-                  </div>
+                  <Card className="rounded-sm border-border shadow-md overflow-hidden">
+                    {categories.length === 0 ? (
+                      <CardContent className="p-10 text-center text-sm text-muted-foreground">
+                        No categories defined yet.
+                      </CardContent>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                          <thead className="text-xs text-muted-foreground uppercase bg-muted/50 border-b">
+                            <tr>
+                              <th className="px-4 py-3 font-semibold">Category Name</th>
+                              <th className="px-4 py-3 font-semibold">Code</th>
+                              <th className="px-4 py-3 font-semibold text-center">Divisions</th>
+                              <th className="px-4 py-3 font-semibold text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {categories.map((c: any) => (
+                              <tr key={c.id} className="hover:bg-muted/30 transition-colors">
+                                <td className="px-4 py-3 font-medium">{c.name}</td>
+                                <td className="px-4 py-3 font-mono text-muted-foreground">{c.categoryCode || "—"}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <Badge variant="outline">{c.divisions?.length || 0}</Badge>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-2 text-muted-foreground">
+                                    <button onClick={() => {
+                                      setCategoryForm(c);
+                                      setEditingCategoryId(c.id);
+                                      setAddCategoryOpen(true);
+                                    }} className="hover:text-primary transition-colors"><Edit2 className="w-4 h-4" /></button>
+                                    <button onClick={() => {
+                                      setItemToDelete({ id: c.id, type: "category" });
+                                      setDeleteConfirmOpen(true);
+                                    }} className="hover:text-destructive transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Card>
                 </TabsContent>
 
                 {/* Services sub-tab */}
                 <TabsContent value="services" className="mt-0 outline-none">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-muted-foreground">Manage billable services</p>
-                    <Button size="sm" className="rounded-sm gap-1.5 text-xs"><Plus className="w-3 h-3" /> New Service</Button>
                   </div>
                   <Card className="rounded-sm border-border shadow-md">
                     <CardContent className="p-0">
@@ -497,12 +831,57 @@ export default function InventoryModule() {
                         <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b">
                           <tr>
                             <th className="px-4 py-3 font-semibold">Service Name</th>
-                            <th className="px-4 py-3 font-semibold">Service Code</th>
+                            <th className="px-4 py-3 font-semibold">HSN/SAC</th>
+                            <th className="px-4 py-3 font-semibold">GST %</th>
                             <th className="px-4 py-3 font-semibold text-right">Price</th>
+                            <th className="px-4 py-3 font-semibold text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
-                          <tr><td colSpan={3} className="px-4 py-10 text-center text-sm text-muted-foreground">No services defined yet.</td></tr>
+                          {services.length === 0 ? (
+                            <tr><td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground">No services defined yet.</td></tr>
+                          ) : (
+                            services.map((s: any) => (
+                              <tr key={s.id} className="border-b last:border-0 hover:bg-muted/30">
+                                <td className="px-4 py-3 font-medium text-foreground">{s.name}</td>
+                                <td className="px-4 py-3 text-muted-foreground">{s.hsnSac || "-"}</td>
+                                <td className="px-4 py-3 text-muted-foreground">{s.gstPercent}%</td>
+                                <td className="px-4 py-3 text-right">₹{s.sellingPrice}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-2 text-muted-foreground">
+                                    <button onClick={() => {
+                                      setServiceForm({
+                                        name: s.name,
+                                        hsnSac: s.hsnSac || "",
+                                        unit: s.unit || "Nos",
+                                        sellingPrice: s.sellingPrice || "",
+                                        gstPercent: s.gstPercent || "",
+                                      });
+                                      setEditingId(s.id);
+                                      setViewMode(true);
+                                      setAddServiceOpen(true);
+                                    }} className="hover:text-primary transition-colors"><Eye className="w-4 h-4" /></button>
+                                    <button onClick={() => {
+                                      setServiceForm({
+                                        name: s.name,
+                                        hsnSac: s.hsnSac || "",
+                                        unit: s.unit || "Nos",
+                                        sellingPrice: s.sellingPrice || "",
+                                        gstPercent: s.gstPercent || "",
+                                      });
+                                      setEditingId(s.id);
+                                      setViewMode(false);
+                                      setAddServiceOpen(true);
+                                    }} className="hover:text-primary transition-colors"><Edit2 className="w-4 h-4" /></button>
+                                    <button onClick={() => {
+                                      setItemToDelete({ id: s.id, type: "service" });
+                                      setDeleteConfirmOpen(true);
+                                    }} className="hover:text-destructive transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </CardContent>
@@ -521,25 +900,46 @@ export default function InventoryModule() {
                 <Button onClick={() => setAddWarehouseOpen(true)} className="rounded-sm h-9 px-3 text-sm gap-2"><Plus className="w-3.5 h-3.5" /> Add Warehouse</Button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {warehouses.map((w) => (
-                  <Card key={w.id} className={`rounded-sm border-border shadow-md overflow-hidden ${w.reserved ? "border-primary/40" : ""}`}>
-                    <div className={`h-1 w-full ${w.reserved ? "bg-primary" : "bg-muted"}`} />
+                      {vaultLocations.map((w: any) => (
+                  <Card key={w.id} className="rounded-sm border-border shadow-sm">
                     <CardContent className="p-5">
                       <div className="flex items-start justify-between">
                         <div>
-                          <p className="font-semibold text-base">{w.name}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 capitalize">{w.type} warehouse</p>
+                          <p className="font-semibold text-base">{w.locationName}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 capitalize">{w.locationType}</p>
                         </div>
-                        {w.reserved && <Badge className="text-[10px] rounded-sm">Reserved</Badge>}
+                        <div className="flex items-center gap-2">
+                          {w.isReservedWarehouse && <Badge className="text-[10px] rounded-sm bg-purple-500/10 text-purple-600 border-purple-500/20 hover:bg-purple-500/10 hover:text-purple-600 font-medium">Reserved</Badge>}
+                          {w.isDefault && <Badge variant="secondary" className="text-[10px] rounded-sm font-medium">Default</Badge>}
+                        </div>
                       </div>
                       <div className="mt-4 flex items-center gap-4">
                         <div>
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Capacity</p>
-                          <p className="font-mono text-sm font-semibold mt-0.5">{w.capacity}</p>
+                          <p className="font-mono text-sm font-semibold mt-0.5">{w.capacity?.$numberDecimal ?? w.capacity} <span className="text-xs font-sans font-normal text-muted-foreground">{w.capacityUnit}</span></p>
                         </div>
                         <div>
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Type</p>
-                          <p className="text-sm mt-0.5 capitalize">{w.type}</p>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Manager</p>
+                          <p className="text-sm mt-0.5">{w.manager}</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-border flex justify-between items-center">
+                        <p className="text-xs text-muted-foreground font-mono">{w.warehouseCode}</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => {
+                             setWarehouseForm(w);
+                             setAddWarehouseOpen(true);
+                          }} className="text-muted-foreground hover:text-primary transition-colors">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          {!w.isSystem && (
+                            <button onClick={() => {
+                              setItemToDelete({ id: w.id, type: "warehouse" });
+                              setDeleteConfirmOpen(true);
+                            }} className="text-muted-foreground hover:text-destructive transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </CardContent>
@@ -776,75 +1176,202 @@ export default function InventoryModule() {
                 </div>
               </div>
           </TabsContent>
+          </div>
         </Tabs>
       </div>
 
       {/* ── DIALOGS ── */}
 
       {/* Add Product */}
-      <Dialog open={addProductOpen} onOpenChange={setAddProductOpen}>
-        <DialogContent className="rounded-sm shadow-xl max-w-lg">
+      <Dialog open={addProductOpen} onOpenChange={(val) => {
+        setAddProductOpen(val);
+        if (!val) { setProductForm(EMPTY_PRODUCT); setEditingId(null); setViewMode(false); }
+      }}>
+        <DialogContent className="rounded-sm shadow-xl max-w-xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Inventory Item</DialogTitle>
-            <DialogDescription>Fill in item details to add it to the product catalog.</DialogDescription>
+            <DialogTitle>{viewMode ? "View Item" : editingId ? "Edit Item" : "Add Inventory Item"}</DialogTitle>
+            <DialogDescription>{viewMode ? "Item details" : "Fill in item details to add it to the product catalog."}</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddProduct} className="space-y-4 pt-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 col-span-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Item Name <span className="text-destructive">*</span></Label>
-                <Input required value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="e.g. Paddy Straw" className="rounded-sm h-10" />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Item Grade / Category</Label>
-                <Select value={productForm.category} onValueChange={(v) => setProductForm({ ...productForm, category: v })}>
-                  <SelectTrigger className="rounded-sm h-10"><SelectValue placeholder="Category" /></SelectTrigger>
+                <Label className="text-sm font-medium text-foreground">Item Name <span className="text-destructive">*</span></Label>
+                <Select disabled={viewMode} value={productForm.name} onValueChange={(v) => {
+                  const selectedItem = itemNames?.find((i: any) => i.name === v);
+                  setProductForm({ 
+                    ...productForm, 
+                    name: v, 
+                    categoryId: selectedItem ? String(selectedItem.categoryId) : productForm.categoryId,
+                    attributeValues: {}, 
+                    sku: "" 
+                  });
+                }}>
+                  <SelectTrigger className="rounded-sm h-10"><SelectValue placeholder="Select an Item Name" /></SelectTrigger>
                   <SelectContent>
-                    {["Raw Materials", "Substrates", "Amendments", "Spawn", "Packaging", "Chemicals"].map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    {(itemNames ?? []).map((item: any) => (
+                      <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Material Type / Unit</Label>
-                <Select value={productForm.unit} onValueChange={(v) => setProductForm({ ...productForm, unit: v })}>
+                <Label className="text-sm font-medium text-foreground">Category <span className="text-destructive">*</span></Label>
+                <Select disabled={true} value={productForm.categoryId ? String(productForm.categoryId) : ""} onValueChange={(v) => setProductForm({ ...productForm, categoryId: v, attributeValues: {}, sku: "" })}>
+                  <SelectTrigger className="rounded-sm h-10"><SelectValue placeholder="Search or select category" /></SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c: any) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">Type</Label>
+                <Select disabled={viewMode} value={productForm.itemType} onValueChange={(v) => setProductForm({ ...productForm, itemType: v })}>
+                  <SelectTrigger className="rounded-sm h-10"><SelectValue placeholder="Select type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Raw Material">Raw Material</SelectItem>
+                    <SelectItem value="Finished Product">Finished Product</SelectItem>
+                    <SelectItem value="Consumable">Consumable</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {categories.find((c: any) => String(c.id) === String(productForm.categoryId))?.divisions?.map((division: any) => (
+                <div key={division.id} className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    {division.name}{division.optionType !== "color" ? " *" : ""}
+                  </Label>
+                  <Select 
+                    disabled={viewMode} 
+                    value={productForm.attributeValues?.[division.id] || ""} 
+                    onValueChange={(val) => setProductForm({
+                      ...productForm,
+                      attributeValues: {
+                        ...(productForm.attributeValues || {}),
+                        [division.id]: val
+                      }
+                    })}
+                  >
+                    <SelectTrigger className="rounded-sm h-10">
+                      <SelectValue placeholder={`Select ${division.name}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {division.options?.map((opt: any, idx: number) => (
+                        <SelectItem key={idx} value={opt.value}>
+                          <div className="flex items-center gap-2">
+                            {division.optionType === "color" && opt.hex && (
+                              <div className="w-3 h-3 rounded-full border border-border" style={{ backgroundColor: opt.hex }} />
+                            )}
+                            {opt.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">Generated SKU <span className="text-destructive">*</span></Label>
+                <Input readOnly disabled={viewMode} value={productForm.sku} className="rounded-sm h-10 font-mono bg-muted/20" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">HSN/SAC <span className="text-destructive">*</span></Label>
+                <Input disabled={viewMode} value={productForm.hsnSac} onChange={(e) => setProductForm({ ...productForm, hsnSac: e.target.value })} className="rounded-sm h-10" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">Buying Price (₹) <span className="text-destructive">*</span></Label>
+                <Input type="number" disabled={viewMode} step="0.01" min="0" value={productForm.buyPricePerUnit} onChange={(e) => setProductForm({ ...productForm, buyPricePerUnit: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="0.00" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">Selling Price (₹) <span className="text-destructive">*</span></Label>
+                <Input type="number" disabled={viewMode} step="0.01" min="0" value={productForm.sellPricePerUnit} onChange={(e) => setProductForm({ ...productForm, sellPricePerUnit: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="0.00" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">UOM <span className="text-destructive">*</span></Label>
+                <Select disabled={viewMode} value={productForm.unit} onValueChange={(v) => setProductForm({ ...productForm, unit: v })}>
                   <SelectTrigger className="rounded-sm h-10"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["kg", "g", "L", "mL", "bags", "units", "pcs"].map((u) => (
+                    {["Nos", "kg", "g", "L", "mL", "bags", "units", "pcs", "Meter", "Sheet"].map((u) => (
                       <SelectItem key={u} value={u}>{u}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Buying Price (₹/unit)</Label>
-                <Input type="number" step="0.01" min="0" value={productForm.buyPricePerUnit} onChange={(e) => setProductForm({ ...productForm, buyPricePerUnit: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="0.00" />
+                <Label className="text-sm font-medium text-foreground">Critical Level</Label>
+                <Input type="number" disabled={viewMode} min="0" value={productForm.criticalLevel} onChange={(e) => setProductForm({ ...productForm, criticalLevel: e.target.value })} className="rounded-sm h-10" />
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Selling Price (₹/unit)</Label>
-                <Input type="number" step="0.01" min="0" value={productForm.sellPricePerUnit} onChange={(e) => setProductForm({ ...productForm, sellPricePerUnit: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="0.00" />
+
+              <div className="space-y-2 col-span-2">
+                <Label className="text-sm font-medium text-foreground">Product Image</Label>
+                <div className="flex items-center gap-4">
+                  <div className="w-20 h-20 border rounded-sm flex items-center justify-center bg-muted/20 text-muted-foreground overflow-hidden">
+                    {productForm.imageUrl ? (
+                      <img src={productForm.imageUrl} alt="Product" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 opacity-30" />
+                    )}
+                  </div>
+                  <Label className="cursor-pointer border rounded-sm px-3 py-1.5 text-sm font-medium hover:bg-muted/50 inline-flex items-center justify-center h-9">
+                    Upload image
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => setProductForm({ ...productForm, imageUrl: ev.target?.result as string });
+                        reader.readAsDataURL(file);
+                      }
+                    }} />
+                  </Label>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">SKU</Label>
-                <Input value={productForm.sku} onChange={(e) => setProductForm({ ...productForm, sku: e.target.value })} placeholder="e.g. STRW-001" className="rounded-sm h-10 font-mono" />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Warehouse</Label>
-                <Select value={productForm.locationId} onValueChange={(v) => setProductForm({ ...productForm, locationId: v })}>
-                  <SelectTrigger className="rounded-sm h-10"><SelectValue placeholder="Select location" /></SelectTrigger>
-                  <SelectContent>
-                    {(locations ?? []).map((l) => <SelectItem key={l.id} value={l.id.toString()}>{l.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+
+              <div className="space-y-4 col-span-2 pt-2 border-t">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium text-foreground">Stock by Warehouse</Label>
+                  <button type="button" className="text-xs font-medium text-destructive hover:underline" onClick={() => setProductForm({ ...productForm, warehouseStocks: [...productForm.warehouseStocks, { warehouseId: "", stock: "" }] })}>
+                    + Add Warehouse
+                  </button>
+                </div>
+                {productForm.warehouseStocks.map((ws: any, idx: number) => (
+                  <div key={idx} className="flex gap-4 items-center">
+                    <Select value={ws.warehouseId} onValueChange={(v) => {
+                      const newStocks = [...productForm.warehouseStocks];
+                      newStocks[idx].warehouseId = v;
+                      setProductForm({ ...productForm, warehouseStocks: newStocks });
+                    }}>
+                      <SelectTrigger className="w-48 rounded-sm h-10"><SelectValue placeholder="Location" /></SelectTrigger>
+                      <SelectContent>
+                        {(vaultLocations ?? []).map((l: any) => <SelectItem key={l.id} value={l.id.toString()}>{l.locationName}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Input type="number" className="flex-1 rounded-sm h-10" value={ws.stock} onChange={(e) => {
+                      const newStocks = [...productForm.warehouseStocks];
+                      newStocks[idx].stock = e.target.value;
+                      setProductForm({ ...productForm, warehouseStocks: newStocks });
+                    }} placeholder="0" />
+                    {productForm.warehouseStocks.length > 1 && (
+                      <button type="button" onClick={() => {
+                        const newStocks = productForm.warehouseStocks.filter((_: any, i: number) => i !== idx);
+                        setProductForm({ ...productForm, warehouseStocks: newStocks });
+                      }} className="text-muted-foreground hover:text-destructive">
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-            <div className="flex items-center gap-2 p-3 bg-muted/30 rounded border border-border text-xs text-muted-foreground">
-              <QrCode className="w-4 h-4 flex-shrink-0" />
-              A QR code will be auto-generated for this item after creation.
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-foreground">Product QR Code</Label>
+              <div className="p-3 bg-muted/20 rounded border text-xs text-muted-foreground font-medium">
+                {productForm.sku ? `Will generate QR for ${productForm.sku}` : "Complete category selections to generate the QR code."}
+              </div>
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={createMaterial.isPending} className="w-full rounded-sm h-10">
-                {createMaterial.isPending ? "Adding..." : "Add Item to Catalog"}
+              <Button type="submit" disabled={createMaterial.isPending} className="rounded-sm px-6">
+                {createMaterial.isPending ? "Adding..." : "Add Inventory"}
               </Button>
             </DialogFooter>
           </form>
@@ -948,37 +1475,15 @@ export default function InventoryModule() {
         </DialogContent>
       </Dialog>
 
-      {/* Add Warehouse */}
-      <Dialog open={addWarehouseOpen} onOpenChange={setAddWarehouseOpen}>
-        <DialogContent className="rounded-sm shadow-xl max-w-md">
-          <DialogHeader><DialogTitle>Add Warehouse / Store</DialogTitle></DialogHeader>
-          <form onSubmit={handleAddWarehouse} className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Location Name <span className="text-destructive">*</span></Label>
-              <Input required value={warehouseForm.name} onChange={(e) => setWarehouseForm({ ...warehouseForm, name: e.target.value })} placeholder="e.g. Annur Cold Room" className="rounded-sm h-10" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Type</Label>
-                <Select value={warehouseForm.type} onValueChange={(v) => setWarehouseForm({ ...warehouseForm, type: v })}>
-                  <SelectTrigger className="rounded-sm h-10"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="general">General</SelectItem>
-                    <SelectItem value="cold">Cold Storage</SelectItem>
-                    <SelectItem value="reserved">Reserved (Sales Orders)</SelectItem>
-                    <SelectItem value="transit">Transit</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Capacity</Label>
-                <Input value={warehouseForm.capacity} onChange={(e) => setWarehouseForm({ ...warehouseForm, capacity: e.target.value })} placeholder="e.g. 500 kg" className="rounded-sm h-10" />
-              </div>
-            </div>
-            <DialogFooter><Button type="submit" className="w-full rounded-sm h-10">Add Warehouse</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* Warehouse Dialog */}
+      <WarehouseDialog 
+        open={addWarehouseOpen} 
+        onOpenChange={(val) => {
+          setAddWarehouseOpen(val);
+          if (!val) setWarehouseForm(EMPTY_WAREHOUSE);
+        }}
+        formState={warehouseForm}
+      />
 
       {/* Raise Indent */}
       <Dialog open={addIndentOpen} onOpenChange={setAddIndentOpen}>
@@ -1037,7 +1542,7 @@ export default function InventoryModule() {
                 <Select value={storeIssueForm.fromStore} onValueChange={(v) => setStoreIssueForm({ ...storeIssueForm, fromStore: v })}>
                   <SelectTrigger className="rounded-sm h-10"><SelectValue placeholder="Select store" /></SelectTrigger>
                   <SelectContent>
-                    {warehouses.map((w) => <SelectItem key={w.id} value={w.name}>{w.name}</SelectItem>)}
+                    {vaultLocations.map((w: any) => <SelectItem key={w.id} value={w.locationName}>{w.locationName}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -1078,6 +1583,111 @@ export default function InventoryModule() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* ── ADD SERVICE DIALOG ── */}
+      <Dialog open={addServiceOpen} onOpenChange={(val) => {
+        setAddServiceOpen(val);
+        if (!val) { setServiceForm(EMPTY_SERVICE); setEditingId(null); setViewMode(false); }
+      }}>
+        <DialogContent className="max-w-md p-0 overflow-hidden border-0 shadow-lg rounded-xl">
+          <DialogHeader className="px-6 py-4 border-b border-border/50">
+            <DialogTitle className="text-xl font-semibold text-slate-800">{viewMode ? "View Service" : editingId ? "Edit Service" : "Add Service"}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleServiceSubmit}>
+            <div className="p-6 space-y-5 bg-slate-50/50">
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Service name <span className="text-destructive">*</span></Label>
+                <Input disabled={viewMode} required value={serviceForm.name} onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })} className="h-10" />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">HSN/SAC</Label>
+                  <Input disabled={viewMode} value={serviceForm.hsnSac} onChange={(e) => setServiceForm({ ...serviceForm, hsnSac: e.target.value })} className="h-10" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Unit</Label>
+                  <Select disabled={viewMode} value={serviceForm.unit} onValueChange={(val) => setServiceForm({ ...serviceForm, unit: val })}>
+                    <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Nos">Nos</SelectItem>
+                      <SelectItem value="Hour">Hour</SelectItem>
+                      <SelectItem value="Day">Day</SelectItem>
+                      <SelectItem value="Lumpsum">Lumpsum</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Enter selling price (₹)</Label>
+                  <Input disabled={viewMode} type="number" step="0.01" value={serviceForm.sellingPrice} onChange={(e) => setServiceForm({ ...serviceForm, sellingPrice: e.target.value })} className="h-10" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Enter GST %</Label>
+                  <Input disabled={viewMode} type="number" step="0.1" value={serviceForm.gstPercent} onChange={(e) => setServiceForm({ ...serviceForm, gstPercent: e.target.value })} className="h-10" />
+                </div>
+              </div>
+            </div>
+            <DialogFooter className="px-6 py-4 border-t border-border/50 bg-background flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setAddServiceOpen(false)} className="px-6 rounded-md">Close</Button>
+              {!viewMode && (
+                <Button type="submit" disabled={createService.isPending || updateService.isPending} className="px-6 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground">
+                  {editingId ? "Update" : "Save"}
+                </Button>
+              )}
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent className="rounded-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the {itemToDelete?.type === 'material' ? 'item' : 'service'} from the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-sm h-10">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (itemToDelete?.type === 'material') {
+                deleteMaterial.mutate(itemToDelete.id);
+              } else if (itemToDelete?.type === 'service') {
+                deleteService.mutate(itemToDelete.id);
+              }
+              setDeleteConfirmOpen(false);
+            }} className="rounded-sm h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <CategoryDialog
+        open={addCategoryOpen}
+        onOpenChange={(val) => {
+          setAddCategoryOpen(val);
+          if (!val) { setCategoryForm(EMPTY_CATEGORY); setEditingCategoryId(null); }
+        }}
+        initialData={categoryForm}
+        onSave={(data) => {
+          if (editingCategoryId) {
+            updateCategory.mutate({ ...data, id: editingCategoryId });
+          } else {
+            createCategory.mutate(data);
+          }
+        }}
+        isPending={createCategory.isPending || updateCategory.isPending}
+      />
+
+      <ItemNameDialog
+        open={addItemNameOpen}
+        onOpenChange={setAddItemNameOpen}
+        formState={itemNameForm}
+        categories={categories || []}
+      />
     </Shell>
   );
 }

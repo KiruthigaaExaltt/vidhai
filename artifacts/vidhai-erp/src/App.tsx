@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/lib/auth";
@@ -208,6 +209,7 @@ function App() {
           </WouterRouter>
         </AuthProvider>
         <Toaster />
+        <SonnerToaster position="bottom-right" />
       </TooltipProvider>
     </QueryClientProvider>
   );

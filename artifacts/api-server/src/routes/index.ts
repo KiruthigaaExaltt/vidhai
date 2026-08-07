@@ -25,6 +25,10 @@ import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
 import crewRouter from "./crew";
 import crewPayRouter from "./crewpay";
+import servicesRouter from "./services";
+import categoriesRouter from "./categories";
+import vaultLocationsRouter from "./vaultLocations";
+import itemNamesRouter from "./itemNames";
 
 const router: IRouter = Router();
 
@@ -57,5 +61,9 @@ router.use("/settings", templatesRouter);
 router.use(permissionsRouter);
 router.use("/crew", crewRouter);
 router.use("/crewpay", crewPayRouter);
+router.use("/services", servicesRouter);
+router.use("/categories", categoriesRouter);
+router.use("/vault/locations", vaultLocationsRouter);
+router.use("/vault/item-names", itemNamesRouter);
 
 export default router;

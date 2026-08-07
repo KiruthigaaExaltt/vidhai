@@ -1,6 +1,6 @@
 import { z } from "zod/v4";
 
-export type FieldKind = "number" | "decimal" | "string" | "boolean" | "date";
+export type FieldKind = "number" | "decimal" | "string" | "boolean" | "date" | "json";
 export type Field = {
   name: string; sourceName: string; kind: FieldKind; required: boolean; uniqueValue: boolean;
   defaultValue?: unknown; table?: MongoTable;
@@ -30,6 +30,7 @@ export const text = (name: string) => field(name, "string");
 export const boolean = (name: string) => field(name, "boolean");
 export const timestamp = (name: string, _options?: unknown) => field(name, "date");
 export const date = (name: string, _options?: unknown) => field(name, "string");
+export const json = (name: string) => field(name, "json");
 
 export function mongoTable(name: string, fields: Record<string, Field>): MongoTable {
   const table = fields as MongoTable;
@@ -50,7 +51,7 @@ export function createInsertSchema(table: MongoTable) {
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const [name, value] of Object.entries(table).filter(([, v]) => typeof v === "object")) {
     const f = value as Field;
-    let validator: z.ZodTypeAny = f.kind === "number" ? z.number() : f.kind === "boolean" ? z.boolean() : f.kind === "date" ? z.coerce.date() : z.string();
+    let validator: z.ZodTypeAny = f.kind === "number" ? z.number() : f.kind === "boolean" ? z.boolean() : f.kind === "date" ? z.coerce.date() : f.kind === "json" ? z.any() : z.string();
     if (!f.required || f.defaultValue !== undefined) validator = validator.nullish();
     shape[name] = validator;
   }

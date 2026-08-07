@@ -2,12 +2,15 @@ import { mongoTable, serial, integer, numeric, text, timestamp, createInsertSche
 import { z } from "zod/v4";
 import { materialsTable } from "./materials";
 import { locationsTable } from "./locations";
+import { inventoryLocationsTable } from "./inventoryLocations";
 import { usersTable } from "./users";
 
 export const inventoryTable = mongoTable("inventory", {
   id: serial("id").primaryKey(),
   materialId: integer("material_id").notNull().references(() => materialsTable.id),
-  locationId: integer("location_id").references(() => locationsTable.id),
+  // Product stock belongs to a warehouse/store from the Inventory module,
+  // not to an operational growing/location record.
+  locationId: integer("location_id").references(() => inventoryLocationsTable.id),
   quantityOnHand: numeric("quantity_on_hand", { precision: 12, scale: 4 }).notNull().default("0"),
   costBasis: numeric("cost_basis", { precision: 12, scale: 4 }),
   lastUpdated: timestamp("last_updated", { withTimezone: true }).notNull().defaultNow(),
@@ -43,3 +46,17 @@ export type InventoryAdjustment = typeof inventoryAdjustmentsTable.$inferSelect;
 export const insertInventoryMovementSchema = createInsertSchema(inventoryMovementsTable).omit({ id: true, createdAt: true });
 export type InsertInventoryMovement = z.infer<typeof insertInventoryMovementSchema>;
 export type InventoryMovement = typeof inventoryMovementsTable.$inferSelect;
+
+export const servicesTable = mongoTable("services", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  hsnSac: text("hsn_sac"),
+  unit: text("unit").notNull().default("Nos"),
+  sellingPrice: numeric("selling_price", { precision: 12, scale: 2 }).notNull().default("0"),
+  gstPercent: numeric("gst_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertServiceSchema = createInsertSchema(servicesTable).omit({ id: true, createdAt: true });
+export type InsertService = z.infer<typeof insertServiceSchema>;
+export type Service = typeof servicesTable.$inferSelect;
