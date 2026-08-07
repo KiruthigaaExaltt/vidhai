@@ -422,11 +422,12 @@ export default function Crew() {
           )}
         </div>
       </div>
-      {tab === "employees" && !editing ? (
+      {tab === "employees" ? (
         <AddMemberDialog
           open={open}
           onOpenChange={setOpen}
           employees={employees}
+          editingEmployee={editing}
           onCreated={load}
         />
       ) : (

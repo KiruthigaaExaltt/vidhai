@@ -223,6 +223,7 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
       ...x,
       skills: json(x.skills),
       certifications: json(x.certifications),
+      fixedComponentValues: json(x.fixedComponentValues, {}),
     })),
     total,
     skip,
@@ -301,7 +302,8 @@ router.post(
       !need(req, res, "crew.employees.forOthers")
     )
       return;
-    let stored: any = null, createdEmployeeId: number | null = null;
+    let stored: any = null,
+      createdEmployeeId: number | null = null;
     try {
       const b =
           typeof req.body.employee === "string"
@@ -365,6 +367,10 @@ router.post(
         baseSalary: Number(b.baseSalary),
         skills: tags(b.skills),
         certifications: tags(b.certifications),
+        fixedComponentValues:
+          b.fixedComponentValues && typeof b.fixedComponentValues === "object"
+            ? b.fixedComponentValues
+            : {},
       };
       if (!emailPattern.test(v.email))
         return res.status(400).json({ error: "A valid email is required" });
@@ -498,6 +504,7 @@ router.post(
           baseSalary: String(v.baseSalary),
           skills: JSON.stringify(v.skills),
           certifications: JSON.stringify(v.certifications),
+          fixedComponentValues: JSON.stringify(v.fixedComponentValues || {}),
           photoUrl: stored?.url || null,
           isDeleted: false,
           isSystemGenerated: false,
@@ -541,6 +548,7 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
       .json({ error: "Protected employee cannot be edited" });
   try {
     const b = { ...req.body };
+    if (b.userId !== undefined) b.userId = b.userId ? Number(b.userId) : null;
     if (b.photoDataUrl)
       b.photoUrl = await saveDataUrl(b.photoDataUrl, "employees");
     delete b.photoDataUrl;
@@ -548,13 +556,54 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
     delete b.organizationId;
     delete b.employeeCode;
     b.updatedAt = new Date();
-    if (b.skills) b.skills = JSON.stringify(b.skills);
-    if (b.certifications) b.certifications = JSON.stringify(b.certifications);
+    if (b.skills !== undefined) b.skills = JSON.stringify(tags(b.skills));
+    if (b.certifications !== undefined)
+      b.certifications = JSON.stringify(tags(b.certifications));
+    if (b.fixedComponentValues !== undefined)
+      b.fixedComponentValues = JSON.stringify(b.fixedComponentValues || {});
+    if (b.userId && Number(b.userId) !== Number(old.userId)) {
+      const [candidate] = await db
+        .select()
+        .from(usersTable)
+        .where(
+          and(
+            eq(usersTable.id, b.userId),
+            eq(usersTable.organizationId, req.crew.org),
+          ),
+        );
+      if (!candidate || candidate.isDeleted)
+        return res.status(400).json({ error: "Selected user is unavailable" });
+      const conflict = (
+        await db
+          .select()
+          .from(employeesTable)
+          .where(eq(employeesTable.organizationId, req.crew.org))
+      ).some(
+        (employee: any) =>
+          !employee.isDeleted &&
+          Number(employee.id) !== Number(old.id) &&
+          Number(employee.userId) === Number(b.userId),
+      );
+      if (conflict)
+        return res
+          .status(409)
+          .json({ error: "User is already linked to an employee" });
+    }
     const [row] = await db
       .update(employeesTable)
       .set(b)
       .where(eq(employeesTable.id, old.id))
       .returning();
+    if (old.userId && Number(old.userId) !== Number(row.userId))
+      await db
+        .update(usersTable)
+        .set({ employeeId: null, employeeName: null })
+        .where(
+          and(
+            eq(usersTable.id, old.userId),
+            eq(usersTable.organizationId, req.crew.org),
+          ),
+        );
     if (row.userId)
       await db
         .update(usersTable)
@@ -585,6 +634,8 @@ router.delete("/employees/:id", async (req: any, res: any): Promise<any> => {
       isDeleted: true,
       status: "Offboarded",
       exitDate: today(),
+      deletedAt: new Date(),
+      deletedBy: req.crew.user.id,
       updatedAt: new Date(),
     })
     .where(eq(employeesTable.id, old.id));
@@ -615,36 +666,89 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
     );
   res.json(rows.map((x: any) => ({ ...x, auditLogs: json(x.auditLogs) })));
 });
-router.get("/attendance/register", async (req:any,res:any):Promise<any>=>{
-  if(!need(req,res,"crew.attendance.view"))return;
-  const month=String(req.query.month||today().slice(0,7));
-  if(!/^\d{4}-\d{2}$/.test(month))return res.status(400).json({error:"Valid month is required"});
-  const [year,monthNumber]=month.split("-").map(Number),daysInMonth=new Date(Date.UTC(year,monthNumber,0)).getUTCDate();
-  let employees=(await db.select().from(employeesTable).where(eq(employeesTable.organizationId,req.crew.org))).filter((e:any)=>!e.isDeleted&&e.status!=="Offboarded");
-  employees=await scopedRows(req,employees,"attendance");
-  const [logs,leaves,holidayTemplates,patterns]=await Promise.all([
-    db.select().from(attendanceLogsTable).where(eq(attendanceLogsTable.organizationId,req.crew.org)),
-    db.select().from(leaveRequestsTable).where(eq(leaveRequestsTable.organizationId,req.crew.org)),
-    db.select().from(holidayTemplatesTable).where(eq(holidayTemplatesTable.organizationId,req.crew.org)),
-    db.select().from(workPatternTemplatesTable).where(eq(workPatternTemplatesTable.organizationId,req.crew.org)),
+router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.attendance.view")) return;
+  const month = String(req.query.month || today().slice(0, 7));
+  if (!/^\d{4}-\d{2}$/.test(month))
+    return res.status(400).json({ error: "Valid month is required" });
+  const [year, monthNumber] = month.split("-").map(Number),
+    daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  let employees = (
+    await db
+      .select()
+      .from(employeesTable)
+      .where(eq(employeesTable.organizationId, req.crew.org))
+  ).filter((e: any) => !e.isDeleted && e.status !== "Offboarded");
+  employees = await scopedRows(req, employees, "attendance");
+  const [logs, leaves, holidayTemplates, patterns] = await Promise.all([
+    db
+      .select()
+      .from(attendanceLogsTable)
+      .where(eq(attendanceLogsTable.organizationId, req.crew.org)),
+    db
+      .select()
+      .from(leaveRequestsTable)
+      .where(eq(leaveRequestsTable.organizationId, req.crew.org)),
+    db
+      .select()
+      .from(holidayTemplatesTable)
+      .where(eq(holidayTemplatesTable.organizationId, req.crew.org)),
+    db
+      .select()
+      .from(workPatternTemplatesTable)
+      .where(eq(workPatternTemplatesTable.organizationId, req.crew.org)),
   ]);
-  const rows=employees.map((employee:any)=>{
-    const holidayTemplate=holidayTemplates.find((t:any)=>Number(t.id)===Number(employee.holidayTemplate));
-    const holidayDates=new Set(json(holidayTemplate?.holidays).map((h:any)=>h.date));
-    const pattern=patterns.find((t:any)=>Number(t.id)===Number(employee.workPatternTemplate));
-    const days=Array.from({length:daysInMonth},(_,offset)=>{
-      const day=offset+1,date=`${month}-${String(day).padStart(2,"0")}`,actual=logs.find((log:any)=>Number(log.employeeId)===Number(employee.id)&&log.attendanceDate===date);
-      if(actual)return {date,status:actual.status,derived:false,attendanceId:actual.id};
-      const leave=leaves.find((item:any)=>Number(item.employeeId)===Number(employee.id)&&item.status==="Approved"&&item.startDate<=date&&item.endDate>=date);
-      if(leave)return {date,status:"On Leave",derived:true};
-      if(holidayDates.has(date))return {date,status:"Holiday",derived:true};
-      const week=Math.min(5,Math.floor((day-1)/7)+1),weekday=new Date(`${date}T00:00:00Z`).getUTCDay(),offDays=json(pattern?.[`week${week}OffDays`]);
-      if(offDays.map(Number).includes(weekday))return {date,status:"Week Off",derived:true};
-      return {date,status:"Absent",derived:true};
+  const rows = employees.map((employee: any) => {
+    const holidayTemplate = holidayTemplates.find(
+      (t: any) => Number(t.id) === Number(employee.holidayTemplate),
+    );
+    const holidayDates = new Set(
+      json(holidayTemplate?.holidays).map((h: any) => h.date),
+    );
+    const pattern = patterns.find(
+      (t: any) => Number(t.id) === Number(employee.workPatternTemplate),
+    );
+    const days = Array.from({ length: daysInMonth }, (_, offset) => {
+      const day = offset + 1,
+        date = `${month}-${String(day).padStart(2, "0")}`,
+        actual = logs.find(
+          (log: any) =>
+            Number(log.employeeId) === Number(employee.id) &&
+            log.attendanceDate === date,
+        );
+      if (actual)
+        return {
+          date,
+          status: actual.status,
+          derived: false,
+          attendanceId: actual.id,
+        };
+      const leave = leaves.find(
+        (item: any) =>
+          Number(item.employeeId) === Number(employee.id) &&
+          item.status === "Approved" &&
+          item.startDate <= date &&
+          item.endDate >= date,
+      );
+      if (leave) return { date, status: "On Leave", derived: true };
+      if (holidayDates.has(date))
+        return { date, status: "Holiday", derived: true };
+      const week = Math.min(5, Math.floor((day - 1) / 7) + 1),
+        weekday = new Date(`${date}T00:00:00Z`).getUTCDay(),
+        offDays = json(pattern?.[`week${week}OffDays`]);
+      if (offDays.map(Number).includes(weekday))
+        return { date, status: "Week Off", derived: true };
+      return { date, status: "Absent", derived: true };
     });
-    return {employeeId:employee.id,employeeName:employee.name,employeeCode:employee.employeeCode,department:employee.department,days};
+    return {
+      employeeId: employee.id,
+      employeeName: employee.name,
+      employeeCode: employee.employeeCode,
+      department: employee.department,
+      days,
+    };
   });
-  return res.json({month,daysInMonth,rows});
+  return res.json({ month, daysInMonth, rows });
 });
 router.post("/attendance", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.attendance.create")) return;
@@ -672,7 +776,13 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
       .status(409)
       .json({ error: "Attendance already exists for this employee and date" });
   try {
-    if(req.body.punchAction === "punchIn"&&(!req.body.location||!Number.isFinite(Number(req.body.location.latitude))||!Number.isFinite(Number(req.body.location.longitude))))return res.status(400).json({error:"Punch-in location is required"});
+    if (
+      req.body.punchAction === "punchIn" &&
+      (!req.body.location ||
+        !Number.isFinite(Number(req.body.location.latitude)) ||
+        !Number.isFinite(Number(req.body.location.longitude)))
+    )
+      return res.status(400).json({ error: "Punch-in location is required" });
     const photo = await saveDataUrl(req.body.photoDataUrl, "attendance");
     if (req.body.punchAction === "punchIn" && !photo)
       return res.status(400).json({ error: "Punch-in photograph is required" });
@@ -762,7 +872,14 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
           .json({ error: "Attendance is already punched out" });
       if (!old.checkInTime)
         return res.status(400).json({ error: "Punch-in is required first" });
-      if(!b.location||!Number.isFinite(Number(b.location.latitude))||!Number.isFinite(Number(b.location.longitude)))return res.status(400).json({error:"Punch-out location is required"});
+      if (
+        !b.location ||
+        !Number.isFinite(Number(b.location.latitude)) ||
+        !Number.isFinite(Number(b.location.longitude))
+      )
+        return res
+          .status(400)
+          .json({ error: "Punch-out location is required" });
       const photo = await saveDataUrl(b.photoDataUrl, "attendance");
       if (!photo)
         return res
@@ -782,15 +899,59 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
           .json({ error: "Punch-out cannot be earlier than punch-in" });
       b.checkOutAtUtc = now;
       b.checkOutPhoto = photo;
-b.checkOutLocation = JSON.stringify(b.location);
-      const employee=(await db.select().from(employeesTable).where(eq(employeesTable.id,old.employeeId)))[0];
-      const template=employee?.attendanceRulesTemplate?(await db.select().from(attendanceTemplatesTable).where(eq(attendanceTemplatesTable.id,employee.attendanceRulesTemplate)))[0]:null;
-      if(template){
-        const start=minutes(old.checkInTime),end=minutes(b.checkOutTime)+(minutes(b.checkOutTime)<start?1440:0),required=((minutes(template.workEndTime)-minutes(template.workStartTime)+1440)%1440)||1440,worked=end-start;
-        if(template.flexibleHours)b.status=worked<required/2?"Half Day":worked<required?"Late":"Present";
-        else {const shiftEnd=minutes(template.workEndTime)+(minutes(template.workEndTime)<minutes(template.workStartTime)?1440:0),late=start>minutes(template.workStartTime)+Number(template.lateThresholdMinutes||0),early=end<shiftEnd;b.status=late||early?"Late":"Present";}
+      b.checkOutLocation = JSON.stringify(b.location);
+      const employee = (
+        await db
+          .select()
+          .from(employeesTable)
+          .where(eq(employeesTable.id, old.employeeId))
+      )[0];
+      const template = employee?.attendanceRulesTemplate
+        ? (
+            await db
+              .select()
+              .from(attendanceTemplatesTable)
+              .where(
+                eq(
+                  attendanceTemplatesTable.id,
+                  employee.attendanceRulesTemplate,
+                ),
+              )
+          )[0]
+        : null;
+      if (template) {
+        const start = minutes(old.checkInTime),
+          end =
+            minutes(b.checkOutTime) +
+            (minutes(b.checkOutTime) < start ? 1440 : 0),
+          required =
+            (minutes(template.workEndTime) -
+              minutes(template.workStartTime) +
+              1440) %
+              1440 || 1440,
+          worked = end - start;
+        if (template.flexibleHours)
+          b.status =
+            worked < required / 2
+              ? "Half Day"
+              : worked < required
+                ? "Late"
+                : "Present";
+        else {
+          const shiftEnd =
+              minutes(template.workEndTime) +
+              (minutes(template.workEndTime) < minutes(template.workStartTime)
+                ? 1440
+                : 0),
+            late =
+              start >
+              minutes(template.workStartTime) +
+                Number(template.lateThresholdMinutes || 0),
+            early = end < shiftEnd;
+          b.status = late || early ? "Late" : "Present";
+        }
       }
-      b.locked=true;
+      b.locked = true;
     }
     delete b.photoDataUrl;
     delete b.location;
@@ -816,77 +977,874 @@ b.checkOutLocation = JSON.stringify(b.location);
   }
 });
 
-async function leaveContext(org:number,employee:any,year:number){
-  const [leaveTemplates,patterns,holidayTemplates]=await Promise.all([
-    db.select().from(leaveTemplatesTable).where(eq(leaveTemplatesTable.organizationId,org)),
-    db.select().from(workPatternTemplatesTable).where(eq(workPatternTemplatesTable.organizationId,org)),
-    db.select().from(holidayTemplatesTable).where(eq(holidayTemplatesTable.organizationId,org)),
+async function leaveContext(org: number, employee: any, year: number) {
+  const [leaveTemplates, patterns, holidayTemplates] = await Promise.all([
+    db
+      .select()
+      .from(leaveTemplatesTable)
+      .where(eq(leaveTemplatesTable.organizationId, org)),
+    db
+      .select()
+      .from(workPatternTemplatesTable)
+      .where(eq(workPatternTemplatesTable.organizationId, org)),
+    db
+      .select()
+      .from(holidayTemplatesTable)
+      .where(eq(holidayTemplatesTable.organizationId, org)),
   ]);
-  const active=(row:any)=>row&&row.isActive!==false;
-  const leaveTemplate=leaveTemplates.find((row:any)=>Number(row.id)===Number(employee.leaveTemplate)&&active(row))||leaveTemplates.find((row:any)=>row.isDefault&&active(row));
-  const workPattern=patterns.find((row:any)=>Number(row.id)===Number(employee.workPatternTemplate)&&active(row))||patterns.find((row:any)=>row.isDefault&&active(row));
-  const assignedHoliday=holidayTemplates.find((row:any)=>Number(row.id)===Number(employee.holidayTemplate)&&active(row));
-  const holidayTemplate=assignedHoliday&&Number(assignedHoliday.effectiveYear)===year?assignedHoliday:holidayTemplates.find((row:any)=>active(row)&&Number(row.effectiveYear)===year&&assignedHoliday&&row.templateName===assignedHoliday.templateName)||holidayTemplates.find((row:any)=>active(row)&&row.isDefault&&Number(row.effectiveYear)===year);
-  return {leaveTemplate,workPattern,holidayDates:new Set<string>(json(holidayTemplate?.holidays).map((item:any)=>item.date))};
+  const active = (row: any) => row && row.isActive !== false;
+  const leaveTemplate =
+    leaveTemplates.find(
+      (row: any) =>
+        Number(row.id) === Number(employee.leaveTemplate) && active(row),
+    ) || leaveTemplates.find((row: any) => row.isDefault && active(row));
+  const workPattern =
+    patterns.find(
+      (row: any) =>
+        Number(row.id) === Number(employee.workPatternTemplate) && active(row),
+    ) || patterns.find((row: any) => row.isDefault && active(row));
+  const assignedHoliday = holidayTemplates.find(
+    (row: any) =>
+      Number(row.id) === Number(employee.holidayTemplate) && active(row),
+  );
+  const holidayTemplate =
+    assignedHoliday && Number(assignedHoliday.effectiveYear) === year
+      ? assignedHoliday
+      : holidayTemplates.find(
+          (row: any) =>
+            active(row) &&
+            Number(row.effectiveYear) === year &&
+            assignedHoliday &&
+            row.templateName === assignedHoliday.templateName,
+        ) ||
+        holidayTemplates.find(
+          (row: any) =>
+            active(row) && row.isDefault && Number(row.effectiveYear) === year,
+        );
+  return {
+    leaveTemplate,
+    workPattern,
+    holidayDates: new Set<string>(
+      json(holidayTemplate?.holidays).map((item: any) => item.date),
+    ),
+  };
 }
-function datesBetween(start:string,end:string){const dates:string[]=[];for(let cursor=new Date(`${start}T00:00:00Z`),last=new Date(`${end}T00:00:00Z`);cursor<=last;cursor.setUTCDate(cursor.getUTCDate()+1))dates.push(cursor.toISOString().slice(0,10));return dates;}
-function chargeableDays(start:string,end:string,fromSession:any,toSession:any,context:any){const working=datesBetween(start,end).filter(date=>{const value=new Date(`${date}T00:00:00Z`),week=Math.min(5,Math.floor((value.getUTCDate()-1)/7)+1),offDays=json(context.workPattern?.[`week${week}OffDays`]).map(Number);return !offDays.includes(value.getUTCDay())&&!context.holidayDates.has(date)});if(start===end&&working.length&&String(fromSession)===String(toSession))return .5;return working.length;}
-async function employeeLeaveBalance(org:number,employee:any,year:number,month:number){
-  const context=await leaveContext(org,employee,year),template=context.leaveTemplate;
-  if(!template)throw new Error("No active leave template is assigned");
-  const requests=(await db.select().from(leaveRequestsTable).where(and(eq(leaveRequestsTable.organizationId,org),eq(leaveRequestsTable.employeeId,employee.id)))).filter((row:any)=>row.status==="Approved");
-  const calculate=(type:string)=>{let used=0,monthlyUsed=0;for(const row of requests.filter((item:any)=>item.leaveType===type)){const yearStart=`${year}-01-01`,yearEnd=`${year}-12-31`,start=row.startDate>yearStart?row.startDate:yearStart,end=row.endDate<yearEnd?row.endDate:yearEnd;if(start<=end)used+=chargeableDays(start,end,row.fromSession,row.toSession,context);const monthStart=`${year}-${String(month).padStart(2,"0")}-01`,monthEnd=new Date(Date.UTC(year,month,0)).toISOString().slice(0,10),ms=row.startDate>monthStart?row.startDate:monthStart,me=row.endDate<monthEnd?row.endDate:monthEnd;if(ms<=me)monthlyUsed+=chargeableDays(ms,me,row.fromSession,row.toSession,context)}const total=Number(type==="Sick"?template.totalSickLeaves:template.totalCasualLeaves),monthlyMax=Number(type==="Sick"?template.maxSickLeavesPerMonth:template.maxCasualLeavesPerMonth);return {total,used,remaining:Math.max(0,total-used),monthlyMax,monthlyUsed,monthlyRemaining:Math.max(0,monthlyMax-monthlyUsed)}};
-  return {sick:calculate("Sick"),casual:calculate("Casual"),templateName:template.templateName,carryForwardEnabled:Boolean(template.carryForwardEnabled)};
+function datesBetween(start: string, end: string) {
+  const dates: string[] = [];
+  for (
+    let cursor = new Date(`${start}T00:00:00Z`),
+      last = new Date(`${end}T00:00:00Z`);
+    cursor <= last;
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  )
+    dates.push(cursor.toISOString().slice(0, 10));
+  return dates;
 }
-router.get("/leaves",async(req:any,res:any):Promise<any>=>list(req,res,leaveRequestsTable,"leave"));
-router.get("/employees/:id/leave-balance",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.leave.view"))return;const employee=await scopedEmployee(req,res,Number(req.params.id),"leave");if(!employee)return;const year=Number(req.query.year||today().slice(0,4)),month=Number(req.query.month||today().slice(5,7));try{return res.json(await employeeLeaveBalance(req.crew.org,employee,year,month))}catch(error:any){return res.status(400).json({error:error.message})}});
-router.get("/employees/:id/working-days",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.leave.view"))return;const employee=await scopedEmployee(req,res,Number(req.params.id),"leave");if(!employee)return;const {startDate,endDate,fromSession="1",toSession="2"}=req.query;if(!iso(startDate)||!iso(endDate)||String(startDate)>String(endDate))return res.status(400).json({error:"Valid leave date range is required"});const context=await leaveContext(req.crew.org,employee,Number(String(startDate).slice(0,4)));return res.json({workingDays:chargeableDays(String(startDate),String(endDate),fromSession,toSession,context)})});
-router.post("/leaves",async(req:any,res:any):Promise<any>=>{
-  if(!need(req,res,"crew.leave.create"))return;const employee=await scopedEmployee(req,res,Number(req.body.employeeId),"leave");if(!employee)return;const b=req.body;
-  if(!iso(b.startDate)||!iso(b.endDate)||b.startDate>b.endDate)return res.status(400).json({error:"Valid leave date range is required"});
-  if(!["Sick","Casual","Other"].includes(b.leaveType))return res.status(400).json({error:"Leave type must be Sick, Casual or Other"});
-  if(!["1","2"].includes(String(b.fromSession))||!["1","2"].includes(String(b.toSession)))return res.status(400).json({error:"Valid leave sessions are required"});
-  const rows=await db.select().from(leaveRequestsTable).where(and(eq(leaveRequestsTable.organizationId,req.crew.org),eq(leaveRequestsTable.employeeId,employee.id)));
-  if(rows.some((row:any)=>["Pending","Approved"].includes(row.status)&&row.startDate<=b.endDate&&row.endDate>=b.startDate))return res.status(409).json({error:"A leave request already exists for overlapping dates"});
-  const year=Number(b.startDate.slice(0,4)),context=await leaveContext(req.crew.org,employee,year),requestedDays=chargeableDays(b.startDate,b.endDate,b.fromSession,b.toSession,context);
-  if(b.leaveType!=="Other"&&requestedDays<=0)return res.status(400).json({error:"Selected dates fall on week-offs/holidays only. Choose working days."});
-  if(b.leaveType!=="Other"){
-    if(!context.leaveTemplate)return res.status(400).json({error:"No active leave template is assigned"});
-    const allocation=Number(b.leaveType==="Sick"?context.leaveTemplate.totalSickLeaves:context.leaveTemplate.totalCasualLeaves),monthlyMax=Number(b.leaveType==="Sick"?context.leaveTemplate.maxSickLeavesPerMonth:context.leaveTemplate.maxCasualLeavesPerMonth);
-    const reserved=rows.filter((row:any)=>["Pending","Approved"].includes(row.status)&&row.leaveType===b.leaveType);
-    let yearlyReserved=0;for(const row of reserved){const ys=row.startDate>`${year}-01-01`?row.startDate:`${year}-01-01`,ye=row.endDate<`${year}-12-31`?row.endDate:`${year}-12-31`;if(ys<=ye)yearlyReserved+=chargeableDays(ys,ye,row.fromSession,row.toSession,context)}
-    if(yearlyReserved+requestedDays>allocation)return res.status(400).json({error:`${b.leaveType} yearly leave balance exceeded`});
-    const monthKeys=[...new Set(datesBetween(b.startDate,b.endDate).map(date=>date.slice(0,7)))];for(const key of monthKeys){const [segmentYear,segmentMonth]=key.split("-").map(Number),segmentContext=await leaveContext(req.crew.org,employee,segmentYear),monthStart=`${key}-01`,monthEnd=new Date(Date.UTC(segmentYear,segmentMonth,0)).toISOString().slice(0,10),requestStart=b.startDate>monthStart?b.startDate:monthStart,requestEnd=b.endDate<monthEnd?b.endDate:monthEnd,segmentDays=chargeableDays(requestStart,requestEnd,b.fromSession,b.toSession,segmentContext);let used=0;for(const row of reserved){const start=row.startDate>monthStart?row.startDate:monthStart,end=row.endDate<monthEnd?row.endDate:monthEnd;if(start<=end)used+=chargeableDays(start,end,row.fromSession,row.toSession,segmentContext)}if(used+segmentDays>monthlyMax)return res.status(400).json({error:`${b.leaveType} monthly limit exceeded for ${key}`})}
+function chargeableDays(
+  start: string,
+  end: string,
+  fromSession: any,
+  toSession: any,
+  context: any,
+) {
+  const working = datesBetween(start, end).filter((date) => {
+    const value = new Date(`${date}T00:00:00Z`),
+      week = Math.min(5, Math.floor((value.getUTCDate() - 1) / 7) + 1),
+      offDays = json(context.workPattern?.[`week${week}OffDays`]).map(Number);
+    return (
+      !offDays.includes(value.getUTCDay()) && !context.holidayDates.has(date)
+    );
+  });
+  if (
+    start === end &&
+    working.length &&
+    String(fromSession) === String(toSession)
+  )
+    return 0.5;
+  return working.length;
+}
+async function employeeLeaveBalance(
+  org: number,
+  employee: any,
+  year: number,
+  month: number,
+) {
+  const context = await leaveContext(org, employee, year),
+    template = context.leaveTemplate;
+  if (!template) throw new Error("No active leave template is assigned");
+  const requests = (
+    await db
+      .select()
+      .from(leaveRequestsTable)
+      .where(
+        and(
+          eq(leaveRequestsTable.organizationId, org),
+          eq(leaveRequestsTable.employeeId, employee.id),
+        ),
+      )
+  ).filter((row: any) => row.status === "Approved");
+  const calculate = (type: string) => {
+    let used = 0,
+      monthlyUsed = 0;
+    for (const row of requests.filter((item: any) => item.leaveType === type)) {
+      const yearStart = `${year}-01-01`,
+        yearEnd = `${year}-12-31`,
+        start = row.startDate > yearStart ? row.startDate : yearStart,
+        end = row.endDate < yearEnd ? row.endDate : yearEnd;
+      if (start <= end)
+        used += chargeableDays(
+          start,
+          end,
+          row.fromSession,
+          row.toSession,
+          context,
+        );
+      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`,
+        monthEnd = new Date(Date.UTC(year, month, 0))
+          .toISOString()
+          .slice(0, 10),
+        ms = row.startDate > monthStart ? row.startDate : monthStart,
+        me = row.endDate < monthEnd ? row.endDate : monthEnd;
+      if (ms <= me)
+        monthlyUsed += chargeableDays(
+          ms,
+          me,
+          row.fromSession,
+          row.toSession,
+          context,
+        );
+    }
+    const total = Number(
+        type === "Sick" ? template.totalSickLeaves : template.totalCasualLeaves,
+      ),
+      monthlyMax = Number(
+        type === "Sick"
+          ? template.maxSickLeavesPerMonth
+          : template.maxCasualLeavesPerMonth,
+      );
+    return {
+      total,
+      used,
+      remaining: Math.max(0, total - used),
+      monthlyMax,
+      monthlyUsed,
+      monthlyRemaining: Math.max(0, monthlyMax - monthlyUsed),
+    };
+  };
+  return {
+    sick: calculate("Sick"),
+    casual: calculate("Casual"),
+    templateName: template.templateName,
+    carryForwardEnabled: Boolean(template.carryForwardEnabled),
+  };
+}
+router.get(
+  "/leaves",
+  async (req: any, res: any): Promise<any> =>
+    list(req, res, leaveRequestsTable, "leave"),
+);
+router.get(
+  "/employees/:id/leave-balance",
+  async (req: any, res: any): Promise<any> => {
+    if (!need(req, res, "crew.leave.view")) return;
+    const employee = await scopedEmployee(
+      req,
+      res,
+      Number(req.params.id),
+      "leave",
+    );
+    if (!employee) return;
+    const year = Number(req.query.year || today().slice(0, 4)),
+      month = Number(req.query.month || today().slice(5, 7));
+    try {
+      return res.json(
+        await employeeLeaveBalance(req.crew.org, employee, year, month),
+      );
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message });
+    }
+  },
+);
+router.get(
+  "/employees/:id/working-days",
+  async (req: any, res: any): Promise<any> => {
+    if (!need(req, res, "crew.leave.view")) return;
+    const employee = await scopedEmployee(
+      req,
+      res,
+      Number(req.params.id),
+      "leave",
+    );
+    if (!employee) return;
+    const {
+      startDate,
+      endDate,
+      fromSession = "1",
+      toSession = "2",
+    } = req.query;
+    if (!iso(startDate) || !iso(endDate) || String(startDate) > String(endDate))
+      return res
+        .status(400)
+        .json({ error: "Valid leave date range is required" });
+    const context = await leaveContext(
+      req.crew.org,
+      employee,
+      Number(String(startDate).slice(0, 4)),
+    );
+    return res.json({
+      workingDays: chargeableDays(
+        String(startDate),
+        String(endDate),
+        fromSession,
+        toSession,
+        context,
+      ),
+    });
+  },
+);
+router.post("/leaves", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.leave.create")) return;
+  const employee = await scopedEmployee(
+    req,
+    res,
+    Number(req.body.employeeId),
+    "leave",
+  );
+  if (!employee) return;
+  const b = req.body;
+  if (!iso(b.startDate) || !iso(b.endDate) || b.startDate > b.endDate)
+    return res
+      .status(400)
+      .json({ error: "Valid leave date range is required" });
+  if (!["Sick", "Casual", "Other"].includes(b.leaveType))
+    return res
+      .status(400)
+      .json({ error: "Leave type must be Sick, Casual or Other" });
+  if (
+    !["1", "2"].includes(String(b.fromSession)) ||
+    !["1", "2"].includes(String(b.toSession))
+  )
+    return res.status(400).json({ error: "Valid leave sessions are required" });
+  const rows = await db
+    .select()
+    .from(leaveRequestsTable)
+    .where(
+      and(
+        eq(leaveRequestsTable.organizationId, req.crew.org),
+        eq(leaveRequestsTable.employeeId, employee.id),
+      ),
+    );
+  if (
+    rows.some(
+      (row: any) =>
+        ["Pending", "Approved"].includes(row.status) &&
+        row.startDate <= b.endDate &&
+        row.endDate >= b.startDate,
+    )
+  )
+    return res
+      .status(409)
+      .json({ error: "A leave request already exists for overlapping dates" });
+  const year = Number(b.startDate.slice(0, 4)),
+    context = await leaveContext(req.crew.org, employee, year),
+    requestedDays = chargeableDays(
+      b.startDate,
+      b.endDate,
+      b.fromSession,
+      b.toSession,
+      context,
+    );
+  if (b.leaveType !== "Other" && requestedDays <= 0)
+    return res
+      .status(400)
+      .json({
+        error:
+          "Selected dates fall on week-offs/holidays only. Choose working days.",
+      });
+  if (b.leaveType !== "Other") {
+    if (!context.leaveTemplate)
+      return res
+        .status(400)
+        .json({ error: "No active leave template is assigned" });
+    const allocation = Number(
+        b.leaveType === "Sick"
+          ? context.leaveTemplate.totalSickLeaves
+          : context.leaveTemplate.totalCasualLeaves,
+      ),
+      monthlyMax = Number(
+        b.leaveType === "Sick"
+          ? context.leaveTemplate.maxSickLeavesPerMonth
+          : context.leaveTemplate.maxCasualLeavesPerMonth,
+      );
+    const reserved = rows.filter(
+      (row: any) =>
+        ["Pending", "Approved"].includes(row.status) &&
+        row.leaveType === b.leaveType,
+    );
+    let yearlyReserved = 0;
+    for (const row of reserved) {
+      const ys =
+          row.startDate > `${year}-01-01` ? row.startDate : `${year}-01-01`,
+        ye = row.endDate < `${year}-12-31` ? row.endDate : `${year}-12-31`;
+      if (ys <= ye)
+        yearlyReserved += chargeableDays(
+          ys,
+          ye,
+          row.fromSession,
+          row.toSession,
+          context,
+        );
+    }
+    if (yearlyReserved + requestedDays > allocation)
+      return res
+        .status(400)
+        .json({ error: `${b.leaveType} yearly leave balance exceeded` });
+    const monthKeys = [
+      ...new Set(
+        datesBetween(b.startDate, b.endDate).map((date) => date.slice(0, 7)),
+      ),
+    ];
+    for (const key of monthKeys) {
+      const [segmentYear, segmentMonth] = key.split("-").map(Number),
+        segmentContext = await leaveContext(
+          req.crew.org,
+          employee,
+          segmentYear,
+        ),
+        monthStart = `${key}-01`,
+        monthEnd = new Date(Date.UTC(segmentYear, segmentMonth, 0))
+          .toISOString()
+          .slice(0, 10),
+        requestStart = b.startDate > monthStart ? b.startDate : monthStart,
+        requestEnd = b.endDate < monthEnd ? b.endDate : monthEnd,
+        segmentDays = chargeableDays(
+          requestStart,
+          requestEnd,
+          b.fromSession,
+          b.toSession,
+          segmentContext,
+        );
+      let used = 0;
+      for (const row of reserved) {
+        const start = row.startDate > monthStart ? row.startDate : monthStart,
+          end = row.endDate < monthEnd ? row.endDate : monthEnd;
+        if (start <= end)
+          used += chargeableDays(
+            start,
+            end,
+            row.fromSession,
+            row.toSession,
+            segmentContext,
+          );
+      }
+      if (used + segmentDays > monthlyMax)
+        return res
+          .status(400)
+          .json({ error: `${b.leaveType} monthly limit exceeded for ${key}` });
+    }
   }
-  try{const [row]=await db.insert(leaveRequestsTable).values({organizationId:req.crew.org,employeeId:employee.id,employeeName:employee.name,startDate:b.startDate,endDate:b.endDate,leaveType:b.leaveType,fromSession:Number(b.fromSession),toSession:Number(b.toSession),reason:String(b.reason||"").trim()||null,requestedDays:String(requestedDays),requestedBy:req.crew.user.id,status:"Pending",updatedAt:new Date()}).returning();void audit(req,"leave",row.id,employee.name,"create",null,row);return res.status(201).json(row)}catch(error:any){return res.status(400).json({error:error?.message||"Unable to save leave request"})}
+  try {
+    const [row] = await db
+      .insert(leaveRequestsTable)
+      .values({
+        organizationId: req.crew.org,
+        employeeId: employee.id,
+        employeeName: employee.name,
+        startDate: b.startDate,
+        endDate: b.endDate,
+        leaveType: b.leaveType,
+        fromSession: Number(b.fromSession),
+        toSession: Number(b.toSession),
+        reason: String(b.reason || "").trim() || null,
+        requestedDays: String(requestedDays),
+        requestedBy: req.crew.user.id,
+        status: "Pending",
+        updatedAt: new Date(),
+      })
+      .returning();
+    void audit(req, "leave", row.id, employee.name, "create", null, row);
+    return res.status(201).json(row);
+  } catch (error: any) {
+    return res
+      .status(400)
+      .json({ error: error?.message || "Unable to save leave request" });
+  }
 });
-router.patch("/leaves/:id/status",async(req:any,res:any):Promise<any>=>{const status=String(req.body.status||"");if(!["Approved","Rejected"].includes(status))return res.status(400).json({error:"Status must be Approved or Rejected"});if(!need(req,res,`crew.leave.${status==="Approved"?"approve":"reject"}`))return;const [old]=await db.select().from(leaveRequestsTable).where(and(eq(leaveRequestsTable.id,Number(req.params.id)),eq(leaveRequestsTable.organizationId,req.crew.org)));if(!old)return res.status(404).json({error:"Leave request not found"});if(old.status!=="Pending")return res.status(409).json({error:"Only pending leave requests can be decided"});if(status==="Rejected"&&String(req.body.rejectionRemarks||"").trim().length<10)return res.status(400).json({error:"Rejection remarks must contain at least 10 characters"});const now=new Date(),[row]=await db.update(leaveRequestsTable).set({status,rejectionRemarks:status==="Rejected"?String(req.body.rejectionRemarks).trim():null,decidedBy:req.crew.user.id,approvedBy:status==="Approved"?req.crew.user.id:null,approvedAt:status==="Approved"?now:null,rejectedBy:status==="Rejected"?req.crew.user.id:null,rejectedAt:status==="Rejected"?now:null,updatedAt:now}).where(eq(leaveRequestsTable.id,old.id)).returning();void audit(req,"leave",row.id,row.employeeName,status.toLowerCase(),old,row);return res.json(row)});
-async function overtimeCalculation(org:number,employee:any,date:string){
-  if(!iso(date))throw new Error("A valid attendance date is required");
-  const logs=await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.organizationId,org),eq(attendanceLogsTable.employeeId,employee.id),eq(attendanceLogsTable.attendanceDate,date)));
-  const attendance=logs[0];
-  if(!attendance)throw new Error("No attendance found for the selected date.");
-  if(!attendance.checkInTime||!attendance.checkOutTime)throw new Error("Complete punch-in and punch-out times are required to calculate overtime.");
-  const templates=await db.select().from(attendanceTemplatesTable).where(eq(attendanceTemplatesTable.organizationId,org));
-  const active=(row:any)=>row&&row.isActive!==false;
-  const template=templates.find((row:any)=>Number(row.id)===Number(employee.attendanceRulesTemplate)&&active(row))||templates.find((row:any)=>row.isDefault&&active(row));
-  const workStartTime=String(template?.workStartTime||"09:00"),workEndTime=String(template?.workEndTime||"17:00"),checkInTime=String(attendance.checkInTime),checkOutTime=String(attendance.checkOutTime);
-  const shiftStart=minutes(workStartTime),shiftEnd=minutes(workEndTime)+(minutes(workEndTime)<=shiftStart?1440:0),punchIn=minutes(checkInTime),punchOut=minutes(checkOutTime)+(minutes(checkOutTime)<punchIn?1440:0);
-  const earlyOvertimeMinutes=Math.max(0,shiftStart-punchIn),lateOvertimeMinutes=Math.max(0,punchOut-shiftEnd),totalOvertimeMinutes=earlyOvertimeMinutes+lateOvertimeMinutes,overtimeHours=Math.round(totalOvertimeMinutes/60*100)/100;
-  if(totalOvertimeMinutes<=0)throw new Error("No overtime detected for the selected date.");
-  const monthStart=`${date.slice(0,7)}-01`,monthEnd=new Date(Date.UTC(Number(date.slice(0,4)),Number(date.slice(5,7)),0)).toISOString().slice(0,10),employmentStart=employee.joinDate&&employee.joinDate>monthStart?employee.joinDate:monthStart,employmentEnd=employee.exitDate&&employee.exitDate<monthEnd?employee.exitDate:monthEnd,payableDays=Math.max(1,datesBetween(employmentStart,employmentEnd).length),workingHoursPerDay=Math.max(1,(shiftEnd-shiftStart)/60),monthlySalary=Math.max(0,Number(employee.baseSalary||employee.monthlySalary||employee.salary||employee.grossSalary||0)),hourlySalary=Math.round(monthlySalary/(payableDays*workingHoursPerDay)*100)/100,amount=Math.round(hourlySalary*overtimeHours*100)/100;
-  if(amount<=0)throw new Error("A positive base salary is required to calculate overtime.");
-  return {employeeId:employee.id,employeeName:employee.name,attendanceId:attendance.id,attendanceDate:date,workStartTime,workEndTime,checkInTime,checkOutTime,earlyOvertimeMinutes,lateOvertimeMinutes,totalOvertimeMinutes,overtimeHours,hourlySalary,amount,payableDays,workingHoursPerDay};
+router.patch("/leaves/:id/status", async (req: any, res: any): Promise<any> => {
+  const status = String(req.body.status || "");
+  if (!["Approved", "Rejected"].includes(status))
+    return res
+      .status(400)
+      .json({ error: "Status must be Approved or Rejected" });
+  if (
+    !need(
+      req,
+      res,
+      `crew.leave.${status === "Approved" ? "approve" : "reject"}`,
+    )
+  )
+    return;
+  const [old] = await db
+    .select()
+    .from(leaveRequestsTable)
+    .where(
+      and(
+        eq(leaveRequestsTable.id, Number(req.params.id)),
+        eq(leaveRequestsTable.organizationId, req.crew.org),
+      ),
+    );
+  if (!old) return res.status(404).json({ error: "Leave request not found" });
+  if (old.status !== "Pending")
+    return res
+      .status(409)
+      .json({ error: "Only pending leave requests can be decided" });
+  if (
+    status === "Rejected" &&
+    String(req.body.rejectionRemarks || "").trim().length < 10
+  )
+    return res
+      .status(400)
+      .json({ error: "Rejection remarks must contain at least 10 characters" });
+  const now = new Date(),
+    [row] = await db
+      .update(leaveRequestsTable)
+      .set({
+        status,
+        rejectionRemarks:
+          status === "Rejected"
+            ? String(req.body.rejectionRemarks).trim()
+            : null,
+        decidedBy: req.crew.user.id,
+        approvedBy: status === "Approved" ? req.crew.user.id : null,
+        approvedAt: status === "Approved" ? now : null,
+        rejectedBy: status === "Rejected" ? req.crew.user.id : null,
+        rejectedAt: status === "Rejected" ? now : null,
+        updatedAt: now,
+      })
+      .where(eq(leaveRequestsTable.id, old.id))
+      .returning();
+  void audit(
+    req,
+    "leave",
+    row.id,
+    row.employeeName,
+    status.toLowerCase(),
+    old,
+    row,
+  );
+  return res.json(row);
+});
+async function overtimeCalculation(org: number, employee: any, date: string) {
+  if (!iso(date)) throw new Error("A valid attendance date is required");
+  const logs = await db
+    .select()
+    .from(attendanceLogsTable)
+    .where(
+      and(
+        eq(attendanceLogsTable.organizationId, org),
+        eq(attendanceLogsTable.employeeId, employee.id),
+        eq(attendanceLogsTable.attendanceDate, date),
+      ),
+    );
+  const attendance = logs[0];
+  if (!attendance)
+    throw new Error("No attendance found for the selected date.");
+  if (!attendance.checkInTime || !attendance.checkOutTime)
+    throw new Error(
+      "Complete punch-in and punch-out times are required to calculate overtime.",
+    );
+  const templates = await db
+    .select()
+    .from(attendanceTemplatesTable)
+    .where(eq(attendanceTemplatesTable.organizationId, org));
+  const active = (row: any) => row && row.isActive !== false;
+  const template =
+    templates.find(
+      (row: any) =>
+        Number(row.id) === Number(employee.attendanceRulesTemplate) &&
+        active(row),
+    ) || templates.find((row: any) => row.isDefault && active(row));
+  const workStartTime = String(template?.workStartTime || "09:00"),
+    workEndTime = String(template?.workEndTime || "17:00"),
+    checkInTime = String(attendance.checkInTime),
+    checkOutTime = String(attendance.checkOutTime);
+  const shiftStart = minutes(workStartTime),
+    shiftEnd =
+      minutes(workEndTime) + (minutes(workEndTime) <= shiftStart ? 1440 : 0),
+    punchIn = minutes(checkInTime),
+    punchOut =
+      minutes(checkOutTime) + (minutes(checkOutTime) < punchIn ? 1440 : 0);
+  const earlyOvertimeMinutes = Math.max(0, shiftStart - punchIn),
+    lateOvertimeMinutes = Math.max(0, punchOut - shiftEnd),
+    totalOvertimeMinutes = earlyOvertimeMinutes + lateOvertimeMinutes,
+    overtimeHours = Math.round((totalOvertimeMinutes / 60) * 100) / 100;
+  if (totalOvertimeMinutes <= 0)
+    throw new Error("No overtime detected for the selected date.");
+  const monthStart = `${date.slice(0, 7)}-01`,
+    monthEnd = new Date(
+      Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0),
+    )
+      .toISOString()
+      .slice(0, 10),
+    employmentStart =
+      employee.joinDate && employee.joinDate > monthStart
+        ? employee.joinDate
+        : monthStart,
+    employmentEnd =
+      employee.exitDate && employee.exitDate < monthEnd
+        ? employee.exitDate
+        : monthEnd,
+    payableDays = Math.max(
+      1,
+      datesBetween(employmentStart, employmentEnd).length,
+    ),
+    workingHoursPerDay = Math.max(1, (shiftEnd - shiftStart) / 60),
+    monthlySalary = Math.max(
+      0,
+      Number(
+        employee.baseSalary ||
+          employee.monthlySalary ||
+          employee.salary ||
+          employee.grossSalary ||
+          0,
+      ),
+    ),
+    hourlySalary =
+      Math.round((monthlySalary / (payableDays * workingHoursPerDay)) * 100) /
+      100,
+    amount = Math.round(hourlySalary * overtimeHours * 100) / 100;
+  if (amount <= 0)
+    throw new Error(
+      "A positive base salary is required to calculate overtime.",
+    );
+  return {
+    employeeId: employee.id,
+    employeeName: employee.name,
+    attendanceId: attendance.id,
+    attendanceDate: date,
+    workStartTime,
+    workEndTime,
+    checkInTime,
+    checkOutTime,
+    earlyOvertimeMinutes,
+    lateOvertimeMinutes,
+    totalOvertimeMinutes,
+    overtimeHours,
+    hourlySalary,
+    amount,
+    payableDays,
+    workingHoursPerDay,
+  };
 }
-router.get("/overtime/calculation",async(req:any,res:any):Promise<any>=>{if(!can(req,"crew.overtime.view")&&!can(req,"crew.overtime.create"))return res.status(403).json({error:"Missing overtime view/create permission"});const employee=await scopedEmployee(req,res,Number(req.query.employeeId),"overtime");if(!employee)return;try{return res.json(await overtimeCalculation(req.crew.org,employee,String(req.query.date||"")))}catch(error:any){return res.status(400).json({error:error.message})}});
-router.get("/overtime",async(req:any,res:any):Promise<any>=>{let rows=(await db.select().from(crewClaimsTable).where(eq(crewClaimsTable.organizationId,req.crew.org)).orderBy(desc(crewClaimsTable.createdAt))).filter((row:any)=>row.claimType==="overtime");rows=await scopedRows(req,rows,"overtime");return res.json(rows.map((row:any)=>({...row,attachments:json(row.attachments)})))});
-router.post("/overtime",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.overtime.create"))return;const employee=await scopedEmployee(req,res,Number(req.body.employeeId),"overtime");if(!employee)return;if(!String(req.body.title||"").trim())return res.status(400).json({error:"OT title is required"});try{const calculation=await overtimeCalculation(req.crew.org,employee,String(req.body.attendanceDate||"")),existing=(await db.select().from(crewClaimsTable).where(and(eq(crewClaimsTable.organizationId,req.crew.org),eq(crewClaimsTable.employeeId,employee.id),eq(crewClaimsTable.attendanceDate,calculation.attendanceDate)))).find((row:any)=>row.claimType==="overtime");if(existing&&["Pending","Approved"].includes(existing.status))return res.status(409).json({error:"Overtime already submitted for this date."});const values={employeeId:employee.id,employeeName:employee.name,claimType:"overtime",amount:String(calculation.amount),title:String(req.body.title).trim(),notes:String(req.body.notes||"").trim()||null,attendanceDate:calculation.attendanceDate,requestedHours:String(calculation.overtimeHours),status:"Pending",submittedBy:req.crew.user.id,submittedAt:new Date(),rejectionRemarks:null,rejectedBy:null,rejectedAt:null,updatedAt:new Date()};let row:any;if(existing){[row]=await db.update(crewClaimsTable).set(values).where(eq(crewClaimsTable.id,existing.id)).returning()}else{[row]=await db.insert(crewClaimsTable).values({...values,organizationId:req.crew.org,attachments:"[]"}).returning()}void audit(req,"overtime",row.id,employee.name,existing?"resubmit":"create",existing||null,row);return res.status(existing?200:201).json(row)}catch(error:any){return res.status(400).json({error:error.message})}});
-router.patch("/overtime/:id",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.overtime.update"))return;const [old]=await db.select().from(crewClaimsTable).where(and(eq(crewClaimsTable.id,Number(req.params.id)),eq(crewClaimsTable.organizationId,req.crew.org)));if(!old||old.claimType!=="overtime")return res.status(404).json({error:"Overtime request not found"});if(old.status!=="Pending")return res.status(409).json({error:"Only pending overtime can be adjusted"});const amount=Number(req.body.amount);if(!Number.isFinite(amount)||amount<0)return res.status(400).json({error:"Amount must be zero or greater"});const [row]=await db.update(crewClaimsTable).set({amount:String(amount),title:String(req.body.title||old.title).trim(),notes:req.body.notes===undefined?old.notes:String(req.body.notes).trim()||null,updatedAt:new Date()}).where(eq(crewClaimsTable.id,old.id)).returning();void audit(req,"overtime",row.id,row.employeeName,"adjust",old,row);return res.json(row)});
-router.patch("/overtime/:id/status",(req:any,res:any)=>decision(req,res,crewClaimsTable,"overtime","overtime"));
-router.get("/bonus",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.bonus.view"))return;let rows=(await db.select().from(crewClaimsTable).where(eq(crewClaimsTable.organizationId,req.crew.org)).orderBy(desc(crewClaimsTable.createdAt))).filter((row:any)=>row.claimType==="bonus");rows=await scopedRows(req,rows,"bonus");return res.json(rows.map((row:any)=>({...row,attachments:json(row.attachments)})))});
-router.get("/bonus/salary-summary",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.bonus.view"))return;const payrollMonth=String(req.query.payrollMonth||"");if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(payrollMonth))return res.status(400).json({error:"A valid payroll month is required"});let employees=(await db.select().from(employeesTable).where(eq(employeesTable.organizationId,req.crew.org))).filter((employee:any)=>!employee.isDeleted),claims=(await db.select().from(crewClaimsTable).where(eq(crewClaimsTable.organizationId,req.crew.org))).filter((row:any)=>row.status==="Approved"&&String(row.payrollMonth||row.attendanceDate||row.approvedAt||row.createdAt).slice(0,7)===payrollMonth);employees=await scopedRows(req,employees,"bonus");const summaries=employees.map((employee:any)=>{const entries=claims.filter((row:any)=>Number(row.employeeId)===Number(employee.id)),sum=(types:string[])=>entries.filter((row:any)=>types.includes(row.claimType)).reduce((total:number,row:any)=>total+Number(row.amount||0),0),baseSalary=Number(employee.baseSalary||0),bonusAmount=sum(["bonus"]),overtimeAmount=sum(["overtime"]),claimsAmount=sum(["reimbursement","allowance"]);return {employeeId:employee.id,employeeName:employee.name,department:employee.department,baseSalary,bonusAmount,overtimeAmount,claimsAmount,grossSalary:baseSalary+bonusAmount+overtimeAmount+claimsAmount}});return res.json({payrollMonth,summaries,totals:{bonusAmount:summaries.reduce((total:number,row:any)=>total+row.bonusAmount,0),grossSalary:summaries.reduce((total:number,row:any)=>total+row.grossSalary,0)}})});
-router.patch("/bonus/:id/status",(_req:any,res:any)=>res.status(400).json({error:"Bonus entries are added directly to salary and do not support approve/reject actions."}));
-router.post("/bonus",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.bonus.create"))return;const employee=await scopedEmployee(req,res,Number(req.body.employeeId),"bonus");if(!employee)return;const amount=Number(req.body.amount),payrollMonth=String(req.body.payrollMonth||"");if(!Number.isFinite(amount)||amount<=0)return res.status(400).json({error:"Bonus amount must be greater than zero"});if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(payrollMonth))return res.status(400).json({error:"A valid payroll month is required"});const now=new Date();try{const [row]=await db.insert(crewClaimsTable).values({organizationId:req.crew.org,employeeId:employee.id,employeeName:employee.name,claimType:"bonus",amount:String(amount),title:"Bonus",notes:String(req.body.notes||"").trim()||null,attendanceDate:`${payrollMonth}-01`,payrollMonth,requestedHours:null,attachments:"[]",status:"Approved",submittedBy:req.crew.user.id,submittedAt:now,approvedBy:req.crew.user.id,approvedAt:now,decidedBy:req.crew.user.id,updatedAt:now}).returning();void audit(req,"bonus",row.id,employee.name,"created_and_approved",null,row);return res.status(201).json(row)}catch(error:any){return res.status(400).json({error:error?.message||"Unable to add bonus"})}});
+router.get(
+  "/overtime/calculation",
+  async (req: any, res: any): Promise<any> => {
+    if (!can(req, "crew.overtime.view") && !can(req, "crew.overtime.create"))
+      return res
+        .status(403)
+        .json({ error: "Missing overtime view/create permission" });
+    const employee = await scopedEmployee(
+      req,
+      res,
+      Number(req.query.employeeId),
+      "overtime",
+    );
+    if (!employee) return;
+    try {
+      return res.json(
+        await overtimeCalculation(
+          req.crew.org,
+          employee,
+          String(req.query.date || ""),
+        ),
+      );
+    } catch (error: any) {
+      return res.status(400).json({ error: error.message });
+    }
+  },
+);
+router.get("/overtime", async (req: any, res: any): Promise<any> => {
+  let rows = (
+    await db
+      .select()
+      .from(crewClaimsTable)
+      .where(eq(crewClaimsTable.organizationId, req.crew.org))
+      .orderBy(desc(crewClaimsTable.createdAt))
+  ).filter((row: any) => row.claimType === "overtime");
+  rows = await scopedRows(req, rows, "overtime");
+  return res.json(
+    rows.map((row: any) => ({ ...row, attachments: json(row.attachments) })),
+  );
+});
+router.post("/overtime", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.overtime.create")) return;
+  const employee = await scopedEmployee(
+    req,
+    res,
+    Number(req.body.employeeId),
+    "overtime",
+  );
+  if (!employee) return;
+  if (!String(req.body.title || "").trim())
+    return res.status(400).json({ error: "OT title is required" });
+  try {
+    const calculation = await overtimeCalculation(
+        req.crew.org,
+        employee,
+        String(req.body.attendanceDate || ""),
+      ),
+      existing = (
+        await db
+          .select()
+          .from(crewClaimsTable)
+          .where(
+            and(
+              eq(crewClaimsTable.organizationId, req.crew.org),
+              eq(crewClaimsTable.employeeId, employee.id),
+              eq(crewClaimsTable.attendanceDate, calculation.attendanceDate),
+            ),
+          )
+      ).find((row: any) => row.claimType === "overtime");
+    if (existing && ["Pending", "Approved"].includes(existing.status))
+      return res
+        .status(409)
+        .json({ error: "Overtime already submitted for this date." });
+    const values = {
+      employeeId: employee.id,
+      employeeName: employee.name,
+      claimType: "overtime",
+      amount: String(calculation.amount),
+      title: String(req.body.title).trim(),
+      notes: String(req.body.notes || "").trim() || null,
+      attendanceDate: calculation.attendanceDate,
+      requestedHours: String(calculation.overtimeHours),
+      status: "Pending",
+      submittedBy: req.crew.user.id,
+      submittedAt: new Date(),
+      rejectionRemarks: null,
+      rejectedBy: null,
+      rejectedAt: null,
+      updatedAt: new Date(),
+    };
+    let row: any;
+    if (existing) {
+      [row] = await db
+        .update(crewClaimsTable)
+        .set(values)
+        .where(eq(crewClaimsTable.id, existing.id))
+        .returning();
+    } else {
+      [row] = await db
+        .insert(crewClaimsTable)
+        .values({ ...values, organizationId: req.crew.org, attachments: "[]" })
+        .returning();
+    }
+    void audit(
+      req,
+      "overtime",
+      row.id,
+      employee.name,
+      existing ? "resubmit" : "create",
+      existing || null,
+      row,
+    );
+    return res.status(existing ? 200 : 201).json(row);
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+router.patch("/overtime/:id", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.overtime.update")) return;
+  const [old] = await db
+    .select()
+    .from(crewClaimsTable)
+    .where(
+      and(
+        eq(crewClaimsTable.id, Number(req.params.id)),
+        eq(crewClaimsTable.organizationId, req.crew.org),
+      ),
+    );
+  if (!old || old.claimType !== "overtime")
+    return res.status(404).json({ error: "Overtime request not found" });
+  if (old.status !== "Pending")
+    return res
+      .status(409)
+      .json({ error: "Only pending overtime can be adjusted" });
+  const amount = Number(req.body.amount);
+  if (!Number.isFinite(amount) || amount < 0)
+    return res.status(400).json({ error: "Amount must be zero or greater" });
+  const [row] = await db
+    .update(crewClaimsTable)
+    .set({
+      amount: String(amount),
+      title: String(req.body.title || old.title).trim(),
+      notes:
+        req.body.notes === undefined
+          ? old.notes
+          : String(req.body.notes).trim() || null,
+      updatedAt: new Date(),
+    })
+    .where(eq(crewClaimsTable.id, old.id))
+    .returning();
+  void audit(req, "overtime", row.id, row.employeeName, "adjust", old, row);
+  return res.json(row);
+});
+router.patch("/overtime/:id/status", (req: any, res: any) =>
+  decision(req, res, crewClaimsTable, "overtime", "overtime"),
+);
+router.get("/bonus", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.bonus.view")) return;
+  let rows = (
+    await db
+      .select()
+      .from(crewClaimsTable)
+      .where(eq(crewClaimsTable.organizationId, req.crew.org))
+      .orderBy(desc(crewClaimsTable.createdAt))
+  ).filter((row: any) => row.claimType === "bonus");
+  rows = await scopedRows(req, rows, "bonus");
+  return res.json(
+    rows.map((row: any) => ({ ...row, attachments: json(row.attachments) })),
+  );
+});
+router.get(
+  "/bonus/salary-summary",
+  async (req: any, res: any): Promise<any> => {
+    if (!need(req, res, "crew.bonus.view")) return;
+    const payrollMonth = String(req.query.payrollMonth || "");
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(payrollMonth))
+      return res
+        .status(400)
+        .json({ error: "A valid payroll month is required" });
+    let employees = (
+        await db
+          .select()
+          .from(employeesTable)
+          .where(eq(employeesTable.organizationId, req.crew.org))
+      ).filter((employee: any) => !employee.isDeleted),
+      claims = (
+        await db
+          .select()
+          .from(crewClaimsTable)
+          .where(eq(crewClaimsTable.organizationId, req.crew.org))
+      ).filter(
+        (row: any) =>
+          row.status === "Approved" &&
+          String(
+            row.payrollMonth ||
+              row.attendanceDate ||
+              row.approvedAt ||
+              row.createdAt,
+          ).slice(0, 7) === payrollMonth,
+      );
+    employees = await scopedRows(req, employees, "bonus");
+    const summaries = employees.map((employee: any) => {
+      const entries = claims.filter(
+          (row: any) => Number(row.employeeId) === Number(employee.id),
+        ),
+        sum = (types: string[]) =>
+          entries
+            .filter((row: any) => types.includes(row.claimType))
+            .reduce(
+              (total: number, row: any) => total + Number(row.amount || 0),
+              0,
+            ),
+        baseSalary = Number(employee.baseSalary || 0),
+        bonusAmount = sum(["bonus"]),
+        overtimeAmount = sum(["overtime"]),
+        claimsAmount = sum(["reimbursement", "allowance"]);
+      return {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        department: employee.department,
+        baseSalary,
+        bonusAmount,
+        overtimeAmount,
+        claimsAmount,
+        grossSalary: baseSalary + bonusAmount + overtimeAmount + claimsAmount,
+      };
+    });
+    return res.json({
+      payrollMonth,
+      summaries,
+      totals: {
+        bonusAmount: summaries.reduce(
+          (total: number, row: any) => total + row.bonusAmount,
+          0,
+        ),
+        grossSalary: summaries.reduce(
+          (total: number, row: any) => total + row.grossSalary,
+          0,
+        ),
+      },
+    });
+  },
+);
+router.patch("/bonus/:id/status", (_req: any, res: any) =>
+  res
+    .status(400)
+    .json({
+      error:
+        "Bonus entries are added directly to salary and do not support approve/reject actions.",
+    }),
+);
+router.post("/bonus", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.bonus.create")) return;
+  const employee = await scopedEmployee(
+    req,
+    res,
+    Number(req.body.employeeId),
+    "bonus",
+  );
+  if (!employee) return;
+  const amount = Number(req.body.amount),
+    payrollMonth = String(req.body.payrollMonth || "");
+  if (!Number.isFinite(amount) || amount <= 0)
+    return res
+      .status(400)
+      .json({ error: "Bonus amount must be greater than zero" });
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(payrollMonth))
+    return res.status(400).json({ error: "A valid payroll month is required" });
+  const now = new Date();
+  try {
+    const [row] = await db
+      .insert(crewClaimsTable)
+      .values({
+        organizationId: req.crew.org,
+        employeeId: employee.id,
+        employeeName: employee.name,
+        claimType: "bonus",
+        amount: String(amount),
+        title: "Bonus",
+        notes: String(req.body.notes || "").trim() || null,
+        attendanceDate: `${payrollMonth}-01`,
+        payrollMonth,
+        requestedHours: null,
+        attachments: "[]",
+        status: "Approved",
+        submittedBy: req.crew.user.id,
+        submittedAt: now,
+        approvedBy: req.crew.user.id,
+        approvedAt: now,
+        decidedBy: req.crew.user.id,
+        updatedAt: now,
+      })
+      .returning();
+    void audit(
+      req,
+      "bonus",
+      row.id,
+      employee.name,
+      "created_and_approved",
+      null,
+      row,
+    );
+    return res.status(201).json(row);
+  } catch (error: any) {
+    return res
+      .status(400)
+      .json({ error: error?.message || "Unable to add bonus" });
+  }
+});
 for (const type of ["claims"]) {
   const sub = type === "claims" ? "claims" : type;
   router.get(`/${type}`, async (req: any, res: any): Promise<any> => {
@@ -911,14 +1869,57 @@ for (const type of ["claims"]) {
     const e = await scopedEmployee(req, res, Number(req.body.employeeId), sub);
     if (!e) return;
     const b = req.body;
-    if(type==="claims"){
-      if(!["reimbursement","allowance"].includes(String(b.claimType)))return res.status(400).json({error:"Claim type must be reimbursement or allowance"});
-      if(!String(b.title||"").trim())return res.status(400).json({error:"Claim title is required"});
-      if(b.attendanceDate&&!iso(b.attendanceDate))return res.status(400).json({error:"Claim date must use YYYY-MM-DD format"});
-      if(b.requestedHours!=null&&b.requestedHours!==""&&(!Number.isFinite(Number(b.requestedHours))||Number(b.requestedHours)<0))return res.status(400).json({error:"Hours must be a non-negative number"});
-      const allowed=new Set(["application/pdf","image/png","image/jpeg","image/webp","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]),files=Array.isArray(b.attachments)?b.attachments:[];
-      if(files.length>10)return res.status(400).json({error:"A maximum of 10 attachments is allowed"});
-      for(const file of files){if(!allowed.has(String(file.type)))return res.status(400).json({error:`Unsupported attachment type: ${file.name||"file"}`});if(Number(file.size)>25*1024*1024)return res.status(400).json({error:`${file.name||"Attachment"} exceeds 25 MB`});if(!String(file.dataUrl||"").startsWith("data:"))return res.status(400).json({error:`Invalid attachment: ${file.name||"file"}`})}
+    if (type === "claims") {
+      if (!["reimbursement", "allowance"].includes(String(b.claimType)))
+        return res
+          .status(400)
+          .json({ error: "Claim type must be reimbursement or allowance" });
+      if (!String(b.title || "").trim())
+        return res.status(400).json({ error: "Claim title is required" });
+      if (b.attendanceDate && !iso(b.attendanceDate))
+        return res
+          .status(400)
+          .json({ error: "Claim date must use YYYY-MM-DD format" });
+      if (
+        b.requestedHours != null &&
+        b.requestedHours !== "" &&
+        (!Number.isFinite(Number(b.requestedHours)) ||
+          Number(b.requestedHours) < 0)
+      )
+        return res
+          .status(400)
+          .json({ error: "Hours must be a non-negative number" });
+      const allowed = new Set([
+          "application/pdf",
+          "image/png",
+          "image/jpeg",
+          "image/webp",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.ms-excel",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ]),
+        files = Array.isArray(b.attachments) ? b.attachments : [];
+      if (files.length > 10)
+        return res
+          .status(400)
+          .json({ error: "A maximum of 10 attachments is allowed" });
+      for (const file of files) {
+        if (!allowed.has(String(file.type)))
+          return res
+            .status(400)
+            .json({
+              error: `Unsupported attachment type: ${file.name || "file"}`,
+            });
+        if (Number(file.size) > 25 * 1024 * 1024)
+          return res
+            .status(400)
+            .json({ error: `${file.name || "Attachment"} exceeds 25 MB` });
+        if (!String(file.dataUrl || "").startsWith("data:"))
+          return res
+            .status(400)
+            .json({ error: `Invalid attachment: ${file.name || "file"}` });
+      }
     }
     if (Number(b.amount) <= 0)
       return res
@@ -970,16 +1971,180 @@ for (const type of ["claims"]) {
   );
 }
 
-async function syncAttendanceDeductions(org:number,month:number,year:number){
- const prefix=`${year}-${String(month+1).padStart(2,"0")}`,logs=(await db.select().from(attendanceLogsTable).where(eq(attendanceLogsTable.organizationId,org))).filter((row:any)=>String(row.attendanceDate).startsWith(prefix)),employees=(await db.select().from(employeesTable).where(eq(employeesTable.organizationId,org))).filter((row:any)=>!row.isDeleted),templates=await db.select().from(attendanceTemplatesTable).where(eq(attendanceTemplatesTable.organizationId,org)),oldRows=(await db.select().from(crewDeductionsTable).where(eq(crewDeductionsTable.organizationId,org))).filter((row:any)=>row.month===month&&row.year===year&&String(row.source).toLowerCase()!=="manual");
- for(const log of logs){const employee=employees.find((row:any)=>Number(row.id)===Number(log.employeeId));if(!employee)continue;const template=templates.find((row:any)=>Number(row.id)===Number(employee.attendanceRulesTemplate)&&row.isActive!==false)||templates.find((row:any)=>row.isDefault&&row.isActive!==false),salary=Number(employee.baseSalary||0),days=new Date(Date.UTC(year,month+1,0)).getUTCDate(),daily=salary/days;let amount=0,late=0,early=0,total=0,reason="",source="attendance_auto_deduction",notes="";
-  if(log.status==="Absent"){amount=daily;reason="Absent and LOP";source="Auto";notes=`Absent and LOP — ${salary.toFixed(2)} ÷ ${days} days`}
-  else if(log.status==="Half Day"){amount=daily/2;reason="Half day absent and LOP";source="Auto";notes="Half-day absence and LOP"}
-  else if(log.checkInTime&&log.checkOutTime){const punchIn=minutes(log.checkInTime),punchOut=minutes(log.checkOutTime)+(minutes(log.checkOutTime)<punchIn?1440:0),shiftStart=minutes(template?.workStartTime||"09:00"),shiftEnd=minutes(template?.workEndTime||"17:00")+(minutes(template?.workEndTime||"17:00")<=shiftStart?1440:0),required=shiftEnd-shiftStart;if(template?.flexibleHours){total=Math.max(0,required-(punchOut-punchIn));reason=total>required/2?"half_day":"flexible_hours_shortage"}else{late=Math.max(0,punchIn-shiftStart-Number(template?.lateThresholdMinutes||0));early=Math.max(0,shiftEnd-punchOut);total=late+early;reason=late&&early?"both":late?"late_punch_in":"early_punch_out"}if(total){const hours=total/60,rate=salary/(days*Math.max(1,required/60)),fine=Number(template?.finePerHour||0);amount=template?.fineType==="percent_hourly_basis"?rate*fine/100*hours:template?.fineType==="based_on_salary"?rate*hours:fine*hours;notes=`${reason.replaceAll("_"," ")} — ${total} minutes`}}
-  amount=Math.round(amount*100)/100;const old=oldRows.find((row:any)=>Number(row.attendanceId)===Number(log.id));if(amount<=0){if(old)await db.delete(crewDeductionsTable).where(eq(crewDeductionsTable.id,old.id));continue}const values={employeeId:employee.id,employeeName:employee.name,amount:String(amount),calculatedAmount:String(amount),notes,date:log.attendanceDate,month,year,status:"Approved",source,autoReason:reason,attendanceId:log.id,lateMinutes:late,earlyExitMinutes:early,totalDeductionMinutes:total,autoApproved:true,approvedAt:new Date(),updatedAt:new Date()};if(old)await db.update(crewDeductionsTable).set(values).where(eq(crewDeductionsTable.id,old.id));else await db.insert(crewDeductionsTable).values({...values,organizationId:org})
- }
+async function syncAttendanceDeductions(
+  org: number,
+  month: number,
+  year: number,
+) {
+  const prefix = `${year}-${String(month + 1).padStart(2, "0")}`,
+    logs = (
+      await db
+        .select()
+        .from(attendanceLogsTable)
+        .where(eq(attendanceLogsTable.organizationId, org))
+    ).filter((row: any) => String(row.attendanceDate).startsWith(prefix)),
+    employees = (
+      await db
+        .select()
+        .from(employeesTable)
+        .where(eq(employeesTable.organizationId, org))
+    ).filter((row: any) => !row.isDeleted),
+    templates = await db
+      .select()
+      .from(attendanceTemplatesTable)
+      .where(eq(attendanceTemplatesTable.organizationId, org)),
+    oldRows = (
+      await db
+        .select()
+        .from(crewDeductionsTable)
+        .where(eq(crewDeductionsTable.organizationId, org))
+    ).filter(
+      (row: any) =>
+        row.month === month &&
+        row.year === year &&
+        String(row.source).toLowerCase() !== "manual",
+    );
+  for (const log of logs) {
+    const employee = employees.find(
+      (row: any) => Number(row.id) === Number(log.employeeId),
+    );
+    if (!employee) continue;
+    const template =
+        templates.find(
+          (row: any) =>
+            Number(row.id) === Number(employee.attendanceRulesTemplate) &&
+            row.isActive !== false,
+        ) ||
+        templates.find((row: any) => row.isDefault && row.isActive !== false),
+      salary = Number(employee.baseSalary || 0),
+      days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(),
+      daily = salary / days;
+    let amount = 0,
+      late = 0,
+      early = 0,
+      total = 0,
+      reason = "",
+      source = "attendance_auto_deduction",
+      notes = "";
+    if (log.status === "Absent") {
+      amount = daily;
+      reason = "Absent and LOP";
+      source = "Auto";
+      notes = `Absent and LOP — ${salary.toFixed(2)} ÷ ${days} days`;
+    } else if (log.status === "Half Day") {
+      amount = daily / 2;
+      reason = "Half day absent and LOP";
+      source = "Auto";
+      notes = "Half-day absence and LOP";
+    } else if (log.checkInTime && log.checkOutTime) {
+      const punchIn = minutes(log.checkInTime),
+        punchOut =
+          minutes(log.checkOutTime) +
+          (minutes(log.checkOutTime) < punchIn ? 1440 : 0),
+        shiftStart = minutes(template?.workStartTime || "09:00"),
+        shiftEnd =
+          minutes(template?.workEndTime || "17:00") +
+          (minutes(template?.workEndTime || "17:00") <= shiftStart ? 1440 : 0),
+        required = shiftEnd - shiftStart;
+      if (template?.flexibleHours) {
+        total = Math.max(0, required - (punchOut - punchIn));
+        reason = total > required / 2 ? "half_day" : "flexible_hours_shortage";
+      } else {
+        late = Math.max(
+          0,
+          punchIn - shiftStart - Number(template?.lateThresholdMinutes || 0),
+        );
+        early = Math.max(0, shiftEnd - punchOut);
+        total = late + early;
+        reason =
+          late && early ? "both" : late ? "late_punch_in" : "early_punch_out";
+      }
+      if (total) {
+        const hours = total / 60,
+          rate = salary / (days * Math.max(1, required / 60)),
+          fine = Number(template?.finePerHour || 0);
+        amount =
+          template?.fineType === "percent_hourly_basis"
+            ? ((rate * fine) / 100) * hours
+            : template?.fineType === "based_on_salary"
+              ? rate * hours
+              : fine * hours;
+        notes = `${reason.replaceAll("_", " ")} — ${total} minutes`;
+      }
+    }
+    amount = Math.round(amount * 100) / 100;
+    const old = oldRows.find(
+      (row: any) => Number(row.attendanceId) === Number(log.id),
+    );
+    if (amount <= 0) {
+      if (old)
+        await db
+          .delete(crewDeductionsTable)
+          .where(eq(crewDeductionsTable.id, old.id));
+      continue;
+    }
+    const values = {
+      employeeId: employee.id,
+      employeeName: employee.name,
+      amount: String(amount),
+      calculatedAmount: String(amount),
+      notes,
+      date: log.attendanceDate,
+      month,
+      year,
+      status: "Approved",
+      source,
+      autoReason: reason,
+      attendanceId: log.id,
+      lateMinutes: late,
+      earlyExitMinutes: early,
+      totalDeductionMinutes: total,
+      autoApproved: true,
+      approvedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (old)
+      await db
+        .update(crewDeductionsTable)
+        .set(values)
+        .where(eq(crewDeductionsTable.id, old.id));
+    else
+      await db
+        .insert(crewDeductionsTable)
+        .values({ ...values, organizationId: org });
+  }
 }
-router.get("/deductions",async(req:any,res:any):Promise<any>=>{if(!need(req,res,"crew.deductions.view"))return;const month=Number(req.query.month??new Date().getMonth()),year=Number(req.query.year??new Date().getFullYear());if(!Number.isInteger(month)||month<0||month>11||!Number.isInteger(year))return res.status(400).json({error:"Valid month and year are required"});try{await syncAttendanceDeductions(req.crew.org,month,year);let rows=(await db.select().from(crewDeductionsTable).where(eq(crewDeductionsTable.organizationId,req.crew.org))).filter((row:any)=>row.month===month&&row.year===year);rows=await scopedRows(req,rows,"deductions");return res.json(rows.sort((a:any,b:any)=>String(b.date).localeCompare(String(a.date))||Number(b.id)-Number(a.id)))}catch(error:any){return res.status(400).json({error:error.message})}});
+router.get("/deductions", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.deductions.view")) return;
+  const month = Number(req.query.month ?? new Date().getMonth()),
+    year = Number(req.query.year ?? new Date().getFullYear());
+  if (
+    !Number.isInteger(month) ||
+    month < 0 ||
+    month > 11 ||
+    !Number.isInteger(year)
+  )
+    return res.status(400).json({ error: "Valid month and year are required" });
+  try {
+    await syncAttendanceDeductions(req.crew.org, month, year);
+    let rows = (
+      await db
+        .select()
+        .from(crewDeductionsTable)
+        .where(eq(crewDeductionsTable.organizationId, req.crew.org))
+    ).filter((row: any) => row.month === month && row.year === year);
+    rows = await scopedRows(req, rows, "deductions");
+    return res.json(
+      rows.sort(
+        (a: any, b: any) =>
+          String(b.date).localeCompare(String(a.date)) ||
+          Number(b.id) - Number(a.id),
+      ),
+    );
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
+});
 router.post("/deductions", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.deductions.create")) return;
   const e = await scopedEmployee(
@@ -1087,7 +2252,13 @@ async function decision(
   )
     return res.status(404).json({ error: "Record not found" });
   if (!(await scopedEmployee(req, res, old.employeeId, sub))) return;
-  if(status==="Rejected"&&String(req.body.rejectionRemarks||"").trim().length<10)return res.status(400).json({error:"Rejection remarks must contain at least 10 characters"});
+  if (
+    status === "Rejected" &&
+    String(req.body.rejectionRemarks || "").trim().length < 10
+  )
+    return res
+      .status(400)
+      .json({ error: "Rejection remarks must contain at least 10 characters" });
   if (old.status !== "Pending")
     return res
       .status(409)

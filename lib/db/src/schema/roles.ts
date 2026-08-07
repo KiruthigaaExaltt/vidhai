@@ -26,6 +26,8 @@ export const rolesTable = mongoTable("roles", {
   isSystem: boolean("is_system").notNull().default(false),
   isSuperAdmin: boolean("is_super_admin").notNull().default(false),
   systemKey: text("system_key"),
+  roleKey: text("role_key"),
+  isSystemGenerated: boolean("is_system_generated").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
