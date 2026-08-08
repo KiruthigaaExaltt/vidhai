@@ -27,3 +27,4 @@ export * from "./templates";
 export * from "./procurement";
 
 export * from "./crew";
+export * from "./assets";

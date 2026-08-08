@@ -66,6 +66,7 @@ import {
 import { CategoryDialog } from "./components/CategoryDialog";
 import { WarehouseDialog } from "./components/WarehouseDialog";
 import { ItemNameDialog } from "./components/ItemNameDialog";
+import { AssetManagement } from "./components/AssetManagement";
 import { toast } from "sonner";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -1830,7 +1831,8 @@ export default function InventoryModule() {
             </TabsContent>
 
             {/* ── ASSET MANAGEMENT ── */}
-            <TabsContent value="assets" className="outline-none mt-0 space-y-6">
+            <AssetManagement />
+            <TabsContent value="assets-legacy" className="outline-none mt-0 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight font-display">
