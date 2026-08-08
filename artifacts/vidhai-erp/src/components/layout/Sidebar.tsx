@@ -1,11 +1,30 @@
-import { useLocation, Link } from "wouter";
+﻿import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useLogout } from "@workspace/api-client-react";
 import {
-  LogOut, Home, Box, Thermometer, Layers,
-  Users, MapPin, FlaskConical, GitBranch, CalendarDays, Sparkles,
-  ShoppingCart, Truck, BarChart2, ShieldCheck, CheckSquare,
-  Settings as SettingsIcon, BookUser, UserCircle, RefreshCw, Download, Banknote,
+  LogOut,
+  Home,
+  Box,
+  Thermometer,
+  Layers,
+  Users,
+  MapPin,
+  FlaskConical,
+  GitBranch,
+  CalendarDays,
+  Sparkles,
+  ShoppingCart,
+  Truck,
+  BarChart2,
+  ShieldCheck,
+  CheckSquare,
+  Settings as SettingsIcon,
+  BookUser,
+  UserCircle,
+  RefreshCw,
+  Download,
+  Banknote,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
@@ -13,10 +32,18 @@ import { usePwa } from "@/pwa/PwaProvider";
 
 const VidhaiLogo = () => (
   <div className="flex items-center gap-3 px-4 py-4 mb-4">
-    <img src={vidhaiLogo} alt="Vidhai logo" className="w-10 h-10 object-contain" />
+    <img
+      src={vidhaiLogo}
+      alt="Vidhai logo"
+      className="w-10 h-10 object-contain"
+    />
     <div className="flex flex-col">
-      <span className="font-serif font-bold text-lg leading-none tracking-wider text-sidebar-primary">VIDHAI</span>
-      <span className="text-[10px] tracking-widest text-sidebar-foreground/50">SYSTEMS</span>
+      <span className="font-serif font-bold text-lg leading-none tracking-wider text-sidebar-primary">
+        VIDHAI
+      </span>
+      <span className="text-[10px] tracking-widest text-sidebar-foreground/50">
+        SYSTEMS
+      </span>
     </div>
   </div>
 );
@@ -90,33 +117,56 @@ export function Sidebar() {
       <VidhaiLogo />
 
       <div className="flex-1 overflow-y-auto pb-4">
-        {/* ── Top-level items ── */}
+        {/* â”€â”€ Top-level items â”€â”€ */}
         <NavItem href="/" icon={Home} label="Dashboard" exact />
         <NavItem href="/crm" icon={BookUser} label="CRM" />
         <NavItem href="/tasks" icon={CheckSquare} label="Tasks" />
-        <NavItem href="/scheduling" icon={CalendarDays} label="Calendar" exact />
-        <NavItem href="/scheduling/suggest" icon={Sparkles} label="Plan Schedule" />
+        <NavItem
+          href="/scheduling"
+          icon={CalendarDays}
+          label="Calendar"
+          exact
+        />
+        <NavItem
+          href="/scheduling/suggest"
+          icon={Sparkles}
+          label="Plan Schedule"
+        />
 
-        {/* ── Location A — Annur ── */}
-        <SectionTitle>ANNUR · LOCATION A</SectionTitle>
+        {/* â”€â”€ Location A â€” Annur â”€â”€ */}
+        <SectionTitle>ANNUR Â· LOCATION A</SectionTitle>
         <NavItem href="/annur/batches" icon={Box} label="Batches" />
         <NavItem href="/annur/chambers" icon={Thermometer} label="Chambers" />
 
-        {/* ── Location B — Ooty ── */}
-        <SectionTitle>OOTY · LOCATION B</SectionTitle>
+        {/* â”€â”€ Location B â€” Ooty â”€â”€ */}
+        <SectionTitle>OOTY Â· LOCATION B</SectionTitle>
         <NavItem href="/ooty" icon={Thermometer} label="Growing Rooms" />
 
-        {/* ── Location C — Coimbatore ── */}
-        <SectionTitle>COIMBATORE · LOCATION C</SectionTitle>
-        <NavItem href="/coimbatore/batches" icon={Layers} label="Casing Soil Batches" />
+        {/* â”€â”€ Location C â€” Coimbatore â”€â”€ */}
+        <SectionTitle>COIMBATORE Â· LOCATION C</SectionTitle>
+        <NavItem
+          href="/coimbatore/batches"
+          icon={Layers}
+          label="Casing Soil Batches"
+        />
 
-        {/* ── Location D — Lab ── */}
-        <SectionTitle>LAB · LOCATION D</SectionTitle>
-        <NavItem href="/lab/batches" icon={FlaskConical} label="Spawn Batches" />
+        {/* â”€â”€ Location D â€” Lab â”€â”€ */}
+        <SectionTitle>LAB Â· LOCATION D</SectionTitle>
+        <NavItem
+          href="/lab/batches"
+          icon={FlaskConical}
+          label="Spawn Batches"
+        />
 
-        {/* ── Cross-site operations ── */}
+        {/* â”€â”€ Cross-site operations â”€â”€ */}
         <SectionTitle>OPERATIONS</SectionTitle>
-        {(can("crew.employees.view") || can("crew.attendance.view") || can("crew.leave.view") || can("crew.claims.view") || can("crew.overtime.view") || can("crew.bonus.view") || can("crew.deductions.view")) && (
+        {(can("crew.employees.view") ||
+          can("crew.attendance.view") ||
+          can("crew.leave.view") ||
+          can("crew.claims.view") ||
+          can("crew.overtime.view") ||
+          can("crew.bonus.view") ||
+          can("crew.deductions.view")) && (
           <NavItem href="/crew" icon={Users} label="Crew" />
         )}
         {can("crewpay.salary_slip.view") && (
@@ -128,15 +178,16 @@ export function Sidebar() {
         <NavItem href="/traceability" icon={GitBranch} label="Traceability" />
         <NavItem href="/flex" icon={Box} label="Flex" />
 
-        {/* ── System ── */}
+        {/* â”€â”€ System â”€â”€ */}
         <SectionTitle>SYSTEM</SectionTitle>
         <NavItem href="/inventory" icon={Layers} label="Inventory" />
-        {(can("settings.user_management.view") || can("settings.templates.view")) && (
+        {(can("settings.user_management.view") ||
+          can("settings.templates.view")) && (
           <NavItem href="/settings" icon={SettingsIcon} label="Settings" />
         )}
       </div>
 
-      {/* ── User card — click to open profile ── */}
+      {/* â”€â”€ User card â€” click to open profile â”€â”€ */}
       <div className="hidden">
         <Link
           href="/profile"
@@ -165,7 +216,11 @@ export function Sidebar() {
               size="sm"
               disabled={!pwa.installAvailable && !pwa.iosInstallAvailable}
               onClick={() => void pwa.install()}
-              title={pwa.installAvailable || pwa.iosInstallAvailable ? "Install Vidhai ERP" : "Install becomes available in the production PWA build"}
+              title={
+                pwa.installAvailable || pwa.iosInstallAvailable
+                  ? "Install Vidhai ERP"
+                  : "Install becomes available in the production PWA build"
+              }
               className="mb-1 w-full justify-start gap-2 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent text-xs h-7 disabled:opacity-40"
             >
               <Download className="w-3.5 h-3.5" />
@@ -176,11 +231,15 @@ export function Sidebar() {
             variant="ghost"
             size="sm"
             disabled={pwa.updating}
-            onClick={() => void (pwa.updateAvailable ? pwa.applyUpdate() : pwa.checkForUpdates())}
+            onClick={() =>
+              void (pwa.updateAvailable
+                ? pwa.applyUpdate()
+                : pwa.checkForUpdates())
+            }
             className="mb-1 w-full justify-start gap-2 text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent text-xs h-7"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            {pwa.updating ? "Updating…" : "Update App"}
+            {pwa.updating ? "Updatingâ€¦" : "Update App"}
           </Button>
           <Button
             variant="ghost"

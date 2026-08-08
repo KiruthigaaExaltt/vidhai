@@ -1,3 +1,5 @@
+import { FLEX_TEXT } from "./flexText";
+import { useFlexMasterData, useFlexPurchaseInvoices } from "./flexData";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -39,13 +41,6 @@ export interface OutstandingBillItem {
   paymentMode?: string;
 }
 
-import {
-  mergeVendors,
-  addStoredVendor,
-  mergePayments,
-  addStoredPayment,
-} from "@/lib/flexStore";
-
 async function fetchVendorPayments(): Promise<OutstandingBillItem[]> {
   try {
     const res = await fetch(`${BASE}/api/flex/vendor-payments`, {
@@ -53,23 +48,22 @@ async function fetchVendorPayments(): Promise<OutstandingBillItem[]> {
     });
     if (res.ok) {
       const data = await res.json();
-      const serverMapped = (data || []).map((p: any) => ({
+      return (data || []).map((p: any) => ({
         id: p.id,
-        vendorId: p.vendorId || "-",
-        vendor: p.vendor || "Elakiya Shri",
-        billNumber: p.paymentNumber || "PAY-2026-07-1-ACCRUAL",
-        invoiceReference: p.invoiceReference || "INV001",
-        date: p.paymentDate || "17 Jul 2026",
+        vendorId: p.vendorId || "",
+        vendor: p.vendor,
+        billNumber: p.paymentNumber,
+        invoiceReference: p.invoiceReference,
+        date: p.paymentDate,
         amount: Number(p.amount || 0),
-        paid: 0,
-        outstanding: Number(p.amount || 0),
-        status: p.status || "Completed",
-        paymentMode: p.paymentMode || "Bank Transfer",
+        paid: Number(p.amount || 0),
+        outstanding: 0,
+        status: p.status,
+        paymentMode: p.paymentMode,
       }));
-      return mergePayments(serverMapped);
     }
   } catch {}
-  return mergePayments([]);
+  return [];
 }
 
 async function createVendorPayment(payload: any) {
@@ -79,21 +73,8 @@ async function createVendorPayment(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to record payment");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToRecordPayment);
   return res.json();
-}
-
-async function fetchVendorsList() {
-  try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, {
-      credentials: "include",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return mergeVendors(data);
-    }
-  } catch {}
-  return mergeVendors([]);
 }
 
 export default function VendorPayments() {
@@ -103,10 +84,9 @@ export default function VendorPayments() {
     queryFn: fetchVendorPayments,
   });
 
-  const { data: vendorsList = [] } = useQuery({
-    queryKey: ["get", "/api/flex/vendors"],
-    queryFn: fetchVendorsList,
-  });
+  const { data: masterData } = useFlexMasterData();
+  const { data: purchaseInvoices = [] } = useFlexPurchaseInvoices();
+  const vendorsList = masterData?.vendors ?? [];
 
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -114,10 +94,12 @@ export default function VendorPayments() {
   // Form State
   const [vendor, setVendor] = useState("");
   const [outstandingBill, setOutstandingBill] = useState("");
-  const [paymentDate, setPaymentDate] = useState("2026-08-07");
+  const [paymentDate, setPaymentDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Bank Transfer");
-  const [bankAccount, setBankAccount] = useState("Bank Account (1020) (1)");
+  const [bankAccount, setBankAccount] = useState("");
   const [transactionRef, setTransactionRef] = useState("");
   const [notes, setNotes] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
@@ -132,12 +114,12 @@ export default function VendorPayments() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success("Payment recorded against bill");
+      toast.success(FLEX_TEXT.paymentRecordedAgainstBill);
       setIsAddOpen(false);
       resetForm();
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to record payment");
+      toast.error(err.message || FLEX_TEXT.failedToRecordPayment);
     },
   });
 
@@ -158,50 +140,28 @@ export default function VendorPayments() {
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    const vendorName = vendor.trim() || "Elakiya Shri";
-    const billNum =
-      outstandingBill.trim() || `PAY-2026-08-${bills.length + 1}-ACCRUAL`;
-    const amt = parseFloat(amount) || 100;
-
-    const newPaymentItem: OutstandingBillItem = {
-      id: Date.now(),
-      vendorId: "CON00007",
-      vendor: vendorName,
-      billNumber: billNum,
-      invoiceReference: "INV001",
-      date: paymentDate || "07 Aug 2026",
-      amount: amt,
-      paid: 0,
-      outstanding: amt,
-      status: "Completed",
-      paymentMode,
-    };
-
-    addStoredPayment(newPaymentItem);
-    addStoredVendor({ id: "CON00007", name: vendorName });
-
-    toast.success("Vendor payment recorded successfully!");
-    setIsAddOpen(false);
-    resetForm();
-
+    const invoice = purchaseInvoices.find(
+      (item: any) => item.invoiceNumber === outstandingBill,
+    );
     createMutation.mutate({
-      paymentNumber: billNum,
-      vendorName,
-      invoiceReference: "INV001",
-      amount: amt,
+      vendorName: invoice?.vendor || vendor,
+      invoiceReference: outstandingBill,
+      amount: parseFloat(amount) || 0,
       paymentMode,
       paymentDate,
       status: "Completed",
       notes,
+      transactionReference: transactionRef,
+      bankAccount,
     });
   };
 
   const paymentModeOptions = [
-    { label: "Bank Transfer", value: "Bank Transfer" },
-    { label: "Cash", value: "Cash" },
-    { label: "Cheque", value: "Cheque" },
-    { label: "UPI", value: "UPI" },
-    { label: "NEFT/RTGS", value: "NEFT/RTGS" },
+    { label: FLEX_TEXT.bankTransfer, value: "Bank Transfer" },
+    { label: FLEX_TEXT.cash, value: "Cash" },
+    { label: FLEX_TEXT.cheque, value: "Cheque" },
+    { label: FLEX_TEXT.upi, value: "UPI" },
+    { label: FLEX_TEXT.neftRtgs, value: "NEFT/RTGS" },
   ];
 
   const filteredModes = paymentModeOptions.filter((m) =>
@@ -217,10 +177,12 @@ export default function VendorPayments() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Vendor Payments
+              {FLEX_TEXT.vendorPayments}
             </h1>
             <p className="text-xs text-muted-foreground mt-1">
-              Record payments against vendor bills and update accounts payable.
+              {
+                FLEX_TEXT.recordPaymentsAgainstVendorBillsAndUpdateAccountsPayable
+              }
             </p>
           </div>
 
@@ -230,7 +192,7 @@ export default function VendorPayments() {
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 py-2.5 rounded-xl gap-2 shadow-xs"
               onClick={() => setIsAddOpen(true)}
             >
-              <Plus className="w-4 h-4" /> Record Payment
+              <Plus className="w-4 h-4" /> {FLEX_TEXT.recordPayment}
             </Button>
           </div>
         </div>
@@ -238,14 +200,14 @@ export default function VendorPayments() {
         {/* Filter by Vendor */}
         <div className="space-y-1 max-w-xs">
           <div className="text-xs text-muted-foreground font-medium">
-            Filter by vendor
+            {FLEX_TEXT.filterByVendor}
           </div>
           <Select value={selectedVendor} onValueChange={setSelectedVendor}>
             <SelectTrigger className="bg-background text-xs h-10 rounded-xl border-border shadow-2xs">
-              <SelectValue placeholder="All vendors" />
+              <SelectValue placeholder={FLEX_TEXT.allVendors} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="All">All vendors</SelectItem>
+              <SelectItem value="All">{FLEX_TEXT.allVendors}</SelectItem>
               {vendorsList.map((v: any) => (
                 <SelectItem key={v.id} value={v.name}>
                   {v.name}
@@ -259,7 +221,7 @@ export default function VendorPayments() {
         <Card className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
           <div className="px-6 py-4 border-b border-border">
             <h2 className="text-sm font-bold text-foreground">
-              Outstanding Bills
+              {FLEX_TEXT.outstandingBills}
             </h2>
           </div>
           <CardContent className="p-0">
@@ -267,13 +229,13 @@ export default function VendorPayments() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    <th className="px-6 py-3.5">VENDOR ID</th>
-                    <th className="px-6 py-3.5">VENDOR</th>
-                    <th className="px-6 py-3.5">BILL #</th>
-                    <th className="px-6 py-3.5">DATE</th>
-                    <th className="px-6 py-3.5">AMOUNT</th>
-                    <th className="px-6 py-3.5">PAID</th>
-                    <th className="px-6 py-3.5">OUTSTANDING</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.vendorId}</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.vendor2}</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.bill}</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.date}</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.amount}</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.paid}</th>
+                    <th className="px-6 py-3.5">{FLEX_TEXT.outstanding}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -283,7 +245,7 @@ export default function VendorPayments() {
                         colSpan={7}
                         className="px-6 py-8 text-center text-muted-foreground text-sm"
                       >
-                        No outstanding bills found.
+                        {FLEX_TEXT.noOutstandingBillsFound}
                       </td>
                     </tr>
                   ) : (
@@ -331,7 +293,7 @@ export default function VendorPayments() {
                   <span className="text-lg font-bold text-primary leading-none">
                     ₹
                   </span>
-                  Record Vendor Payment
+                  {FLEX_TEXT.recordVendorPayment}
                 </DialogTitle>
               </DialogHeader>
 
@@ -339,11 +301,11 @@ export default function VendorPayments() {
                 {/* Vendor */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Vendor
+                    {FLEX_TEXT.vendor}
                   </Label>
                   <Select value={vendor} onValueChange={setVendor}>
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
-                      <SelectValue placeholder="Select vendor" />
+                      <SelectValue placeholder={FLEX_TEXT.selectVendor2} />
                     </SelectTrigger>
                     <SelectContent>
                       {vendorsList.map((v: any) => (
@@ -358,35 +320,39 @@ export default function VendorPayments() {
                 {/* Outstanding bill */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Outstanding bill
+                    {FLEX_TEXT.outstandingBill}
                   </Label>
                   <Select
                     value={outstandingBill}
-                    onValueChange={(val) => {
-                      setOutstandingBill(val);
-                      if (val === "PAY-2026-08-2-ACCRUAL") {
-                        setVendor("sample");
-                        setAmount("100");
-                      } else if (val === "PAY-2026-07-1-ACCRUAL") {
-                        setVendor("Elakiya Shri");
-                        setAmount("6451.61");
-                      } else if (val === "CCLM-1") {
-                        setVendor("Elakiya Shri");
-                        setAmount("12000");
+                    onValueChange={(value) => {
+                      setOutstandingBill(value);
+                      const invoice = purchaseInvoices.find(
+                        (item: any) => item.invoiceNumber === value,
+                      );
+                      if (invoice) {
+                        setVendor(invoice.vendor || "");
+                        setAmount(String(invoice.amount || 0));
                       }
                     }}
                   >
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
-                      <SelectValue placeholder="Select bill" />
+                      <SelectValue placeholder={FLEX_TEXT.selectBill} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="PAY-2026-08-2-ACCRUAL">
-                        PAY-2026-08-2-ACCRUAL (₹ 100)
-                      </SelectItem>
-                      <SelectItem value="PAY-2026-07-1-ACCRUAL">
-                        PAY-2026-07-1-ACCRUAL (₹ 6,451.61)
-                      </SelectItem>
-                      <SelectItem value="CCLM-1">CCLM-1 (₹ 12,000)</SelectItem>
+                      {purchaseInvoices
+                        .filter((invoice: any) => invoice.status !== "Paid")
+                        .map((invoice: any) => (
+                          <SelectItem
+                            key={invoice.id}
+                            value={invoice.invoiceNumber}
+                          >
+                            {invoice.invoiceNumber} ({invoice.vendor} - ?
+                            {Number(invoice.amount || 0).toLocaleString(
+                              "en-IN",
+                            )}
+                            )
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -394,7 +360,7 @@ export default function VendorPayments() {
                 {/* Payment date */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Payment date
+                    {FLEX_TEXT.paymentDate}
                   </Label>
                   <Input
                     type="date"
@@ -407,7 +373,7 @@ export default function VendorPayments() {
                 {/* Payment amount */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Payment amount
+                    {FLEX_TEXT.paymentAmount}
                   </Label>
                   <Input
                     type="text"
@@ -421,11 +387,11 @@ export default function VendorPayments() {
                 {/* Payment mode */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Payment mode
+                    {FLEX_TEXT.paymentMode}
                   </Label>
                   <Select value={paymentMode} onValueChange={setPaymentMode}>
                     <SelectTrigger className="h-10 text-xs bg-background border-border focus:border-primary focus:ring-1 focus:ring-primary rounded-xl font-semibold text-foreground">
-                      <SelectValue placeholder="Select payment mode" />
+                      <SelectValue placeholder={FLEX_TEXT.selectPaymentMode} />
                     </SelectTrigger>
                     <SelectContent className="p-1 border border-border shadow-lg rounded-xl">
                       <div
@@ -434,7 +400,7 @@ export default function VendorPayments() {
                       >
                         <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input
-                          placeholder="Type to filter..."
+                          placeholder={FLEX_TEXT.typeToFilter}
                           value={modeFilter}
                           onChange={(e) => setModeFilter(e.target.value)}
                           className="h-8 pl-8 text-xs border-border rounded-lg bg-muted/40"
@@ -457,30 +423,23 @@ export default function VendorPayments() {
                 {/* Bank / Cash account */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Bank / Cash account
+                    {FLEX_TEXT.bankCashAccount}
                   </Label>
                   <Select value={bankAccount} onValueChange={setBankAccount}>
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
-                      <SelectValue placeholder="Bank Account (1020) (1)" />
+                      <SelectValue placeholder={FLEX_TEXT.bankAccount10201} />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Bank Account (1020) (1)">
-                        Bank Account (1020) (1)
-                      </SelectItem>
-                      <SelectItem value="Petty Cash (1010)">
-                        Petty Cash (1010)
-                      </SelectItem>
-                    </SelectContent>
+                    <SelectContent></SelectContent>
                   </Select>
                 </div>
 
                 {/* Transaction reference */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Transaction reference
+                    {FLEX_TEXT.transactionReference}
                   </Label>
                   <Input
-                    placeholder="UPI / cheque / NEFT reference"
+                    placeholder={FLEX_TEXT.upiChequeNeftReference}
                     value={transactionRef}
                     onChange={(e) => setTransactionRef(e.target.value)}
                     className="h-10 text-xs border-border rounded-xl placeholder:text-muted-foreground"
@@ -490,10 +449,10 @@ export default function VendorPayments() {
                 {/* Notes */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Notes
+                    {FLEX_TEXT.notes}
                   </Label>
                   <Input
-                    placeholder="Optional payment notes"
+                    placeholder={FLEX_TEXT.optionalPaymentNotes}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     className="h-10 text-xs border-border rounded-xl placeholder:text-muted-foreground"
@@ -503,7 +462,7 @@ export default function VendorPayments() {
                 {/* Invoice Attachment */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                    Invoice Attachment
+                    {FLEX_TEXT.invoiceAttachment}
                   </Label>
                   <div
                     onClick={() =>
@@ -513,7 +472,7 @@ export default function VendorPayments() {
                   >
                     <div className="flex items-center gap-2">
                       <span className="px-3 py-1 bg-muted text-foreground font-semibold rounded-lg border border-border">
-                        Choose File
+                        {FLEX_TEXT.chooseFile}
                       </span>
                       <span className="text-muted-foreground">
                         {attachmentName ? attachmentName : "No file chosen"}
@@ -539,7 +498,7 @@ export default function VendorPayments() {
                         const file = e.target.files?.[0];
                         if (file) {
                           setAttachmentName(file.name);
-                          toast.success(`Attached ${file.name}`);
+                          toast.success(`${FLEX_TEXT.attached}${file.name}`);
                         }
                       }}
                     />
@@ -555,13 +514,13 @@ export default function VendorPayments() {
                   className="h-10 px-5 text-xs font-semibold text-foreground bg-background border-border rounded-xl hover:bg-muted"
                   onClick={() => setIsAddOpen(false)}
                 >
-                  Cancel
+                  {FLEX_TEXT.cancel}
                 </Button>
                 <Button
                   type="submit"
                   className="h-10 px-5 text-xs font-semibold text-primary-foreground bg-primary hover:bg-primary/90 rounded-xl shadow-xs"
                 >
-                  Record Payment
+                  {FLEX_TEXT.recordPayment}
                 </Button>
               </DialogFooter>
             </form>

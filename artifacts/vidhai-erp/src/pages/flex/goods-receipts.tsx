@@ -1,3 +1,5 @@
+import { FLEX_TEXT } from "./flexText";
+import { useFlexMasterData, useFlexPurchaseOrders } from "./flexData";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -64,13 +66,6 @@ export interface GoodsReceiptItem {
   status: string;
 }
 
-import {
-  mergeVendors,
-  addStoredVendor,
-  mergeGRNs,
-  addStoredGRN,
-} from "@/lib/flexStore";
-
 async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
   try {
     const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
@@ -78,24 +73,21 @@ async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
     });
     if (res.ok) {
       const data = await res.json();
-      const serverMapped = (data || []).map((g: any, i: number) => ({
+      return (data || []).map((g: any) => ({
         id: g.id,
-        vendorId: `CON0000${(i % 3) + 5}`,
-        vendor: g.vendor || "Nish",
-        grnNumber:
-          g.grnNumber ||
-          `GRN-${Math.floor(100000 + Math.random() * 900000)} 10:00:00 am`,
-        poNumber: g.poReference || "PO-26-27-0006",
-        receivedDate: g.receivedDate || "2026-07-21",
-        receivedBy: g.inspectedBy || "Kavin",
-        receivedOrdered: "100 / 100",
-        pending: "-",
-        status: g.status || "Complete",
+        vendorId: g.vendorId || "",
+        vendor: g.vendor,
+        grnNumber: g.grnNumber,
+        poNumber: g.poReference,
+        receivedDate: g.receivedDate,
+        receivedBy: g.inspectedBy || "",
+        receivedOrdered: g.itemsReceived || "",
+        pending: "",
+        status: g.status,
       }));
-      return mergeGRNs(serverMapped);
     }
   } catch {}
-  return mergeGRNs([]);
+  return [];
 }
 
 async function createGoodsReceipt(payload: any) {
@@ -105,21 +97,8 @@ async function createGoodsReceipt(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to create GRN");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToCreateGrn);
   return res.json();
-}
-
-async function fetchVendorsList() {
-  try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, {
-      credentials: "include",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return mergeVendors(data);
-    }
-  } catch {}
-  return mergeVendors([]);
 }
 
 export default function GoodsReceipts() {
@@ -133,10 +112,12 @@ export default function GoodsReceipts() {
     queryFn: fetchGoodsReceipts,
   });
 
-  const { data: vendorsList = [] } = useQuery({
-    queryKey: ["get", "/api/flex/vendors"],
-    queryFn: fetchVendorsList,
-  });
+  const { data: masterData } = useFlexMasterData();
+  const { data: purchaseOrders = [] } = useFlexPurchaseOrders();
+  const vendorsList = masterData?.vendors ?? [];
+  const itemOptions = masterData?.items ?? [];
+  const userOptions = masterData?.users ?? [];
+  const warehouseOptions = masterData?.warehouses ?? [];
 
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -147,7 +128,6 @@ export default function GoodsReceipts() {
 
   // Form fields for Log Goods Receipt
   const [mappedPo, setMappedPo] = useState("");
-  const autoGrnNumber = `GRN-${Math.floor(100000 + Math.random() * 900000)}`;
   const [vendorName, setVendorName] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
@@ -155,7 +135,7 @@ export default function GoodsReceipts() {
   const [receivedDate, setReceivedDate] = useState(
     new Date().toISOString().split("T")[0],
   );
-  const [receivedBy, setReceivedBy] = useState("Kavin");
+  const [receivedBy, setReceivedBy] = useState("");
   const [notes, setNotes] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
 
@@ -186,12 +166,12 @@ export default function GoodsReceipts() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success("Goods Receipt logged successfully");
+      toast.success(FLEX_TEXT.goodsReceiptLoggedSuccessfully);
       setIsAddOpen(false);
       resetForm();
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to log GRN");
+      toast.error(err.message || FLEX_TEXT.failedToLogGrn);
     },
   });
 
@@ -210,9 +190,9 @@ export default function GoodsReceipts() {
       ...prev,
       {
         id: String(Date.now()),
-        itemMaster: "Trapezoidal Roofing Sheet",
+        itemMaster: "",
         customSpec: "",
-        warehouse: "Bangalore (4)",
+        warehouse: "",
         qty: 1,
         price: 0,
         recvQty: 1,
@@ -283,9 +263,9 @@ export default function GoodsReceipts() {
         </head>
         <body>
           <h2>VIDHAI ERP - GOODS RECEIPT NOTE ${g.grnNumber}</h2>
-          <p><strong>Vendor:</strong> ${g.vendor} (${g.vendorId})</p>
-          <p><strong>PO Reference:</strong> ${g.poNumber} | <strong>Received By:</strong> ${g.receivedBy}</p>
-          <p><strong>Received Date:</strong> ${g.receivedDate} | <strong>Status:</strong> ${g.status}</p>
+          <p><strong>${FLEX_TEXT.printVendor}</strong> ${g.vendor} (${g.vendorId})</p>
+          <p><strong>${FLEX_TEXT.printPoReference}</strong> ${g.poNumber} | <strong>${FLEX_TEXT.printReceivedBy}</strong> ${g.receivedBy}</p>
+          <p><strong>${FLEX_TEXT.printReceivedDate}</strong> ${g.receivedDate} | <strong>${FLEX_TEXT.printStatus}</strong> ${g.status}</p>
         </body>
       </html>
     `);
@@ -295,35 +275,18 @@ export default function GoodsReceipts() {
 
   const handleCreateGRN = (e: React.FormEvent) => {
     e.preventDefault();
-    const vName = vendorName.trim() || "Nish";
-
-    const newGRNItem: GoodsReceiptItem = {
-      id: Date.now(),
-      vendorId: "CON00005",
-      vendor: vName,
-      grnNumber: `${autoGrnNumber} ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
-      poNumber: mappedPo || "PO-26-27-0006",
-      receivedDate: new Date().toISOString().split("T")[0],
-      receivedBy: receivedBy.trim() || "Kavin",
-      receivedOrdered: "100 / 100",
-      pending: "-",
-      status: "Complete",
-    };
-
-    addStoredGRN(newGRNItem);
-    addStoredVendor({ id: "CON00005", name: vName });
-
-    toast.success("Goods Receipt logged successfully!");
-    setIsAddOpen(false);
-    resetForm();
-
+    const selectedPo = purchaseOrders.find(
+      (po: any) => po.poNumber === mappedPo,
+    );
     createMutation.mutate({
-      grnNumber: autoGrnNumber,
-      poReference: mappedPo || "PO-26-27-0006",
-      vendorName: vName,
-      itemsReceived:
-        lineItems.map((l) => l.itemMaster).join(", ") || "Steel rod (600 kg)",
-      inspectedByName: receivedBy.trim() || "Kavin",
+      poReference: mappedPo,
+      vendorName: selectedPo?.vendor || vendorName,
+      vendorId: selectedPo?.vendorId || "",
+      itemsReceived: lineItems
+        .map((line) => line.itemMaster)
+        .filter(Boolean)
+        .join(", "),
+      inspectedByUserId: Number(receivedBy),
       status: "Complete",
     });
   };
@@ -337,7 +300,7 @@ export default function GoodsReceipts() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Goods Receipts (GRN)
+              {FLEX_TEXT.goodsReceiptsGrn}
             </h1>
             <Button
               variant="outline"
@@ -345,9 +308,9 @@ export default function GoodsReceipts() {
               className="h-8 w-8 text-muted-foreground hover:text-primary"
               onClick={() => {
                 refetch();
-                toast.info("Refreshed Goods Receipts");
+                toast.info(FLEX_TEXT.refreshedGoodsReceipts);
               }}
-              title="Refresh Records"
+              title={FLEX_TEXT.refreshRecords}
             >
               <RefreshCw
                 className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
@@ -361,7 +324,7 @@ export default function GoodsReceipts() {
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 py-2 rounded-md gap-2 shadow-xs"
               onClick={() => setIsAddOpen(true)}
             >
-              <Plus className="w-4 h-4" /> Log Receipt
+              <Plus className="w-4 h-4" /> {FLEX_TEXT.logReceipt}
             </Button>
           </div>
         </div>
@@ -373,7 +336,7 @@ export default function GoodsReceipts() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search goods receipts or Vendor ID (CON...)..."
+              placeholder={FLEX_TEXT.searchGoodsReceiptsOrVendorIdCon}
               className="pl-9 bg-background border-border text-sm rounded-md h-9"
             />
           </div>
@@ -381,7 +344,7 @@ export default function GoodsReceipts() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                From Date
+                {FLEX_TEXT.fromDate}
               </div>
               <Input
                 type="date"
@@ -392,7 +355,7 @@ export default function GoodsReceipts() {
             </div>
             <div>
               <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                To Date
+                {FLEX_TEXT.toDate}
               </div>
               <Input
                 type="date"
@@ -405,14 +368,14 @@ export default function GoodsReceipts() {
 
           <div>
             <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-              Vendor
+              {FLEX_TEXT.vendor}
             </div>
             <Select value={selectedVendor} onValueChange={setSelectedVendor}>
               <SelectTrigger className="bg-background text-xs h-9 rounded-md">
-                <SelectValue placeholder="All vendors" />
+                <SelectValue placeholder={FLEX_TEXT.allVendors} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="All">All vendors</SelectItem>
+                <SelectItem value="All">{FLEX_TEXT.allVendors}</SelectItem>
                 {vendorsList.map((v: any) => (
                   <SelectItem key={v.id} value={v.name}>
                     {v.name}
@@ -430,19 +393,31 @@ export default function GoodsReceipts() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3 font-semibold">VENDOR ID</th>
-                    <th className="px-4 py-3 font-semibold">VENDOR</th>
-                    <th className="px-4 py-3 font-semibold">GRN #</th>
-                    <th className="px-4 py-3 font-semibold">PO #</th>
-                    <th className="px-4 py-3 font-semibold">RECEIVED DATE</th>
-                    <th className="px-4 py-3 font-semibold">RECEIVED BY</th>
                     <th className="px-4 py-3 font-semibold">
-                      RECEIVED / ORDERED
+                      {FLEX_TEXT.vendorId}
                     </th>
-                    <th className="px-4 py-3 font-semibold">PENDING</th>
-                    <th className="px-4 py-3 font-semibold">STATUS</th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.vendor2}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">{FLEX_TEXT.grn}</th>
+                    <th className="px-4 py-3 font-semibold">{FLEX_TEXT.po}</th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.receivedDate}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.receivedBy}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.receivedOrdered}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.pending}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.status}
+                    </th>
                     <th className="px-4 py-3 font-semibold text-right">
-                      ACTION
+                      {FLEX_TEXT.action}
                     </th>
                   </tr>
                 </thead>
@@ -453,7 +428,7 @@ export default function GoodsReceipts() {
                         colSpan={10}
                         className="px-4 py-8 text-center text-muted-foreground text-sm"
                       >
-                        No goods receipt notes found.
+                        {FLEX_TEXT.noGoodsReceiptNotesFound}
                       </td>
                     </tr>
                   ) : (
@@ -495,7 +470,7 @@ export default function GoodsReceipts() {
                           <button
                             onClick={() => handlePrintGRN(g)}
                             className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
-                            title="Print GRN"
+                            title={FLEX_TEXT.printGrn}
                           >
                             <Printer className="w-3.5 h-3.5" />
                           </button>
@@ -510,23 +485,23 @@ export default function GoodsReceipts() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
               <div>
-                Showing{" "}
+                {FLEX_TEXT.showing}{" "}
                 <span className="font-semibold text-foreground">
                   {filtered.length > 0 ? 1 : 0}
                 </span>{" "}
-                to{" "}
+                {FLEX_TEXT.to}{" "}
                 <span className="font-semibold text-foreground">
                   {filtered.length}
                 </span>{" "}
-                of{" "}
+                {FLEX_TEXT.of}{" "}
                 <span className="font-semibold text-foreground">
                   {filtered.length}
                 </span>{" "}
-                records
+                {FLEX_TEXT.records}
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <span>Rows per page:</span>
+                  <span>{FLEX_TEXT.rowsPerPage}</span>
                   <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
                     <SelectTrigger className="h-7 w-16 text-xs bg-background">
                       <SelectValue placeholder="10" />
@@ -563,7 +538,7 @@ export default function GoodsReceipts() {
                   <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                     <PackageCheck className="w-5 h-5" />
                   </div>
-                  Log Goods Receipt
+                  {FLEX_TEXT.logGoodsReceipt}
                 </DialogTitle>
               </DialogHeader>
 
@@ -572,32 +547,66 @@ export default function GoodsReceipts() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                      Map Purchase Order(s)
+                      {FLEX_TEXT.mapPurchaseOrderS}
                     </Label>
-                    <Select value={mappedPo} onValueChange={setMappedPo}>
+                    <Select
+                      value={mappedPo}
+                      onValueChange={(value) => {
+                        setMappedPo(value);
+                        const po = purchaseOrders.find(
+                          (order: any) => order.poNumber === value,
+                        );
+                        if (po) {
+                          setVendorName(po.vendor || "");
+                          const vendor = vendorsList.find(
+                            (option) =>
+                              option.id === po.vendorId ||
+                              option.name === po.vendor,
+                          );
+                          setVendorAddress(vendor?.address || "");
+                          setVendorPhone(vendor?.phone || "");
+                          setLineItems([
+                            {
+                              id: String(Date.now()),
+                              itemMaster: po.items || "",
+                              customSpec: "",
+                              warehouse: po.warehouse || "",
+                              qty: 1,
+                              price: Number(po.subtotal || 0),
+                              recvQty: 1,
+                              cgstPct: 0,
+                              sgstPct: 0,
+                              igstPct: 0,
+                              total: Number(po.grandTotal || 0),
+                            },
+                          ]);
+                        }
+                      }}
+                    >
                       <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue placeholder="Type to filter and select purchase order(s)..." />
+                        <SelectValue
+                          placeholder={
+                            FLEX_TEXT.typeToFilterAndSelectPurchaseOrderS
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PO-26-27-0006">
-                          PO-26-27-0006 (Steel Rod)
-                        </SelectItem>
-                        <SelectItem value="PO-26-27-0005">
-                          PO-26-27-0005 (Cement Bags)
-                        </SelectItem>
-                        <SelectItem value="PO-26-27-0004">
-                          PO-26-27-0004 (Structural Beams)
-                        </SelectItem>
+                        {purchaseOrders.map((po: any) => (
+                          <SelectItem key={po.id} value={po.poNumber}>
+                            {po.poNumber} ({po.vendor})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      GRN Number <span className="text-primary">*</span>
+                      {FLEX_TEXT.grnNumber}{" "}
+                      <span className="text-primary">*</span>
                     </Label>
                     <Input
                       readOnly
-                      value={autoGrnNumber}
+                      value={FLEX_TEXT.autoAssignedOnSave}
                       className="h-9 text-xs bg-muted/40 font-mono font-bold"
                     />
                   </div>
@@ -607,29 +616,31 @@ export default function GoodsReceipts() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      Vendor Name <span className="text-primary">*</span>
+                      {FLEX_TEXT.vendorName}{" "}
+                      <span className="text-primary">*</span>
                     </Label>
                     <Select value={vendorName} onValueChange={setVendorName}>
                       <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue placeholder="Select or type vendor" />
+                        <SelectValue
+                          placeholder={FLEX_TEXT.selectOrTypeVendor}
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Nish">CON00005 - Nish</SelectItem>
-                        <SelectItem value="Jagadeep">
-                          CON00006 - Jagadeep
-                        </SelectItem>
-                        <SelectItem value="Elakiya Shri">
-                          CON00007 - Elakiya Shri
-                        </SelectItem>
+                        {vendorsList.map((vendor) => (
+                          <SelectItem key={vendor.id} value={vendor.name}>
+                            {vendor.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      Vendor Address <span className="text-primary">*</span>
+                      {FLEX_TEXT.vendorAddress}{" "}
+                      <span className="text-primary">*</span>
                     </Label>
                     <Input
-                      placeholder="Vendor address"
+                      placeholder={FLEX_TEXT.vendorAddress2}
                       value={vendorAddress}
                       onChange={(e) => setVendorAddress(e.target.value)}
                       className="h-9 text-xs bg-background"
@@ -637,10 +648,11 @@ export default function GoodsReceipts() {
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      Vendor Phone <span className="text-primary">*</span>
+                      {FLEX_TEXT.vendorPhone}{" "}
+                      <span className="text-primary">*</span>
                     </Label>
                     <Input
-                      placeholder="Vendor phone"
+                      placeholder={FLEX_TEXT.vendorPhone2}
                       value={vendorPhone}
                       onChange={(e) => setVendorPhone(e.target.value)}
                       className="h-9 text-xs bg-background"
@@ -651,7 +663,7 @@ export default function GoodsReceipts() {
                 {/* Row 3: Place of Supply (State Code) */}
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    Place of Supply (State Code)
+                    {FLEX_TEXT.placeOfSupplyStateCode}
                   </Label>
                   <Input
                     value={placeOfSupply}
@@ -660,8 +672,9 @@ export default function GoodsReceipts() {
                     className="h-9 text-xs bg-background font-mono"
                   />
                   <p className="text-[11px] text-muted-foreground mt-1">
-                    Add line items manually or map purchase order(s) above to
-                    auto-fill vendor and items.
+                    {
+                      FLEX_TEXT.addLineItemsManuallyOrMapPurchaseOrderSAboveToAutoFillVendorAndItems
+                    }
                   </p>
                 </div>
 
@@ -669,7 +682,8 @@ export default function GoodsReceipts() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      Received Date <span className="text-primary">*</span>
+                      {FLEX_TEXT.receivedDate2}{" "}
+                      <span className="text-primary">*</span>
                     </Label>
                     <Input
                       type="date"
@@ -680,17 +694,19 @@ export default function GoodsReceipts() {
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      Received By <span className="text-primary">*</span>
+                      {FLEX_TEXT.receivedBy2}{" "}
+                      <span className="text-primary">*</span>
                     </Label>
                     <Select value={receivedBy} onValueChange={setReceivedBy}>
                       <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue placeholder="Select employee..." />
+                        <SelectValue placeholder={FLEX_TEXT.selectEmployee} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Kavin">Kavin</SelectItem>
-                        <SelectItem value="Nishanth">Nishanth</SelectItem>
-                        <SelectItem value="Aakash T">Aakash T</SelectItem>
-                        <SelectItem value="SuperAdmin">SuperAdmin</SelectItem>
+                        {userOptions.map((user) => (
+                          <SelectItem key={user.id} value={String(user.id)}>
+                            {user.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -700,7 +716,7 @@ export default function GoodsReceipts() {
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-bold text-foreground">
-                      Line Items
+                      {FLEX_TEXT.lineItems}
                     </Label>
                     <Button
                       type="button"
@@ -709,28 +725,41 @@ export default function GoodsReceipts() {
                       className="h-7 text-xs font-semibold text-foreground border-border hover:bg-muted"
                       onClick={handleAddBlankRow}
                     >
-                      + Add blank row
+                      {FLEX_TEXT.addBlankRow}
                     </Button>
                   </div>
 
                   {lineItems.length === 0 ? (
                     <div className="border border-dashed border-border rounded-lg p-6 text-center text-xs text-muted-foreground bg-muted/20">
-                      No line items yet. Add items manually or map purchase
-                      order(s).
+                      {
+                        FLEX_TEXT.noLineItemsYetAddItemsManuallyOrMapPurchaseOrderS
+                      }
                     </div>
                   ) : (
                     <div className="border border-border/80 rounded-lg p-2.5 bg-background space-y-2 shadow-2xs overflow-x-auto">
                       <div className="min-w-[800px]">
                         <div className="grid grid-cols-12 gap-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-1">
                           <div className="col-span-3">
-                            ITEM / PRODUCT / ASSET
+                            {FLEX_TEXT.itemProductAsset}
                           </div>
-                          <div className="col-span-2">WAREHOUSE</div>
-                          <div className="col-span-1 text-center">QTY</div>
-                          <div className="col-span-1 text-center">PRICE</div>
-                          <div className="col-span-1 text-center">RECV QTY</div>
-                          <div className="col-span-2 text-center">TAX (%)</div>
-                          <div className="col-span-2 text-right">TOTAL</div>
+                          <div className="col-span-2">
+                            {FLEX_TEXT.warehouse}
+                          </div>
+                          <div className="col-span-1 text-center">
+                            {FLEX_TEXT.qty}
+                          </div>
+                          <div className="col-span-1 text-center">
+                            {FLEX_TEXT.price}
+                          </div>
+                          <div className="col-span-1 text-center">
+                            {FLEX_TEXT.recvQty}
+                          </div>
+                          <div className="col-span-2 text-center">
+                            {FLEX_TEXT.tax}
+                          </div>
+                          <div className="col-span-2 text-right">
+                            {FLEX_TEXT.total}
+                          </div>
                         </div>
 
                         {lineItems.map((line) => (
@@ -747,25 +776,20 @@ export default function GoodsReceipts() {
                                 }
                               >
                                 <SelectTrigger className="h-8 text-xs bg-background">
-                                  <SelectValue placeholder="Select master item..." />
+                                  <SelectValue
+                                    placeholder={FLEX_TEXT.selectMasterItem}
+                                  />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="Trapezoidal Roofing Sheet">
-                                    Trapezoidal Roofing Sheet
-                                  </SelectItem>
-                                  <SelectItem value="Steel Rod 12mm">
-                                    Steel Rod 12mm
-                                  </SelectItem>
-                                  <SelectItem value="Cement Bags">
-                                    Cement Bags
-                                  </SelectItem>
-                                  <SelectItem value="Structural Beams">
-                                    Structural Beams
-                                  </SelectItem>
+                                  {itemOptions.map((item) => (
+                                    <SelectItem key={item.id} value={item.name}>
+                                      {item.name}
+                                    </SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
                               <Input
-                                placeholder="Custom specification"
+                                placeholder={FLEX_TEXT.customSpecification}
                                 value={line.customSpec}
                                 onChange={(e) =>
                                   handleLineChange(
@@ -787,18 +811,19 @@ export default function GoodsReceipts() {
                                 }
                               >
                                 <SelectTrigger className="h-8 text-xs bg-background">
-                                  <SelectValue placeholder="Bangalore (4)" />
+                                  <SelectValue
+                                    placeholder={FLEX_TEXT.bangalore4}
+                                  />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="Bangalore (4)">
-                                    Bangalore (4)
-                                  </SelectItem>
-                                  <SelectItem value="Chennai (2)">
-                                    Chennai (2)
-                                  </SelectItem>
-                                  <SelectItem value="Coimbatore (1)">
-                                    Coimbatore (1)
-                                  </SelectItem>
+                                  {warehouseOptions.map((warehouse) => (
+                                    <SelectItem
+                                      key={warehouse.id}
+                                      value={warehouse.name}
+                                    >
+                                      {warehouse.name}
+                                    </SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
                             </div>
@@ -927,7 +952,7 @@ export default function GoodsReceipts() {
                       {/* Right-aligned Total Amount Box */}
                       <div className="flex justify-end pt-2">
                         <div className="bg-muted/40 px-4 py-2 rounded-lg border border-border/80 text-xs font-semibold text-foreground">
-                          Total Amount: ₹{" "}
+                          {FLEX_TEXT.totalAmount}{" "}
                           {calculatedSubtotal.toLocaleString("en-IN")} + ₹{" "}
                           {calculatedTax.toLocaleString("en-IN")} ={" "}
                           <span className="text-primary font-bold font-mono">
@@ -942,10 +967,10 @@ export default function GoodsReceipts() {
                 {/* Notes */}
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    Notes
+                    {FLEX_TEXT.notes}
                   </Label>
                   <Textarea
-                    placeholder="Additional notes"
+                    placeholder={FLEX_TEXT.additionalNotes}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     rows={2}
@@ -956,7 +981,7 @@ export default function GoodsReceipts() {
                 {/* Supporting Document (optional) */}
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    Attach Goods Delivery Slip / Photo (optional)
+                    {FLEX_TEXT.attachGoodsDeliverySlipPhotoOptional}
                   </Label>
                   <div
                     onClick={() =>
@@ -970,10 +995,10 @@ export default function GoodsReceipts() {
                       </div>
                       <div>
                         <Label className="text-xs font-bold text-slate-800 cursor-pointer block">
-                          Click to attach file
+                          {FLEX_TEXT.clickToAttachFile}
                         </Label>
                         <span className="text-[10px] text-slate-400">
-                          PDF, JPG, PNG, WebP - Max 250 KB
+                          {FLEX_TEXT.pdfJpgPngWebpMax250Kb}
                         </span>
                       </div>
                     </div>
@@ -995,7 +1020,7 @@ export default function GoodsReceipts() {
                       </div>
                     ) : (
                       <span className="px-3 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md border border-slate-200">
-                        Choose File
+                        {FLEX_TEXT.chooseFile}
                       </span>
                     )}
                     <Input
@@ -1006,7 +1031,7 @@ export default function GoodsReceipts() {
                         const file = e.target.files?.[0];
                         if (file) {
                           setAttachmentName(file.name);
-                          toast.success(`Attached ${file.name}`);
+                          toast.success(`${FLEX_TEXT.attached}${file.name}`);
                         }
                       }}
                     />
@@ -1022,14 +1047,14 @@ export default function GoodsReceipts() {
                   size="sm"
                   onClick={() => setIsAddOpen(false)}
                 >
-                  Cancel
+                  {FLEX_TEXT.cancel}
                 </Button>
                 <Button
                   type="submit"
                   size="sm"
                   className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 gap-1.5 shadow-2xs"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Log Receipt
+                  <Plus className="w-3.5 h-3.5" /> {FLEX_TEXT.logReceipt}
                 </Button>
               </DialogFooter>
             </form>

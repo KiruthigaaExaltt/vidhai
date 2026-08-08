@@ -1,4 +1,4 @@
-export * from "./dsl";
+﻿export * from "./dsl";
 export * from "./users";
 export * from "./locations";
 export * from "./alertColors";
@@ -22,10 +22,8 @@ export * from "./fleet";
 export * from "./roles";
 export * from "./tasks";
 export * from "./contacts";
+export * from "./departments";
 export * from "./templates";
 export * from "./procurement";
-
-
-
 
 export * from "./crew";

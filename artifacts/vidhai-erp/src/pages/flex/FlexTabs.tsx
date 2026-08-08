@@ -1,3 +1,4 @@
+import { FLEX_TEXT } from "./flexText";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -16,13 +17,37 @@ export interface FlexTabItem {
 }
 
 export const FLEX_TABS: FlexTabItem[] = [
-  { label: "Dashboard", href: "/flex", icon: LayoutDashboard },
-  { label: "Purchase Requests", href: "/flex/purchase-requests", icon: ClipboardList },
-  { label: "Purchase Orders", href: "/flex/purchase-orders", icon: ShoppingCart },
-  { label: "Goods Receipts", href: "/flex/goods-receipts", icon: PackageCheck },
-  { label: "Purchase Invoices", href: "/flex/purchase-invoices", icon: Receipt },
-  { label: "Vendor Payments", href: "/flex/vendor-payments", icon: CreditCard },
-  { label: "Purchase Returns", href: "/flex/purchase-returns", icon: RotateCcw },
+  { label: FLEX_TEXT.dashboard, href: "/flex", icon: LayoutDashboard },
+  {
+    label: FLEX_TEXT.purchaseRequests,
+    href: "/flex/purchase-requests",
+    icon: ClipboardList,
+  },
+  {
+    label: FLEX_TEXT.purchaseOrders,
+    href: "/flex/purchase-orders",
+    icon: ShoppingCart,
+  },
+  {
+    label: FLEX_TEXT.goodsReceipts,
+    href: "/flex/goods-receipts",
+    icon: PackageCheck,
+  },
+  {
+    label: FLEX_TEXT.purchaseInvoices,
+    href: "/flex/purchase-invoices",
+    icon: Receipt,
+  },
+  {
+    label: FLEX_TEXT.vendorPayments,
+    href: "/flex/vendor-payments",
+    icon: CreditCard,
+  },
+  {
+    label: FLEX_TEXT.purchaseReturns,
+    href: "/flex/purchase-returns",
+    icon: RotateCcw,
+  },
 ];
 
 export function FlexTabs() {
@@ -51,7 +76,9 @@ export function FlexTabs() {
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent"
               }`}
             >
-              <Icon className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`} />
+              <Icon
+                className={`w-4 h-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`}
+              />
               <span>{tab.label}</span>
             </Link>
           );

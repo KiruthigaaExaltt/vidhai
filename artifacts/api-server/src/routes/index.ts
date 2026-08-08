@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+﻿import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import authRouter from "./auth";
 import usersRouter from "./users";
@@ -21,6 +21,7 @@ import reportsRouter from "./reports";
 import rolesRouter from "./roles";
 import tasksRouter from "./tasks";
 import contactsRouter from "./contacts";
+import departmentsRouter from "./departments";
 import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
 import flexRouter from "./flex";
@@ -30,7 +31,6 @@ import servicesRouter from "./services";
 import categoriesRouter from "./categories";
 import vaultLocationsRouter from "./vaultLocations";
 import itemNamesRouter from "./itemNames";
-
 
 const router: IRouter = Router();
 router.use(healthRouter);
@@ -57,6 +57,7 @@ router.use("/roles", rolesRouter);
 router.use("/settings/roles", rolesRouter);
 router.use("/tasks", tasksRouter);
 router.use("/contacts", contactsRouter);
+router.use("/departments", departmentsRouter);
 router.use(templatesRouter);
 router.use("/settings", templatesRouter);
 router.use(permissionsRouter);

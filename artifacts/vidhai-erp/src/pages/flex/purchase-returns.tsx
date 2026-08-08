@@ -1,3 +1,5 @@
+import { FLEX_TEXT } from "./flexText";
+import { useFlexGoodsReceipts, useFlexMasterData } from "./flexData";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -21,7 +23,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Plus,
+  Search,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -38,23 +46,23 @@ interface PurchaseReturnItem {
   status: string;
 }
 
-const DEFAULT_RETURNS: PurchaseReturnItem[] = [];
-
 async function fetchPurchaseReturns(): Promise<PurchaseReturnItem[]> {
-  const res = await fetch(`${BASE}/api/flex/purchase-returns`, { credentials: "include" });
-  if (!res.ok) return DEFAULT_RETURNS;
+  const res = await fetch(`${BASE}/api/flex/purchase-returns`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToInitiateReturn);
   const data = await res.json();
-  if (!data || !Array.isArray(data)) return DEFAULT_RETURNS;
-  return data.map((r: any, i: number) => ({
+  if (!data || !Array.isArray(data)) return [];
+  return data.map((r: any) => ({
     id: r.id,
-    vendorId: `CON0000${(i % 3) + 5}`,
-    vendor: r.vendor || "Nish",
-    returnNumber: r.returnNumber || `RET-${r.id}`,
-    grnNumber: r.grnReference || "GRN-650573",
-    reason: r.reason || "Defect",
+    vendorId: r.vendorId || "",
+    vendor: r.vendor,
+    returnNumber: r.returnNumber,
+    grnNumber: r.grnReference || "",
+    reason: r.reason,
     refundAmount: Number(r.refundAmount || 0),
-    date: r.returnDate || "2026-07-21",
-    status: r.status || "Requested",
+    date: r.returnDate,
+    status: r.status,
   }));
 }
 
@@ -65,17 +73,20 @@ async function createPurchaseReturn(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to initiate return");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToInitiateReturn);
   return res.json();
 }
 
 export default function PurchaseReturns() {
   const queryClient = useQueryClient();
-  const { data: returnsList = DEFAULT_RETURNS } = useQuery({
+  const { data: returnsList = [] } = useQuery({
     queryKey: ["get", "/api/flex/purchase-returns"],
     queryFn: fetchPurchaseReturns,
   });
 
+  const { data: masterData } = useFlexMasterData();
+  const { data: goodsReceipts = [] } = useFlexGoodsReceipts();
+  const vendorsList = masterData?.vendors ?? [];
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -85,28 +96,35 @@ export default function PurchaseReturns() {
 
   // Form
   const [vendor, setVendor] = useState("");
+  const [grnReference, setGrnReference] = useState("");
   const [reason, setReason] = useState("");
   const [refundAmount, setRefundAmount] = useState("");
 
   const createMutation = useMutation({
     mutationFn: createPurchaseReturn,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/purchase-returns"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/dashboard"] });
-      toast.success("Purchase Return initiated successfully");
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-returns"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
+      toast.success(FLEX_TEXT.purchaseReturnInitiatedSuccessfully);
       setIsAddOpen(false);
       setVendor("");
+      setGrnReference("");
       setReason("");
       setRefundAmount("");
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to initiate return");
+      toast.error(err.message || FLEX_TEXT.failedToInitiateReturn);
     },
   });
 
   const filtered = useMemo(() => {
     return returnsList.filter((ret) => {
-      const matchesVendor = selectedVendor === "All" || ret.vendor === selectedVendor;
+      const matchesVendor =
+        selectedVendor === "All" || ret.vendor === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         ret.returnNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -114,8 +132,10 @@ export default function PurchaseReturns() {
         ret.reason.toLowerCase().includes(search.toLowerCase());
 
       const rTime = new Date(ret.date).getTime();
-      const matchesFromDate = !fromDate || isNaN(rTime) || rTime >= new Date(fromDate).getTime();
-      const matchesToDate = !toDate || isNaN(rTime) || rTime <= new Date(toDate).getTime();
+      const matchesFromDate =
+        !fromDate || isNaN(rTime) || rTime >= new Date(fromDate).getTime();
+      const matchesToDate =
+        !toDate || isNaN(rTime) || rTime <= new Date(toDate).getTime();
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
@@ -124,14 +144,14 @@ export default function PurchaseReturns() {
   const handleInitiateReturn = (e: React.FormEvent) => {
     e.preventDefault();
     if (!vendor.trim() || !reason.trim()) {
-      toast.error("Please enter vendor name and reason");
+      toast.error(FLEX_TEXT.pleaseEnterVendorNameAndReason);
       return;
     }
     const refund = parseFloat(refundAmount) || 0;
 
     createMutation.mutate({
-      returnNumber: `RET-${Math.floor(1000 + Math.random() * 9000)}`,
       vendorName: vendor.trim(),
+      grnReference,
       reason: reason.trim(),
       refundAmount: refund,
       status: "Requested",
@@ -145,13 +165,15 @@ export default function PurchaseReturns() {
 
         {/* Title Header Row */}
         <div className="flex items-center justify-between pt-1">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Purchase Returns</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {FLEX_TEXT.purchaseReturns}
+          </h1>
           <Button
             size="sm"
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 py-2 rounded-md gap-2"
             onClick={() => setIsAddOpen(true)}
           >
-            <Plus className="w-4 h-4" /> Initiate Return
+            <Plus className="w-4 h-4" /> {FLEX_TEXT.initiateReturn}
           </Button>
         </div>
 
@@ -162,14 +184,16 @@ export default function PurchaseReturns() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search purchase returns or Vendor ID (CON...)..."
+              placeholder={FLEX_TEXT.searchPurchaseReturnsOrVendorIdCon}
               className="pl-9 bg-background border-border text-sm rounded-md h-9"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">From Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                {FLEX_TEXT.fromDate}
+              </div>
               <Input
                 type="date"
                 value={fromDate}
@@ -178,7 +202,9 @@ export default function PurchaseReturns() {
               />
             </div>
             <div>
-              <div className="text-[11px] text-muted-foreground mb-1 font-medium">To Date</div>
+              <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+                {FLEX_TEXT.toDate}
+              </div>
               <Input
                 type="date"
                 value={toDate}
@@ -189,15 +215,20 @@ export default function PurchaseReturns() {
           </div>
 
           <div>
-            <div className="text-[11px] text-muted-foreground mb-1 font-medium">Vendor</div>
+            <div className="text-[11px] text-muted-foreground mb-1 font-medium">
+              {FLEX_TEXT.vendor}
+            </div>
             <Select value={selectedVendor} onValueChange={setSelectedVendor}>
               <SelectTrigger className="bg-background text-xs h-9 rounded-md">
-                <SelectValue placeholder="All vendors" />
+                <SelectValue placeholder={FLEX_TEXT.allVendors} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="All">All vendors</SelectItem>
-                <SelectItem value="Nish">Nish</SelectItem>
-                <SelectItem value="Jagadeep">Jagadeep</SelectItem>
+                <SelectItem value="All">{FLEX_TEXT.allVendors}</SelectItem>
+                {vendorsList.map((option) => (
+                  <SelectItem key={option.id} value={option.name}>
+                    {option.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -210,34 +241,70 @@ export default function PurchaseReturns() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3 font-semibold">VENDOR ID</th>
-                    <th className="px-4 py-3 font-semibold">VENDOR</th>
-                    <th className="px-4 py-3 font-semibold">RETURN #</th>
-                    <th className="px-4 py-3 font-semibold">GRN REF</th>
-                    <th className="px-4 py-3 font-semibold">REASON</th>
-                    <th className="px-4 py-3 font-semibold">REFUND AMT</th>
-                    <th className="px-4 py-3 font-semibold">DATE</th>
-                    <th className="px-4 py-3 font-semibold">STATUS</th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.vendorId}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.vendor2}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.return}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.grnRef}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.reason}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.refundAmt}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.date}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.status}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground text-sm">
+                      <td
+                        colSpan={8}
+                        className="px-4 py-12 text-center text-muted-foreground text-sm"
+                      >
                         <RotateCcw className="w-7 h-7 mx-auto mb-2 text-muted-foreground/40" />
-                        No purchase returns recorded yet.
+                        {FLEX_TEXT.noPurchaseReturnsRecordedYet}
                       </td>
                     </tr>
                   ) : (
                     filtered.map((ret) => (
-                      <tr key={ret.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{ret.vendorId}</td>
-                        <td className="px-4 py-3 font-semibold text-foreground">{ret.vendor}</td>
-                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[11px]">{ret.returnNumber}</td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">{ret.grnNumber}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{ret.reason}</td>
-                        <td className="px-4 py-3 font-bold text-foreground">₹ {ret.refundAmount.toLocaleString("en-IN")}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{ret.date}</td>
+                      <tr
+                        key={ret.id}
+                        className="hover:bg-muted/40 transition-colors"
+                      >
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {ret.vendorId}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-foreground">
+                          {ret.vendor}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[11px]">
+                          {ret.returnNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {ret.grnNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {ret.reason}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-foreground">
+                          ₹ {ret.refundAmount.toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {ret.date}
+                        </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-muted-foreground border border-border">
                             {ret.status}
@@ -253,13 +320,23 @@ export default function PurchaseReturns() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
               <div>
-                Showing <span className="font-semibold text-foreground">{filtered.length > 0 ? 1 : 0}</span> to{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> of{" "}
-                <span className="font-semibold text-foreground">{filtered.length}</span> records
+                {FLEX_TEXT.showing}{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length > 0 ? 1 : 0}
+                </span>{" "}
+                {FLEX_TEXT.to}{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                {FLEX_TEXT.of}{" "}
+                <span className="font-semibold text-foreground">
+                  {filtered.length}
+                </span>{" "}
+                {FLEX_TEXT.records}
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <span>Rows per page:</span>
+                  <span>{FLEX_TEXT.rowsPerPage}</span>
                   <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
                     <SelectTrigger className="h-7 w-16 text-xs bg-background">
                       <SelectValue placeholder="10" />
@@ -292,34 +369,39 @@ export default function PurchaseReturns() {
           <DialogContent className="sm:max-w-md">
             <form onSubmit={handleInitiateReturn}>
               <DialogHeader>
-                <DialogTitle>Initiate Purchase Return</DialogTitle>
+                <DialogTitle>{FLEX_TEXT.initiatePurchaseReturn}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="vendor">Vendor Name *</Label>
-                  <Input
-                    id="vendor"
-                    placeholder="e.g. Nish"
-                    value={vendor}
-                    onChange={(e) => setVendor(e.target.value)}
-                    required
-                  />
+                  <Label htmlFor="vendor">{FLEX_TEXT.vendorName2}</Label>
+                  <Select value={vendor} onValueChange={setVendor} required>
+                    <SelectTrigger id="vendor">
+                      <SelectValue placeholder={FLEX_TEXT.selectVendor2} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vendorsList.map((option) => (
+                        <SelectItem key={option.id} value={option.name}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="refundAmount">Refund Amount (₹)</Label>
+                  <Label htmlFor="refundAmount">{FLEX_TEXT.refundAmount}</Label>
                   <Input
                     id="refundAmount"
                     type="number"
-                    placeholder="e.g. 1500"
+                    placeholder={FLEX_TEXT.eG1500}
                     value={refundAmount}
                     onChange={(e) => setRefundAmount(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="reason">Reason for Return *</Label>
+                  <Label htmlFor="reason">{FLEX_TEXT.reasonForReturn}</Label>
                   <Textarea
                     id="reason"
-                    placeholder="Describe defect..."
+                    placeholder={FLEX_TEXT.describeDefect}
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     rows={2}
@@ -328,11 +410,18 @@ export default function PurchaseReturns() {
                 </div>
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setIsAddOpen(false)}>
-                  Cancel
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsAddOpen(false)}
+                >
+                  {FLEX_TEXT.cancel}
                 </Button>
-                <Button type="submit" className="bg-primary text-primary-foreground">
-                  Submit Return
+                <Button
+                  type="submit"
+                  className="bg-primary text-primary-foreground"
+                >
+                  {FLEX_TEXT.submitReturn}
                 </Button>
               </DialogFooter>
             </form>

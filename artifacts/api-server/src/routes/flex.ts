@@ -9,9 +9,23 @@ import {
   purchaseReturnsTable,
   contactsTable,
   usersTable,
+  materialsTable,
+  inventoryLocationsTable,
+  departmentsTable,
 } from "@workspace/db";
 
 const router = Router();
+const FLEX_API_MESSAGES = {
+  amountMustBeGreaterThanZero: "Amount must be greater than 0",
+  grnNumberRequired: "GRN Number is required",
+  invoiceNumberRequired: "Invoice Number is required",
+  itemNameRequired: "Item name is required",
+  paymentNumberRequired: "Payment Number is required",
+  purchaseRequestNotFound: "Purchase request not found",
+  returnNumberRequired: "Return Number is required",
+  successfullyConvertedPrToPo: "Successfully converted PR to PO",
+  vendorNameRequired: "Vendor name is required",
+} as const;
 
 function requireAuth(req: any, _res: any, next: any) {
   if (!(req.session as any)?.userId) {
@@ -41,6 +55,18 @@ async function getUserMap(org: number) {
   return map;
 }
 
+async function getVendorMap() {
+  const vendors = await db
+    .select()
+    .from(contactsTable)
+    .where(eq(contactsTable.type, "vendor"));
+  return new Map(
+    vendors.map((vendor: any) => [
+      String(vendor.name).toLowerCase(),
+      String(vendor.id),
+    ]),
+  );
+}
 // ── Dashboard ────────────────────────────────────────────────────────────────
 router.get("/dashboard", requireAuth, async (req, res) => {
   const org = orgId(req);
@@ -86,6 +112,17 @@ router.get("/dashboard", requireAuth, async (req, res) => {
     .from(contactsTable)
     .where(and(eq(contactsTable.type, "vendor")));
 
+  const returnCountByVendor = new Map<string, number>();
+  returns.forEach((item: any) =>
+    returnCountByVendor.set(
+      item.vendorName,
+      (returnCountByVendor.get(item.vendorName) || 0) + 1,
+    ),
+  );
+  const vendorIdByName = new Map(
+    vendors.map((vendor: any) => [vendor.name, vendor.id]),
+  );
+
   // Top vendors calculate spend
   const vendorSpendMap = new Map<string, { spend: number; count: number }>();
   invoices.forEach((inv: any) => {
@@ -99,11 +136,11 @@ router.get("/dashboard", requireAuth, async (req, res) => {
 
   const topVendors = Array.from(vendorSpendMap.entries())
     .map(([name, stat], idx) => ({
-      id: idx + 1,
+      id: vendorIdByName.get(name) || name,
       name,
       spend: stat.spend,
-      onTimePercent: 100,
-      returns: 0,
+      onTimePercent: null,
+      returns: returnCountByVendor.get(name) || 0,
     }))
     .slice(0, 5);
 
@@ -114,8 +151,8 @@ router.get("/dashboard", requireAuth, async (req, res) => {
         id: v.id,
         name: v.name,
         spend: 0,
-        onTimePercent: 100,
-        returns: 0,
+        onTimePercent: null,
+        returns: returnCountByVendor.get(v.name) || 0,
       });
     });
   }
@@ -160,15 +197,36 @@ router.get("/dashboard", requireAuth, async (req, res) => {
     }));
 
   const recentActivities = [...recentPrs, ...recentInvoices].slice(0, 7);
+  const now = new Date();
+  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const paidSpend = (from: Date, to: Date) =>
+    invoices
+      .filter(
+        (invoice: any) =>
+          invoice.status === "Paid" &&
+          new Date(invoice.createdAt) >= from &&
+          new Date(invoice.createdAt) < to,
+      )
+      .reduce(
+        (sum: number, invoice: any) => sum + Number(invoice.amount || 0),
+        0,
+      );
+  const currentMonthSpend = paidSpend(currentMonthStart, now);
+  const previousMonthSpend = paidSpend(previousMonthStart, currentMonthStart);
+  const totalSpendChangePercent =
+    previousMonthSpend > 0
+      ? ((currentMonthSpend - previousMonthSpend) / previousMonthSpend) * 100
+      : null;
 
   return res.json({
     pendingPurchaseRequests,
-    openVendorResponses: 0,
+    openVendorResponses: null,
     pendingPOs,
     pendingGRNs,
     unpaidInvoices,
     totalSpend,
-    totalSpendChangePercent: 0,
+    totalSpendChangePercent,
     purchaseReturns: returns.length,
     activeVendors: vendors.length || topVendors.length,
     topVendors,
@@ -193,10 +251,101 @@ router.get("/vendors", requireAuth, async (_req, res) => {
   );
 });
 
+router.get("/master-data", requireAuth, async (req, res) => {
+  const org = orgId(req);
+  const [vendors, users, items, warehouses, departments, purchaseOrders] =
+    await Promise.all([
+      db
+        .select()
+        .from(contactsTable)
+        .where(eq(contactsTable.type, "vendor"))
+        .orderBy(contactsTable.name),
+      db.select().from(usersTable).where(eq(usersTable.organizationId, org)),
+      db
+        .select()
+        .from(materialsTable)
+        .where(eq(materialsTable.active, true))
+        .orderBy(materialsTable.name),
+      db
+        .select()
+        .from(inventoryLocationsTable)
+        .where(eq(inventoryLocationsTable.isActive, true))
+        .orderBy(inventoryLocationsTable.locationName),
+      db
+        .select()
+        .from(departmentsTable)
+        .where(
+          and(
+            eq(departmentsTable.organizationId, org),
+            eq(departmentsTable.status, "Active"),
+          ),
+        )
+        .orderBy(departmentsTable.name),
+      db
+        .select()
+        .from(purchaseOrdersTable)
+        .where(eq(purchaseOrdersTable.organizationId, org)),
+    ]);
+  const activeUsers = users.filter(
+    (user: any) => user.isDeleted !== true && user.isActive !== false,
+  );
+  const projects = Array.from(
+    new Set(
+      purchaseOrders
+        .map((order: any) => String(order.project ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).sort();
+  return res.json({
+    vendors: vendors.map((vendor: any) => ({
+      id: String(vendor.id),
+      name: vendor.name,
+      company: vendor.company,
+      phone: vendor.phone,
+      email: vendor.email,
+      address: vendor.address,
+    })),
+    users: activeUsers.map((user: any) => ({
+      id: user.id,
+      name: user.displayName || user.name || user.username,
+      department: user.department,
+    })),
+    departments: departments.map((department: any) => ({
+      id: department.id,
+      name: department.name,
+    })),
+    projects,
+    items: items.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      sku: item.sku,
+      unit: item.unit,
+      hsnSac: item.hsnSac,
+      buyPricePerUnit:
+        item.buyPricePerUnit == null ? null : Number(item.buyPricePerUnit),
+    })),
+    warehouses: warehouses.map((warehouse: any) => ({
+      id: warehouse.id,
+      code: warehouse.warehouseCode,
+      name: warehouse.locationName,
+      address: warehouse.address,
+    })),
+  });
+});
 // ── Purchase Requests ────────────────────────────────────────────────────────
 router.get("/purchase-requests", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
+  const vendorRecords = await db
+    .select()
+    .from(contactsTable)
+    .where(eq(contactsTable.type, "vendor"));
+  const vendorNameById = new Map(
+    vendorRecords.map((vendor: any) => [
+      String(vendor.id),
+      String(vendor.name),
+    ]),
+  );
 
   const prs = await db
     .select()
@@ -205,7 +354,7 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
     .orderBy(desc(purchaseRequestsTable.createdAt));
 
   return res.json(
-    prs.map((pr: any, index: number) => {
+    prs.map((pr: any) => {
       const createdDateObj = new Date(pr.createdAt);
       const formattedTime = createdDateObj.toLocaleTimeString("en-US", {
         hour: "2-digit",
@@ -221,22 +370,36 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
       const prCode =
         pr.prNumber || `PR-26-27-${String(pr.id).padStart(4, "0")}`;
 
+      const vendorIds = Array.isArray(pr.vendorIds)
+        ? pr.vendorIds.map(String).filter(Boolean)
+        : [String(pr.vendorId || "")].filter(Boolean);
+      const vendorNames = vendorIds
+        .map((vendorId: string) => vendorNameById.get(vendorId))
+        .filter(Boolean) as string[];
+      if (!vendorNames.length && pr.vendorName) {
+        vendorNames.push(pr.vendorName);
+      }
+
       return {
         id: pr.id,
-        vendorId: pr.vendorId || `CON0000${(index % 2) + 5}`,
-        vendor: pr.vendorName || "Jagadeep",
+        vendorId: pr.vendorId,
+        vendorIds,
+        vendorNames,
+        vendor: vendorNames.join(", ") || pr.vendorName,
         prNumber: prCode,
         version: pr.version || `Submitted V1 - ${formattedTime}`,
         reqDate: formattedDate,
-        requiredDate: pr.requiredDate || formattedDate,
-        priority: pr.priority || "Normal",
-        department: pr.department || "Admin",
+        requiredDate: pr.requiredDate,
+        priority: pr.priority,
+        departmentId: pr.departmentId,
+        department: pr.department,
         requestedBy:
-          pr.requestedByName || userMap.get(pr.requestedByUserId) || "Kavin",
-        status: pr.status || "Submitted",
+          pr.requestedByName || userMap.get(pr.requestedByUserId) || "",
+        requestedByUserId: pr.requestedByUserId,
+        status: pr.status,
         itemName: pr.itemName,
         quantity: Number(pr.quantity || 1),
-        unit: pr.unit || "kg",
+        unit: pr.unit,
         notes: pr.notes || "",
         approvalNotes: pr.approvalNotes || "",
       };
@@ -246,31 +409,90 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
 
 router.post("/purchase-requests", requireAuth, async (req, res) => {
   const org = orgId(req);
-  const userId = currentUserId(req);
+  const currentId = currentUserId(req);
+  const requestedByUserId = Number(req.body.requestedByUserId || currentId);
   const userMap = await getUserMap(org);
-  const userName = userMap.get(userId) || "Kavin";
+  const userName = userMap.get(requestedByUserId) || "";
+  if (!userName) {
+    return res
+      .status(400)
+      .json({ error: "Please select a valid requested by user" });
+  }
 
-  const itemName = String(req.body.itemName ?? "").trim();
-  const quantity = Number(req.body.quantity ?? 1);
-  const unit = String(req.body.unit ?? "units").trim();
-  const vendorName = String(
-    req.body.vendorName ?? req.body.vendor ?? "Jagadeep",
-  ).trim();
-  const vendorId = String(req.body.vendorId ?? "CON00006").trim();
-  const priority = String(req.body.priority ?? "Normal").trim();
-  const department = String(req.body.department ?? "Admin").trim();
-  const requiredDate = String(
-    req.body.requiredDate ??
-      new Date().toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }),
+  const selectedItemId = Number(req.body.itemId || 0);
+  const [selectedItem] = selectedItemId
+    ? await db
+        .select()
+        .from(materialsTable)
+        .where(eq(materialsTable.id, selectedItemId))
+        .limit(1)
+    : [null];
+  if (selectedItemId && (!selectedItem || selectedItem.active === false)) {
+    return res
+      .status(400)
+      .json({ error: "Selected inventory item was not found" });
+  }
+  const itemName = String(selectedItem?.name ?? req.body.itemName ?? "").trim();
+  const quantity = Number(req.body.quantity ?? 0);
+  const unit = String(selectedItem?.unit ?? req.body.unit ?? "").trim();
+  const submittedVendorIds: string[] = Array.from(
+    new Set<string>(
+      (Array.isArray(req.body.vendorIds)
+        ? req.body.vendorIds
+        : [req.body.vendorId]
+      )
+        .map((id: unknown) => String(id ?? "").trim())
+        .filter(Boolean),
+    ),
   );
+  const vendorRecordsForCreate = await db
+    .select()
+    .from(contactsTable)
+    .where(eq(contactsTable.type, "vendor"));
+  const vendorById = new Map(
+    vendorRecordsForCreate.map((vendor: any) => [String(vendor.id), vendor]),
+  );
+  const selectedVendors = submittedVendorIds
+    .map((vendorId) => vendorById.get(vendorId))
+    .filter(Boolean);
+  if (
+    selectedVendors.length === 0 ||
+    selectedVendors.length !== submittedVendorIds.length
+  ) {
+    return res
+      .status(400)
+      .json({ error: "One or more selected vendors were not found" });
+  }
+  const selectedVendor = selectedVendors[0] as any;
+  const vendorId = String(selectedVendor.id);
+  const vendorName = String(selectedVendor.name);
+  const priority = String(req.body.priority ?? "Normal").trim();
+  const selectedDepartmentId = Number(req.body.departmentId || 0);
+  const [selectedDepartment] = selectedDepartmentId
+    ? await db
+        .select()
+        .from(departmentsTable)
+        .where(
+          and(
+            eq(departmentsTable.id, selectedDepartmentId),
+            eq(departmentsTable.organizationId, org),
+            eq(departmentsTable.status, "Active"),
+          ),
+        )
+        .limit(1)
+    : [null];
+  if (selectedDepartmentId && !selectedDepartment) {
+    return res
+      .status(400)
+      .json({ error: "Please select an active department" });
+  }
+  const departmentId = selectedDepartment?.id ?? null;
+  const department = selectedDepartment?.name ?? "";
+  const requiredDate = String(req.body.requiredDate ?? "").trim();
   const initialStatus = String(req.body.status ?? "Submitted").trim();
 
   if (!itemName)
-    return res.status(400).json({ error: "Item name is required" });
+    return res.status(400).json({ error: FLEX_API_MESSAGES.itemNameRequired });
 
   const now = new Date();
   const formattedTime = now.toLocaleTimeString("en-US", {
@@ -283,7 +505,11 @@ router.post("/purchase-requests", requireAuth, async (req, res) => {
     .select()
     .from(purchaseRequestsTable)
     .where(eq(purchaseRequestsTable.organizationId, org));
-  const prNum = `PR-26-27-${String(countRes.length + 1).padStart(4, "0")}`;
+  const highestSequence = countRes.reduce((highest: number, request: any) => {
+    const match = String(request.prNumber || "").match(/^PR-26-27-(\d+)$/);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+  const prNum = `PR-26-27-${String(highestSequence + 1).padStart(4, "0")}`;
   const versionStr = `${initialStatus} V1 - ${formattedTime}`;
 
   const [created] = await db
@@ -292,15 +518,17 @@ router.post("/purchase-requests", requireAuth, async (req, res) => {
       organizationId: org,
       vendorId,
       vendorName,
+      vendorIds: submittedVendorIds,
       prNumber: prNum,
       version: versionStr,
       itemName,
       quantity,
       unit,
       priority,
+      departmentId,
       department,
       status: initialStatus,
-      requestedByUserId: userId,
+      requestedByUserId,
       requestedByName: userName,
       requiredDate,
       notes: String(req.body.notes ?? ""),
@@ -323,16 +551,43 @@ router.patch("/purchase-requests/:id", requireAuth, async (req, res) => {
       ),
     );
 
-  if (!pr) return res.status(404).json({ error: "Purchase request not found" });
+  if (!pr)
+    return res
+      .status(404)
+      .json({ error: FLEX_API_MESSAGES.purchaseRequestNotFound });
 
   const updates: Record<string, unknown> = {};
+  if (req.body.departmentId !== undefined) {
+    const departmentId = Number(req.body.departmentId);
+    const [department] = await db
+      .select()
+      .from(departmentsTable)
+      .where(
+        and(
+          eq(departmentsTable.id, departmentId),
+          eq(departmentsTable.organizationId, org),
+          eq(departmentsTable.status, "Active"),
+        ),
+      )
+      .limit(1);
+    if (!department) {
+      return res
+        .status(400)
+        .json({ error: "Please select an active department" });
+    }
+    updates.departmentId = department.id;
+    updates.department = department.name;
+  }
   for (const key of [
+    "vendorId",
+    "vendorName",
+    "requestedByUserId",
+    "requestedByName",
     "itemName",
     "quantity",
     "unit",
     "status",
     "priority",
-    "department",
     "notes",
     "approvalNotes",
     "requiredDate",
@@ -379,7 +634,9 @@ router.post(
       );
 
     if (!pr)
-      return res.status(404).json({ error: "Purchase request not found" });
+      return res
+        .status(404)
+        .json({ error: FLEX_API_MESSAGES.purchaseRequestNotFound });
 
     await db
       .update(purchaseRequestsTable)
@@ -397,21 +654,20 @@ router.post(
       .values({
         organizationId: org,
         poNumber: poNum,
-        vendorName: pr.vendorName || "Jagadeep",
-        prReference: pr.prNumber || `PR #${pr.id}`,
+        vendorId: pr.vendorId,
+        vendorName: pr.vendorName,
+        prReference: pr.prNumber,
         items: `${pr.itemName} (${pr.quantity} ${pr.unit})`,
-        totalAmount: Number(pr.quantity) * 100,
+        totalAmount: 0,
         status: "Issued",
         createdByUserId: userId,
       })
       .returning();
 
-    return res
-      .status(201)
-      .json({
-        message: "Successfully converted PR to PO",
-        purchaseOrder: createdPo,
-      });
+    return res.status(201).json({
+      message: FLEX_API_MESSAGES.successfullyConvertedPrToPo,
+      purchaseOrder: createdPo,
+    });
   },
 );
 
@@ -441,7 +697,7 @@ router.get("/purchase-orders", requireAuth, async (req, res) => {
     .orderBy(desc(purchaseOrdersTable.createdAt));
 
   return res.json(
-    pos.map((po: any, index: number) => {
+    pos.map((po: any) => {
       const createdDateObj = new Date(po.createdAt);
       const formattedDate = createdDateObj.toLocaleDateString("en-GB", {
         day: "2-digit",
@@ -452,29 +708,25 @@ router.get("/purchase-orders", requireAuth, async (req, res) => {
 
       return {
         id: po.id,
-        vendorId: po.vendorId || `CON0000${(index % 2) + 5}`,
-        vendor: po.vendorName || "Nish",
+        vendorId: po.vendorId,
+        vendor: po.vendorName,
         poNumber: poNum,
-        prReference: po.prReference || "PR-26-27-0006",
-        items: po.items || "Steel Rod (600 kg)",
+        prReference: po.prReference,
+        items: po.items,
         poDate: formattedDate,
-        deliveryDate: po.deliveryDate || formattedDate,
-        subtotal: Number(
-          po.subtotal || po.totalAmount ? Number(po.totalAmount) * 0.84 : 5000,
-        ),
-        tax: Number(
-          po.taxAmount || po.totalAmount ? Number(po.totalAmount) * 0.16 : 900,
-        ),
-        grandTotal: Number(po.totalAmount || 5900),
+        deliveryDate: po.deliveryDate,
+        subtotal: Number(po.subtotal),
+        tax: Number(po.taxAmount),
+        grandTotal: Number(po.totalAmount || 0),
         paymentTerms: po.paymentTerms || "Net 30",
         shippingMethod: po.shippingMethod || "Road Transport",
-        warehouse: po.warehouse || "Bangalore Central Warehouse",
-        project: po.project || "Vidhai Factory Phase 1",
-        department: po.department || "Admin",
+        warehouse: po.warehouse,
+        project: po.project,
+        department: po.department,
         notes: po.notes || "",
         attachmentName: po.attachmentName || "",
-        status: po.status || "Completed",
-        createdBy: userMap.get(po.createdByUserId) || "SuperAdmin",
+        status: po.status,
+        createdBy: userMap.get(po.createdByUserId) || "",
       };
     }),
   );
@@ -485,33 +737,46 @@ router.post("/purchase-orders", requireAuth, async (req, res) => {
   const userId = currentUserId(req);
 
   const vendorName = String(
-    req.body.vendorName ?? req.body.vendor ?? "Nish",
+    req.body.vendorName ?? req.body.vendor ?? "",
   ).trim();
-  const vendorId = String(req.body.vendorId ?? "CON00005").trim();
+  const vendorId = String(req.body.vendorId ?? "").trim();
   const prReference = String(req.body.prReference ?? "").trim();
-  const items = String(req.body.items ?? "Supplies").trim();
+  const selectedItemIds = Array.isArray(req.body.itemIds)
+    ? req.body.itemIds.map(Number).filter(Boolean)
+    : [];
+  const selectedItems = selectedItemIds.length
+    ? (await db.select().from(materialsTable)).filter((item: any) =>
+        selectedItemIds.includes(Number(item.id)),
+      )
+    : [];
+  const items = String(
+    selectedItems.length
+      ? selectedItems.map((item: any) => item.name).join(", ")
+      : (req.body.items ?? ""),
+  ).trim();
   const subtotal = Number(req.body.subtotal ?? 0);
   const taxAmount = Number(req.body.tax ?? req.body.taxAmount ?? 0);
   const totalAmount = Number(
     req.body.grandTotal ?? req.body.totalAmount ?? subtotal + taxAmount,
   );
-  const deliveryDate = String(
-    req.body.deliveryDate ??
-      new Date().toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }),
-  );
+  const deliveryDate = String(req.body.deliveryDate ?? "");
   const paymentTerms = String(req.body.paymentTerms ?? "Net 30").trim();
   const shippingMethod = String(
     req.body.shippingMethod ?? "Road Transport",
   ).trim();
+  const warehouseId = Number(req.body.warehouseId || 0);
+  const [selectedWarehouse] = warehouseId
+    ? await db
+        .select()
+        .from(inventoryLocationsTable)
+        .where(eq(inventoryLocationsTable.id, warehouseId))
+        .limit(1)
+    : [null];
   const warehouse = String(
-    req.body.warehouse ?? "Bangalore Central Warehouse",
+    selectedWarehouse?.locationName ?? req.body.warehouse ?? "",
   ).trim();
-  const project = String(req.body.project ?? "Vidhai Factory Phase 1").trim();
-  const department = String(req.body.department ?? "Admin").trim();
+  const project = String(req.body.project ?? "").trim();
+  const department = String(req.body.department ?? "").trim();
   const status = String(req.body.status ?? "Issued").trim();
 
   const countRes = await db
@@ -609,6 +874,7 @@ router.delete("/purchase-orders/:id", requireAuth, async (req, res) => {
 router.get("/goods-receipts", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
+  const vendorMap = await getVendorMap();
 
   const grns = await db
     .select()
@@ -621,12 +887,11 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
       id: g.id,
       grnNumber: g.grnNumber,
       poReference: g.poReference,
+      vendorId: vendorMap.get(String(g.vendorName).toLowerCase()) || "",
       vendor: g.vendorName,
       itemsReceived: g.itemsReceived,
-      inspectedBy:
-        userMap.get(g.inspectedByUserId) ||
-        g.inspectedByName ||
-        "Quality Inspector",
+      inspectedBy: userMap.get(g.inspectedByUserId) || g.inspectedByName || "",
+      inspectedByUserId: g.inspectedByUserId,
       status: g.status,
       receivedDate: new Date(g.createdAt).toLocaleDateString("en-IN", {
         day: "2-digit",
@@ -640,15 +905,24 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
 router.post("/goods-receipts", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
-  const grnNumber = String(req.body.grnNumber ?? "").trim();
+  const existingGrns = await db
+    .select()
+    .from(goodsReceiptsTable)
+    .where(eq(goodsReceiptsTable.organizationId, org));
+  const grnNumber = String(
+    req.body.grnNumber ??
+      `GRN-${String(existingGrns.length + 1).padStart(6, "0")}`,
+  ).trim();
   const vendorName = String(
     req.body.vendorName ?? req.body.vendor ?? "",
   ).trim();
 
   if (!grnNumber)
-    return res.status(400).json({ error: "GRN Number is required" });
+    return res.status(400).json({ error: FLEX_API_MESSAGES.grnNumberRequired });
   if (!vendorName)
-    return res.status(400).json({ error: "Vendor name is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
 
   const [created] = await db
     .insert(goodsReceiptsTable)
@@ -658,7 +932,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       poReference: String(req.body.poReference ?? ""),
       vendorName,
       itemsReceived: String(req.body.itemsReceived ?? ""),
-      inspectedByUserId: userId,
+      inspectedByUserId: Number(req.body.inspectedByUserId || userId),
       inspectedByName: String(req.body.inspectedByName ?? ""),
       status: String(req.body.status ?? "Complete"),
     })
@@ -714,6 +988,7 @@ router.delete("/goods-receipts/:id", requireAuth, async (req, res) => {
 router.get("/purchase-invoices", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
+  const vendorMap = await getVendorMap();
 
   const invoices = await db
     .select()
@@ -725,6 +1000,7 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
     invoices.map((inv: any) => ({
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
+      vendorId: vendorMap.get(String(inv.vendorName).toLowerCase()) || "",
       vendor: inv.vendorName,
       poReference: inv.poReference,
       amount: Number(inv.amount),
@@ -732,7 +1008,7 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
       dueDate: inv.dueDate,
       status: inv.status,
       notes: inv.notes,
-      createdBy: userMap.get(inv.createdByUserId) || "SuperAdmin",
+      createdBy: userMap.get(inv.createdByUserId) || "",
     })),
   );
 });
@@ -747,11 +1023,17 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   const amount = Number(req.body.amount ?? 0);
 
   if (!invoiceNumber)
-    return res.status(400).json({ error: "Invoice Number is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.invoiceNumberRequired });
   if (!vendorName)
-    return res.status(400).json({ error: "Vendor name is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
   if (!amount || amount <= 0)
-    return res.status(400).json({ error: "Amount must be greater than 0" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.amountMustBeGreaterThanZero });
 
   const [created] = await db
     .insert(purchaseInvoicesTable)
@@ -826,6 +1108,7 @@ router.delete("/purchase-invoices/:id", requireAuth, async (req, res) => {
 router.get("/vendor-payments", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
+  const vendorMap = await getVendorMap();
 
   const payments = await db
     .select()
@@ -837,13 +1120,14 @@ router.get("/vendor-payments", requireAuth, async (req, res) => {
     payments.map((p: any) => ({
       id: p.id,
       paymentNumber: p.paymentNumber,
+      vendorId: vendorMap.get(String(p.vendorName).toLowerCase()) || "",
       vendor: p.vendorName,
       invoiceReference: p.invoiceReference,
       amount: Number(p.amount),
       paymentMode: p.paymentMode,
       paymentDate: p.paymentDate,
       status: p.status,
-      createdBy: userMap.get(p.createdByUserId) || "SuperAdmin",
+      createdBy: userMap.get(p.createdByUserId) || "",
     })),
   );
 });
@@ -851,16 +1135,27 @@ router.get("/vendor-payments", requireAuth, async (req, res) => {
 router.post("/vendor-payments", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
-  const paymentNumber = String(req.body.paymentNumber ?? "").trim();
+  const existingPayments = await db
+    .select()
+    .from(vendorPaymentsTable)
+    .where(eq(vendorPaymentsTable.organizationId, org));
+  const paymentNumber = String(
+    req.body.paymentNumber ??
+      `PAY-${String(existingPayments.length + 1).padStart(6, "0")}`,
+  ).trim();
   const vendorName = String(
     req.body.vendorName ?? req.body.vendor ?? "",
   ).trim();
   const amount = Number(req.body.amount ?? 0);
 
   if (!paymentNumber)
-    return res.status(400).json({ error: "Payment Number is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.paymentNumberRequired });
   if (!vendorName)
-    return res.status(400).json({ error: "Vendor name is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
 
   const [created] = await db
     .insert(vendorPaymentsTable)
@@ -931,6 +1226,7 @@ router.delete("/vendor-payments/:id", requireAuth, async (req, res) => {
 router.get("/purchase-returns", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
+  const vendorMap = await getVendorMap();
 
   const returns = await db
     .select()
@@ -942,6 +1238,7 @@ router.get("/purchase-returns", requireAuth, async (req, res) => {
     returns.map((r: any) => ({
       id: r.id,
       returnNumber: r.returnNumber,
+      vendorId: vendorMap.get(String(r.vendorName).toLowerCase()) || "",
       vendor: r.vendorName,
       grnReference: r.grnReference,
       reason: r.reason,
@@ -952,7 +1249,7 @@ router.get("/purchase-returns", requireAuth, async (req, res) => {
         month: "short",
         year: "numeric",
       }),
-      createdBy: userMap.get(r.createdByUserId) || "SuperAdmin",
+      createdBy: userMap.get(r.createdByUserId) || "",
     })),
   );
 });
@@ -960,16 +1257,27 @@ router.get("/purchase-returns", requireAuth, async (req, res) => {
 router.post("/purchase-returns", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
-  const returnNumber = String(req.body.returnNumber ?? "").trim();
+  const existingReturns = await db
+    .select()
+    .from(purchaseReturnsTable)
+    .where(eq(purchaseReturnsTable.organizationId, org));
+  const returnNumber = String(
+    req.body.returnNumber ??
+      `RET-${String(existingReturns.length + 1).padStart(6, "0")}`,
+  ).trim();
   const vendorName = String(
     req.body.vendorName ?? req.body.vendor ?? "",
   ).trim();
   const reason = String(req.body.reason ?? "").trim();
 
   if (!returnNumber)
-    return res.status(400).json({ error: "Return Number is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.returnNumberRequired });
   if (!vendorName)
-    return res.status(400).json({ error: "Vendor name is required" });
+    return res
+      .status(400)
+      .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
 
   const [created] = await db
     .insert(purchaseReturnsTable)

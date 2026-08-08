@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+﻿import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -51,7 +51,12 @@ import CrewPay from "@/pages/crewpay";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ component: Component, adminOnly, permission, ...rest }: any) {
+function ProtectedRoute({
+  component: Component,
+  adminOnly,
+  permission,
+  ...rest
+}: any) {
   const { user, isLoading, can } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -64,14 +69,19 @@ function ProtectedRoute({ component: Component, adminOnly, permission, ...rest }
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-sm font-mono text-muted-foreground">Loading...</div>
+        <div className="text-sm font-mono text-muted-foreground">
+          Loading...
+        </div>
       </div>
     );
   }
 
   if (!user) return null;
 
-  if ((adminOnly && user.role !== 'admin') || (permission && !can(permission))) {
+  if (
+    (adminOnly && user.role !== "admin") ||
+    (permission && !can(permission))
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-sm font-mono text-destructive">ACCESS DENIED</div>
@@ -86,13 +96,16 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      
+
       <Route path="/">
         <ProtectedRoute component={Dashboard} />
       </Route>
-      
+
       <Route path="/settings">
-        <ProtectedRoute component={Settings} permission="settings.user_management.view" />
+        <ProtectedRoute
+          component={Settings}
+          permission="settings.user_management.view"
+        />
       </Route>
 
       {/* Inventory Routes */}

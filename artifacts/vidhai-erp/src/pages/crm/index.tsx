@@ -28,7 +28,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Users, Plus, Pencil, Trash2, MoreVertical, Building2, Phone, Mail, MapPin } from "lucide-react";
+import {
+  Users,
+  Plus,
+  Pencil,
+  Trash2,
+  MoreVertical,
+  Building2,
+  Phone,
+  Mail,
+  MapPin,
+} from "lucide-react";
 import { toast } from "sonner";
 
 type ContactType = "client" | "vendor" | "other";
@@ -75,7 +85,7 @@ const EMPTY_FORM: Omit<Contact, "id"> = {
 export default function CRMPage() {
   const queryClient = useQueryClient();
   const { data = [], isLoading, isError } = useListContacts();
-  const contacts = data as Contact[];
+  const contacts = data as unknown as Contact[];
   const [tab, setTab] = useState<ContactType | "all">("all");
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -83,7 +93,12 @@ export default function CRMPage() {
   const [form, setForm] = useState<Omit<Contact, "id">>({ ...EMPTY_FORM });
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  const refreshContacts = () => queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+  const refreshContacts = () => {
+    queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
+    queryClient.invalidateQueries({
+      queryKey: ["get", "/api/flex/master-data"],
+    });
+  };
   const createContact = useCreateContact({
     mutation: {
       onSuccess: () => {
@@ -91,7 +106,10 @@ export default function CRMPage() {
         setDialogOpen(false);
         toast.success("Contact added");
       },
-      onError: (error) => toast.error(error instanceof Error ? error.message : "Could not add contact"),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Could not add contact",
+        ),
     },
   });
   const updateContact = useUpdateContact({
@@ -101,7 +119,10 @@ export default function CRMPage() {
         setDialogOpen(false);
         toast.success("Contact updated");
       },
-      onError: (error) => toast.error(error instanceof Error ? error.message : "Could not update contact"),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Could not update contact",
+        ),
     },
   });
   const deleteContact = useDeleteContact({
@@ -144,13 +165,27 @@ export default function CRMPage() {
 
   const openEdit = (c: Contact) => {
     setEditContact(c);
-    setForm({ type: c.type, name: c.name, company: c.company, phone: c.phone, whatsappNumber: c.whatsappNumber || "", gstin: c.gstin || "", stateCode: c.stateCode || "", email: c.email, address: c.address, notes: c.notes });
+    setForm({
+      type: c.type,
+      name: c.name,
+      company: c.company,
+      phone: c.phone,
+      whatsappNumber: c.whatsappNumber || "",
+      gstin: c.gstin || "",
+      stateCode: c.stateCode || "",
+      email: c.email,
+      address: c.address,
+      notes: c.notes,
+    });
     setDialogOpen(true);
   };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) { toast.error("Name is required"); return; }
+    if (!form.name.trim()) {
+      toast.error("Name is required");
+      return;
+    }
     if (editContact) {
       updateContact.mutate({ id: editContact.id, data: form });
     } else {
@@ -178,11 +213,12 @@ export default function CRMPage() {
           <div className="flex items-center gap-3">
             <Users className="w-6 h-6 text-primary" />
             <div>
-              <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">CRM</h1>
-              
+              <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">
+                CRM
+              </h1>
             </div>
           </div>
-          <Button onClick={openNew} >
+          <Button onClick={openNew}>
             <Plus className="w-4 h-4 mr-2" /> Add Contact
           </Button>
         </div>
@@ -201,31 +237,37 @@ export default function CRMPage() {
                 }`}
               >
                 {t.label}
-                <span className={`text-[10px] font-mono rounded px-1 ${tab === t.value ? "bg-white/20" : "bg-muted-foreground/15"}`}>
+                <span
+                  className={`text-[10px] font-mono rounded px-1 ${tab === t.value ? "bg-white/20" : "bg-muted-foreground/15"}`}
+                >
                   {counts[t.value]}
                 </span>
               </button>
             ))}
           </div>
           <div className="relative flex-1 sm:max-w-xs">
-  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
 
-  <Input
-    placeholder="Search by name, company, phone..."
-    value={search}
-    onChange={(e) => setSearch(e.target.value)}
-    className="rounded-full h-11 pl-11 pr-5 text-sm border border-gray-300 transition-all duration-300 ease-in-out focus:scale-[1.02] focus:border-primary focus:ring-2 focus:ring-primary/20 hover:border-primary/50"
-  />
-</div>
-</div>
+            <Input
+              placeholder="Search by name, company, phone..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="rounded-full h-11 pl-11 pr-5 text-sm border border-gray-300 transition-all duration-300 ease-in-out focus:scale-[1.02] focus:border-primary focus:ring-2 focus:ring-primary/20 hover:border-primary/50"
+            />
+          </div>
+        </div>
 
         {/* Contacts table */}
         <Card className="rounded-sm border-border shadow-md">
           <CardContent className="p-0">
             {isLoading ? (
-              <div className="py-20 text-center text-sm text-muted-foreground">Loading contacts...</div>
+              <div className="py-20 text-center text-sm text-muted-foreground">
+                Loading contacts...
+              </div>
             ) : isError ? (
-              <div className="py-20 text-center text-sm text-destructive">Could not load contacts. Please try again.</div>
+              <div className="py-20 text-center text-sm text-destructive">
+                Could not load contacts. Please try again.
+              </div>
             ) : filtered.length === 0 ? (
               <div className="py-20 text-center text-muted-foreground space-y-3">
                 <Users className="w-10 h-10 mx-auto opacity-20" />
@@ -235,7 +277,12 @@ export default function CRMPage() {
                     : "No contacts match your search."}
                 </p>
                 {contacts.length === 0 && (
-                  <Button variant="outline" size="sm" className="rounded-sm" onClick={openNew}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-sm"
+                    onClick={openNew}
+                  >
                     <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Contact
                   </Button>
                 )}
@@ -259,7 +306,10 @@ export default function CRMPage() {
                   </thead>
                   <tbody className="divide-y divide-border">
                     {filtered.map((c) => (
-                      <tr key={c.id} className="hover:bg-muted/30 transition-colors">
+                      <tr
+                        key={c.id}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
                         <td className="px-4 py-3 font-semibold text-foreground">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold uppercase shrink-0">
@@ -282,41 +332,69 @@ export default function CRMPage() {
                               <Building2 className="w-3.5 h-3.5 shrink-0 opacity-50" />
                               {c.company}
                             </span>
-                          ) : "—"}
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
                           {c.phone ? (
-                            <a href={`tel:${c.phone}`} className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                            <a
+                              href={`tel:${c.phone}`}
+                              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                            >
                               <Phone className="w-3.5 h-3.5 shrink-0 opacity-50" />
                               {c.phone}
                             </a>
-                          ) : "—"}
+                          ) : (
+                            "—"
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{c.whatsappNumber || "—"}</td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{c.gstin || "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
+                          {c.whatsappNumber || "�"}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
+                          {c.gstin || "�"}
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">
                           {c.email ? (
-                            <a href={`mailto:${c.email}`} className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                            <a
+                              href={`mailto:${c.email}`}
+                              className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                            >
                               <Mail className="w-3.5 h-3.5 shrink-0 opacity-50" />
                               {c.email}
                             </a>
-                          ) : "—"}
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs max-w-[160px] truncate">
                           {c.address ? (
-                            <span className="flex items-center gap-1.5" title={c.address}>
+                            <span
+                              className="flex items-center gap-1.5"
+                              title={c.address}
+                            >
                               <MapPin className="w-3.5 h-3.5 shrink-0 opacity-50" />
                               <span className="truncate">{c.address}</span>
                             </span>
-                          ) : "—"}
+                          ) : (
+                            "—"
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[180px] truncate" title={c.notes}>
+                        <td
+                          className="px-4 py-3 text-xs text-muted-foreground max-w-[180px] truncate"
+                          title={c.notes}
+                        >
                           {c.notes || "—"}
                         </td>
                         <td className="px-4 py-3">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                              >
                                 <MoreVertical className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -347,12 +425,16 @@ export default function CRMPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="rounded-sm shadow-xl max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editContact ? `Edit — ${editContact.name}` : "Add Contact"}</DialogTitle>
+            <DialogTitle>
+              {editContact ? `Edit — ${editContact.name}` : "Add Contact"}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSave} className="space-y-4 pt-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 col-span-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Name <span className="text-destructive">*</span></Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Name <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   required
                   value={form.name}
@@ -362,11 +444,15 @@ export default function CRMPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Contact Type</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Contact Type
+                </Label>
                 <select
                   className="w-full h-10 rounded-sm border border-border bg-background px-3 text-sm"
                   value={form.type}
-                  onChange={(e) => setForm({ ...form, type: e.target.value as ContactType })}
+                  onChange={(e) =>
+                    setForm({ ...form, type: e.target.value as ContactType })
+                  }
                 >
                   <option value="client">Client</option>
                   <option value="vendor">Vendor</option>
@@ -374,16 +460,22 @@ export default function CRMPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Company / Organisation</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Company / Organisation
+                </Label>
                 <Input
                   value={form.company}
-                  onChange={(e) => setForm({ ...form, company: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, company: e.target.value })
+                  }
                   placeholder="Optional"
                   className="rounded-sm h-10"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Phone</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Phone
+                </Label>
                 <Input
                   type="tel"
                   value={form.phone}
@@ -393,7 +485,9 @@ export default function CRMPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Email</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Email
+                </Label>
                 <Input
                   type="email"
                   value={form.email}
@@ -403,39 +497,66 @@ export default function CRMPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">WhatsApp Number</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  WhatsApp Number
+                </Label>
                 <Input
                   type="tel"
                   value={form.whatsappNumber}
-                  onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, whatsappNumber: e.target.value })
+                  }
                   placeholder="+91 XXXXX XXXXX"
                   className="rounded-sm h-10 font-mono"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">GSTIN</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  GSTIN
+                </Label>
                 <Input
                   value={form.gstin}
-                  onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
+                  onChange={(e) =>
+                    setForm({ ...form, gstin: e.target.value.toUpperCase() })
+                  }
                   placeholder="GST identification number"
                   className="rounded-sm h-10 font-mono uppercase"
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">GST State Code</Label>
-                <Input value={form.stateCode} maxLength={2} onChange={(e) => setForm({ ...form, stateCode: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="33" className="rounded-sm h-10 font-mono" />
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  GST State Code
+                </Label>
+                <Input
+                  value={form.stateCode}
+                  maxLength={2}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      stateCode: e.target.value.replace(/\D/g, "").slice(0, 2),
+                    })
+                  }
+                  placeholder="33"
+                  className="rounded-sm h-10 font-mono"
+                />
               </div>
               <div className="space-y-2 col-span-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Address</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Address
+                </Label>
                 <Input
                   value={form.address}
-                  onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, address: e.target.value })
+                  }
                   placeholder="Street, City, State"
                   className="rounded-sm h-10"
                 />
               </div>
               <div className="space-y-2 col-span-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Notes
+                </Label>
                 <Textarea
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
@@ -445,9 +566,24 @@ export default function CRMPage() {
               </div>
             </div>
             <DialogFooter className="pt-1">
-              <Button variant="outline" type="button" className="rounded-sm" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" className="rounded-sm" disabled={createContact.isPending || updateContact.isPending}>
-                {createContact.isPending || updateContact.isPending ? "Saving..." : editContact ? "Update Contact" : "Add Contact"}
+              <Button
+                variant="outline"
+                type="button"
+                className="rounded-sm"
+                onClick={() => setDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="rounded-sm"
+                disabled={createContact.isPending || updateContact.isPending}
+              >
+                {createContact.isPending || updateContact.isPending
+                  ? "Saving..."
+                  : editContact
+                    ? "Update Contact"
+                    : "Add Contact"}
               </Button>
             </DialogFooter>
           </form>
@@ -455,15 +591,33 @@ export default function CRMPage() {
       </Dialog>
 
       {/* Delete Confirm */}
-      <Dialog open={deleteId != null} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
+      <Dialog
+        open={deleteId != null}
+        onOpenChange={(o) => {
+          if (!o) setDeleteId(null);
+        }}
+      >
         <DialogContent className="rounded-sm shadow-xl max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete contact?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground pt-1">This will permanently remove the contact from the directory.</p>
+          <p className="text-sm text-muted-foreground pt-1">
+            This will permanently remove the contact from the directory.
+          </p>
           <DialogFooter className="pt-4">
-            <Button variant="outline" className="rounded-sm" onClick={() => setDeleteId(null)}>Cancel</Button>
-            <Button variant="destructive" className="rounded-sm" onClick={handleDelete} disabled={deleteContact.isPending}>
+            <Button
+              variant="outline"
+              className="rounded-sm"
+              onClick={() => setDeleteId(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-sm"
+              onClick={handleDelete}
+              disabled={deleteContact.isPending}
+            >
               {deleteContact.isPending ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>

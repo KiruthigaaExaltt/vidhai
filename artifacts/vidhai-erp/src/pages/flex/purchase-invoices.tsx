@@ -1,3 +1,9 @@
+import { FLEX_TEXT } from "./flexText";
+import {
+  useFlexGoodsReceipts,
+  useFlexMasterData,
+  useFlexPurchaseOrders,
+} from "./flexData";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -60,13 +66,6 @@ interface InvoiceLineItem {
   total: number;
 }
 
-import {
-  mergeVendors,
-  addStoredVendor,
-  mergeInvoices,
-  addStoredInvoice,
-} from "@/lib/flexStore";
-
 async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
   try {
     const res = await fetch(`${BASE}/api/flex/purchase-invoices`, {
@@ -74,23 +73,22 @@ async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
     });
     if (res.ok) {
       const data = await res.json();
-      const serverMapped = (data || []).map((inv: any, i: number) => ({
+      return (data || []).map((inv: any) => ({
         id: inv.id,
-        vendorId: `CON0000${(i % 3) + 5}`,
-        vendor: inv.vendor || "Nish",
-        invoiceNumber: inv.invoiceNumber || `INV00${inv.id} 10:00:00 am`,
-        poReference: inv.poReference || "PO-26-27-0006",
-        date: inv.invoiceDate || "2026-07-21",
+        vendorId: inv.vendorId || "",
+        vendor: inv.vendor,
+        invoiceNumber: inv.invoiceNumber,
+        poReference: inv.poReference,
+        date: inv.invoiceDate,
         invoiceAmt: Number(inv.amount || 0),
-        poAmt: Number(inv.amount || 0),
-        grnAmt: Number(inv.amount || 0),
-        match: "Matched",
-        payment: inv.status || "Paid",
+        poAmt: Number(inv.poAmount || 0),
+        grnAmt: Number(inv.grnAmount || 0),
+        match: inv.matchStatus || "",
+        payment: inv.status,
       }));
-      return mergeInvoices(serverMapped);
     }
   } catch {}
-  return mergeInvoices([]);
+  return [];
 }
 
 async function createPurchaseInvoice(payload: any) {
@@ -100,21 +98,8 @@ async function createPurchaseInvoice(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to log invoice");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToLogInvoice);
   return res.json();
-}
-
-async function fetchVendorsList() {
-  try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, {
-      credentials: "include",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return mergeVendors(data);
-    }
-  } catch {}
-  return mergeVendors([]);
 }
 
 export default function PurchaseInvoices() {
@@ -128,10 +113,11 @@ export default function PurchaseInvoices() {
     queryFn: fetchPurchaseInvoices,
   });
 
-  const { data: vendorsList = [] } = useQuery({
-    queryKey: ["get", "/api/flex/vendors"],
-    queryFn: fetchVendorsList,
-  });
+  const { data: masterData } = useFlexMasterData();
+  const { data: purchaseOrders = [] } = useFlexPurchaseOrders();
+  const { data: goodsReceipts = [] } = useFlexGoodsReceipts();
+  const vendorsList = masterData?.vendors ?? [];
+  const itemOptions = masterData?.items ?? [];
 
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -142,7 +128,9 @@ export default function PurchaseInvoices() {
 
   // Form State
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [invoiceDate, setInvoiceDate] = useState("2026-08-07");
+  const [invoiceDate, setInvoiceDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [mappedPo, setMappedPo] = useState("");
   const [mappedGrn, setMappedGrn] = useState("");
   const [vendor, setVendor] = useState("");
@@ -161,12 +149,12 @@ export default function PurchaseInvoices() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success("Purchase invoice logged successfully");
+      toast.success(FLEX_TEXT.purchaseInvoiceLoggedSuccessfully);
       setIsAddOpen(false);
       resetForm();
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to log invoice");
+      toast.error(err.message || FLEX_TEXT.failedToLogInvoice);
     },
   });
 
@@ -205,54 +193,24 @@ export default function PurchaseInvoices() {
   const handleAddItem = () => {
     setLineItems((prev) => [
       ...prev,
-      {
-        id: String(Date.now()),
-        item: "Steel Rod 12mm",
-        qty: 100,
-        price: 118,
-        total: 11800,
-      },
+      { id: String(Date.now()), item: "", qty: 1, price: 0, total: 0 },
     ]);
   };
 
   const handleCreateInvoice = (e: React.FormEvent) => {
     e.preventDefault();
-    const invNum = invoiceNumber.trim() || `INV-2026-00${invoices.length + 1}`;
-    const vendorName = vendor.trim() || "Nish";
-    const amt =
+    const amount =
       parseFloat(invoiceTotalAmount) ||
-      lineItems.reduce((acc, l) => acc + l.total, 0) ||
-      11800;
-
-    const newInvoiceItem: PurchaseInvoiceItem = {
-      id: Date.now(),
-      vendorId: "CON00005",
-      vendor: vendorName,
-      invoiceNumber: `${invNum} ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`,
-      poReference: mappedPo || "PO-26-27-0006",
-      date: invoiceDate || new Date().toISOString().split("T")[0],
-      invoiceAmt: amt,
-      poAmt: amt,
-      grnAmt: amt,
-      match: "Matched",
-      payment: "Paid",
-    };
-
-    addStoredInvoice(newInvoiceItem);
-    addStoredVendor({ id: "CON00005", name: vendorName });
-
-    toast.success("Purchase Invoice logged successfully!");
-    setIsAddOpen(false);
-    resetForm();
-
+      lineItems.reduce((sum, line) => sum + line.total, 0);
     createMutation.mutate({
-      invoiceNumber: invNum,
-      vendorName,
-      poReference: mappedPo || "PO-26-27-0006",
-      amount: amt,
+      invoiceNumber: invoiceNumber.trim(),
+      vendorName: vendor,
+      poReference: mappedPo,
+      grnReference: mappedGrn,
+      amount,
       invoiceDate,
       dueDate: invoiceDate,
-      status: "Paid",
+      status: "Unpaid",
     });
   };
 
@@ -276,21 +234,21 @@ export default function PurchaseInvoices() {
           <h1>PURCHASE INVOICE - ${inv.invoiceNumber}</h1>
           <div class="meta">
             <div>
-              <strong>Vendor:</strong> ${inv.vendor} (${inv.vendorId})<br/>
-              <strong>Date:</strong> ${inv.date}<br/>
+              <strong>${FLEX_TEXT.printVendor}</strong> ${inv.vendor} (${inv.vendorId})<br/>
+              <strong>${FLEX_TEXT.printDate}</strong> ${inv.date}<br/>
             </div>
             <div>
-              <strong>PO Ref:</strong> ${inv.poReference || "N/A"}<br/>
-              <strong>Status:</strong> ${inv.payment}<br/>
+              <strong>${FLEX_TEXT.printPoRef}</strong> ${inv.poReference || "N/A"}<br/>
+              <strong>${FLEX_TEXT.printStatus}</strong> ${inv.payment}<br/>
             </div>
           </div>
           <table>
             <thead>
-              <tr><th>Description</th><th>Invoice Amount</th><th>PO Amount</th><th>GRN Amount</th><th>Match</th></tr>
+              <tr><th>${FLEX_TEXT.printDescription}</th><th>${FLEX_TEXT.invoiceAmount}</th><th>${FLEX_TEXT.printPoAmount}</th><th>${FLEX_TEXT.grnAmount}</th><th>${FLEX_TEXT.printMatch}</th></tr>
             </thead>
             <tbody>
               <tr>
-                <td>Goods Delivery Billing</td>
+                <td>${FLEX_TEXT.printGoodsDeliveryBilling}</td>
                 <td>₹ ${inv.invoiceAmt.toLocaleString("en-IN")}</td>
                 <td>₹ ${inv.poAmt.toLocaleString("en-IN")}</td>
                 <td>₹ ${inv.grnAmt.toLocaleString("en-IN")}</td>
@@ -314,7 +272,7 @@ export default function PurchaseInvoices() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Purchase Invoices
+              {FLEX_TEXT.purchaseInvoices}
             </h1>
             <Button
               variant="outline"
@@ -322,9 +280,9 @@ export default function PurchaseInvoices() {
               className="h-8 w-8 text-muted-foreground hover:text-primary"
               onClick={() => {
                 refetch();
-                toast.info("Refreshed Purchase Invoices");
+                toast.info(FLEX_TEXT.refreshedPurchaseInvoices);
               }}
-              title="Refresh Records"
+              title={FLEX_TEXT.refreshRecords}
             >
               <RefreshCw
                 className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
@@ -338,7 +296,7 @@ export default function PurchaseInvoices() {
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 py-2 rounded-md gap-2 shadow-xs"
               onClick={() => setIsAddOpen(true)}
             >
-              <Plus className="w-4 h-4" /> Log Invoice
+              <Plus className="w-4 h-4" /> {FLEX_TEXT.logInvoice}
             </Button>
           </div>
         </div>
@@ -350,7 +308,7 @@ export default function PurchaseInvoices() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search purchase invoices or Vendor ID (CON...)..."
+              placeholder={FLEX_TEXT.searchPurchaseInvoicesOrVendorIdCon}
               className="pl-9 bg-background border-border text-sm rounded-md h-9"
             />
           </div>
@@ -358,7 +316,7 @@ export default function PurchaseInvoices() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                From Date
+                {FLEX_TEXT.fromDate}
               </div>
               <Input
                 type="date"
@@ -369,7 +327,7 @@ export default function PurchaseInvoices() {
             </div>
             <div>
               <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                To Date
+                {FLEX_TEXT.toDate}
               </div>
               <Input
                 type="date"
@@ -382,16 +340,19 @@ export default function PurchaseInvoices() {
 
           <div>
             <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-              Vendor
+              {FLEX_TEXT.vendor}
             </div>
             <Select value={selectedVendor} onValueChange={setSelectedVendor}>
               <SelectTrigger className="bg-background text-xs h-9 rounded-md">
-                <SelectValue placeholder="All vendors" />
+                <SelectValue placeholder={FLEX_TEXT.allVendors} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="All">All vendors</SelectItem>
-                <SelectItem value="Nish">Nish</SelectItem>
-                <SelectItem value="Jagadeep">Jagadeep</SelectItem>
+                <SelectItem value="All">{FLEX_TEXT.allVendors}</SelectItem>
+                {vendorsList.map((vendor) => (
+                  <SelectItem key={vendor.id} value={vendor.name}>
+                    {vendor.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -404,17 +365,35 @@ export default function PurchaseInvoices() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3 font-semibold">VENDOR ID</th>
-                    <th className="px-4 py-3 font-semibold">VENDOR</th>
-                    <th className="px-4 py-3 font-semibold">INVOICE #</th>
-                    <th className="px-4 py-3 font-semibold">DATE</th>
-                    <th className="px-4 py-3 font-semibold">INVOICE AMT</th>
-                    <th className="px-4 py-3 font-semibold">PO AMT</th>
-                    <th className="px-4 py-3 font-semibold">GRN AMT</th>
-                    <th className="px-4 py-3 font-semibold">MATCH</th>
-                    <th className="px-4 py-3 font-semibold">PAYMENT</th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.vendorId}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.vendor2}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.invoice}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.date}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.invoiceAmt}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.poAmt}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.grnAmt}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.match}
+                    </th>
+                    <th className="px-4 py-3 font-semibold">
+                      {FLEX_TEXT.payment}
+                    </th>
                     <th className="px-4 py-3 font-semibold text-right">
-                      ACTION
+                      {FLEX_TEXT.action}
                     </th>
                   </tr>
                 </thead>
@@ -425,7 +404,7 @@ export default function PurchaseInvoices() {
                         colSpan={10}
                         className="px-4 py-8 text-center text-muted-foreground text-sm"
                       >
-                        No purchase invoices found.
+                        {FLEX_TEXT.noPurchaseInvoicesFound}
                       </td>
                     </tr>
                   ) : (
@@ -469,7 +448,7 @@ export default function PurchaseInvoices() {
                           <button
                             onClick={() => handlePrintInvoice(inv)}
                             className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
-                            title="Print Invoice"
+                            title={FLEX_TEXT.printInvoice}
                           >
                             <Printer className="w-3.5 h-3.5" />
                           </button>
@@ -484,23 +463,23 @@ export default function PurchaseInvoices() {
             {/* Pagination Footer */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
               <div>
-                Showing{" "}
+                {FLEX_TEXT.showing}{" "}
                 <span className="font-semibold text-foreground">
                   {filtered.length > 0 ? 1 : 0}
                 </span>{" "}
-                to{" "}
+                {FLEX_TEXT.to}{" "}
                 <span className="font-semibold text-foreground">
                   {filtered.length}
                 </span>{" "}
-                of{" "}
+                {FLEX_TEXT.of}{" "}
                 <span className="font-semibold text-foreground">
                   {filtered.length}
                 </span>{" "}
-                records
+                {FLEX_TEXT.records}
               </div>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <span>Rows per page:</span>
+                  <span>{FLEX_TEXT.rowsPerPage}</span>
                   <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
                     <SelectTrigger className="h-7 w-16 text-xs bg-background">
                       <SelectValue placeholder="10" />
@@ -537,7 +516,7 @@ export default function PurchaseInvoices() {
                   <div className="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
                     <Receipt className="w-4 h-4 text-primary" />
                   </div>
-                  Log Purchase Invoice
+                  {FLEX_TEXT.logPurchaseInvoice}
                 </DialogTitle>
               </DialogHeader>
 
@@ -546,7 +525,8 @@ export default function PurchaseInvoices() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                      Invoice Number <span className="text-red-500">*</span>
+                      {FLEX_TEXT.invoiceNumber}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       value={invoiceNumber}
@@ -557,7 +537,8 @@ export default function PurchaseInvoices() {
                   </div>
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                      Invoice Date <span className="text-red-500">*</span>
+                      {FLEX_TEXT.invoiceDate}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <div className="relative">
                       <Input
@@ -573,72 +554,108 @@ export default function PurchaseInvoices() {
                 {/* Source Mapping Box */}
                 <div className="bg-slate-50/70 border border-slate-200/70 rounded-xl p-4 space-y-3.5">
                   <p className="text-[11px] text-slate-500 leading-normal">
-                    Map either purchase order(s) or goods receipt(s). Select one
-                    source type only. Multi-select is allowed within the same
-                    type.
+                    {
+                      FLEX_TEXT.mapEitherPurchaseOrderSOrGoodsReceiptSSelectOneSourceTypeOnlyMultiSelectIsAllowedWithinTheSameType
+                    }
                   </p>
 
                   {/* Map Purchase Order(s) */}
                   <div>
                     <Label className="text-xs font-bold text-slate-700 mb-1 block">
-                      Map Purchase Order(s)
+                      {FLEX_TEXT.mapPurchaseOrderS}
                     </Label>
                     <Select
                       value={mappedPo}
-                      onValueChange={(val) => {
-                        setMappedPo(val);
-                        if (val === "PO-26-27-0006") {
-                          setVendor("Nish");
-                          setInvoiceTotalAmount("11800");
+                      onValueChange={(value) => {
+                        setMappedPo(value);
+                        const po = purchaseOrders.find(
+                          (order: any) => order.poNumber === value,
+                        );
+                        if (po) {
+                          setVendor(po.vendor || "");
+                          setInvoiceTotalAmount(String(po.grandTotal || 0));
+                          setLineItems([
+                            {
+                              id: String(Date.now()),
+                              item: po.items || "",
+                              qty: 1,
+                              price: Number(po.grandTotal || 0),
+                              total: Number(po.grandTotal || 0),
+                            },
+                          ]);
+                          const vendorRecord = vendorsList.find(
+                            (option) =>
+                              option.id === po.vendorId ||
+                              option.name === po.vendor,
+                          );
+                          setVendorAddress(vendorRecord?.address || "");
+                          setVendorPhone(vendorRecord?.phone || "");
                         }
                       }}
                     >
                       <SelectTrigger className="h-10 text-xs bg-white border-slate-200 rounded-lg">
-                        <SelectValue placeholder="Type to filter and select purchase order(s)..." />
+                        <SelectValue
+                          placeholder={
+                            FLEX_TEXT.typeToFilterAndSelectPurchaseOrderS
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="PO-26-27-0006">
-                          PO-26-27-0006 (Nish - ₹ 11,800)
-                        </SelectItem>
-                        <SelectItem value="PO-26-27-0005">
-                          PO-26-27-0005 (Jagadeep - ₹ 24,500)
-                        </SelectItem>
+                        {purchaseOrders.map((po: any) => (
+                          <SelectItem key={po.id} value={po.poNumber}>
+                            {po.poNumber} ({po.vendor})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Same vendor only. PO amounts are summed for matching.
+                      {FLEX_TEXT.sameVendorOnlyPoAmountsAreSummedForMatching}
                     </p>
                   </div>
 
                   {/* Map Goods Receipt(s) */}
                   <div>
                     <Label className="text-xs font-bold text-slate-700 mb-1 block">
-                      Map Goods Receipt(s)
+                      {FLEX_TEXT.mapGoodsReceiptS}
                     </Label>
                     <Select
                       value={mappedGrn}
-                      onValueChange={(val) => {
-                        setMappedGrn(val);
-                        if (val === "GRN-650573") {
-                          setVendor("Nish");
-                          setInvoiceTotalAmount("11800");
+                      onValueChange={(value) => {
+                        setMappedGrn(value);
+                        const grn = goodsReceipts.find(
+                          (receipt: any) => receipt.grnNumber === value,
+                        );
+                        if (grn) {
+                          setVendor(grn.vendor || "");
+                          setLineItems([
+                            {
+                              id: String(Date.now()),
+                              item: grn.itemsReceived || "",
+                              qty: 1,
+                              price: 0,
+                              total: 0,
+                            },
+                          ]);
                         }
                       }}
                     >
                       <SelectTrigger className="h-10 text-xs bg-white border-slate-200 rounded-lg">
-                        <SelectValue placeholder="Type to filter and select goods receipt(s)..." />
+                        <SelectValue
+                          placeholder={
+                            FLEX_TEXT.typeToFilterAndSelectGoodsReceiptS
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="GRN-650573">
-                          GRN-650573 (Nish - ₹ 11,800)
-                        </SelectItem>
-                        <SelectItem value="GRN-448612">
-                          GRN-448612 (Jagadeep - ₹ 24,500)
-                        </SelectItem>
+                        {goodsReceipts.map((grn: any) => (
+                          <SelectItem key={grn.id} value={grn.grnNumber}>
+                            {grn.grnNumber} ({grn.vendor})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Same vendor only. GRN amounts are summed for matching.
+                      {FLEX_TEXT.sameVendorOnlyGrnAmountsAreSummedForMatching}
                     </p>
                   </div>
                 </div>
@@ -647,11 +664,14 @@ export default function PurchaseInvoices() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                      Vendor Name <span className="text-red-500">*</span>
+                      {FLEX_TEXT.vendorName}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Select value={vendor} onValueChange={setVendor}>
                       <SelectTrigger className="h-10 text-xs bg-white border-slate-200 rounded-lg">
-                        <SelectValue placeholder="Select or type vendor" />
+                        <SelectValue
+                          placeholder={FLEX_TEXT.selectOrTypeVendor}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {vendorsList.map((v: any) => (
@@ -664,7 +684,8 @@ export default function PurchaseInvoices() {
                   </div>
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                      Vendor Address <span className="text-red-500">*</span>
+                      {FLEX_TEXT.vendorAddress}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       placeholder=""
@@ -675,7 +696,8 @@ export default function PurchaseInvoices() {
                   </div>
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                      Vendor Phone <span className="text-red-500">*</span>
+                      {FLEX_TEXT.vendorPhone}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       placeholder=""
@@ -689,7 +711,7 @@ export default function PurchaseInvoices() {
                 {/* Invoice Total Amount (Rs) * */}
                 <div>
                   <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
-                    Invoice Total Amount (Rs){" "}
+                    {FLEX_TEXT.invoiceTotalAmountRs}{" "}
                     <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -704,20 +726,20 @@ export default function PurchaseInvoices() {
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold tracking-wider text-slate-500 uppercase">
-                      LINE ITEMS
+                      {FLEX_TEXT.lineItems2}
                     </span>
                     <button
                       type="button"
                       onClick={handleAddItem}
                       className="text-xs font-bold text-primary hover:underline flex items-center gap-1 transition-colors"
                     >
-                      + Add Item
+                      {FLEX_TEXT.addItem}
                     </button>
                   </div>
 
                   {lineItems.length === 0 ? (
                     <div className="border border-dashed border-slate-200 rounded-xl p-5 text-center text-xs text-slate-400 bg-white">
-                      No line items yet. Map PO/GR or add items manually.
+                      {FLEX_TEXT.noLineItemsYetMapPoGrOrAddItemsManually}
                     </div>
                   ) : (
                     <div className="border border-slate-200 rounded-xl p-3 bg-white space-y-2">
@@ -730,7 +752,8 @@ export default function PurchaseInvoices() {
                             {line.item}
                           </span>
                           <span className="text-slate-500">
-                            {line.qty} x ₹{line.price} ={" "}
+                            {line.qty} {FLEX_TEXT.x}
+                            {line.price} ={" "}
                             <strong className="text-slate-900">
                               ₹{line.total}
                             </strong>
@@ -744,17 +767,17 @@ export default function PurchaseInvoices() {
                 {/* 2-WAY MATCH PREVIEW Card */}
                 <div className="space-y-1.5 pt-1">
                   <span className="text-xs font-bold tracking-wider text-slate-500 uppercase block">
-                    2-WAY MATCH PREVIEW
+                    {FLEX_TEXT.text2WayMatchPreview}
                   </span>
                   <div className="bg-slate-50/80 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between text-center">
                     <div className="w-1/3 text-left">
                       <span className="text-xs text-slate-400 italic font-medium">
-                        No PO Linked
+                        {FLEX_TEXT.noPoLinked}
                       </span>
                     </div>
                     <div className="w-1/3 text-center">
                       <div className="text-[11px] font-semibold text-slate-400">
-                        GRN Amount
+                        {FLEX_TEXT.grnAmount}
                       </div>
                       <div className="text-sm font-bold text-slate-800 mt-0.5">
                         ₹ 0
@@ -765,7 +788,7 @@ export default function PurchaseInvoices() {
                     </div>
                     <div className="w-1/3 text-right">
                       <div className="text-[11px] font-semibold text-slate-400">
-                        Invoice Amount
+                        {FLEX_TEXT.invoiceAmount}
                       </div>
                       <div className="text-sm font-bold text-slate-800 mt-0.5">
                         -
@@ -777,7 +800,7 @@ export default function PurchaseInvoices() {
                 {/* Supporting Document (optional) */}
                 <div className="pt-1">
                   <Label className="text-xs font-medium text-slate-500 mb-1.5 block">
-                    Supporting Document (optional)
+                    {FLEX_TEXT.supportingDocumentOptional}
                   </Label>
                   <div
                     onClick={() =>
@@ -791,10 +814,10 @@ export default function PurchaseInvoices() {
                       </div>
                       <div>
                         <Label className="text-xs font-bold text-slate-800 cursor-pointer block">
-                          Click to attach file
+                          {FLEX_TEXT.clickToAttachFile}
                         </Label>
                         <span className="text-[10px] text-slate-400">
-                          PDF, JPG, PNG, WebP - Max 250 KB
+                          {FLEX_TEXT.pdfJpgPngWebpMax250Kb}
                         </span>
                       </div>
                     </div>
@@ -816,7 +839,7 @@ export default function PurchaseInvoices() {
                       </div>
                     ) : (
                       <span className="px-3 py-1 bg-slate-100 text-slate-700 text-xs font-semibold rounded-md border border-slate-200">
-                        Choose File
+                        {FLEX_TEXT.chooseFile}
                       </span>
                     )}
                     <Input
@@ -827,7 +850,7 @@ export default function PurchaseInvoices() {
                         const file = e.target.files?.[0];
                         if (file) {
                           setAttachmentName(file.name);
-                          toast.success(`Attached ${file.name}`);
+                          toast.success(`${FLEX_TEXT.attached}${file.name}`);
                         }
                       }}
                     />
@@ -843,13 +866,13 @@ export default function PurchaseInvoices() {
                   className="h-10 px-5 text-xs font-semibold text-slate-700 bg-white border-slate-200 rounded-xl hover:bg-slate-50"
                   onClick={() => setIsAddOpen(false)}
                 >
-                  Cancel
+                  {FLEX_TEXT.cancel}
                 </Button>
                 <Button
                   type="submit"
                   className="h-10 px-5 text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl shadow-xs gap-1.5"
                 >
-                  <Plus className="w-4 h-4" /> Log Invoice
+                  <Plus className="w-4 h-4" /> {FLEX_TEXT.logInvoice}
                 </Button>
               </DialogFooter>
             </form>

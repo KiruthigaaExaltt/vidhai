@@ -1,3 +1,4 @@
+﻿import { FLEX_TEXT } from "./flexText";
 import { useQuery } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +12,7 @@ interface FlexVendorSummary {
   id: number;
   name: string;
   spend: number;
-  onTimePercent: number;
+  onTimePercent: number | null;
   returns: number;
 }
 
@@ -24,12 +25,12 @@ interface FlexActivity {
 
 interface FlexDashboardData {
   pendingPurchaseRequests: number;
-  openVendorResponses: number;
+  openVendorResponses: number | null;
   pendingPOs: number;
   pendingGRNs: number;
   unpaidInvoices: number;
   totalSpend: number;
-  totalSpendChangePercent: number;
+  totalSpendChangePercent: number | null;
   purchaseReturns: number;
   activeVendors: number;
   topVendors: FlexVendorSummary[];
@@ -37,8 +38,10 @@ interface FlexDashboardData {
 }
 
 async function fetchFlexDashboard(): Promise<FlexDashboardData> {
-  const res = await fetch(`${BASE}/api/flex/dashboard`, { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to load Flex dashboard");
+  const res = await fetch(`${BASE}/api/flex/dashboard`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToLoadFlexDashboard);
   return res.json();
 }
 
@@ -46,7 +49,9 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
     <Card className="rounded-md border-border shadow-sm">
       <CardContent className="p-5">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
         <div className="text-2xl font-bold mt-1">{value}</div>
       </CardContent>
     </Card>
@@ -59,15 +64,19 @@ function VendorRow({ vendor }: { vendor: FlexVendorSummary }) {
       <div className="font-semibold text-sm">{vendor.name}</div>
       <div className="mt-1.5 space-y-1 text-sm">
         <div className="flex justify-between text-muted-foreground">
-          <span>Spend</span>
-          <span className="text-foreground">₹{vendor.spend.toLocaleString("en-IN")}</span>
+          <span>{FLEX_TEXT.spend}</span>
+          <span className="text-foreground">
+            â‚¹{vendor.spend.toLocaleString("en-IN")}
+          </span>
         </div>
         <div className="flex justify-between text-muted-foreground">
-          <span>On-time</span>
-          <span className="text-foreground">{vendor.onTimePercent}%</span>
+          <span>{FLEX_TEXT.onTime}</span>
+          <span className="text-foreground">
+            {vendor.onTimePercent == null ? "—" : `${vendor.onTimePercent}%`}
+          </span>
         </div>
         <div className="flex justify-between text-muted-foreground">
-          <span>Returns</span>
+          <span>{FLEX_TEXT.returns}</span>
           <span className="text-foreground">{vendor.returns}</span>
         </div>
       </div>
@@ -89,9 +98,14 @@ function ActivityRow({ activity }: { activity: FlexActivity }) {
     <div className="flex items-center justify-between py-3 border-b last:border-b-0 border-border">
       <div>
         <div className="font-semibold text-sm">{activity.title}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">{activity.timestamp}</div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          {activity.timestamp}
+        </div>
       </div>
-      <Badge variant={STATUS_VARIANT[activity.status] ?? "outline"} className="rounded-full">
+      <Badge
+        variant={STATUS_VARIANT[activity.status] ?? "outline"}
+        className="rounded-full"
+      >
         {activity.status}
       </Badge>
     </div>
@@ -110,21 +124,41 @@ export default function FlexDashboard() {
 
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">
-            Procurement Control Tower
+            {FLEX_TEXT.procurementControlTower}
           </h1>
         </div>
 
-        {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
-        {isError && <div className="text-sm text-destructive">Couldn't load the dashboard. Try again.</div>}
+        {isLoading && (
+          <div className="text-sm text-muted-foreground">
+            {FLEX_TEXT.loading}
+          </div>
+        )}
+        {isError && (
+          <div className="text-sm text-destructive">
+            {FLEX_TEXT.couldnTLoadTheDashboardTryAgain}
+          </div>
+        )}
 
         {data && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-              <StatCard label="Pending Purchase Requests" value={data.pendingPurchaseRequests} />
-              <StatCard label="Open Vendor Responses" value={data.openVendorResponses} />
-              <StatCard label="Pending POs" value={data.pendingPOs} />
-              <StatCard label="Pending GRNs" value={data.pendingGRNs} />
-              <StatCard label="Unpaid Invoices" value={data.unpaidInvoices} />
+              <StatCard
+                label={FLEX_TEXT.pendingPurchaseRequests}
+                value={data.pendingPurchaseRequests}
+              />
+              <StatCard
+                label={FLEX_TEXT.openVendorResponses}
+                value={data.openVendorResponses ?? "—"}
+              />
+              <StatCard label={FLEX_TEXT.pendingPos} value={data.pendingPOs} />
+              <StatCard
+                label={FLEX_TEXT.pendingGrns}
+                value={data.pendingGRNs}
+              />
+              <StatCard
+                label={FLEX_TEXT.unpaidInvoices}
+                value={data.unpaidInvoices}
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -134,10 +168,15 @@ export default function FlexDashboard() {
                     <ShoppingBag className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Total Spend</div>
-                    <div className="text-xl font-bold">₹{data.totalSpend.toLocaleString("en-IN")}</div>
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {FLEX_TEXT.totalSpend}
+                    </div>
+                    <div className="text-xl font-bold">
+                      â‚¹{data.totalSpend.toLocaleString("en-IN")}
+                    </div>
                     <div className="text-xs text-muted-foreground">
-                      {data.totalSpendChangePercent}% vs last month
+                      {data.totalSpendChangePercent ?? "—"}
+                      {FLEX_TEXT.vsLastMonth}
                     </div>
                   </div>
                 </CardContent>
@@ -149,10 +188,16 @@ export default function FlexDashboard() {
                     <RotateCcw className="w-5 h-5 text-red-500" />
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Purchase Returns</div>
-                    <div className="text-xl font-bold">{data.purchaseReturns}</div>
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {FLEX_TEXT.purchaseReturns}
+                    </div>
+                    <div className="text-xl font-bold">
+                      {data.purchaseReturns}
+                    </div>
                     <div className="text-xs text-muted-foreground">
-                      {data.purchaseReturns === 0 ? "No returns recorded" : `${data.purchaseReturns} recorded`}
+                      {data.purchaseReturns === 0
+                        ? FLEX_TEXT.noReturnsRecorded
+                        : `${data.purchaseReturns} ${FLEX_TEXT.recorded}`}
                     </div>
                   </div>
                 </CardContent>
@@ -164,9 +209,15 @@ export default function FlexDashboard() {
                     <FileCheck2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Active Vendors</div>
-                    <div className="text-xl font-bold">{data.activeVendors}</div>
-                    <div className="text-xs text-muted-foreground">{data.activeVendors} tracked in analytics</div>
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {FLEX_TEXT.activeVendors}
+                    </div>
+                    <div className="text-xl font-bold">
+                      {data.activeVendors}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {data.activeVendors} {FLEX_TEXT.trackedInAnalytics}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -175,22 +226,34 @@ export default function FlexDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5">
-                  <div className="font-semibold mb-1">Top Vendors</div>
+                  <div className="font-semibold mb-1">
+                    {FLEX_TEXT.topVendors}
+                  </div>
                   {data.topVendors.length === 0 ? (
-                    <div className="text-sm text-muted-foreground py-4">No vendor activity yet.</div>
+                    <div className="text-sm text-muted-foreground py-4">
+                      {FLEX_TEXT.noVendorActivityYet}
+                    </div>
                   ) : (
-                    data.topVendors.map((v) => <VendorRow key={v.id} vendor={v} />)
+                    data.topVendors.map((v) => (
+                      <VendorRow key={v.id} vendor={v} />
+                    ))
                   )}
                 </CardContent>
               </Card>
 
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5">
-                  <div className="font-semibold mb-1">Recent Activities</div>
+                  <div className="font-semibold mb-1">
+                    {FLEX_TEXT.recentActivities}
+                  </div>
                   {data.recentActivities.length === 0 ? (
-                    <div className="text-sm text-muted-foreground py-4">No recent activity.</div>
+                    <div className="text-sm text-muted-foreground py-4">
+                      {FLEX_TEXT.noRecentActivity}
+                    </div>
                   ) : (
-                    data.recentActivities.map((a) => <ActivityRow key={a.id} activity={a} />)
+                    data.recentActivities.map((a) => (
+                      <ActivityRow key={a.id} activity={a} />
+                    ))
                   )}
                 </CardContent>
               </Card>

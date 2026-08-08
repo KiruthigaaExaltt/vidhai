@@ -1,5 +1,11 @@
+import { FLEX_TEXT } from "./flexText";
+import { useFlexMasterData } from "./flexData";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  getListContactsQueryKey,
+  getListMaterialsQueryKey,
+} from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,6 +13,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +63,7 @@ import {
   ShieldCheck,
   Image as ImageIcon,
   Users,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +72,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 export interface LineItem {
   id: string;
   item: string;
+  itemId?: number;
   description: string;
   qty: number;
   unit: string;
@@ -76,14 +98,18 @@ export interface VendorAvailabilityItem {
 export interface PurchaseRequestItem {
   id: number;
   vendorId: string;
+  vendorIds?: string[];
+  vendorNames?: string[];
   vendor: string;
   prNumber: string;
   version: string;
   reqDate: string;
   requiredDate: string;
   priority: string;
+  departmentId?: number;
   department: string;
   requestedBy: string;
+  requestedByUserId?: number;
   status:
     | "Draft"
     | "Submitted"
@@ -101,13 +127,6 @@ export interface PurchaseRequestItem {
   versionLogs?: VersionLog[];
 }
 
-import {
-  mergeVendors,
-  addStoredVendor,
-  mergePRs,
-  addStoredPR,
-} from "@/lib/flexStore";
-
 async function fetchPurchaseRequests(): Promise<PurchaseRequestItem[]> {
   try {
     const res = await fetch(`${BASE}/api/flex/purchase-requests`, {
@@ -115,10 +134,10 @@ async function fetchPurchaseRequests(): Promise<PurchaseRequestItem[]> {
     });
     if (res.ok) {
       const data = await res.json();
-      return mergePRs(data);
+      return data;
     }
   } catch {}
-  return mergePRs([]);
+  return [];
 }
 
 async function createPurchaseRequest(payload: any) {
@@ -128,7 +147,10 @@ async function createPurchaseRequest(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to create PR");
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToCreatePr);
+  }
   return res.json();
 }
 
@@ -145,7 +167,10 @@ async function saveVendorContact(payload: any) {
       address: payload.address,
     }),
   });
-  if (!res.ok) throw new Error("Failed to save vendor contact");
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToSaveVendorContact);
+  }
   return res.json();
 }
 
@@ -156,7 +181,7 @@ async function updatePurchaseRequest({ id, ...payload }: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to update PR");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToUpdatePr);
   return res.json();
 }
 
@@ -165,7 +190,7 @@ async function deletePurchaseRequest(id: number) {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) throw new Error("Failed to delete PR");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToDeletePr);
   return res.json();
 }
 
@@ -177,21 +202,8 @@ async function convertPrToPo(id: number) {
       credentials: "include",
     },
   );
-  if (!res.ok) throw new Error("Failed to convert PR to Purchase Order");
+  if (!res.ok) throw new Error(FLEX_TEXT.failedToConvertPrToPurchaseOrder);
   return res.json();
-}
-
-async function fetchVendorsList() {
-  try {
-    const res = await fetch(`${BASE}/api/flex/vendors`, {
-      credentials: "include",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return mergeVendors(data);
-    }
-  } catch {}
-  return mergeVendors([]);
 }
 
 export default function PurchaseRequestsPage() {
@@ -205,23 +217,46 @@ export default function PurchaseRequestsPage() {
     queryFn: fetchPurchaseRequests,
   });
 
-  const { data: dbVendors = [] } = useQuery({
-    queryKey: ["get", "/api/flex/vendors"],
-    queryFn: fetchVendorsList,
-  });
+  const nextPrNumber = useMemo(() => {
+    const highestSequence = prs.reduce((highest, pr) => {
+      const match = pr.prNumber.match(/^PR-26-27-(\d+)$/);
+      return match ? Math.max(highest, Number(match[1])) : highest;
+    }, 0);
+    return `PR-26-27-${String(highestSequence + 1).padStart(4, "0")}`;
+  }, [prs]);
+
+  const {
+    data: masterData,
+    isLoading: isMasterDataLoading,
+    isError: isMasterDataError,
+  } = useFlexMasterData();
+  const vendorsList = masterData?.vendors ?? [];
+  const itemOptions = masterData?.items ?? [];
+  const userOptions = masterData?.users ?? [];
+  const departmentOptions = masterData?.departments ?? [];
+  const projectOptions = masterData?.projects ?? [];
 
   const vendorAvailability = useMemo<VendorAvailabilityItem[]>(
     () =>
       prs
         .filter((pr) => pr.vendor)
-        .map((pr) => ({
-          prNumber: pr.prNumber,
-          version: pr.version,
-          date: pr.reqDate,
-          status: pr.status,
-          vendorCount: 1,
-          vendors: [{ name: pr.vendor, quote: "", status: pr.status }],
-        })),
+        .map((pr) => {
+          const vendorNames = pr.vendorNames?.length
+            ? pr.vendorNames
+            : [pr.vendor].filter(Boolean);
+          return {
+            prNumber: pr.prNumber,
+            version: pr.version,
+            date: pr.reqDate,
+            status: pr.status,
+            vendorCount: vendorNames.length,
+            vendors: vendorNames.map((name) => ({
+              name,
+              quote: "",
+              status: pr.status,
+            })),
+          };
+        }),
     [prs],
   );
 
@@ -246,47 +281,17 @@ export default function PurchaseRequestsPage() {
     useState<VendorAvailabilityItem | null>(null);
 
   // Edit PR State Fields
-  const [editVendorName, setEditVendorName] = useState("Jagadeep");
-  const [editVendorsTable, setEditVendorsTable] = useState<any[]>([
-    {
-      name: "Jagadeep",
-      whatsapp: "9753124680",
-      phone: "9753124680",
-      email: "j@gmail.com",
-    },
-  ]);
-  const [editLineItems, setEditLineItems] = useState<any[]>([
-    {
-      id: "1",
-      product: "HP LED 1080p (MONI-HP-LED-0001) (245",
-      description: "HP LED 1080p",
-      qty: 1,
-      unit: "Nos",
-    },
-  ]);
-  const [editReqDate, setEditReqDate] = useState("2026-08-07");
-  const [editRequiredDate, setEditRequiredDate] = useState("2026-08-07");
+  const [editVendorName, setEditVendorName] = useState("");
+  const [editVendorsTable, setEditVendorsTable] = useState<any[]>([]);
+  const [editLineItems, setEditLineItems] = useState<any[]>([]);
+  const [editReqDate, setEditReqDate] = useState("");
+  const [editRequiredDate, setEditRequiredDate] = useState("");
   const [editPriority, setEditPriority] = useState("Normal");
-  const [editDepartment, setEditDepartment] = useState("Admin");
-  const [editRequestedBy, setEditRequestedBy] = useState(
-    "Aakash T (UI/UX Designer) (13)",
-  );
+  const [editDepartmentId, setEditDepartmentId] = useState("");
+  const [editDepartment, setEditDepartment] = useState("");
+  const [editRequestedBy, setEditRequestedBy] = useState("");
   const [editProject, setEditProject] = useState("");
   const [editNotes, setEditNotes] = useState("");
-
-  // Auto-generated preview PR code & Vendor Contact ID
-  const nextPrNumber = `PR-26-27-00${prs.length + 1}`;
-  const [nextContactId] = useState(`CON00011`);
-
-  // Vendor list state
-  const [localVendors, setLocalVendors] = useState<any[]>([]);
-
-  const vendorsList = useMemo(() => {
-    const map = new Map();
-    dbVendors.forEach((v: any) => map.set(v.name.toLowerCase(), v));
-    localVendors.forEach((v: any) => map.set(v.name.toLowerCase(), v));
-    return Array.from(map.values());
-  }, [dbVendors, localVendors]);
 
   // Add Vendor Form
   const [vName, setVName] = useState("");
@@ -301,49 +306,63 @@ export default function PurchaseRequestsPage() {
   const [invItemName, setInvItemName] = useState("");
   const [invCategory, setInvCategory] = useState("Raw Material");
   const [invType, setInvType] = useState("Raw Material");
-  const [invSku, setInvSku] = useState("SKU-RM-102");
-  const [invHsn, setInvHsn] = useState("7210");
-  const [invBuyingPrice, setInvBuyingPrice] = useState("450");
-  const [invSellingPrice, setInvSellingPrice] = useState("550");
+  const [invSku, setInvSku] = useState("");
+  const [invHsn, setInvHsn] = useState("");
+  const [invBuyingPrice, setInvBuyingPrice] = useState("");
+  const [invSellingPrice, setInvSellingPrice] = useState("");
   const [invUom, setInvUom] = useState("Nos");
   const [invCriticalLevel, setInvCriticalLevel] = useState("10");
 
   // Form states for Create PR
-  const [vendorName, setVendorName] = useState("CON00006 - Jagadeep");
+  const [selectedVendorIds, setSelectedVendorIds] = useState<string[]>([]);
+  const [isVendorSelectorOpen, setIsVendorSelectorOpen] = useState(false);
+  const selectedVendorRecords = useMemo(
+    () =>
+      selectedVendorIds
+        .map((vendorId) => vendorsList.find((vendor) => vendor.id === vendorId))
+        .filter(Boolean),
+    [selectedVendorIds, vendorsList],
+  );
+  const selectedVendorDisplay = useMemo(() => {
+    const names = selectedVendorRecords.map((vendor) => vendor!.name);
+    if (names.length <= 2) return names.join(", ");
+    return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
+  }, [selectedVendorRecords]);
+
   const [lineItems, setLineItems] = useState<LineItem[]>([
-    {
-      id: "1",
-      item: "Trapezoidal Roofing Sheet",
-      description: "",
-      qty: 1,
-      unit: "Nos",
-    },
+    { id: "1", item: "", description: "", qty: 1, unit: "" },
   ]);
   const [requestDate, setRequestDate] = useState(
     new Date().toISOString().split("T")[0],
   );
-  const [requiredDate, setRequiredDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
+  const [requiredDate, setRequiredDate] = useState("");
   const [priority, setPriority] = useState("Normal");
-  const [department, setDepartment] = useState("Admin");
-  const [requestedBy, setRequestedBy] = useState("Aakash T");
-  const [project, setProject] = useState("Vidhai Factory Phase 1");
+  const [departmentId, setDepartmentId] = useState("");
+  const [department, setDepartment] = useState("");
+  const [requestedBy, setRequestedBy] = useState("");
+  const [project, setProject] = useState("");
   const [notes, setNotes] = useState("");
   const [attachmentName, setAttachmentName] = useState<string>("");
 
   const createMutation = useMutation({
     mutationFn: createPurchaseRequest,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/purchase-requests"],
       });
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
+      toast.success(
+        variables.status === "Draft"
+          ? FLEX_TEXT.purchaseRequestSavedAsDraft
+          : FLEX_TEXT.purchaseRequestCreatedSuccessfully,
+      );
+      setIsCreateOpen(false);
+      resetForm();
     },
     onError: (err: any) => {
-      console.error("PR backend save log:", err);
+      toast.error(err.message || FLEX_TEXT.failedToCreatePr);
     },
   });
 
@@ -356,11 +375,11 @@ export default function PurchaseRequestsPage() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success("Purchase Request updated successfully");
+      toast.success(FLEX_TEXT.purchaseRequestUpdatedSuccessfully);
       setSelectedPr(null);
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to update PR");
+      toast.error(err.message || FLEX_TEXT.failedToUpdatePr);
     },
   });
 
@@ -373,11 +392,11 @@ export default function PurchaseRequestsPage() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success("Purchase Request deleted");
+      toast.success(FLEX_TEXT.purchaseRequestDeleted);
       setSelectedPr(null);
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to delete PR");
+      toast.error(err.message || FLEX_TEXT.failedToDeletePr);
     },
   });
 
@@ -393,30 +412,25 @@ export default function PurchaseRequestsPage() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success("Purchase Order generated from approved PR!");
+      toast.success(FLEX_TEXT.purchaseOrderGeneratedFromApprovedPr);
       setSelectedPr(null);
     },
     onError: (err: any) => {
-      toast.error(err.message || "Failed to generate PO");
+      toast.error(err.message || FLEX_TEXT.failedToGeneratePo);
     },
   });
 
   const resetForm = () => {
-    setLineItems([
-      {
-        id: "1",
-        item: "Trapezoidal Roofing Sheet",
-        description: "",
-        qty: 1,
-        unit: "Nos",
-      },
-    ]);
+    setLineItems([{ id: "1", item: "", description: "", qty: 1, unit: "" }]);
     setNotes("");
-    setVendorName("CON00006 - Jagadeep");
+    setSelectedVendorIds([]);
+    setIsVendorSelectorOpen(false);
     setPriority("Normal");
-    setDepartment("Admin");
-    setRequestedBy("Aakash T");
-    setProject("Vidhai Factory Phase 1");
+    setRequiredDate("");
+    setDepartmentId("");
+    setDepartment("");
+    setRequestedBy("");
+    setProject("");
     setAttachmentName("");
   };
 
@@ -431,43 +445,44 @@ export default function PurchaseRequestsPage() {
     setIsCreateOpen(true);
   };
 
-  const isFormValid = useMemo(() => {
-    return vendorName.trim().length > 0;
-  }, [vendorName]);
+  const isFormValid = useMemo(
+    () => selectedVendorIds.length > 0 && requestedBy.length > 0,
+    [selectedVendorIds, requestedBy],
+  );
 
   const handleAddVendorSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vName.trim()) {
-      toast.error("Please enter vendor name");
+      toast.error(FLEX_TEXT.pleaseEnterVendorName);
       return;
     }
     try {
-      await saveVendorContact({
+      const vendor = await saveVendorContact({
         name: vName.trim(),
         phone: vPhone.trim(),
         email: vEmail.trim(),
         address: vAddress.trim(),
       });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/contacts"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/vendors"] });
-    } catch {
-      // Local fallback
+      await queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/master-data"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: getListContactsQueryKey(),
+      });
+      setSelectedVendorIds((current) =>
+        current.includes(String(vendor.id))
+          ? current
+          : [...current, String(vendor.id)],
+      );
+      toast.success(`${FLEX_TEXT.savedVendorToVendorDirectory}${vendor.name}`);
+      setIsAddVendorOpen(false);
+      setIsCreateOpen(true);
+      setVName("");
+      setVPhone("");
+      setVAddress("");
+    } catch (error: any) {
+      toast.error(error.message || FLEX_TEXT.failedToSaveVendorContact);
     }
-    const newVendorObj = {
-      id: nextContactId,
-      name: vName.trim(),
-      phone: vPhone.trim(),
-      address: vAddress.trim(),
-    };
-    addStoredVendor(newVendorObj);
-    setLocalVendors((prev) => [...prev, newVendorObj]);
-    setVendorName(`${nextContactId} - ${vName.trim()}`);
-    toast.success(`Saved vendor to Vendor Directory: ${vName.trim()}`);
-    setIsAddVendorOpen(false);
-    setIsCreateOpen(true);
-    setVName("");
-    setVPhone("");
-    setVAddress("");
   };
 
   // Open Add Inventory modal while cleanly hiding Create PR modal
@@ -481,23 +496,50 @@ export default function PurchaseRequestsPage() {
     setIsCreateOpen(true);
   };
 
-  const handleAddInventorySubmit = (e: React.FormEvent) => {
+  const handleAddInventorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invItemName.trim()) {
-      toast.error("Please enter item name");
+      toast.error(FLEX_TEXT.pleaseEnterItemName);
       return;
     }
+    const response = await fetch(`${BASE}/api/materials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        name: invItemName.trim(),
+        sku: invSku || null,
+        unit: invUom,
+        itemType: invType,
+        hsnSac: invHsn || null,
+        buyPricePerUnit: invBuyingPrice || null,
+        sellPricePerUnit: invSellingPrice || null,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      toast.error(body.error || FLEX_TEXT.failedToCreatePr);
+      return;
+    }
+    const item = await response.json();
+    await queryClient.invalidateQueries({
+      queryKey: ["get", "/api/flex/master-data"],
+    });
+    await queryClient.invalidateQueries({
+      queryKey: getListMaterialsQueryKey(),
+    });
     setLineItems((prev) => [
-      ...prev.filter((i) => i.item !== ""),
+      ...prev.filter((row) => row.item),
       {
         id: String(Date.now()),
-        item: invItemName.trim(),
-        description: `${invCategory} - SKU ${invSku}`,
+        itemId: item.id,
+        item: item.name,
+        description: item.sku || "",
         qty: 1,
-        unit: invUom,
+        unit: item.unit || "",
       },
     ]);
-    toast.success(`Inventory Item added: ${invItemName.trim()}`);
+    toast.success(`${FLEX_TEXT.inventoryItemAdded}${item.name}`);
     setIsAddInventoryOpen(false);
     setIsCreateOpen(true);
     setInvItemName("");
@@ -518,7 +560,7 @@ export default function PurchaseRequestsPage() {
 
   const handleRemoveLineItem = (id: string) => {
     if (lineItems.length <= 1) {
-      toast.error("At least one line item is required.");
+      toast.error(FLEX_TEXT.atLeastOneLineItemIsRequired);
       return;
     }
     setLineItems((prev) => prev.filter((item) => item.id !== id));
@@ -535,23 +577,33 @@ export default function PurchaseRequestsPage() {
   };
 
   const handleDuplicatePR = (pr: PurchaseRequestItem) => {
-    setVendorName(`${pr.vendorId} - ${pr.vendor}`);
+    setSelectedVendorIds(
+      pr.vendorIds?.length ? pr.vendorIds : [pr.vendorId].filter(Boolean),
+    );
     setLineItems([
       {
         id: "1",
         item: pr.itemName || "",
         description: "",
         qty: pr.quantity || 1,
-        unit: pr.unit || "Nos",
+        unit: pr.unit || "",
       },
     ]);
     setPriority(pr.priority || "Normal");
-    setDepartment(pr.department || "Admin");
-    setRequestedBy(pr.requestedBy || "Aakash T");
-    setProject(pr.project || "Vidhai Factory Phase 1");
+    setDepartmentId(
+      String(
+        pr.departmentId ??
+          departmentOptions.find((option) => option.name === pr.department)
+            ?.id ??
+          "",
+      ),
+    );
+    setDepartment(pr.department || "");
+    setRequestedBy(String(pr.requestedByUserId || ""));
+    setProject(pr.project || "");
     setNotes(pr.notes || "");
     setIsCreateOpen(true);
-    toast.info(`Duplicating details from ${pr.prNumber}`);
+    toast.info(`${FLEX_TEXT.duplicatingDetailsFrom}${pr.prNumber}`);
   };
 
   const handlePrintPR = (pr: PurchaseRequestItem) => {
@@ -571,13 +623,13 @@ export default function PurchaseRequestsPage() {
         </head>
         <body>
           <h2>VIDHAI ERP - PURCHASE REQUEST ${pr.prNumber}</h2>
-          <p><strong>Vendor:</strong> ${pr.vendor} (${pr.vendorId})</p>
-          <p><strong>Requested By:</strong> ${pr.requestedBy} | <strong>Department:</strong> ${pr.department}</p>
-          <p><strong>Required Date:</strong> ${pr.requiredDate} | <strong>Priority:</strong> ${pr.priority}</p>
-          <p><strong>Status:</strong> ${pr.status}</p>
+          <p><strong>${FLEX_TEXT.printVendor}</strong> ${pr.vendor} (${pr.vendorId})</p>
+          <p><strong>${FLEX_TEXT.printRequestedBy}</strong> ${pr.requestedBy} | <strong>${FLEX_TEXT.printDepartment}</strong> ${pr.department}</p>
+          <p><strong>${FLEX_TEXT.printRequiredDate}</strong> ${pr.requiredDate} | <strong>${FLEX_TEXT.printPriority}</strong> ${pr.priority}</p>
+          <p><strong>${FLEX_TEXT.printStatus}</strong> ${pr.status}</p>
           <table>
-            <thead><tr><th>Item Name</th><th>Qty</th><th>Unit</th></tr></thead>
-            <tbody><tr><td>${pr.itemName || "Roofing Sheet"}</td><td>${pr.quantity || 100}</td><td>${pr.unit || "sheets"}</td></tr></tbody>
+            <thead><tr><th>${FLEX_TEXT.printItemName}</th><th>${FLEX_TEXT.printQty}</th><th>${FLEX_TEXT.printUnit}</th></tr></thead>
+            <tbody><tr><td>${pr.itemName || ""}</td><td>${pr.quantity ?? ""}</td><td>${pr.unit || ""}</td></tr></tbody>
           </table>
         </body>
       </html>
@@ -589,7 +641,9 @@ export default function PurchaseRequestsPage() {
   const filtered = useMemo(() => {
     return prs.filter((pr) => {
       const matchesVendor =
-        selectedVendor === "All" || pr.vendor === selectedVendor;
+        selectedVendor === "All" ||
+        pr.vendorNames?.includes(selectedVendor) ||
+        pr.vendor === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         pr.prNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -609,78 +663,28 @@ export default function PurchaseRequestsPage() {
 
   const handleSubmitPR = (status: "Submitted" | "Draft") => {
     const firstItem = lineItems[0];
-    const itemName =
-      (firstItem?.item && firstItem.item.trim()) || "Trapezoidal Roofing Sheet";
-    const quantity = Number(firstItem?.qty) || 100;
-    const unit = firstItem?.unit || "sheets";
-
-    const vParts = vendorName.split(" - ");
-    const vId = vParts[0] || "CON00006";
-    const vName = vParts[1] || vParts[0] || "Jagadeep";
-
-    const now = new Date();
-    const formattedTime = now.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
-    const formattedDate = now.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-
-    const newPRItem: PurchaseRequestItem = {
-      id: Date.now(),
-      vendorId: vId,
-      vendor: vName,
-      prNumber: nextPrNumber,
-      version: `${status} V1 - ${formattedTime}`,
-      reqDate: formattedDate,
-      requiredDate: requiredDate || formattedDate,
-      priority: priority || "Normal",
-      department: department || "Admin",
-      requestedBy: requestedBy || "Aakash T",
-      status: status,
-      itemName,
-      quantity,
-      unit,
-      project: project || "Vidhai Factory Phase 1",
-      notes,
-    };
-    addStoredPR(newPRItem);
-    addStoredVendor({ id: vId, name: vName });
-
-    // Optimistically update query cache immediately
-    queryClient.setQueryData(
-      ["get", "/api/flex/purchase-requests"],
-      (oldData: any) => {
-        const currentList = Array.isArray(oldData) ? oldData : [];
-        return [newPRItem, ...currentList];
-      },
-    );
-
-    const isDraft = status === "Draft";
-    toast.success(
-      isDraft
-        ? "Purchase Request saved as Draft"
-        : "Purchase Request submitted successfully!",
-    );
-    setIsCreateOpen(false);
-    resetForm();
-
+    const itemName = firstItem?.item?.trim() || "";
+    const quantity = Number(firstItem?.qty) || 0;
+    const unit = firstItem?.unit || "";
+    const vendorIds = selectedVendorRecords.map((vendor) => vendor!.id);
+    const vendorNames = selectedVendorRecords.map((vendor) => vendor!.name);
+    const vendorId = vendorIds[0];
+    const vendor = vendorNames[0];
     createMutation.mutate({
+      itemId: firstItem?.itemId,
       itemName,
       quantity,
       unit,
-      vendorName: vName,
-      vendorId: vId,
-      priority: priority || "Normal",
-      department: department || "Admin",
-      requestedByName: requestedBy || "Aakash T",
-      project: project || "Vidhai Factory Phase 1",
-      requiredDate: requiredDate || formattedDate,
+      vendorName: vendor,
+      vendorId,
+      vendorIds,
+      vendorNames,
+      priority,
+      departmentId: departmentId ? Number(departmentId) : undefined,
+      department,
+      requestedByUserId: Number(requestedBy),
+      project,
+      requiredDate,
       status,
       notes,
       attachmentName,
@@ -702,7 +706,7 @@ export default function PurchaseRequestsPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Purchase Requests
+            {FLEX_TEXT.purchaseRequests}
           </button>
           <button
             onClick={() => setActiveSubTab("availability")}
@@ -712,7 +716,7 @@ export default function PurchaseRequestsPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Vendor Availability
+            {FLEX_TEXT.vendorAvailability}
           </button>
         </div>
 
@@ -722,7 +726,7 @@ export default function PurchaseRequestsPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-3">
                 <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                  Purchase Requests
+                  {FLEX_TEXT.purchaseRequests}
                 </h1>
                 <Button
                   variant="outline"
@@ -730,9 +734,9 @@ export default function PurchaseRequestsPage() {
                   className="h-8 w-8 text-muted-foreground hover:text-primary"
                   onClick={() => {
                     refetch();
-                    toast.info("Refreshed Purchase Requests");
+                    toast.info(FLEX_TEXT.refreshedPurchaseRequests);
                   }}
-                  title="Refresh Records"
+                  title={FLEX_TEXT.refreshRecords}
                 >
                   <RefreshCw
                     className={`w-4 h-4 ${isFetching ? "animate-spin text-primary" : ""}`}
@@ -746,7 +750,7 @@ export default function PurchaseRequestsPage() {
                   className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 py-2 rounded-md gap-2 shadow-xs"
                   onClick={() => setIsCreateOpen(true)}
                 >
-                  <Plus className="w-4 h-4" /> Create PR
+                  <Plus className="w-4 h-4" /> {FLEX_TEXT.createPr}
                 </Button>
               </div>
             </div>
@@ -758,7 +762,7 @@ export default function PurchaseRequestsPage() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by Item, SKU, requester or Vendor ID (CON...)..."
+                  placeholder={FLEX_TEXT.searchByItemSkuRequesterOrVendorIdCon}
                   className="pl-9 bg-background border-border text-sm rounded-md h-9"
                 />
               </div>
@@ -766,7 +770,7 @@ export default function PurchaseRequestsPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                    From Date
+                    {FLEX_TEXT.fromDate}
                   </div>
                   <Input
                     type="date"
@@ -777,7 +781,7 @@ export default function PurchaseRequestsPage() {
                 </div>
                 <div>
                   <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                    To Date
+                    {FLEX_TEXT.toDate}
                   </div>
                   <Input
                     type="date"
@@ -790,19 +794,22 @@ export default function PurchaseRequestsPage() {
 
               <div>
                 <div className="text-[11px] text-muted-foreground mb-1 font-medium">
-                  Vendor
+                  {FLEX_TEXT.vendor}
                 </div>
                 <Select
                   value={selectedVendor}
                   onValueChange={setSelectedVendor}
                 >
                   <SelectTrigger className="bg-background text-xs h-9 rounded-md">
-                    <SelectValue placeholder="All vendors" />
+                    <SelectValue placeholder={FLEX_TEXT.allVendors} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="All">All vendors</SelectItem>
-                    <SelectItem value="Jagadeep">Jagadeep</SelectItem>
-                    <SelectItem value="Nish">Nish</SelectItem>
+                    <SelectItem value="All">{FLEX_TEXT.allVendors}</SelectItem>
+                    {vendorsList.map((vendor) => (
+                      <SelectItem key={vendor.id} value={vendor.name}>
+                        {vendor.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -815,22 +822,38 @@ export default function PurchaseRequestsPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                        <th className="px-4 py-3 font-semibold">VENDOR ID</th>
-                        <th className="px-4 py-3 font-semibold">VENDOR</th>
-                        <th className="px-4 py-3 font-semibold">PR NUMBER</th>
-                        <th className="px-4 py-3 font-semibold">VERSION</th>
-                        <th className="px-4 py-3 font-semibold">REQ DATE</th>
                         <th className="px-4 py-3 font-semibold">
-                          REQUIRED DATE
+                          {FLEX_TEXT.vendorId}
                         </th>
-                        <th className="px-4 py-3 font-semibold">PRIORITY</th>
-                        <th className="px-4 py-3 font-semibold">DEPARTMENT</th>
                         <th className="px-4 py-3 font-semibold">
-                          REQUESTED BY
+                          {FLEX_TEXT.vendor2}
                         </th>
-                        <th className="px-4 py-3 font-semibold">STATUS</th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.prNumber}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.version}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.reqDate}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.requiredDate}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.priority}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.department}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.requestedBy}
+                        </th>
+                        <th className="px-4 py-3 font-semibold">
+                          {FLEX_TEXT.status}
+                        </th>
                         <th className="px-4 py-3 font-semibold text-right">
-                          ACTION
+                          {FLEX_TEXT.action}
                         </th>
                       </tr>
                     </thead>
@@ -841,7 +864,7 @@ export default function PurchaseRequestsPage() {
                             colSpan={11}
                             className="px-4 py-8 text-center text-muted-foreground text-sm"
                           >
-                            No purchase requests found.
+                            {FLEX_TEXT.noPurchaseRequestsFound}
                           </td>
                         </tr>
                       ) : (
@@ -904,56 +927,70 @@ export default function PurchaseRequestsPage() {
                               <button
                                 onClick={() => handleDuplicatePR(pr)}
                                 className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
-                                title="Duplicate PR"
+                                title={FLEX_TEXT.duplicatePr}
                               >
                                 <Copy className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => handlePrintPR(pr)}
                                 className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
-                                title="Print PR"
+                                title={FLEX_TEXT.printPr}
                               >
                                 <Printer className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => {
                                   setEditingPr(pr);
-                                  setEditVendorName(pr.vendor || "Jagadeep");
-                                  setEditVendorsTable([
-                                    {
-                                      name: pr.vendor || "Jagadeep",
-                                      whatsapp: "9753124680",
-                                      phone: "9753124680",
-                                      email: "j@gmail.com",
-                                    },
-                                  ]);
+                                  setEditVendorName(pr.vendor || "");
+                                  const vendor = vendorsList.find(
+                                    (option) => option.id === pr.vendorId,
+                                  );
+                                  setEditVendorsTable(
+                                    vendor
+                                      ? [
+                                          {
+                                            name: vendor.name,
+                                            whatsapp: "",
+                                            phone: vendor.phone || "",
+                                            email: vendor.email || "",
+                                          },
+                                        ]
+                                      : [],
+                                  );
                                   setEditLineItems([
                                     {
                                       id: "1",
-                                      product:
-                                        pr.itemName ||
-                                        "HP LED 1080p (MONI-HP-LED-0001) (245",
-                                      description:
-                                        pr.itemName || "HP LED 1080p",
+                                      itemId: itemOptions.find(
+                                        (item) => item.name === pr.itemName,
+                                      )?.id,
+                                      product: pr.itemName || "",
+                                      description: pr.itemName || "",
                                       qty: pr.quantity || 1,
-                                      unit: pr.unit || "Nos",
+                                      unit: pr.unit || "",
                                     },
                                   ]);
-                                  setEditReqDate(pr.reqDate || "2026-08-07");
-                                  setEditRequiredDate(
-                                    pr.requiredDate || "2026-08-07",
-                                  );
+                                  setEditReqDate(pr.reqDate || "");
+                                  setEditRequiredDate(pr.requiredDate || "");
                                   setEditPriority(pr.priority || "Normal");
-                                  setEditDepartment(pr.department || "Admin");
+                                  setEditDepartmentId(
+                                    String(
+                                      pr.departmentId ??
+                                        departmentOptions.find(
+                                          (option) =>
+                                            option.name === pr.department,
+                                        )?.id ??
+                                        "",
+                                    ),
+                                  );
+                                  setEditDepartment(pr.department || "");
                                   setEditRequestedBy(
-                                    pr.requestedBy ||
-                                      "Aakash T (UI/UX Designer) (13)",
+                                    String(pr.requestedByUserId || ""),
                                   );
                                   setEditProject(pr.project || "");
                                   setEditNotes(pr.notes || "");
                                 }}
                                 className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
-                                title="Edit Purchase Request"
+                                title={FLEX_TEXT.editPurchaseRequest}
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
@@ -968,20 +1005,21 @@ export default function PurchaseRequestsPage() {
                 {/* Pagination Footer */}
                 <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
                   <div>
-                    Showing{" "}
-                    <span className="font-semibold text-foreground">1</span> to{" "}
+                    {FLEX_TEXT.showing}{" "}
+                    <span className="font-semibold text-foreground">1</span>{" "}
+                    {FLEX_TEXT.to}{" "}
                     <span className="font-semibold text-foreground">
                       {filtered.length}
                     </span>{" "}
-                    of{" "}
+                    {FLEX_TEXT.of}{" "}
                     <span className="font-semibold text-foreground">
                       {filtered.length}
                     </span>{" "}
-                    records
+                    {FLEX_TEXT.records}
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
-                      <span>Rows per page:</span>
+                      <span>{FLEX_TEXT.rowsPerPage}</span>
                       <Select
                         value={rowsPerPage}
                         onValueChange={setRowsPerPage}
@@ -1020,12 +1058,20 @@ export default function PurchaseRequestsPage() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-3.5 font-semibold">PR NUMBER</th>
-                      <th className="px-4 py-3.5 font-semibold">VERSION</th>
-                      <th className="px-4 py-3.5 font-semibold">DATE</th>
-                      <th className="px-4 py-3.5 font-semibold">STATUS</th>
+                      <th className="px-4 py-3.5 font-semibold">
+                        {FLEX_TEXT.prNumber}
+                      </th>
+                      <th className="px-4 py-3.5 font-semibold">
+                        {FLEX_TEXT.version}
+                      </th>
+                      <th className="px-4 py-3.5 font-semibold">
+                        {FLEX_TEXT.date}
+                      </th>
+                      <th className="px-4 py-3.5 font-semibold">
+                        {FLEX_TEXT.status}
+                      </th>
                       <th className="px-4 py-3.5 font-semibold text-right">
-                        ACTIONS
+                        {FLEX_TEXT.actions}
                       </th>
                     </tr>
                   </thead>
@@ -1062,7 +1108,8 @@ export default function PurchaseRequestsPage() {
                             className="h-7 text-xs font-semibold border-primary/30 text-primary hover:bg-primary/10 rounded-md"
                             onClick={() => setSelectedVendorAvailability(item)}
                           >
-                            Vendors ({item.vendorCount})
+                            {FLEX_TEXT.vendors}
+                            {item.vendorCount})
                           </Button>
                         </td>
                       </tr>
@@ -1082,7 +1129,7 @@ export default function PurchaseRequestsPage() {
                 <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                   <FileText className="w-4 h-4" />
                 </div>
-                Create Purchase Request
+                {FLEX_TEXT.createPurchaseRequest}
               </DialogTitle>
             </DialogHeader>
 
@@ -1090,18 +1137,25 @@ export default function PurchaseRequestsPage() {
               {/* 1. PURCHASE REQUEST NUMBER PREVIEW BOX */}
               <div className="bg-muted/40 p-3.5 rounded-lg border border-border/80">
                 <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
-                  PURCHASE REQUEST NUMBER
+                  {FLEX_TEXT.purchaseRequestNumber}
                 </div>
                 <div className="text-base font-bold text-foreground mt-0.5 font-mono">
                   {nextPrNumber}
                 </div>
               </div>
 
+              {isMasterDataError && (
+                <div className="text-xs text-destructive">
+                  {FLEX_TEXT.failedToLoadVendorAndItemMasterData}
+                </div>
+              )}
+
               {/* 2. VENDOR SELECTION */}
               <div className="border border-border/80 rounded-lg p-3.5 space-y-2.5 bg-background shadow-2xs">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-semibold text-foreground">
-                    Vendor Selection <span className="text-primary">*</span>
+                    {FLEX_TEXT.vendorSelection}{" "}
+                    <span className="text-primary">*</span>
                   </Label>
                   <Button
                     type="button"
@@ -1110,28 +1164,144 @@ export default function PurchaseRequestsPage() {
                     className="h-7 text-xs gap-1 text-primary border-primary/30 hover:bg-primary/10 font-semibold"
                     onClick={handleOpenAddVendor}
                   >
-                    <UserPlus className="w-3.5 h-3.5" /> + Add Vendor
+                    <UserPlus className="w-3.5 h-3.5" /> {FLEX_TEXT.addVendor}
                   </Button>
                 </div>
-                <Select value={vendorName} onValueChange={setVendorName}>
-                  <SelectTrigger className="bg-background text-xs h-9">
-                    <SelectValue placeholder="Search vendors..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vendorsList.map((v) => (
-                      <SelectItem key={v.id} value={`${v.id} - ${v.name}`}>
-                        {v.id} - {v.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover
+                  open={isVendorSelectorOpen}
+                  onOpenChange={setIsVendorSelectorOpen}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      role="combobox"
+                      aria-expanded={isVendorSelectorOpen}
+                      aria-label={FLEX_TEXT.vendorSelection}
+                      disabled={isMasterDataLoading || isMasterDataError}
+                      className="flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-background px-3 py-2 text-xs shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span
+                        className={`truncate ${selectedVendorDisplay ? "text-foreground" : "text-muted-foreground"}`}
+                      >
+                        {isMasterDataLoading
+                          ? FLEX_TEXT.loadingVendors
+                          : selectedVendorDisplay || FLEX_TEXT.searchVendors}
+                      </span>
+                      <ChevronDown
+                        className={`h-4 w-4 shrink-0 opacity-50 transition-transform ${isVendorSelectorOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    className="w-[var(--radix-popover-trigger-width)] p-0"
+                  >
+                    <Command>
+                      <CommandInput placeholder={FLEX_TEXT.typeToFilter} />
+                      <CommandList>
+                        <CommandEmpty>{FLEX_TEXT.noVendorsFound}</CommandEmpty>
+                        <CommandGroup>
+                          {vendorsList.map((vendor) => {
+                            const isSelected = selectedVendorIds.includes(
+                              vendor.id,
+                            );
+                            return (
+                              <CommandItem
+                                key={vendor.id}
+                                value={`${vendor.name} ${vendor.company || ""}`}
+                                onSelect={() => {
+                                  setSelectedVendorIds((current) =>
+                                    current.includes(vendor.id)
+                                      ? current.filter(
+                                          (vendorId) => vendorId !== vendor.id,
+                                        )
+                                      : [...current, vendor.id],
+                                  );
+                                }}
+                              >
+                                <Checkbox
+                                  checked={isSelected}
+                                  tabIndex={-1}
+                                  aria-hidden="true"
+                                  className="pointer-events-none"
+                                />
+                                <span className="truncate">{vendor.name}</span>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+
+                {selectedVendorRecords.length > 0 && (
+                  <div className="overflow-x-auto rounded-lg border border-border/80">
+                    <table className="w-full min-w-[620px] text-xs">
+                      <thead className="bg-muted/40 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left">
+                            {FLEX_TEXT.vendorName3}
+                          </th>
+                          <th className="px-3 py-2 text-left">
+                            {FLEX_TEXT.whatsapp2}
+                          </th>
+                          <th className="px-3 py-2 text-left">
+                            {FLEX_TEXT.phone2}
+                          </th>
+                          <th className="px-3 py-2 text-left">
+                            {FLEX_TEXT.email2}
+                          </th>
+                          <th className="px-3 py-2 text-right">
+                            {FLEX_TEXT.action}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {selectedVendorRecords.map((vendor) => (
+                          <tr key={vendor!.id} className="bg-background">
+                            <td className="px-3 py-2 font-medium text-foreground">
+                              {vendor!.name}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {vendor!.whatsapp || FLEX_TEXT.notAvailable}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {vendor!.phone || FLEX_TEXT.notAvailable}
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {vendor!.email || FLEX_TEXT.notAvailable}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                aria-label={`${FLEX_TEXT.removeVendorFromRequest} ${vendor!.name}`}
+                                title={FLEX_TEXT.removeVendorFromRequest}
+                                onClick={() =>
+                                  setSelectedVendorIds((current) =>
+                                    current.filter(
+                                      (vendorId) => vendorId !== vendor!.id,
+                                    ),
+                                  )
+                                }
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10"
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* 3. LINE ITEMS SECTION */}
               <div className="border border-border/80 rounded-lg p-3.5 space-y-3 bg-background shadow-2xs">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-foreground">
-                    Line Items
+                    {FLEX_TEXT.lineItems}
                   </span>
                   <div className="flex items-center gap-2">
                     <Button
@@ -1140,7 +1310,7 @@ export default function PurchaseRequestsPage() {
                       className="h-7 text-xs bg-primary text-primary-foreground hover:bg-primary/90 gap-1 font-semibold"
                       onClick={handleOpenAddInventory}
                     >
-                      + Add to Item Master
+                      {FLEX_TEXT.addToItemMaster}
                     </Button>
                     <Button
                       type="button"
@@ -1149,17 +1319,17 @@ export default function PurchaseRequestsPage() {
                       className="h-7 text-xs text-primary border-primary/30 hover:bg-primary/10 font-semibold"
                       onClick={handleAddLineItem}
                     >
-                      + Add Item
+                      {FLEX_TEXT.addItem}
                     </Button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-muted-foreground px-1">
-                    <div className="col-span-4">Item / Product</div>
-                    <div className="col-span-4">Description</div>
-                    <div className="col-span-2">Qty</div>
-                    <div className="col-span-1">Unit</div>
+                    <div className="col-span-4">{FLEX_TEXT.itemProduct}</div>
+                    <div className="col-span-4">{FLEX_TEXT.description2}</div>
+                    <div className="col-span-2">{FLEX_TEXT.qty2}</div>
+                    <div className="col-span-1">{FLEX_TEXT.unit}</div>
                     <div className="col-span-1 text-center"></div>
                   </div>
 
@@ -1170,42 +1340,58 @@ export default function PurchaseRequestsPage() {
                     >
                       <div className="col-span-4">
                         <Select
-                          value={itemRow.item}
-                          onValueChange={(val) =>
-                            handleLineItemChange(itemRow.id, "item", val)
-                          }
+                          value={String(itemRow.itemId || "")}
+                          onValueChange={(val) => {
+                            const selectedItem = itemOptions.find(
+                              (option) => String(option.id) === val,
+                            );
+                            handleLineItemChange(
+                              itemRow.id,
+                              "itemId",
+                              Number(val),
+                            );
+                            handleLineItemChange(
+                              itemRow.id,
+                              "item",
+                              selectedItem?.name || "",
+                            );
+                            handleLineItemChange(
+                              itemRow.id,
+                              "description",
+                              selectedItem?.name || "",
+                            );
+                            handleLineItemChange(
+                              itemRow.id,
+                              "unit",
+                              selectedItem?.unit || "",
+                            );
+                          }}
+                          disabled={isMasterDataLoading || isMasterDataError}
                         >
                           <SelectTrigger className="h-8 text-xs bg-background">
-                            <SelectValue placeholder="Select or type product/service" />
+                            <SelectValue
+                              placeholder={
+                                isMasterDataLoading
+                                  ? FLEX_TEXT.loadingItems
+                                  : FLEX_TEXT.selectOrTypeProductService
+                              }
+                            />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Trapezoidal Roofing Sheet">
-                              Trapezoidal Roofing Sheet
-                            </SelectItem>
-                            <SelectItem value="Steel Rod 12mm">
-                              Steel Rod 12mm
-                            </SelectItem>
-                            <SelectItem value="Cement Bags">
-                              Cement Bags
-                            </SelectItem>
-                            <SelectItem value="Structural Beams">
-                              Structural Beams
-                            </SelectItem>
-                            <SelectItem value="Fastener Screws">
-                              Fastener Screws
-                            </SelectItem>
-                            <SelectItem value="Safety Helmets">
-                              Safety Helmets
-                            </SelectItem>
-                            <SelectItem value="Office Supplies">
-                              Office Supplies
-                            </SelectItem>
+                            {itemOptions.map((option) => (
+                              <SelectItem
+                                key={option.id}
+                                value={String(option.id)}
+                              >
+                                {option.name}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="col-span-4">
                         <Input
-                          placeholder="Description"
+                          placeholder={FLEX_TEXT.description2}
                           value={itemRow.description}
                           onChange={(e) =>
                             handleLineItemChange(
@@ -1239,15 +1425,21 @@ export default function PurchaseRequestsPage() {
                           }
                         >
                           <SelectTrigger className="h-8 text-xs bg-background px-2">
-                            <SelectValue placeholder="Nos" />
+                            <SelectValue placeholder={FLEX_TEXT.nos} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Nos">Nos</SelectItem>
-                            <SelectItem value="kg">kg</SelectItem>
-                            <SelectItem value="units">units</SelectItem>
-                            <SelectItem value="sheets">sheets</SelectItem>
-                            <SelectItem value="pcs">pcs</SelectItem>
-                            <SelectItem value="bags">bags</SelectItem>
+                            <SelectItem value="Nos">{FLEX_TEXT.nos}</SelectItem>
+                            <SelectItem value="kg">{FLEX_TEXT.kg}</SelectItem>
+                            <SelectItem value="units">
+                              {FLEX_TEXT.units}
+                            </SelectItem>
+                            <SelectItem value="sheets">
+                              {FLEX_TEXT.sheets}
+                            </SelectItem>
+                            <SelectItem value="pcs">{FLEX_TEXT.pcs}</SelectItem>
+                            <SelectItem value="bags">
+                              {FLEX_TEXT.bags}
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -1269,7 +1461,7 @@ export default function PurchaseRequestsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    Request Date
+                    {FLEX_TEXT.requestDate}
                   </Label>
                   <Input
                     type="date"
@@ -1280,7 +1472,7 @@ export default function PurchaseRequestsPage() {
                 </div>
                 <div>
                   <Label className="text-xs font-semibold text-foreground mb-1 block">
-                    Required Date <span className="text-primary">*</span>
+                    {FLEX_TEXT.requiredDate2}
                   </Label>
                   <Input
                     type="date"
@@ -1291,17 +1483,19 @@ export default function PurchaseRequestsPage() {
                 </div>
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    Priority
+                    {FLEX_TEXT.priority2}
                   </Label>
                   <Select value={priority} onValueChange={setPriority}>
                     <SelectTrigger className="h-9 text-xs bg-background">
-                      <SelectValue placeholder="Normal" />
+                      <SelectValue placeholder={FLEX_TEXT.normal} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Low">Low</SelectItem>
-                      <SelectItem value="Normal">Normal</SelectItem>
-                      <SelectItem value="High">High</SelectItem>
-                      <SelectItem value="Critical">Critical</SelectItem>
+                      <SelectItem value="Low">{FLEX_TEXT.low}</SelectItem>
+                      <SelectItem value="Normal">{FLEX_TEXT.normal}</SelectItem>
+                      <SelectItem value="High">{FLEX_TEXT.high}</SelectItem>
+                      <SelectItem value="Critical">
+                        {FLEX_TEXT.critical}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1311,53 +1505,77 @@ export default function PurchaseRequestsPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs font-semibold text-foreground mb-1 block">
-                    Department / Team <span className="text-primary">*</span>
+                    {FLEX_TEXT.departmentTeam}
                   </Label>
-                  <Select value={department} onValueChange={setDepartment}>
+                  <Select
+                    value={departmentId}
+                    onValueChange={(value) => {
+                      const selectedDepartment = departmentOptions.find(
+                        (option) => String(option.id) === value,
+                      );
+                      setDepartmentId(value);
+                      setDepartment(selectedDepartment?.name || "");
+                    }}
+                    disabled={isMasterDataLoading || isMasterDataError}
+                  >
                     <SelectTrigger className="h-9 text-xs bg-background">
-                      <SelectValue placeholder="Select department..." />
+                      <SelectValue
+                        placeholder={
+                          isMasterDataLoading
+                            ? FLEX_TEXT.loadingDepartments
+                            : isMasterDataError
+                              ? FLEX_TEXT.failedToLoadDepartments
+                              : FLEX_TEXT.selectDepartment
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Admin">Admin</SelectItem>
-                      <SelectItem value="Development">Development</SelectItem>
-                      <SelectItem value="Engineering">Engineering</SelectItem>
-                      <SelectItem value="Production">Production</SelectItem>
-                      <SelectItem value="Sales">Sales</SelectItem>
+                      {departmentOptions.length === 0 ? (
+                        <SelectItem value="__no_departments__" disabled>
+                          {FLEX_TEXT.noDepartmentsAvailable}
+                        </SelectItem>
+                      ) : (
+                        departmentOptions.map((option) => (
+                          <SelectItem key={option.id} value={String(option.id)}>
+                            {option.name}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label className="text-xs font-semibold text-foreground mb-1 block">
-                    Requested By <span className="text-primary">*</span>
+                    {FLEX_TEXT.requestedBy2}{" "}
+                    <span className="text-primary">*</span>
                   </Label>
                   <Select value={requestedBy} onValueChange={setRequestedBy}>
                     <SelectTrigger className="h-9 text-xs bg-background">
-                      <SelectValue placeholder="Select employee..." />
+                      <SelectValue placeholder={FLEX_TEXT.selectEmployee} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Aakash T">Aakash T</SelectItem>
-                      <SelectItem value="Kavin">Kavin</SelectItem>
-                      <SelectItem value="SuperAdmin">SuperAdmin</SelectItem>
-                      <SelectItem value="Nishanth">Nishanth</SelectItem>
+                      {userOptions.map((option) => (
+                        <SelectItem key={option.id} value={String(option.id)}>
+                          {option.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    Project
+                    {FLEX_TEXT.project}
                   </Label>
                   <Select value={project} onValueChange={setProject}>
                     <SelectTrigger className="h-9 text-xs bg-background">
-                      <SelectValue placeholder="Optional..." />
+                      <SelectValue placeholder={FLEX_TEXT.optional} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Vidhai Factory Phase 1">
-                        Vidhai Factory Phase 1
-                      </SelectItem>
-                      <SelectItem value="ERP Upgrade">ERP Upgrade</SelectItem>
-                      <SelectItem value="General Procurement">
-                        General Procurement
-                      </SelectItem>
+                      {projectOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -1366,7 +1584,7 @@ export default function PurchaseRequestsPage() {
               {/* 6. ATTACHMENT UPLOAD */}
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-muted-foreground">
-                  Supporting Attachments
+                  {FLEX_TEXT.supportingAttachments}
                 </Label>
                 <div className="flex items-center gap-2">
                   <Input
@@ -1376,7 +1594,7 @@ export default function PurchaseRequestsPage() {
                       const file = e.target.files?.[0];
                       if (file) {
                         setAttachmentName(file.name);
-                        toast.success(`Attached ${file.name}`);
+                        toast.success(`${FLEX_TEXT.attached}${file.name}`);
                       }
                     }}
                   />
@@ -1391,10 +1609,10 @@ export default function PurchaseRequestsPage() {
               {/* 7. NOTES */}
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-muted-foreground">
-                  Notes
+                  {FLEX_TEXT.notes}
                 </Label>
                 <Textarea
-                  placeholder="Additional notes"
+                  placeholder={FLEX_TEXT.additionalNotes}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
@@ -1411,7 +1629,7 @@ export default function PurchaseRequestsPage() {
                 size="sm"
                 onClick={() => setIsCreateOpen(false)}
               >
-                Cancel
+                {FLEX_TEXT.cancel}
               </Button>
               <Button
                 type="button"
@@ -1421,7 +1639,7 @@ export default function PurchaseRequestsPage() {
                 className="border-border text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={() => handleSubmitPR("Draft")}
               >
-                Save Draft
+                {FLEX_TEXT.saveDraft}
               </Button>
               <Button
                 type="button"
@@ -1430,7 +1648,7 @@ export default function PurchaseRequestsPage() {
                 className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 gap-1.5 shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={() => handleSubmitPR("Submitted")}
               >
-                <Send className="w-3.5 h-3.5" /> Submit Request
+                <Send className="w-3.5 h-3.5" /> {FLEX_TEXT.submitRequest}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1445,20 +1663,20 @@ export default function PurchaseRequestsPage() {
             <form onSubmit={handleAddVendorSubmit}>
               <DialogHeader className="pb-2 border-b border-border">
                 <DialogTitle className="text-lg font-bold text-foreground">
-                  Add Contact
+                  {FLEX_TEXT.addContact}
                 </DialogTitle>
                 <p className="text-xs text-muted-foreground">
-                  Creates a new entry in Orbit Contact Directory.
+                  {FLEX_TEXT.createsANewEntryInOrbitContactDirectory}
                 </p>
               </DialogHeader>
 
               <div className="space-y-3.5 py-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">
-                    Contact ID
+                    {FLEX_TEXT.contactId}
                   </Label>
                   <Input
-                    value={nextContactId}
+                    value={FLEX_TEXT.autoAssignedOnSave}
                     readOnly
                     className="h-9 text-xs bg-muted/40 font-mono"
                   />
@@ -1466,10 +1684,10 @@ export default function PurchaseRequestsPage() {
 
                 <div>
                   <Label className="text-xs text-foreground font-medium">
-                    Vendor Name *
+                    {FLEX_TEXT.vendorName2}
                   </Label>
                   <Input
-                    placeholder="Enter vendor name"
+                    placeholder={FLEX_TEXT.enterVendorName}
                     value={vName}
                     onChange={(e) => setVName(e.target.value)}
                     className="h-9 text-xs"
@@ -1480,10 +1698,10 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      Phone *
+                      {FLEX_TEXT.phone}
                     </Label>
                     <Input
-                      placeholder="Phone number"
+                      placeholder={FLEX_TEXT.phoneNumber}
                       value={vPhone}
                       onChange={(e) => setVPhone(e.target.value)}
                       className="h-9 text-xs"
@@ -1492,10 +1710,10 @@ export default function PurchaseRequestsPage() {
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">
-                      WhatsApp
+                      {FLEX_TEXT.whatsapp}
                     </Label>
                     <Input
-                      placeholder="WhatsApp number"
+                      placeholder={FLEX_TEXT.whatsappNumber}
                       value={vWhatsapp}
                       onChange={(e) => setVWhatsapp(e.target.value)}
                       className="h-9 text-xs"
@@ -1504,10 +1722,12 @@ export default function PurchaseRequestsPage() {
                 </div>
 
                 <div>
-                  <Label className="text-xs text-muted-foreground">Email</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    {FLEX_TEXT.email}
+                  </Label>
                   <Input
                     type="email"
-                    placeholder="Email address"
+                    placeholder={FLEX_TEXT.emailAddress}
                     value={vEmail}
                     onChange={(e) => setVEmail(e.target.value)}
                     className="h-9 text-xs"
@@ -1516,10 +1736,10 @@ export default function PurchaseRequestsPage() {
 
                 <div>
                   <Label className="text-xs text-foreground font-medium">
-                    Address *
+                    {FLEX_TEXT.address}
                   </Label>
                   <Textarea
-                    placeholder="Vendor address"
+                    placeholder={FLEX_TEXT.vendorAddress2}
                     value={vAddress}
                     onChange={(e) => setVAddress(e.target.value)}
                     rows={2}
@@ -1531,10 +1751,10 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-muted-foreground">
-                      GST Number
+                      {FLEX_TEXT.gstNumber2}
                     </Label>
                     <Input
-                      placeholder="GSTIN"
+                      placeholder={FLEX_TEXT.gstin}
                       value={vGst}
                       onChange={(e) => setVGst(e.target.value)}
                       className="h-9 text-xs font-mono"
@@ -1542,10 +1762,10 @@ export default function PurchaseRequestsPage() {
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">
-                      Contact Person
+                      {FLEX_TEXT.contactPerson}
                     </Label>
                     <Input
-                      placeholder="Contact person name"
+                      placeholder={FLEX_TEXT.contactPersonName}
                       value={vPerson}
                       onChange={(e) => setVPerson(e.target.value)}
                       className="h-9 text-xs"
@@ -1555,14 +1775,14 @@ export default function PurchaseRequestsPage() {
 
                 <div>
                   <Label className="text-xs text-muted-foreground">
-                    Contact Type
+                    {FLEX_TEXT.contactType}
                   </Label>
                   <Select value="Vendor" disabled>
                     <SelectTrigger className="h-9 text-xs bg-muted/30">
-                      <SelectValue placeholder="Vendor" />
+                      <SelectValue placeholder={FLEX_TEXT.vendor} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Vendor">Vendor</SelectItem>
+                      <SelectItem value="Vendor">{FLEX_TEXT.vendor}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1575,14 +1795,14 @@ export default function PurchaseRequestsPage() {
                   size="sm"
                   onClick={handleCloseAddVendor}
                 >
-                  Cancel
+                  {FLEX_TEXT.cancel}
                 </Button>
                 <Button
                   type="submit"
                   size="sm"
                   className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
                 >
-                  Add Contact
+                  {FLEX_TEXT.addContact}
                 </Button>
               </DialogFooter>
             </form>
@@ -1598,17 +1818,17 @@ export default function PurchaseRequestsPage() {
             <form onSubmit={handleAddInventorySubmit}>
               <DialogHeader className="pb-2 border-b border-border">
                 <DialogTitle className="text-lg font-bold text-foreground">
-                  Add Inventory
+                  {FLEX_TEXT.addInventory}
                 </DialogTitle>
               </DialogHeader>
 
               <div className="space-y-3.5 py-3">
                 <div>
                   <Label className="text-xs text-foreground font-medium">
-                    Item Name *
+                    {FLEX_TEXT.itemName}
                   </Label>
                   <Input
-                    placeholder="Search or select item"
+                    placeholder={FLEX_TEXT.searchOrSelectItem}
                     value={invItemName}
                     onChange={(e) => setInvItemName(e.target.value)}
                     className="h-9 text-xs"
@@ -1619,37 +1839,45 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      Category *
+                      {FLEX_TEXT.category}
                     </Label>
                     <Select value={invCategory} onValueChange={setInvCategory}>
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Search or select category" />
+                        <SelectValue
+                          placeholder={FLEX_TEXT.searchOrSelectCategory}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Raw Material">
-                          Raw Material
+                          {FLEX_TEXT.rawMaterial}
                         </SelectItem>
                         <SelectItem value="Finished Goods">
-                          Finished Goods
+                          {FLEX_TEXT.finishedGoods}
                         </SelectItem>
-                        <SelectItem value="Packaging">Packaging</SelectItem>
-                        <SelectItem value="Hardware">Hardware</SelectItem>
+                        <SelectItem value="Packaging">
+                          {FLEX_TEXT.packaging}
+                        </SelectItem>
+                        <SelectItem value="Hardware">
+                          {FLEX_TEXT.hardware}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">
-                      Type
+                      {FLEX_TEXT.type}
                     </Label>
                     <Select value={invType} onValueChange={setInvType}>
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Raw Material" />
+                        <SelectValue placeholder={FLEX_TEXT.rawMaterial} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Raw Material">
-                          Raw Material
+                          {FLEX_TEXT.rawMaterial}
                         </SelectItem>
-                        <SelectItem value="Consumable">Consumable</SelectItem>
+                        <SelectItem value="Consumable">
+                          {FLEX_TEXT.consumable}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1658,7 +1886,7 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      Generated SKU *
+                      {FLEX_TEXT.generatedSku}
                     </Label>
                     <Input
                       value={invSku}
@@ -1669,7 +1897,7 @@ export default function PurchaseRequestsPage() {
                   </div>
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      HSN/SAC *
+                      {FLEX_TEXT.hsnSac}
                     </Label>
                     <Input
                       value={invHsn}
@@ -1683,7 +1911,7 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      Buying Price (₹) *
+                      {FLEX_TEXT.buyingPrice}
                     </Label>
                     <Input
                       type="number"
@@ -1695,7 +1923,7 @@ export default function PurchaseRequestsPage() {
                   </div>
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      Selling Price (₹) *
+                      {FLEX_TEXT.sellingPrice}
                     </Label>
                     <Input
                       type="number"
@@ -1710,25 +1938,27 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-foreground font-medium">
-                      UOM *
+                      {FLEX_TEXT.uom}
                     </Label>
                     <Select value={invUom} onValueChange={setInvUom}>
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Nos" />
+                        <SelectValue placeholder={FLEX_TEXT.nos} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Nos">Nos</SelectItem>
-                        <SelectItem value="kg">kg</SelectItem>
-                        <SelectItem value="units">units</SelectItem>
-                        <SelectItem value="sheets">sheets</SelectItem>
-                        <SelectItem value="pcs">pcs</SelectItem>
-                        <SelectItem value="bags">bags</SelectItem>
+                        <SelectItem value="Nos">{FLEX_TEXT.nos}</SelectItem>
+                        <SelectItem value="kg">{FLEX_TEXT.kg}</SelectItem>
+                        <SelectItem value="units">{FLEX_TEXT.units}</SelectItem>
+                        <SelectItem value="sheets">
+                          {FLEX_TEXT.sheets}
+                        </SelectItem>
+                        <SelectItem value="pcs">{FLEX_TEXT.pcs}</SelectItem>
+                        <SelectItem value="bags">{FLEX_TEXT.bags}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground">
-                      Critical Level
+                      {FLEX_TEXT.criticalLevel}
                     </Label>
                     <Input
                       type="number"
@@ -1742,7 +1972,7 @@ export default function PurchaseRequestsPage() {
                 {/* Image Upload box */}
                 <div>
                   <Label className="text-xs text-muted-foreground">
-                    Product Image
+                    {FLEX_TEXT.productImage}
                   </Label>
                   <div className="flex items-center gap-3 mt-1">
                     <div className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-muted/30 text-muted-foreground">
@@ -1754,7 +1984,7 @@ export default function PurchaseRequestsPage() {
                       size="sm"
                       className="text-xs h-8"
                     >
-                      Upload image
+                      {FLEX_TEXT.uploadImage}
                     </Button>
                   </div>
                 </div>
@@ -1763,23 +1993,26 @@ export default function PurchaseRequestsPage() {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground font-medium">
-                      Stock by Warehouse
+                      {FLEX_TEXT.stockByWarehouse}
                     </span>
                     <button
                       type="button"
                       className="text-primary hover:underline text-[11px] font-semibold"
                     >
-                      + Add Warehouse
+                      {FLEX_TEXT.addWarehouse}
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Select defaultValue="Bangalore">
                       <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Bangalore (4)" />
+                        <SelectValue placeholder={FLEX_TEXT.bangalore4} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Bangalore">Bangalore (4)</SelectItem>
-                        <SelectItem value="Chennai">Chennai (2)</SelectItem>
+                        {(masterData?.warehouses ?? []).map((option) => (
+                          <SelectItem key={option.id} value={String(option.id)}>
+                            {option.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Input
@@ -1792,8 +2025,9 @@ export default function PurchaseRequestsPage() {
 
                 {/* QR Code section */}
                 <div className="bg-muted/40 p-2.5 rounded-lg border border-border/60 text-[11px] text-muted-foreground">
-                  Product QR Code: Complete category selections to generate the
-                  QR code.
+                  {
+                    FLEX_TEXT.productQrCodeCompleteCategorySelectionsToGenerateTheQrCode
+                  }
                 </div>
               </div>
 
@@ -1804,14 +2038,14 @@ export default function PurchaseRequestsPage() {
                   size="sm"
                   onClick={handleCloseAddInventory}
                 >
-                  Cancel
+                  {FLEX_TEXT.cancel}
                 </Button>
                 <Button
                   type="submit"
                   size="sm"
                   className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4"
                 >
-                  Add Inventory
+                  {FLEX_TEXT.addInventory}
                 </Button>
               </DialogFooter>
             </form>
@@ -1828,7 +2062,8 @@ export default function PurchaseRequestsPage() {
               <div className="space-y-4">
                 <DialogHeader className="pb-2 border-b border-border">
                   <DialogTitle className="text-lg font-bold text-foreground">
-                    Vendor Quotes for {selectedVendorAvailability.prNumber}
+                    {FLEX_TEXT.vendorQuotesFor}{" "}
+                    {selectedVendorAvailability.prNumber}
                   </DialogTitle>
                 </DialogHeader>
 
@@ -1843,7 +2078,7 @@ export default function PurchaseRequestsPage() {
                         <div>
                           <p className="font-bold text-foreground">{v.name}</p>
                           <p className="text-[11px] text-muted-foreground">
-                            Quote:{" "}
+                            {FLEX_TEXT.quote}{" "}
                             <span className="font-semibold text-foreground">
                               {v.quote}
                             </span>
@@ -1863,7 +2098,7 @@ export default function PurchaseRequestsPage() {
                     size="sm"
                     onClick={() => setSelectedVendorAvailability(null)}
                   >
-                    Close
+                    {FLEX_TEXT.close}
                   </Button>
                 </DialogFooter>
               </div>
@@ -1879,7 +2114,7 @@ export default function PurchaseRequestsPage() {
                 <DialogHeader className="pb-2 border-b border-border">
                   <DialogTitle className="flex items-center justify-between">
                     <span className="text-lg font-bold text-foreground">
-                      {selectedPr.prNumber} Details
+                      {selectedPr.prNumber} {FLEX_TEXT.details}
                     </span>
                     <span className="text-xs font-mono bg-muted/60 px-2 py-0.5 rounded text-muted-foreground">
                       {selectedPr.vendorId}
@@ -1890,38 +2125,48 @@ export default function PurchaseRequestsPage() {
                 {/* PR Details Grid */}
                 <div className="grid grid-cols-2 gap-3 text-xs bg-muted/40 p-3.5 rounded-lg border border-border/80">
                   <div>
-                    <span className="text-muted-foreground">Item Name:</span>
+                    <span className="text-muted-foreground">
+                      {FLEX_TEXT.itemName2}
+                    </span>
                     <p className="font-semibold text-foreground text-sm">
-                      {selectedPr.itemName || "Trapezoidal Roofing Sheet"}
+                      {selectedPr.itemName || ""}
                     </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Quantity:</span>
+                    <span className="text-muted-foreground">
+                      {FLEX_TEXT.quantity}
+                    </span>
                     <p className="font-semibold text-foreground text-sm">
                       {selectedPr.quantity || 100} {selectedPr.unit || "sheets"}
                     </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Vendor:</span>
+                    <span className="text-muted-foreground">
+                      {FLEX_TEXT.vendor3}
+                    </span>
                     <p className="font-medium text-foreground">
                       {selectedPr.vendor}
                     </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Requested By:</span>
+                    <span className="text-muted-foreground">
+                      {FLEX_TEXT.requestedBy3}
+                    </span>
                     <p className="font-medium text-foreground">
                       {selectedPr.requestedBy}
                     </p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Department:</span>
+                    <span className="text-muted-foreground">
+                      {FLEX_TEXT.department2}
+                    </span>
                     <p className="font-medium text-foreground">
                       {selectedPr.department}
                     </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground">
-                      Current Status:
+                      {FLEX_TEXT.currentStatus}
                     </span>
                     <p className="font-semibold text-primary">
                       {selectedPr.status}
@@ -1929,7 +2174,9 @@ export default function PurchaseRequestsPage() {
                   </div>
                   {selectedPr.project && (
                     <div className="col-span-2">
-                      <span className="text-muted-foreground">Project:</span>
+                      <span className="text-muted-foreground">
+                        {FLEX_TEXT.project2}
+                      </span>
                       <p className="font-medium text-foreground">
                         {selectedPr.project}
                       </p>
@@ -1937,8 +2184,8 @@ export default function PurchaseRequestsPage() {
                   )}
                   {selectedPr.attachmentName && (
                     <div className="col-span-2 flex items-center gap-1.5 text-primary font-medium">
-                      <Paperclip className="w-3.5 h-3.5" /> Attachment:{" "}
-                      {selectedPr.attachmentName}
+                      <Paperclip className="w-3.5 h-3.5" />{" "}
+                      {FLEX_TEXT.attachment} {selectedPr.attachmentName}
                     </div>
                   )}
                 </div>
@@ -1946,20 +2193,16 @@ export default function PurchaseRequestsPage() {
                 {/* Audit & Version History */}
                 <div className="space-y-2 pt-1 border-t border-border">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                    <History className="w-3.5 h-3.5 text-primary" /> Version
-                    Audit History
+                    <History className="w-3.5 h-3.5 text-primary" />{" "}
+                    {FLEX_TEXT.versionAuditHistory}
                   </div>
                   <div className="bg-background border border-border rounded-lg p-2.5 space-y-1.5 text-[11px]">
-                    {(
-                      selectedPr.versionLogs || [
-                        {
-                          version: selectedPr.version,
-                          updatedBy: selectedPr.requestedBy,
-                          timestamp: selectedPr.reqDate,
-                          status: selectedPr.status,
-                        },
-                      ]
-                    ).map((log, idx) => (
+                    {!selectedPr.versionLogs?.length && (
+                      <div className="text-muted-foreground">
+                        {FLEX_TEXT.noAuditHistoryAvailable}
+                      </div>
+                    )}
+                    {(selectedPr.versionLogs ?? []).map((log, idx) => (
                       <div
                         key={idx}
                         className="flex items-center justify-between py-1 border-b border-border/40 last:border-0"
@@ -1985,7 +2228,7 @@ export default function PurchaseRequestsPage() {
                 <div className="space-y-2 pt-2 border-t border-border">
                   <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-primary" />{" "}
-                    Approval & Workflow Actions
+                    {FLEX_TEXT.approvalWorkflowActions}
                   </Label>
                   <div className="flex flex-wrap gap-2">
                     {selectedPr.status === "Submitted" && (
@@ -2000,8 +2243,8 @@ export default function PurchaseRequestsPage() {
                             })
                           }
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Approve
-                          Request
+                          <CheckCircle2 className="w-3.5 h-3.5" />{" "}
+                          {FLEX_TEXT.approveRequest}
                         </Button>
                         <Button
                           size="sm"
@@ -2014,7 +2257,8 @@ export default function PurchaseRequestsPage() {
                             })
                           }
                         >
-                          <XCircle className="w-3.5 h-3.5" /> Reject Request
+                          <XCircle className="w-3.5 h-3.5" />{" "}
+                          {FLEX_TEXT.rejectRequest}
                         </Button>
                       </>
                     )}
@@ -2030,7 +2274,7 @@ export default function PurchaseRequestsPage() {
                           })
                         }
                       >
-                        Re-submit Request
+                        {FLEX_TEXT.reSubmitRequest}
                       </Button>
                     )}
 
@@ -2041,8 +2285,8 @@ export default function PurchaseRequestsPage() {
                         className="bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 font-semibold"
                         onClick={() => convertPoMutation.mutate(selectedPr.id)}
                       >
-                        <ShoppingCart className="w-3.5 h-3.5" /> Generate
-                        Purchase Order
+                        <ShoppingCart className="w-3.5 h-3.5" />{" "}
+                        {FLEX_TEXT.generatePurchaseOrder}
                       </Button>
                     )}
 
@@ -2052,7 +2296,7 @@ export default function PurchaseRequestsPage() {
                       className="gap-1 text-muted-foreground hover:text-foreground"
                       onClick={() => handlePrintPR(selectedPr)}
                     >
-                      <Printer className="w-3.5 h-3.5" /> Print
+                      <Printer className="w-3.5 h-3.5" /> {FLEX_TEXT.print}
                     </Button>
 
                     <Button
@@ -2061,7 +2305,7 @@ export default function PurchaseRequestsPage() {
                       className="gap-1 text-destructive hover:bg-destructive/10"
                       onClick={() => deleteMutation.mutate(selectedPr.id)}
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                      <Trash2 className="w-3.5 h-3.5" /> {FLEX_TEXT.delete}
                     </Button>
                   </div>
                 </div>
@@ -2072,7 +2316,7 @@ export default function PurchaseRequestsPage() {
                     size="sm"
                     onClick={() => setSelectedPr(null)}
                   >
-                    Close
+                    {FLEX_TEXT.close}
                   </Button>
                 </DialogFooter>
               </div>
@@ -2095,7 +2339,7 @@ export default function PurchaseRequestsPage() {
                       <FileText className="w-4 h-4" />
                     </div>
                     <h2 className="text-lg font-bold text-foreground">
-                      Edit Purchase Request
+                      {FLEX_TEXT.editPurchaseRequest}
                     </h2>
                   </div>
                 </div>
@@ -2104,7 +2348,7 @@ export default function PurchaseRequestsPage() {
                 <div className="bg-muted/40 p-4 rounded-xl border border-border/80 flex items-center justify-between">
                   <div className="space-y-1">
                     <div className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
-                      REQUEST NUMBER
+                      {FLEX_TEXT.requestNumber}
                     </div>
                     <div className="text-base font-bold text-foreground font-mono">
                       {editingPr.prNumber}
@@ -2122,15 +2366,17 @@ export default function PurchaseRequestsPage() {
 
                 {/* NOTICE BANNER */}
                 <div className="bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 text-xs px-4 py-2.5 rounded-lg border border-blue-200 dark:border-blue-900 font-medium">
-                  Saving will create a new submitted version from this locked
-                  request.
+                  {
+                    FLEX_TEXT.savingWillCreateANewSubmittedVersionFromThisLockedRequest
+                  }
                 </div>
 
                 {/* VENDOR SELECTION CARD */}
                 <div className="border border-border rounded-xl p-4 space-y-3 bg-card shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-foreground text-sm">
-                      Vendor Selection <span className="text-red-500">*</span>
+                      {FLEX_TEXT.vendorSelection}{" "}
+                      <span className="text-red-500">*</span>
                     </span>
                     <Button
                       variant="outline"
@@ -2141,33 +2387,43 @@ export default function PurchaseRequestsPage() {
                         setIsAddVendorOpen(true);
                       }}
                     >
-                      + Add Vendor
+                      {FLEX_TEXT.addVendor}
                     </Button>
                   </div>
 
                   <div>
                     <div className="text-muted-foreground font-medium mb-1 text-[11px]">
-                      Select Vendor
+                      {FLEX_TEXT.selectVendor}
                     </div>
                     <Select
                       value={editVendorName}
                       onValueChange={(val) => {
                         setEditVendorName(val);
-                        if (!editVendorsTable.some((v) => v.name === val)) {
-                          setEditVendorsTable((prev) => [
-                            ...prev,
-                            {
-                              name: val,
-                              whatsapp: "9753124680",
-                              phone: "9753124680",
-                              email: "j@gmail.com",
-                            },
-                          ]);
-                        }
+                        const vendor = vendorsList.find(
+                          (option) => option.name === val,
+                        );
+                        setEditVendorsTable(
+                          vendor
+                            ? [
+                                {
+                                  name: vendor.name,
+                                  whatsapp: "",
+                                  phone: vendor.phone || "",
+                                  email: vendor.email || "",
+                                },
+                              ]
+                            : [],
+                        );
                       }}
                     >
                       <SelectTrigger className="h-10 text-xs bg-background rounded-lg border-border">
-                        <SelectValue placeholder="Search vendors..." />
+                        <SelectValue
+                          placeholder={
+                            isMasterDataLoading
+                              ? FLEX_TEXT.loadingVendors
+                              : FLEX_TEXT.searchVendors
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {vendorsList.map((v: any) => (
@@ -2184,11 +2440,13 @@ export default function PurchaseRequestsPage() {
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b border-border bg-muted/40 text-[10px] uppercase font-bold tracking-wider text-muted-foreground text-left">
-                          <th className="px-3 py-2">VENDOR NAME</th>
-                          <th className="px-3 py-2">WHATSAPP</th>
-                          <th className="px-3 py-2">PHONE</th>
-                          <th className="px-3 py-2">EMAIL</th>
-                          <th className="px-3 py-2 text-right">ACTION</th>
+                          <th className="px-3 py-2">{FLEX_TEXT.vendorName3}</th>
+                          <th className="px-3 py-2">{FLEX_TEXT.whatsapp2}</th>
+                          <th className="px-3 py-2">{FLEX_TEXT.phone2}</th>
+                          <th className="px-3 py-2">{FLEX_TEXT.email2}</th>
+                          <th className="px-3 py-2 text-right">
+                            {FLEX_TEXT.action}
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
@@ -2230,7 +2488,7 @@ export default function PurchaseRequestsPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-foreground text-sm">
-                      Line Items
+                      {FLEX_TEXT.lineItems}
                     </span>
                     <div className="flex items-center gap-2">
                       <Button
@@ -2241,7 +2499,7 @@ export default function PurchaseRequestsPage() {
                           setIsAddInventoryOpen(true);
                         }}
                       >
-                        + Add to Item Master
+                        {FLEX_TEXT.addToItemMaster}
                       </Button>
                       <Button
                         variant="ghost"
@@ -2252,25 +2510,27 @@ export default function PurchaseRequestsPage() {
                             ...prev,
                             {
                               id: String(Date.now()),
-                              product: "Trapezoidal Roofing Sheet",
-                              description: "Standard Sheet",
+                              product: "",
+                              description: "",
                               qty: 1,
-                              unit: "sheets",
+                              unit: "",
                             },
                           ]);
                         }}
                       >
-                        + Add Item
+                        {FLEX_TEXT.addItem}
                       </Button>
                     </div>
                   </div>
 
                   <div className="border border-border/80 rounded-xl p-3 bg-muted/20 space-y-3">
                     <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-muted-foreground px-1">
-                      <div className="col-span-5">Item / Product</div>
-                      <div className="col-span-4">Description</div>
-                      <div className="col-span-1 text-center">Qty</div>
-                      <div className="col-span-1">Unit</div>
+                      <div className="col-span-5">{FLEX_TEXT.itemProduct}</div>
+                      <div className="col-span-4">{FLEX_TEXT.description2}</div>
+                      <div className="col-span-1 text-center">
+                        {FLEX_TEXT.qty2}
+                      </div>
+                      <div className="col-span-1">{FLEX_TEXT.unit}</div>
                       <div className="col-span-1 text-right"></div>
                     </div>
 
@@ -2281,11 +2541,17 @@ export default function PurchaseRequestsPage() {
                       >
                         <div className="col-span-5">
                           <Select
-                            value={item.product}
+                            value={String(item.itemId || "")}
                             onValueChange={(val) => {
+                              const selectedItem = itemOptions.find(
+                                (option) => String(option.id) === val,
+                              );
                               const updated = [...editLineItems];
-                              updated[idx].product = val;
-                              updated[idx].description = val;
+                              updated[idx].itemId = Number(val);
+                              updated[idx].product = selectedItem?.name || "";
+                              updated[idx].description =
+                                selectedItem?.name || "";
+                              updated[idx].unit = selectedItem?.unit || "";
                               setEditLineItems(updated);
                             }}
                           >
@@ -2293,18 +2559,14 @@ export default function PurchaseRequestsPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="HP LED 1080p (MONI-HP-LED-0001) (245">
-                                HP LED 1080p (MONI-HP-LED-0001) (245
-                              </SelectItem>
-                              <SelectItem value="Trapezoidal Roofing Sheet">
-                                Trapezoidal Roofing Sheet
-                              </SelectItem>
-                              <SelectItem value="Steel Rod 12mm">
-                                Steel Rod 12mm
-                              </SelectItem>
-                              <SelectItem value="Cement Bags">
-                                Cement Bags
-                              </SelectItem>
+                              {itemOptions.map((option) => (
+                                <SelectItem
+                                  key={option.id}
+                                  value={String(option.id)}
+                                >
+                                  {option.name}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -2356,7 +2618,7 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                      Request Date
+                      {FLEX_TEXT.requestDate}
                     </Label>
                     <Input
                       type="date"
@@ -2367,7 +2629,8 @@ export default function PurchaseRequestsPage() {
                   </div>
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                      Required Date <span className="text-red-500">*</span>
+                      {FLEX_TEXT.requiredDate2}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Input
                       type="date"
@@ -2378,7 +2641,7 @@ export default function PurchaseRequestsPage() {
                   </div>
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                      Priority
+                      {FLEX_TEXT.priority2}
                     </Label>
                     <Select
                       value={editPriority}
@@ -2388,9 +2651,13 @@ export default function PurchaseRequestsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Normal">Normal</SelectItem>
-                        <SelectItem value="Urgent">Urgent</SelectItem>
-                        <SelectItem value="High">High</SelectItem>
+                        <SelectItem value="Normal">
+                          {FLEX_TEXT.normal}
+                        </SelectItem>
+                        <SelectItem value="Urgent">
+                          {FLEX_TEXT.urgent}
+                        </SelectItem>
+                        <SelectItem value="High">{FLEX_TEXT.high}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2400,26 +2667,44 @@ export default function PurchaseRequestsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                      Department <span className="text-red-500">*</span>
+                      {FLEX_TEXT.department3}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Select
-                      value={editDepartment}
-                      onValueChange={setEditDepartment}
+                      value={editDepartmentId}
+                      onValueChange={(value) => {
+                        const selectedDepartment = departmentOptions.find(
+                          (option) => String(option.id) === value,
+                        );
+                        setEditDepartmentId(value);
+                        setEditDepartment(selectedDepartment?.name || "");
+                      }}
                     >
                       <SelectTrigger className="h-9 text-xs bg-background rounded-lg border-border">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Admin">Admin</SelectItem>
-                        <SelectItem value="Production">Production</SelectItem>
-                        <SelectItem value="Maintenance">Maintenance</SelectItem>
-                        <SelectItem value="Logistics">Logistics</SelectItem>
+                        {departmentOptions.length === 0 ? (
+                          <SelectItem value="__no_departments__" disabled>
+                            {FLEX_TEXT.noDepartmentsAvailable}
+                          </SelectItem>
+                        ) : (
+                          departmentOptions.map((option) => (
+                            <SelectItem
+                              key={option.id}
+                              value={String(option.id)}
+                            >
+                              {option.name}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                      Requested By <span className="text-red-500">*</span>
+                      {FLEX_TEXT.requestedBy2}{" "}
+                      <span className="text-red-500">*</span>
                     </Label>
                     <Select
                       value={editRequestedBy}
@@ -2429,29 +2714,28 @@ export default function PurchaseRequestsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Aakash T (UI/UX Designer) (13)">
-                          Aakash T (UI/UX Designer) (13)
-                        </SelectItem>
-                        <SelectItem value="Kavin">Kavin</SelectItem>
-                        <SelectItem value="Jagadeep S">Jagadeep S</SelectItem>
+                        {userOptions.map((option) => (
+                          <SelectItem key={option.id} value={String(option.id)}>
+                            {option.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                      Project
+                      {FLEX_TEXT.project}
                     </Label>
                     <Select value={editProject} onValueChange={setEditProject}>
                       <SelectTrigger className="h-9 text-xs bg-background rounded-lg border-border">
-                        <SelectValue placeholder="Optional..." />
+                        <SelectValue placeholder={FLEX_TEXT.optional} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Vidhai Factory Phase 1">
-                          Vidhai Factory Phase 1
-                        </SelectItem>
-                        <SelectItem value="Ooty Solar Panel Installation">
-                          Ooty Solar Panel Installation
-                        </SelectItem>
+                        {projectOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -2460,7 +2744,7 @@ export default function PurchaseRequestsPage() {
                 {/* NOTES */}
                 <div>
                   <Label className="text-xs font-medium text-muted-foreground mb-1 block">
-                    Notes
+                    {FLEX_TEXT.notes}
                   </Label>
                   <Textarea
                     value={editNotes}
@@ -2478,41 +2762,39 @@ export default function PurchaseRequestsPage() {
                     className="h-9 px-4 text-xs font-medium rounded-lg border-border"
                     onClick={() => setEditingPr(null)}
                   >
-                    Close
+                    {FLEX_TEXT.close}
                   </Button>
                   <Button
                     type="button"
                     variant="outline"
                     className="h-9 px-4 text-xs font-semibold rounded-lg border-border text-foreground hover:bg-muted"
                     onClick={() => {
-                      const updatedVersion = `Submitted V2 · ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true })}`;
-                      const updatedPR = {
-                        ...editingPr,
-                        vendor: editVendorName,
-                        version: updatedVersion,
+                      const selectedUser = userOptions.find(
+                        (user) => String(user.id) === editRequestedBy,
+                      );
+                      const selectedVendorRecord = vendorsList.find(
+                        (vendor) => vendor.name === editVendorName,
+                      );
+                      updateMutation.mutate({
+                        id: editingPr.id,
+                        vendorName: editVendorName,
+                        vendorId:
+                          selectedVendorRecord?.id || editingPr.vendorId,
                         itemName:
                           editLineItems[0]?.product || editingPr.itemName,
                         quantity: editLineItems[0]?.qty || editingPr.quantity,
                         unit: editLineItems[0]?.unit || editingPr.unit,
+                        departmentId: Number(editDepartmentId),
                         department: editDepartment,
-                        requestedBy: editRequestedBy,
-                        project: editProject,
+                        requestedByUserId: Number(editRequestedBy),
+                        requestedByName: selectedUser?.name || "",
                         notes: editNotes,
                         requiredDate: editRequiredDate,
-                      };
-                      addStoredPR(updatedPR);
-                      queryClient.setQueryData(
-                        ["get", "/api/flex/purchase-requests"],
-                        (old: any) =>
-                          (Array.isArray(old) ? old : []).map((p: any) =>
-                            p.id === editingPr.id ? updatedPR : p,
-                          ),
-                      );
-                      toast.success("Purchase Request updated successfully!");
+                      });
                       setEditingPr(null);
                     }}
                   >
-                    Save
+                    {FLEX_TEXT.save}
                   </Button>
                 </div>
               </div>
