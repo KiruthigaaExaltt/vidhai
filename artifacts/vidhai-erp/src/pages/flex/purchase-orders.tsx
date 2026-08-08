@@ -1,6 +1,6 @@
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData } from "./flexData";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
@@ -49,6 +49,7 @@ export interface POLineItem {
   description: string;
   itemId?: number;
   hsn: string;
+  unit?: string;
   qty: number;
   rate: number;
   cgstPct: number;
@@ -67,45 +68,52 @@ export interface PurchaseOrderItem {
   vendorGst?: string;
   vendorAddress?: string;
   vendorPhone?: string;
+  vendorWhatsapp?: string;
   placeOfSupply?: string;
   poDate: string;
+  poDateValue: string;
   deliveryDate: string;
   warehouse: string;
   subtotal: number;
+  tax: number;
   cgstAmount: number;
   sgstAmount: number;
   grandTotal: number;
   termsConditions?: string;
   items: string;
+  lineItems?: POLineItem[];
   status: string;
   createdBy?: string;
 }
 
 async function fetchPurchaseOrders(): Promise<PurchaseOrderItem[]> {
-  try {
-    const res = await fetch(`${BASE}/api/flex/purchase-orders`, {
-      credentials: "include",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data;
-    }
-  } catch {}
-  return [];
+  const res = await fetch(`${BASE}/api/flex/purchase-orders`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Unable to load purchase orders");
+  return res.json();
 }
 
-async function createPurchaseOrder(payload: any) {
+async function createPurchaseOrder({ openSend, sendPreview, ...payload }: any) {
   const res = await fetch(`${BASE}/api/flex/purchase-orders`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToCreatePo);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToCreatePo);
+  }
   return res.json();
 }
 
-async function updatePurchaseOrder({ id, ...payload }: any) {
+async function updatePurchaseOrder({
+  id,
+  openSend,
+  sendPreview,
+  ...payload
+}: any) {
   const res = await fetch(`${BASE}/api/flex/purchase-orders/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -131,6 +139,8 @@ export default function PurchaseOrdersPage() {
     data: pos = [],
     refetch,
     isFetching,
+    isLoading,
+    isError,
   } = useQuery({
     queryKey: ["get", "/api/flex/purchase-orders"],
     queryFn: fetchPurchaseOrders,
@@ -146,10 +156,16 @@ export default function PurchaseOrdersPage() {
   const [toDate, setToDate] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal Dialog states
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [selectedPo, setSelectedPo] = useState<PurchaseOrderItem | null>(null);
+  const [editingPo, setEditingPo] = useState<PurchaseOrderItem | null>(null);
+  const [sendPo, setSendPo] = useState<PurchaseOrderItem | null>(null);
+  const [sendMessage, setSendMessage] = useState("");
+  const [sendCountryCode, setSendCountryCode] = useState("");
+  const [sendMobileNumber, setSendMobileNumber] = useState("");
 
   // Purchase Order Builder Form States
   const [prReference, setPrReference] = useState("");
@@ -202,6 +218,29 @@ export default function PurchaseOrdersPage() {
     return calculatedSubtotal + calculatedCgst + calculatedSgst;
   }, [calculatedSubtotal, calculatedCgst, calculatedSgst]);
 
+  function openSendDialog(po: PurchaseOrderItem) {
+    const whatsappDigits = (po.vendorWhatsapp || po.vendorPhone || "").replace(
+      /\D/g,
+      "",
+    );
+    const mobileDigits = whatsappDigits.slice(-10);
+    const countryDigits = whatsappDigits.slice(
+      0,
+      Math.max(0, whatsappDigits.length - mobileDigits.length),
+    );
+    const itemDetails = (po.lineItems || [])
+      .map(
+        (line, index) =>
+          `${index + 1}. ${line.description}\nQuantity: ${line.qty} ${line.unit || ""}\nRate: \u20B9 ${Number(line.rate).toLocaleString("en-IN")}\nAmount: \u20B9 ${Number(line.total).toLocaleString("en-IN")}`,
+      )
+      .join("\n\n");
+    setSendCountryCode(countryDigits);
+    setSendMobileNumber(mobileDigits);
+    setSendPo(po);
+    setSendMessage(
+      `Dear ${po.vendor},\n\nPlease find our Purchase Order details below.\n\nPO Number: ${po.poNumber}\n${itemDetails ? `\nLine Items:\n${itemDetails}\n` : ""}\nGrand Total: \u20B9 ${po.grandTotal.toLocaleString("en-IN")}\n\nPlease confirm receipt and availability.\n\nThank you.`,
+    );
+  }
   const createMutation = useMutation({
     mutationFn: createPurchaseOrder,
     onSuccess: (data, variables) => {
@@ -211,13 +250,18 @@ export default function PurchaseOrdersPage() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      const isDraft = variables.status === "Draft";
-      toast.success(
-        isDraft
-          ? FLEX_TEXT.purchaseOrderSavedAsDraft
-          : "Purchase Order saved and sent successfully!",
-      );
+      const savedPreview = {
+        ...variables.sendPreview,
+        id: data.id,
+        poNumber: data.poNumber,
+        status: data.status,
+      } as PurchaseOrderItem;
       setIsBuilderOpen(false);
+      if (variables.openSend) {
+        openSendDialog(savedPreview);
+      } else {
+        toast.success(FLEX_TEXT.purchaseOrderSavedAsDraft);
+      }
       resetForm();
     },
     onError: (err: any) => {
@@ -227,21 +271,53 @@ export default function PurchaseOrdersPage() {
 
   const updateMutation = useMutation({
     mutationFn: updatePurchaseOrder,
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/purchase-orders"],
       });
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success(FLEX_TEXT.purchaseOrderUpdatedSuccessfully);
-      setSelectedPo(null);
+      if (variables.openSend && variables.sendPreview) {
+        setIsBuilderOpen(false);
+        openSendDialog({
+          ...variables.sendPreview,
+          id: data.id,
+          status: data.status,
+        });
+      } else if (editingPo) {
+        setIsBuilderOpen(false);
+        toast.success(FLEX_TEXT.purchaseOrderUpdatedSuccessfully);
+        resetForm();
+      } else {
+        toast.success(FLEX_TEXT.purchaseOrderUpdatedSuccessfully);
+        setSelectedPo(null);
+      }
     },
     onError: (err: any) => {
       toast.error(err.message || FLEX_TEXT.failedToUpdatePo);
     },
   });
 
+  const markSentMutation = useMutation({
+    mutationFn: (po: PurchaseOrderItem) =>
+      updatePurchaseOrder({ id: po.id, status: "Draft" }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["get", "/api/flex/purchase-orders"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["get", "/api/flex/dashboard"],
+        }),
+      ]);
+      setSendPo(null);
+      setEditingPo(null);
+      toast.success("Purchase Order saved as Draft successfully.");
+    },
+    onError: (err: any) =>
+      toast.error(err.message || "Unable to mark Purchase Order as Sent"),
+  });
   const deleteMutation = useMutation({
     mutationFn: deletePurchaseOrder,
     onSuccess: () => {
@@ -279,6 +355,7 @@ export default function PurchaseOrdersPage() {
     setVendorPhone("");
     setDeliveryDate("");
     setTermsConditions("");
+    setEditingPo(null);
   };
 
   const handleAddLine = () => {
@@ -323,6 +400,103 @@ export default function PurchaseOrdersPage() {
     );
   };
 
+  const handleEditPO = (po: PurchaseOrderItem) => {
+    const savedLines = po.lineItems?.length
+      ? po.lineItems
+      : (po.items || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .map((value, index, values) => {
+            const match = value.match(/^(.*?)\s*\((\d+(?:\.\d+)?)\s+(.+)\)$/);
+            const description = (match?.[1] || value).trim();
+            const item = itemOptions.find(
+              (option) =>
+                option.name.toLowerCase() === description.toLowerCase(),
+            );
+            const qty = Number(match?.[2] || 1);
+            const rate = Number(
+              item?.buyPricePerUnit ??
+                (values.length === 1 && qty ? po.subtotal / qty : 0),
+            );
+            const combinedTaxPct = po.subtotal
+              ? (Number(po.tax || 0) / po.subtotal) * 100
+              : 0;
+            return {
+              id: String(index + 1),
+              itemId: item?.id,
+              description: item?.name || description,
+              hsn: item?.hsnSac || "",
+              qty,
+              unit: item?.unit || match?.[3] || "",
+              rate,
+              cgstPct: combinedTaxPct / 2,
+              sgstPct: combinedTaxPct / 2,
+              igstPct: 0,
+              total: qty * rate * (1 + combinedTaxPct / 100),
+            };
+          });
+
+    setEditingPo(po);
+    setPrReference(po.prReference || "");
+    setVendorName(`${po.vendorId} - ${po.vendor}`);
+    setContactPerson(po.contactPerson || "");
+    setVendorGst(po.vendorGst || "");
+    setVendorAddress(po.vendorAddress || "");
+    setVendorPhone(po.vendorPhone || "");
+    setPlaceOfSupply(po.placeOfSupply || "");
+    setPoDate(po.poDateValue ? po.poDateValue.slice(0, 10) : "");
+    setDeliveryDate(po.deliveryDate || "");
+    setDestinationWarehouse(
+      String(
+        warehouseOptions.find((warehouse) => warehouse.name === po.warehouse)
+          ?.id || "",
+      ),
+    );
+    setTermsConditions(po.termsConditions || "");
+    setLineItems(
+      savedLines.length
+        ? savedLines.map((line, index) => {
+            const item = itemOptions.find(
+              (option) => option.id === Number(line.itemId),
+            );
+            const qty = Number(line.qty || 0);
+            const rate = Number(line.rate || 0);
+            const cgstPct = Number(line.cgstPct || 0);
+            const sgstPct = Number(line.sgstPct || 0);
+            return {
+              ...line,
+              id: String(line.id || index + 1),
+              description: line.description || item?.name || "",
+              hsn: line.hsn || item?.hsnSac || "",
+              unit: line.unit || item?.unit || "",
+              qty,
+              rate,
+              cgstPct,
+              sgstPct,
+              igstPct: Number(line.igstPct || 0),
+              total: Number(
+                line.total || qty * rate * (1 + (cgstPct + sgstPct) / 100),
+              ),
+            };
+          })
+        : [
+            {
+              id: "1",
+              description: "",
+              hsn: "",
+              qty: 1,
+              unit: "",
+              rate: 0,
+              cgstPct: 0,
+              sgstPct: 0,
+              igstPct: 0,
+              total: 0,
+            },
+          ],
+    );
+    setIsBuilderOpen(true);
+  };
   const handleDuplicatePO = (po: PurchaseOrderItem) => {
     setVendorName(`${po.vendorId} - ${po.vendor}`);
     setContactPerson(po.contactPerson || "");
@@ -374,14 +548,14 @@ export default function PurchaseOrdersPage() {
   const filtered = useMemo(() => {
     return pos.filter((po) => {
       const matchesVendor =
-        selectedVendor === "All" || po.vendor === selectedVendor;
+        selectedVendor === "All" || po.vendorId === selectedVendor;
       const matchesSearch =
         !search.trim() ||
         po.poNumber.toLowerCase().includes(search.toLowerCase()) ||
         po.vendor.toLowerCase().includes(search.toLowerCase()) ||
         po.vendorId.toLowerCase().includes(search.toLowerCase());
 
-      const poTime = new Date(po.poDate).getTime();
+      const poTime = new Date(po.poDateValue).getTime();
       const matchesFromDate =
         !fromDate || isNaN(poTime) || poTime >= new Date(fromDate).getTime();
       const matchesToDate =
@@ -391,14 +565,65 @@ export default function PurchaseOrdersPage() {
     });
   }, [pos, search, selectedVendor, fromDate, toDate]);
 
-  const handleSubmitPO = (status: "Issued" | "Draft") => {
+  const pageSize = Number(rowsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageStart = (currentPage - 1) * pageSize;
+  const paginatedPurchaseOrders = filtered.slice(
+    pageStart,
+    pageStart + pageSize,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, selectedVendor, fromDate, toDate, rowsPerPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+  const handleSubmitPO = (openSend: boolean) => {
     const [vendorId, ...vendorParts] = vendorName.split(" - ");
     const vendor = vendorParts.join(" - ");
+    if (!vendorId || !vendor || lineItems.some((line) => !line.description)) {
+      toast.error("Vendor and line items are required");
+      return;
+    }
     const itemSummary = lineItems
       .map((line) => line.description)
       .filter(Boolean)
       .join(", ");
-    createMutation.mutate({
+    const preview: PurchaseOrderItem = {
+      ...(editingPo || ({} as PurchaseOrderItem)),
+      id: editingPo?.id || 0,
+      vendorId,
+      vendor,
+      poNumber: editingPo?.poNumber || "",
+      prReference,
+      contactPerson,
+      vendorGst,
+      vendorAddress,
+      vendorPhone,
+      vendorWhatsapp:
+        vendorsList.find((option) => String(option.id) === vendorId)
+          ?.whatsapp || vendorPhone,
+      placeOfSupply,
+      poDate,
+      poDateValue: poDate,
+      deliveryDate,
+      warehouse:
+        warehouseOptions.find(
+          (warehouse) => String(warehouse.id) === destinationWarehouse,
+        )?.name || "",
+      subtotal: calculatedSubtotal,
+      tax: calculatedCgst + calculatedSgst,
+      cgstAmount: calculatedCgst,
+      sgstAmount: calculatedSgst,
+      grandTotal: calculatedGrandTotal,
+      termsConditions,
+      items: itemSummary,
+      lineItems,
+      status: "Draft",
+    };
+    const payload = {
       vendorId,
       vendorName: vendor,
       contactPerson,
@@ -411,15 +636,19 @@ export default function PurchaseOrdersPage() {
       warehouseId: Number(destinationWarehouse),
       prReference,
       items: itemSummary,
+      lineItems,
       itemIds: lineItems.map((line) => line.itemId).filter(Boolean),
       subtotal: calculatedSubtotal,
       taxAmount: calculatedCgst + calculatedSgst,
       grandTotal: calculatedGrandTotal,
       termsConditions,
-      status,
-    });
+      status: "Draft",
+      openSend,
+      sendPreview: preview,
+    };
+    if (editingPo) updateMutation.mutate({ id: editingPo.id, ...payload });
+    else createMutation.mutate(payload);
   };
-
   return (
     <Shell>
       <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full space-y-5">
@@ -506,7 +735,7 @@ export default function PurchaseOrdersPage() {
               <SelectContent>
                 <SelectItem value="All">{FLEX_TEXT.allVendors}</SelectItem>
                 {vendorsList.map((vendor) => (
-                  <SelectItem key={vendor.id} value={vendor.name}>
+                  <SelectItem key={vendor.id} value={String(vendor.id)}>
                     {vendor.name}
                   </SelectItem>
                 ))}
@@ -538,6 +767,7 @@ export default function PurchaseOrdersPage() {
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.subtotal}
                     </th>
+                    <th className="px-4 py-3 font-semibold">Tax</th>
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.grandTotal}
                     </th>
@@ -550,17 +780,35 @@ export default function PurchaseOrdersPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.length === 0 ? (
+                  {isLoading ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
+                        className="px-4 py-8 text-center text-muted-foreground text-sm"
+                      >
+                        Loading purchase orders...
+                      </td>
+                    </tr>
+                  ) : isError ? (
+                    <tr>
+                      <td
+                        colSpan={10}
+                        className="px-4 py-8 text-center text-destructive text-sm"
+                      >
+                        Unable to load purchase orders
+                      </td>
+                    </tr>
+                  ) : filtered.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={10}
                         className="px-4 py-8 text-center text-muted-foreground text-sm"
                       >
                         {FLEX_TEXT.noPurchaseOrdersFound}
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((po) => (
+                    paginatedPurchaseOrders.map((po) => (
                       <tr
                         key={po.id}
                         className="hover:bg-muted/40 transition-colors"
@@ -581,10 +829,13 @@ export default function PurchaseOrdersPage() {
                           {po.deliveryDate || "-"}
                         </td>
                         <td className="px-4 py-3 font-semibold">
-                          ₹ {po.subtotal.toLocaleString("en-IN")}
+                          {"\u20B9"} {po.subtotal.toLocaleString("en-IN")}
+                        </td>
+                        <td className="px-4 py-3 font-semibold">
+                          {"\u20B9"} {po.tax.toLocaleString("en-IN")}
                         </td>
                         <td className="px-4 py-3 font-bold text-foreground">
-                          ₹ {po.grandTotal.toLocaleString("en-IN")}
+                          {"\u20B9"} {po.grandTotal.toLocaleString("en-IN")}
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -617,7 +868,7 @@ export default function PurchaseOrdersPage() {
                             <Printer className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => setSelectedPo(po)}
+                            onClick={() => handleEditPO(po)}
                             className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
                             title={FLEX_TEXT.viewEditPo}
                           >
@@ -636,11 +887,11 @@ export default function PurchaseOrdersPage() {
               <div>
                 {FLEX_TEXT.showing}{" "}
                 <span className="font-semibold text-foreground">
-                  {filtered.length > 0 ? 1 : 0}
+                  {filtered.length > 0 ? pageStart + 1 : 0}
                 </span>{" "}
                 {FLEX_TEXT.to}{" "}
                 <span className="font-semibold text-foreground">
-                  {filtered.length}
+                  {Math.min(pageStart + pageSize, filtered.length)}
                 </span>{" "}
                 {FLEX_TEXT.of}{" "}
                 <span className="font-semibold text-foreground">
@@ -663,13 +914,27 @@ export default function PurchaseOrdersPage() {
                   </Select>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() =>
+                      setCurrentPage((page) => Math.max(1, page - 1))
+                    }
+                    className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
+                  >
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </button>
                   <button className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center">
-                    1
+                    {currentPage}
                   </button>
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() =>
+                      setCurrentPage((page) => Math.min(totalPages, page + 1))
+                    }
+                    className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
+                  >
                     <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -686,7 +951,9 @@ export default function PurchaseOrdersPage() {
                 <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                   <ShoppingCart className="w-5 h-5" />
                 </div>
-                {FLEX_TEXT.purchaseOrderBuilder}
+                {editingPo
+                  ? "Edit Purchase Order"
+                  : FLEX_TEXT.purchaseOrderBuilder}
               </DialogTitle>
             </DialogHeader>
 
@@ -699,7 +966,7 @@ export default function PurchaseOrdersPage() {
                   </Label>
                   <Input
                     readOnly
-                    value={FLEX_TEXT.autoAssignedOnSave}
+                    value={editingPo?.poNumber || FLEX_TEXT.autoAssignedOnSave}
                     className="h-9 text-xs bg-muted/40 font-mono text-muted-foreground"
                   />
                 </div>
@@ -1115,22 +1382,184 @@ export default function PurchaseOrdersPage() {
                 variant="outline"
                 size="sm"
                 className="border-border text-foreground hover:bg-muted"
-                onClick={() => handleSubmitPO("Draft")}
+                disabled={createMutation.isPending || updateMutation.isPending}
+                onClick={() => handleSubmitPO(false)}
               >
-                {FLEX_TEXT.saveDraft}
+                {createMutation.isPending || updateMutation.isPending
+                  ? "Saving..."
+                  : FLEX_TEXT.saveDraft}
               </Button>
               <Button
                 type="button"
                 size="sm"
                 className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 gap-1.5 shadow-2xs"
-                onClick={() => handleSubmitPO("Issued")}
+                disabled={createMutation.isPending || updateMutation.isPending}
+                onClick={() => handleSubmitPO(true)}
               >
-                <Send className="w-3.5 h-3.5" /> {FLEX_TEXT.saveSend}
+                <Send className="w-3.5 h-3.5" />{" "}
+                {createMutation.isPending || updateMutation.isPending
+                  ? "Saving..."
+                  : FLEX_TEXT.saveSend}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
+        <Dialog
+          open={!!sendPo}
+          onOpenChange={(open) => {
+            if (!open && !markSentMutation.isPending) setSendPo(null);
+          }}
+        >
+          <DialogContent className="max-w-2xl p-6">
+            {sendPo && (
+              <div className="space-y-4">
+                <DialogHeader className="border-b border-border pb-2">
+                  <DialogTitle>Send Purchase Order</DialogTitle>
+                  <p className="text-xs text-muted-foreground">
+                    The PO PDF has been downloaded. Share the order via WhatsApp
+                    and attach the PDF manually.
+                  </p>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Recipient Details
+                  </h3>
+                  <div>
+                    <Label className="text-xs">Vendor Name</Label>
+                    <Input
+                      value={sendPo.vendor}
+                      readOnly
+                      className="mt-1 h-9 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">WhatsApp Number</Label>
+                    <div className="mt-1 grid grid-cols-[110px_1fr] gap-2">
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">
+                          Country Code
+                        </Label>
+                        <Input
+                          value={sendCountryCode}
+                          onChange={(event) =>
+                            setSendCountryCode(
+                              event.target.value.replace(/\D/g, ""),
+                            )
+                          }
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">
+                          Mobile Number
+                        </Label>
+                        <Input
+                          value={sendMobileNumber}
+                          onChange={(event) =>
+                            setSendMobileNumber(
+                              event.target.value.replace(/\D/g, ""),
+                            )
+                          }
+                          className="mt-1 h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      Pre-filled from CRM contact details. You can edit before
+                      sending.
+                    </p>
+                  </div>
+                </div>
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/40 text-left text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2">#</th>
+                        <th className="px-3 py-2">Description</th>
+                        <th className="px-3 py-2">Qty</th>
+                        <th className="px-3 py-2">UOM</th>
+                        <th className="px-3 py-2">Rate</th>
+                        <th className="px-3 py-2">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(sendPo.lineItems || []).map((line, index) => (
+                        <tr key={`${line.id}-${index}`}>
+                          <td className="px-3 py-2">{index + 1}</td>
+                          <td className="px-3 py-2">{line.description}</td>
+                          <td className="px-3 py-2">{line.qty}</td>
+                          <td className="px-3 py-2">{line.unit || "-"}</td>
+                          <td className="px-3 py-2">
+                            {"\u20B9"}{" "}
+                            {Number(line.rate).toLocaleString("en-IN")}
+                          </td>
+                          <td className="px-3 py-2">
+                            {"\u20B9"}{" "}
+                            {Number(line.total).toLocaleString("en-IN")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="border-t border-border bg-muted/30 px-3 py-2 text-right text-sm font-bold">
+                    Grand Total: {"\u20B9"}{" "}
+                    {sendPo.grandTotal.toLocaleString("en-IN")}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Message</Label>
+                  <Textarea
+                    value={sendMessage}
+                    onChange={(event) => setSendMessage(event.target.value)}
+                    rows={8}
+                    className="mt-1 text-xs"
+                  />
+                </div>
+                <DialogFooter className="border-t border-border pt-3">
+                  <Button
+                    variant="outline"
+                    disabled={markSentMutation.isPending}
+                    onClick={() => setSendPo(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={markSentMutation.isPending}
+                    onClick={() => markSentMutation.mutate(sendPo)}
+                  >
+                    {markSentMutation.isPending ? "Saving..." : "Save as Sent"}
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    onClick={() => {
+                      const digits =
+                        `${sendCountryCode}${sendMobileNumber}`.replace(
+                          /\D/g,
+                          "",
+                        );
+
+                      if (digits.length < 8) {
+                        toast.error(
+                          "WhatsApp number is not available for this vendor",
+                        );
+                        return;
+                      }
+                      window.open(
+                        `https://web.whatsapp.com/send?phone=${digits}&text=${encodeURIComponent(sendMessage)}`,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
+                  >
+                    Open WhatsApp
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
         {/* ── VIEW / PROCESS / APPROVE PO MODAL DIALOG ────────────────────────── */}
         <Dialog open={!!selectedPo} onOpenChange={() => setSelectedPo(null)}>
           <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto p-6">
