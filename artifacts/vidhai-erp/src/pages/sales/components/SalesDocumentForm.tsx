@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Send, Save, FileText, Trash2, Plus, Truck, RotateCcw, History } from "lucide-react";
+import { ArrowLeft, Send, Save, FileText, Trash2, Plus, Truck, RotateCcw, History, ChevronDown, Download, Printer, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { buildSalesPdfBlob, downloadSalesPdf, type SalesPdfInput } from "../utils/salesPdf";
 
 interface SalesDocumentFormProps {
   type: string;
@@ -20,6 +23,8 @@ function numericValue(value: any): number {
 }
 
 export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: SalesDocumentFormProps) {
+  const documentResource = type === "Proforma Invoice" ? "proforma-invoices" : type === "Delivery Challan" ? "challans" : type === "Invoices" ? "invoices" : type === "Sales Return" ? "returns" : "quotations";
+  const documentLabel = type === "Proforma Invoice" ? "Proforma invoice" : type === "Delivery Challan" ? "Delivery challan" : type === "Invoices" ? "Invoice" : type === "Sales Return" ? "Sales return" : "Quotation";
   const [viewDocumentId, setViewDocumentId] = useState<number | null>(documentId || null);
   const [items, setItems] = useState<any[]>([
     { id: 1, description: "", hsn: "", qty: 1, returnedQty: 0, uom: "Nos", rate: 0, cgst: 9, sgst: 9, warehouse: "", itemId: null, serviceId: null }
@@ -32,6 +37,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
   const [clients, setClients] = useState<any[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   
   const [clientId, setClientId] = useState<string>("");
   const [clientName, setClientName] = useState<string>("");
@@ -55,6 +61,19 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
     contactNumber: ""
   });
 
+  const [availableQuotations, setAvailableQuotations] = useState<any[]>([]);
+  const [availableProformas, setAvailableProformas] = useState<any[]>([]);
+  const [availableChallans, setAvailableChallans] = useState<any[]>([]);
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string>("");
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState<string[]>([]);
+  const [selectedPiId, setSelectedPiId] = useState<string>("");
+  const [selectedPiIds, setSelectedPiIds] = useState<string[]>([]);
+  const [selectedDcIds, setSelectedDcIds] = useState<string[]>([]);
+  const [availableInvoices, setAvailableInvoices] = useState<any[]>([]);
+  const [selectedReturnInvoiceId, setSelectedReturnInvoiceId] = useState<string>("");
+  const [selectedReturnDcId, setSelectedReturnDcId] = useState<string>("");
+  const [autoCreatedFromQuotationId, setAutoCreatedFromQuotationId] = useState<number | null>(null);
+
   useEffect(() => {
     fetch("/api/contacts")
       .then(res => res.json())
@@ -71,6 +90,29 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       .then(res => res.json())
       .then(data => setServices(data))
       .catch(err => console.error("Error loading services:", err));
+    fetch("/api/vault/locations", { credentials: "include" }).then(res => res.ok ? res.json() : []).then(setWarehouses).catch(err => console.error("Error loading warehouses:", err));
+    if (type === "Proforma Invoice" || type === "Delivery Challan" || type === "Invoices") {
+      fetch("/api/sales/quotations", { credentials: "include" })
+        .then(res => res.ok ? res.json() : [])
+        .then(data => setAvailableQuotations(data.filter((quote: any) => quote.status === "Approved" || quote.status === "Confirmed")))
+        .catch(err => console.error("Error loading approved/confirmed quotations:", err));
+    }
+    if (type === "Delivery Challan" || type === "Invoices") {
+      fetch("/api/sales/proforma-invoices", { credentials: "include" })
+        .then(res => res.ok ? res.json() : [])
+        .then(data => setAvailableProformas(data.filter((doc: any) => doc.status === "Approved" || doc.status === "Confirmed")))
+        .catch(err => console.error("Error loading approved Proforma invoices:", err));
+    }
+    if (type === "Invoices") {
+      fetch("/api/sales/challans", { credentials: "include" })
+        .then(res => res.ok ? res.json() : [])
+        .then(data => setAvailableChallans(data.filter((doc: any) => doc.status === "Dispatched")))
+        .catch(err => console.error("Error loading dispatched Delivery Challans:", err));
+    }
+    if (type === "Sales Return") {
+      fetch("/api/sales/invoices", { credentials: "include" }).then(res => res.ok ? res.json() : []).then(data => setAvailableInvoices(data.filter((doc: any) => ["Approved", "Paid"].includes(doc.status)))).catch(err => console.error("Error loading returnable invoices:", err));
+      fetch("/api/sales/challans", { credentials: "include" }).then(res => res.ok ? res.json() : []).then(data => setAvailableChallans(data.filter((doc: any) => doc.status === "Dispatched"))).catch(err => console.error("Error loading returnable challans:", err));
+    }
     fetch("/api/sales/organization", { credentials: "include" })
       .then(async res => {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Unable to load organization details");
@@ -98,31 +140,38 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
 
   useEffect(() => {
     if (!viewDocumentId) return;
-    fetch(`/api/sales/quotations/${viewDocumentId}`, { credentials: "include" })
+    fetch(`/api/sales/${documentResource}/${viewDocumentId}`, { credentials: "include" })
       .then(async response => {
-        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Unable to load quotation");
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `Unable to load ${documentLabel.toLowerCase()}`);
         return response.json();
       })
       .then(document => {
         setSavedDocumentId(Number(document.id));
-        setQuotationNumber(document.quotationNumber || document.quoteNumber || "Draft");
+        setQuotationNumber(document.returnNumber || document.invoiceNumber || document.dcNumber || document.piNumber || document.quotationNumber || document.quoteNumber || "Draft");
         setStatus(document.status || "Draft");
         setClientId(String(document.clientId || ""));
         setClientName(document.clientName || "");
         setCustomerMobile(document.customerMobile || "");
         setCustomerWhatsapp(document.customerWhatsappNumber || document.customerMobile || "");
         setClientDetails({ company: document.customerCompany || "", address: document.customerAddress || "", phone: document.customerMobile || "", whatsappNumber: document.customerWhatsappNumber || "", gstin: document.customerGstin || "" });
+        const mappedQuoteIds = (document.quotationIds || document.quoteIds || (document.quoteId ? [document.quoteId] : [])).map(String);
+        setSelectedQuoteIds(mappedQuoteIds);
+        setSelectedQuoteId(mappedQuoteIds[0] || "");
+        const mappedPiIds = (document.piIds || (document.piId ? [document.piId] : [])).map(String);
+        setSelectedPiIds(mappedPiIds); setSelectedPiId(mappedPiIds[0] || "");
+        setSelectedDcIds((document.dcIds || (document.dcId ? [document.dcId] : [])).map(String));
+        setSelectedReturnInvoiceId(String(document.invoiceId || "")); setSelectedReturnDcId(String(document.dcId || ""));
         setPlaceOfSupply(document.placeOfSupply || "");
-        setDocDate(String(document.quotationDate || "").slice(0, 10));
-        setValidUntil(String(document.validUntil || "").slice(0, 10));
+        setDocDate(String(document.returnDate || document.invoiceDate || document.dcDate || document.piDate || document.proformaDate || document.quotationDate || "").slice(0, 10));
+        setValidUntil(String(document.dueDate || document.validUntil || "").slice(0, 10));
         setBankName(document.bankName || ""); setAccountNumber(document.accountNumber || ""); setIfscCode(document.ifscCode || ""); setBranch(document.branch || "");
         setBillingDetails({ name: document.billedByCompanyName || "", address: document.billedByAddress || "", gstin: document.billedByGstin || "", contactNumber: document.billedByContactNumber || "" });
         setDiscountAmount(numericValue(document.discountAmount));
-        setItems((document.items || []).map((line: any) => { const igstHalf = numericValue(line.igstPercent) / 2; return { id: line.id, itemId: line.itemId == null ? null : Number(line.itemId), productId: line.productId == null ? null : Number(line.productId), serviceId: line.serviceId == null ? null : Number(line.serviceId), inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: numericValue(line.quantity), returnedQty: 0, uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId: line.warehouseId == null ? null : Number(line.warehouseId), warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource }; }));
-        void loadVersions(Number(document.id));
+        setItems((document.items || []).map((line: any) => { const igstHalf = numericValue(line.igstPercent) / 2; return { id: line.id, itemId: line.itemId == null ? null : Number(line.itemId), productId: line.productId == null ? null : Number(line.productId), serviceId: line.serviceId == null ? null : Number(line.serviceId), inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: numericValue(line.invoicedQty ?? line.quantity), returnedQty: numericValue(line.returnedQty), uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId: line.warehouseId == null ? null : Number(line.warehouseId), warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource, invoiceItemId: line.invoiceItemId }; }));
+        if (type !== "Delivery Challan" && type !== "Sales Return") void loadVersions(Number(document.id));
       })
-      .catch(error => setFeedback({ title: "Unable to load quotation", message: error.message }));
-  }, [viewDocumentId]);
+      .catch(error => setFeedback({ title: `Unable to load ${documentLabel.toLowerCase()}`, message: error.message }));
+  }, [viewDocumentId, documentResource, documentLabel]);
 
   const unresolvedItemKey = items
     .filter(line => line.itemId && !line.inventoryId)
@@ -185,24 +234,150 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
   const [sendMessage, setSendMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ title: string; message: string; success?: boolean } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
   const isInterState = Boolean(companyStateCode && placeOfSupply && companyStateCode !== placeOfSupply);
-  const isLocked = status === "Approved" || status === "Rejected";
+  const isLocked = ["Approved", "Rejected", "Dispatched", "Received", "Credit Issued", "Paid", "Cancelled"].includes(status);
 
   const loadVersions = async (quotationId: number) => {
-    const response = await fetch(`/api/sales/quotations/${quotationId}/versions`, { credentials: "include" });
+    const response = await fetch(`/api/sales/${documentResource}/${quotationId}/versions`, { credentials: "include" });
     if (response.ok) setVersions((await response.json()).data || []);
   };
 
   const handleCustomerResponse = async (action: "confirm" | "reject") => {
-    if (!savedDocumentId || status !== "Sent") return;
-    const response = await fetch(`/api/sales/quotations/${savedDocumentId}/customer-response`, {
+    if (!savedDocumentId || (isReturn ? status !== "Confirmed" : status !== "Sent")) return;
+    const response = await fetch(`/api/sales/${documentResource}/${savedDocumentId}/customer-response`, {
       method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action })
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return setFeedback({ title: "Unable to update response", message: result.error || "Request failed" });
     setStatus(result.status);
-    setFeedback({ title: action === "confirm" ? "Quotation approved" : "Quotation rejected", message: `Customer response was recorded as ${result.status}.`, success: true });
+    setFeedback({ title: action === "confirm" ? `${documentLabel} approved` : `${documentLabel} rejected`, message: `Customer response was recorded as ${result.status}.`, success: true });
     onSaved?.(result);
+  };
+
+  const mapSalesSource = async (source: "quotation" | "proforma" | "challan", sourceId: string) => {
+    if (source === "quotation") { setSelectedQuoteId(sourceId); setSelectedQuoteIds(sourceId ? [sourceId] : []); if (sourceId) { setSelectedPiId(""); setSelectedPiIds([]); setSelectedDcIds([]); } }
+    else if (source === "proforma") { setSelectedPiId(sourceId); setSelectedPiIds(sourceId ? [sourceId] : []); if (sourceId) { setSelectedQuoteId(""); setSelectedQuoteIds([]); setSelectedDcIds([]); } }
+    else { setSelectedDcIds(sourceId ? [sourceId] : []); if (sourceId) { setSelectedQuoteId(""); setSelectedQuoteIds([]); setSelectedPiId(""); setSelectedPiIds([]); } }
+    if (!sourceId) {
+      setItems([{ id: Date.now(), description: "", hsn: "", qty: 1, returnedQty: 0, uom: "Nos", rate: 0, cgst: 9, sgst: 9, warehouse: "", itemId: null, serviceId: null }]);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/sales/${source === "quotation" ? "quotations" : source === "proforma" ? "proforma-invoices" : "challans"}/${sourceId}`, { credentials: "include" });
+      if (!response.ok) throw new Error(`Unable to map ${source}`);
+      const document = await response.json();
+      setClientId(String(document.clientId || ""));
+      setClientName(document.clientName || "");
+      setCustomerMobile(document.customerMobile || "");
+      setCustomerWhatsapp(document.customerWhatsappNumber || document.customerMobile || "");
+      setClientDetails({ company: document.customerCompany || "", address: document.customerAddress || "", phone: document.customerMobile || "", whatsappNumber: document.customerWhatsappNumber || "", gstin: document.customerGstin || "" });
+      setPlaceOfSupply(document.placeOfSupply || companyStateCode);
+      setValidUntil(String(document.validUntil || "").slice(0, 10));
+      setBankName(document.bankName || "");
+      setAccountNumber(document.accountNumber || "");
+      setIfscCode(document.ifscCode || "");
+      setBranch(document.branch || "");
+      setBillingDetails({ name: document.billedByCompanyName || billingDetails.name, address: document.billedByAddress || billingDetails.address, gstin: document.billedByGstin || billingDetails.gstin, contactNumber: document.billedByContactNumber || billingDetails.contactNumber });
+      setDiscountAmount(numericValue(document.discountAmount));
+      setItems((document.items || []).map((line: any) => {
+        const igstHalf = numericValue(line.igstPercent) / 2;
+        return {
+          id: `mapped-${line.id}`,
+          itemId: line.itemId == null ? null : Number(line.itemId),
+          productId: line.productId == null ? null : Number(line.productId),
+          serviceId: line.serviceId == null ? null : Number(line.serviceId),
+          inventoryId: null,
+          description: line.description || line.productName || "",
+          hsn: line.hsnSac || "",
+          qty: numericValue(line.quantity),
+          returnedQty: 0,
+          uom: line.uom || "Nos",
+          rate: numericValue(line.rate),
+          cgst: numericValue(line.cgstPercent) || igstHalf,
+          sgst: numericValue(line.sgstPercent) || igstHalf,
+          warehouseId: line.warehouseId == null ? null : Number(line.warehouseId),
+          warehouse: line.warehouseName || "",
+          itemType: line.itemType,
+          lineSource: line.lineSource,
+          quotationId: source === "quotation" ? Number(sourceId) : null,
+          piId: source === "proforma" ? Number(sourceId) : null,
+          dcId: source === "challan" ? Number(sourceId) : null
+        };
+      }));
+    } catch (error: any) {
+      setFeedback({ title: `Unable to map ${source}`, message: error.message });
+    }
+  };
+
+  const mapQuotation = (quotationId: string) => mapSalesSource("quotation", quotationId);
+
+  const mapQuotations = async (quotationIds: string[]) => {
+    const uniqueIds = [...new Set(quotationIds.filter(Boolean))];
+    if (!uniqueIds.length) { await mapSalesSource("quotation", ""); return; }
+    try {
+      const documents = await Promise.all(uniqueIds.map(async id => {
+        const response = await fetch(`/api/sales/quotations/${id}`, { credentials: "include" });
+        if (!response.ok) throw new Error(`Unable to load quotation #${id}`);
+        return response.json();
+      }));
+      const clientIds = [...new Set(documents.map(document => Number(document.clientId)).filter(Boolean))];
+      if (clientIds.length > 1) throw new Error("All mapped quotations must belong to the same client.");
+      await mapSalesSource("quotation", uniqueIds[0]);
+      const merged = new Map<string, any>();
+      for (const document of documents) for (const line of document.items || []) {
+        const itemId = line.itemId == null ? null : Number(line.itemId);
+        const serviceId = line.serviceId == null ? null : Number(line.serviceId);
+        const warehouseId = line.warehouseId == null ? null : Number(line.warehouseId);
+        const key = serviceId ? `service-${serviceId}` : `item-${itemId}-warehouse-${warehouseId || 0}`;
+        const existing = merged.get(key);
+        if (existing) { existing.qty += numericValue(line.quantity); continue; }
+        const igstHalf = numericValue(line.igstPercent) / 2;
+        merged.set(key, { id: `mapped-${uniqueIds[0]}-${line.id}`, itemId, productId: line.productId == null ? itemId : Number(line.productId), serviceId, inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: numericValue(line.quantity), returnedQty: 0, uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId, warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource, quotationId: Number(uniqueIds[0]), quotationIds: [...uniqueIds.map(Number)] });
+      }
+      setSelectedQuoteIds(uniqueIds); setSelectedQuoteId(uniqueIds[0]); setSelectedPiId(""); setSelectedPiIds([]); setSelectedDcIds([]); setItems([...merged.values()]);
+    } catch (error: any) { setFeedback({ title: "Unable to map quotations", message: error.message }); }
+  };
+
+  const mapInvoiceSources = async (source: "proforma" | "challan", sourceIds: string[]) => {
+    const uniqueIds = [...new Set(sourceIds.filter(Boolean))];
+    if (!uniqueIds.length) { await mapSalesSource(source, ""); if (source === "proforma") { setSelectedPiIds([]); setSelectedPiId(""); } else setSelectedDcIds([]); return; }
+    try {
+      const resource = source === "proforma" ? "proforma-invoices" : "challans";
+      const documents = await Promise.all(uniqueIds.map(async id => { const response = await fetch(`/api/sales/${resource}/${id}`, { credentials: "include" }); if (!response.ok) throw new Error(`Unable to load ${source} #${id}`); return response.json(); }));
+      const clientIds = [...new Set(documents.map(document => Number(document.clientId)).filter(Boolean))];
+      if (clientIds.length > 1) throw new Error("All mapped documents must belong to the same client.");
+      await mapSalesSource(source, uniqueIds[0]);
+      const merged = new Map<string, any>();
+      for (let documentIndex = 0; documentIndex < documents.length; documentIndex++) for (const line of documents[documentIndex].items || []) {
+        const itemId = line.itemId == null ? null : Number(line.itemId); const serviceId = line.serviceId == null ? null : Number(line.serviceId); const warehouseId = line.warehouseId == null ? null : Number(line.warehouseId);
+        const key = serviceId ? `service-${serviceId}` : `item-${itemId}-warehouse-${warehouseId || 0}`; const existing = merged.get(key);
+        if (existing) { existing.qty += numericValue(line.quantity); continue; }
+        const igstHalf = numericValue(line.igstPercent) / 2;
+        merged.set(key, { id: `mapped-${source}-${uniqueIds[documentIndex]}-${line.id}`, itemId, productId: line.productId == null ? itemId : Number(line.productId), serviceId, inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: numericValue(line.quantity), returnedQty: 0, uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId, warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource, piId: source === "proforma" ? Number(uniqueIds[documentIndex]) : null, dcId: source === "challan" ? Number(uniqueIds[documentIndex]) : null });
+      }
+      setSelectedQuoteId(""); setSelectedQuoteIds([]);
+      if (source === "proforma") { setSelectedPiIds(uniqueIds); setSelectedPiId(uniqueIds[0]); setSelectedDcIds([]); } else { setSelectedDcIds(uniqueIds); setSelectedPiIds([]); setSelectedPiId(""); }
+      setItems([...merged.values()]);
+    } catch (error: any) { setFeedback({ title: `Unable to map ${source === "proforma" ? "Proforma invoices" : "Delivery Challans"}`, message: error.message }); }
+  };
+
+  const mapReturnSource = async (source: "invoice" | "challan", sourceId: string) => {
+    if (source === "invoice") { setSelectedReturnInvoiceId(sourceId); if (sourceId) setSelectedReturnDcId(""); }
+    else { setSelectedReturnDcId(sourceId); if (sourceId) setSelectedReturnInvoiceId(""); }
+    if (!sourceId) { setItems([{ id: Date.now(), description: "", hsn: "", qty: 1, returnedQty: 0, uom: "Nos", rate: 0, cgst: 9, sgst: 9, warehouse: "", itemId: null, serviceId: null }]); return; }
+    try {
+      const response = await fetch(`/api/sales/${source === "invoice" ? "invoices" : "challans"}/${sourceId}`, { credentials: "include" });
+      if (!response.ok) throw new Error(`Unable to load source ${source}`);
+      const document = await response.json();
+      setClientId(String(document.clientId || "")); setClientName(document.clientName || ""); setCustomerMobile(document.customerMobile || ""); setCustomerWhatsapp(document.customerWhatsappNumber || document.customerMobile || "");
+      setClientDetails({ company: document.customerCompany || "", address: document.customerAddress || "", phone: document.customerMobile || "", whatsappNumber: document.customerWhatsappNumber || "", gstin: document.customerGstin || "" });
+      setPlaceOfSupply(document.placeOfSupply || companyStateCode); setBankName(document.bankName || ""); setAccountNumber(document.accountNumber || ""); setIfscCode(document.ifscCode || ""); setBranch(document.branch || "");
+      setBillingDetails({ name: document.billedByCompanyName || billingDetails.name, address: document.billedByAddress || billingDetails.address, gstin: document.billedByGstin || billingDetails.gstin, contactNumber: document.billedByContactNumber || billingDetails.contactNumber });
+      setItems((document.items || []).map((line: any) => { const sourceQty = numericValue(line.dispatchedQty || line.quantity); const igstHalf = numericValue(line.igstPercent) / 2; return { id: `return-${source}-${sourceId}-${line.id}`, invoiceItemId: source === "invoice" ? Number(line.id) : null, itemId: line.itemId == null ? null : Number(line.itemId), productId: line.productId == null ? null : Number(line.productId), serviceId: line.serviceId == null ? null : Number(line.serviceId), inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: sourceQty, returnedQty: sourceQty, uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId: line.warehouseId == null ? null : Number(line.warehouseId), warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource }; }));
+    } catch (error: any) { setFeedback({ title: "Unable to map Sales Return source", message: error.message }); }
   };
 
   const handleSave = async (forSend: boolean, openWhatsApp = false) => {
@@ -219,13 +394,44 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       setFeedback({ title: "Invalid WhatsApp number", message: "Enter a valid 10-digit WhatsApp number." });
       return;
     }
-    const validItems = items.filter(item => (item.itemId || item.serviceId) && Number(item.qty) > 0 && Number(item.rate) >= 0);
+    const validItems = items.filter(item => (item.itemId || item.serviceId) && Number(isReturn ? item.returnedQty : item.qty) > 0 && Number(item.rate) >= 0);
     if (!validItems.length) {
       setFeedback({ title: "Line item required", message: "Add at least one valid inventory product or service line." });
       return;
     }
+    if (isReturn) {
+      if (!selectedReturnInvoiceId && !selectedReturnDcId) { setFeedback({ title: "Source required", message: "Map an approved Invoice or dispatched Delivery Challan." }); return; }
+      for (const item of validItems) {
+        if (Number(item.returnedQty) > Number(item.qty)) { setFeedback({ title: "Invalid returned quantity", message: `${item.description} cannot return more than the source quantity of ${item.qty}.` }); return; }
+        if (!item.serviceId && !item.warehouseId) { setFeedback({ title: "Receiving warehouse required", message: `Select a receiving warehouse for ${item.description}.` }); return; }
+      }
+    }
+    if (isChallan) {
+      for (const item of validItems) {
+        if (item.serviceId || String(item.itemType).toLowerCase() === "service") continue;
+        if (!item.warehouseId) {
+          setFeedback({ title: "Warehouse required", message: `Select a warehouse for ${item.description}.` });
+          return;
+        }
+        const stockRow = inventoryItems.find(entry => Number(entry.materialId) === Number(item.itemId) && Number(entry.locationId) === Number(item.warehouseId));
+        if (!stockRow || Number(stockRow.quantityOnHand) < Number(item.qty)) {
+          setFeedback({ title: "Insufficient warehouse stock", message: `${item.description} has ${Number(stockRow?.quantityOnHand || 0)} ${item.uom} available in ${item.warehouse || "the selected warehouse"}, but ${item.qty} is requested.` });
+          return;
+        }
+      }
+    }
 
+    const isProforma = type === "Proforma Invoice";
     const payload = {
+      quoteId: (isProforma || isInvoice) && selectedQuoteIds.length ? Number(selectedQuoteIds[0]) : null,
+      quoteIds: (isProforma || isInvoice) ? selectedQuoteIds.map(Number) : [],
+      quotationIds: (isChallan || isInvoice) ? selectedQuoteIds.map(Number) : [],
+      piId: (isChallan || isInvoice) && selectedPiIds.length ? Number(selectedPiIds[0]) : null,
+      piIds: (isChallan || isInvoice) ? selectedPiIds.map(Number) : [],
+      dcId: isReturn ? (selectedReturnDcId ? Number(selectedReturnDcId) : null) : isInvoice && selectedDcIds.length ? Number(selectedDcIds[0]) : null,
+      dcIds: isInvoice ? selectedDcIds.map(Number) : [],
+      invoiceId: isReturn && selectedReturnInvoiceId ? Number(selectedReturnInvoiceId) : null,
+      sourceInvoiceId: isReturn && selectedReturnInvoiceId ? Number(selectedReturnInvoiceId) : null,
       clientId: Number(clientId),
       clientName,
       customerMobile,
@@ -236,6 +442,12 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       customerCountryCode: "91",
       placeOfSupply,
       quotationDate: docDate,
+      proformaDate: docDate,
+      challanDate: docDate,
+      invoiceDate: docDate,
+      returnDate: docDate,
+      dueDate: validUntil,
+      deliveryDate: validUntil,
       validUntil,
       subtotal,
       taxableAmount: subtotal,
@@ -243,6 +455,9 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       sgstTotal: totalSgst,
       igstTotal: totalIgst,
       grandTotal,
+      balanceDue: grandTotal,
+      paymentStatus: "Unpaid",
+      restock: isReturn,
       discountAmount,
       roundOff: 0,
       terms: "",
@@ -265,6 +480,9 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
         description: item.description,
         hsnSac: item.hsn,
         quantity: item.qty,
+        invoicedQty: isReturn ? item.qty : undefined,
+        returnedQty: isReturn ? item.returnedQty : undefined,
+        invoiceItemId: item.invoiceItemId ?? null,
         uom: item.uom,
         rate: item.rate,
         discountPercent: 0,
@@ -276,6 +494,9 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
         warehouseId: item.warehouseId ?? null,
         warehouseName: item.warehouse || "",
         attributeValues: {}
+        ,quotationId: item.quotationId ?? null
+        ,piId: item.piId ?? null
+        ,dcId: item.dcId ?? null
       }))
     };
 
@@ -284,57 +505,62 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       let targetId = savedDocumentId;
       let result: any;
       if (!targetId) {
-        const createResponse = await fetch("/api/sales/quotations", {
+        const createResponse = await fetch(`/api/sales/${documentResource}`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload, status: "Draft" })
         });
-        if (!createResponse.ok) throw new Error((await createResponse.json().catch(() => ({}))).error || "Failed to save quotation draft");
+        if (!createResponse.ok) throw new Error((await createResponse.json().catch(() => ({}))).error || `Failed to save ${documentLabel.toLowerCase()} draft`);
         result = await createResponse.json();
         targetId = Number(result.id);
       } else if (!forSend) {
-        const draftResponse = await fetch(`/api/sales/quotations/${targetId}`, {
+        const draftResponse = await fetch(`/api/sales/${documentResource}/${targetId}`, {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload, status: "Draft" })
         });
-        if (!draftResponse.ok) throw new Error((await draftResponse.json().catch(() => ({}))).error || "Failed to save quotation revision");
+        if (!draftResponse.ok) throw new Error((await draftResponse.json().catch(() => ({}))).error || `Failed to save ${documentLabel.toLowerCase()} revision`);
         result = await draftResponse.json();
         targetId = Number(result.id);
       }
 
       if (forSend) {
-        const sendResponse = await fetch(`/api/sales/quotations/${targetId}/send`, {
+        const sendResponse = await fetch(`/api/sales/${documentResource}/${targetId}/send`, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...payload, mobile: normalizedWhatsapp, countryCode: "91", customMessage: sendMessage })
         });
-        if (!sendResponse.ok) throw new Error((await sendResponse.json().catch(() => ({}))).error || "Failed to send quotation");
+        if (!sendResponse.ok) throw new Error((await sendResponse.json().catch(() => ({}))).error || `Failed to send ${documentLabel.toLowerCase()}`);
         result = await sendResponse.json();
         targetId = Number(result.id);
       }
       setSavedDocumentId(targetId);
       setViewDocumentId(targetId);
-      setQuotationNumber(result.quotationNumber || result.quoteNumber);
+      setQuotationNumber(result.returnNumber || result.invoiceNumber || result.dcNumber || result.piNumber || result.quotationNumber || result.quoteNumber);
       setStatus(result.status);
-      await loadVersions(targetId!);
+      if (!isChallan && !isReturn) await loadVersions(targetId!);
       setSendOpen(false);
-      setFeedback({ title: forSend ? "Quotation sent" : "Draft saved", message: `${result.quotationNumber || result.quoteNumber} was saved as ${result.versionLabel || result.status}.`, success: true });
+      if (!isQuotation && !isProforma) {
+        setFeedback({ title: forSend ? (isChallan ? `${documentLabel} dispatched` : isReturn ? `${documentLabel} confirmed` : `${documentLabel} sent`) : "Draft saved", message: `${result.returnNumber || result.invoiceNumber || result.dcNumber || result.piNumber || result.quotationNumber || result.quoteNumber} was saved as ${result.versionLabel || result.status}.`, success: true });
+      }
       onSaved?.(result);
       
       if (forSend && openWhatsApp) {
         const whatsappRecipient = normalizedWhatsapp;
+        const savedNumber = result.returnNumber || result.invoiceNumber || result.dcNumber || result.piNumber || result.quotationNumber || result.quoteNumber || quotationNumber;
+        downloadSalesPdf(buildSalesPdfBlob(pdfInput(savedNumber, result.status)), pdfInput(savedNumber, result.status));
         const waUrl = `https://wa.me/${whatsappRecipient.length === 10 ? `91${whatsappRecipient}` : whatsappRecipient}?text=${encodeURIComponent(
-          `Dear ${clientName}, please find our Quotation ${result.quotationNumber} with grand total Rs ${grandTotal.toFixed(2)}. Valid until ${validUntil}.`
+          `Dear ${clientName}, please find our ${documentLabel} ${result.returnNumber || result.invoiceNumber || result.dcNumber || result.piNumber || result.quotationNumber} with grand total Rs ${grandTotal.toFixed(2)}. ${isInvoice ? "Due" : "Valid until"} ${validUntil}.`
         )}`;
         window.open(waUrl, "_blank");
       }
+      if (isQuotation || isProforma) onCancel();
     } catch (err: any) {
       console.error(err);
-      setFeedback({ title: forSend ? "Unable to send quotation" : "Unable to save draft", message: err.message });
+      setFeedback({ title: forSend ? `Unable to send ${documentLabel.toLowerCase()}` : "Unable to save draft", message: err.message });
     } finally {
       setSaving(false);
     }
@@ -361,6 +587,26 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
 
   const grandTotal = subtotal + totalCgst + totalSgst + totalIgst + Number(transportCharges) - Number(discountAmount);
 
+  const pdfInput = (number = quotationNumber, pdfStatus = status): SalesPdfInput => ({
+    documentType: documentLabel, documentNumber: number || "Draft", docDate, dueDate: validUntil,
+    docDateLabel: isQuotation ? "Quotation Date" : isProforma ? "Proforma Date" : isChallan ? "Challan Date" : isInvoice ? "Invoice Date" : "Return Date",
+    dueDateLabel: isInvoice ? "Due Date" : isReturn ? "Reference Date" : isChallan ? "Delivery Date" : "Valid Until", status: pdfStatus,
+    companyName: billingDetails.name, companyAddress: billingDetails.address, companyGstin: billingDetails.gstin, companyPhone: billingDetails.contactNumber,
+    clientName: clientDetails.company || clientName, clientAddress: clientDetails.address, clientGstin: clientDetails.gstin, clientPhone: clientDetails.phone || customerMobile, placeOfSupply,
+    lines: items.filter(item => item.itemId || item.serviceId).map(item => { const quantity = Number(isReturn ? item.returnedQty : item.qty); const rate = Number(item.rate || 0); const taxPercent = Number(item.cgst || 0) + Number(item.sgst || 0); return { description: item.description, hsn: item.hsn, quantity, uom: item.uom, rate, cgstPercent: isInterState ? 0 : Number(item.cgst || 0), sgstPercent: isInterState ? 0 : Number(item.sgst || 0), igstPercent: isInterState ? taxPercent : 0, lineTotal: quantity * rate * (1 + taxPercent / 100) }; }),
+    subtotal, cgstTotal: totalCgst, sgstTotal: totalSgst, igstTotal: totalIgst, grandTotal,
+    bankName, accountNumber, ifscCode, branch, terms: "Payment is subject to the agreed terms and conditions.", notes: "",
+  });
+
+  const closePreview = () => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(""); setPreviewOpen(false); };
+  const openPreview = async () => {
+    setPreviewOpen(true); setPreviewLoading(true);
+    try { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(URL.createObjectURL(buildSalesPdfBlob(pdfInput()))); }
+    catch (error: any) { setPreviewOpen(false); setFeedback({ title: "Unable to create PDF preview", message: error.message }); }
+    finally { setPreviewLoading(false); }
+  };
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Top Action Bar */}
@@ -370,13 +616,13 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h2 className="text-xl font-bold">{documentId ? "Edit" : "New"} {type}</h2>
+            <h2 className="text-xl font-bold">{documentId ? (isLocked ? "View" : "Edit") : "New"} {type}</h2>
             <p className="text-xs text-muted-foreground">{quotationNumber}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button variant="outline"><FileText className="w-4 h-4 mr-2" /> Preview</Button>
+          <Button variant="outline" onClick={() => void openPreview()}><FileText className="w-4 h-4 mr-2" /> Preview</Button>
           {versions.length > 0 && (
             <Select value={String(viewDocumentId || savedDocumentId || "")} onValueChange={value => setViewDocumentId(Number(value))}>
               <SelectTrigger className="w-[180px]">
@@ -388,19 +634,20 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
               </SelectContent>
             </Select>
           )}
-          <Button disabled={saving || isLocked} variant="outline" onClick={() => void handleSave(false)}><Save className="w-4 h-4 mr-2" /> Save Draft</Button>
-          <Button disabled={saving || isLocked} onClick={() => setSendOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+          {!isLocked && <Button disabled={saving} variant="outline" onClick={() => void handleSave(false)}><Save className="w-4 h-4 mr-2" /> Save Draft</Button>}
+          {!isLocked && <Button disabled={saving} onClick={() => setSendOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
             {isChallan ? <Truck className="w-4 h-4 mr-2" /> : isReturn ? <RotateCcw className="w-4 h-4 mr-2" /> : <Send className="w-4 h-4 mr-2" />}
             {isChallan ? "Save & Dispatch" : isReturn ? "Save & Return" : "Save & Send"}
-          </Button>
+          </Button>}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-1 pb-8 pt-6">
-      {status === "Sent" && (
+      <fieldset disabled={isLocked} className="space-y-6">
+      {(status === "Sent" || (isReturn && status === "Confirmed")) && (
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="flex items-center justify-between gap-4 p-5">
-            <div><Label className="font-semibold">Customer Response</Label><p className="text-xs text-muted-foreground">Confirmation is available only after the quotation is sent.</p></div>
+            <div><Label className="font-semibold">Customer Response</Label><p className="text-xs text-muted-foreground">{isReturn ? "Confirmation records the goods as received and adds physical items back to inventory." : "Confirmation is available only after the document is sent."}</p></div>
             <div className="flex gap-2"><Button onClick={() => void handleCustomerResponse("confirm")}>Confirm</Button><Button variant="destructive" onClick={() => void handleCustomerResponse("reject")}>Reject</Button></div>
           </CardContent>
         </Card>
@@ -494,17 +741,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
                 </div>
               )}
 
-              {!isQuotation && (
-                <div className="space-y-1.5 mt-4">
-                  <Label className="text-xs">
-                    Source Reference (optional)
-                  </Label>
-                  <Input placeholder={isReturn ? "E.g. Invoice ID, DC ID" : "E.g. Quotation ID, Sales Order ID"} />
-                  <p className="text-[10px] text-muted-foreground">
-                    Link this document to an existing source.
-                  </p>
-                </div>
-              )}
+
             </CardContent>
           </Card>
         </div>
@@ -642,6 +879,55 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
         </Card>
       </div>
 
+      {(isProforma || isChallan || isInvoice) && (
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-6">
+            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{isInvoice ? "Map Sales Document (Optional — choose one source type)" : isChallan ? "Map Confirmed Sales Document (Optional)" : "Map Approved/Confirmed Quotation"}</Label>
+            <div className={`mt-3 grid gap-3 ${isInvoice ? "md:grid-cols-3" : isChallan ? "md:grid-cols-2" : "max-w-xl"}`}>
+              <Popover>
+                <PopoverTrigger asChild><Button type="button" variant="outline" disabled={Boolean(autoCreatedFromQuotationId) || selectedPiIds.length > 0 || selectedDcIds.length > 0} className="w-full justify-between bg-white font-normal"><span className="truncate">{selectedQuoteIds.length ? `${selectedQuoteIds.length} quotation${selectedQuoteIds.length > 1 ? "s" : ""} selected` : "Select confirmed quotations"}</span><ChevronDown className="ml-2 h-4 w-4" /></Button></PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-2">
+                  <div className="max-h-64 space-y-1 overflow-y-auto">{availableQuotations.map(quote => { const id = String(quote.id); const checked = selectedQuoteIds.includes(id); return <label key={id} className="flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm hover:bg-muted"><Checkbox checked={checked} onCheckedChange={() => void mapQuotations(checked ? selectedQuoteIds.filter(value => value !== id) : [...selectedQuoteIds, id])} /><span>{quote.quotationNumber || quote.quoteNumber} - {quote.customerCompany || quote.clientName}</span></label>; })}</div>
+                </PopoverContent>
+              </Popover>
+              {isChallan && <Select value={selectedPiId || "none"} onValueChange={value => void mapSalesSource("proforma", value === "none" ? "" : value)} disabled={selectedQuoteIds.length > 0}>
+                <SelectTrigger className="bg-white"><SelectValue placeholder="Select confirmed Proforma" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">No Proforma invoice</SelectItem>{availableProformas.map(doc => <SelectItem key={doc.id} value={String(doc.id)}>{doc.piNumber} - {doc.customerCompany || doc.clientName}</SelectItem>)}</SelectContent>
+              </Select>}
+              {isInvoice && <Popover>
+                <PopoverTrigger asChild><Button type="button" variant="outline" disabled={selectedQuoteIds.length > 0 || selectedDcIds.length > 0} className="w-full justify-between bg-white font-normal"><span className="truncate">{selectedPiIds.length ? `${selectedPiIds.length} Proforma invoice${selectedPiIds.length > 1 ? "s" : ""} selected` : "Select approved Proformas"}</span><ChevronDown className="ml-2 h-4 w-4" /></Button></PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-2"><div className="max-h-64 space-y-1 overflow-y-auto">{availableProformas.map(doc => { const id = String(doc.id); const checked = selectedPiIds.includes(id); return <label key={id} className="flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm hover:bg-muted"><Checkbox checked={checked} onCheckedChange={() => void mapInvoiceSources("proforma", checked ? selectedPiIds.filter(value => value !== id) : [...selectedPiIds, id])} /><span>{doc.piNumber} - {doc.customerCompany || doc.clientName}</span></label>; })}</div></PopoverContent>
+              </Popover>}
+              {isInvoice && <Popover>
+                <PopoverTrigger asChild><Button type="button" variant="outline" disabled={selectedQuoteIds.length > 0 || selectedPiIds.length > 0} className="w-full justify-between bg-white font-normal"><span className="truncate">{selectedDcIds.length ? `${selectedDcIds.length} Delivery Challan${selectedDcIds.length > 1 ? "s" : ""} selected` : "Select dispatched Challans"}</span><ChevronDown className="ml-2 h-4 w-4" /></Button></PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-2"><div className="max-h-64 space-y-1 overflow-y-auto">{availableChallans.map(doc => { const id = String(doc.id); const checked = selectedDcIds.includes(id); return <label key={id} className="flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm hover:bg-muted"><Checkbox checked={checked} onCheckedChange={() => void mapInvoiceSources("challan", checked ? selectedDcIds.filter(value => value !== id) : [...selectedDcIds, id])} /><span>{doc.dcNumber} - {doc.customerCompany || doc.clientName}</span></label>; })}</div></PopoverContent>
+              </Popover>}
+            </div>
+            {(selectedQuoteIds.length > 0 || selectedPiIds.length > 0 || selectedDcIds.length > 0) && !autoCreatedFromQuotationId && <Button className="mt-3" variant="outline" onClick={() => void (selectedDcIds.length ? mapInvoiceSources("challan", []) : selectedPiIds.length ? (isInvoice ? mapInvoiceSources("proforma", []) : mapSalesSource("proforma", "")) : mapQuotations([]))}>Clear Mapping</Button>}
+            <p className="mt-2 text-xs text-muted-foreground">Mapping copies the confirmed source customer, GST, dates, bank details and line items. You can also create this document manually.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isReturn && (
+        <Card className="shadow-sm border-border">
+          <CardContent className="p-6">
+            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Map Return Source (Required — choose one)</Label>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <Select value={selectedReturnInvoiceId || "none"} onValueChange={value => void mapReturnSource("invoice", value === "none" ? "" : value)} disabled={Boolean(selectedReturnDcId)}>
+                <SelectTrigger className="bg-white"><SelectValue placeholder="Select approved/paid Invoice" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">No Invoice</SelectItem>{availableInvoices.map(doc => <SelectItem key={doc.id} value={String(doc.id)}>{doc.invoiceNumber} - {doc.customerCompany || doc.clientName}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={selectedReturnDcId || "none"} onValueChange={value => void mapReturnSource("challan", value === "none" ? "" : value)} disabled={Boolean(selectedReturnInvoiceId)}>
+                <SelectTrigger className="bg-white"><SelectValue placeholder="Select dispatched Delivery Challan" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">No Delivery Challan</SelectItem>{availableChallans.map(doc => <SelectItem key={doc.id} value={String(doc.id)}>{doc.dcNumber} - {doc.customerCompany || doc.clientName}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">The source customer and items are copied. Enter the actual returned quantity and receiving warehouse before saving.</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Line Items */}
       <Card className="shadow-sm border-border overflow-hidden">
         <div className="p-4 border-b border-border flex justify-between items-center bg-slate-50/50">
@@ -749,13 +1035,13 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
                     {(isChallan || isReturn) && (
                       <td className="px-4 py-3 align-top">
                         <Select value={item.warehouseId ? String(item.warehouseId) : ""} onValueChange={(v) => {
-                          const location = inventoryItems.find(entry => String(entry.locationId) === v);
-                          updateItem(item.id, { warehouseId: Number(v), warehouse: location?.locationName || "" });
+                          const location = isReturn ? warehouses.find(entry => String(entry.id) === v) : inventoryItems.find(entry => String(entry.locationId) === v);
+                          updateItem(item.id, { warehouseId: Number(v), warehouse: location?.name || location?.locationName || "" });
                         }}>
                           <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select" /></SelectTrigger>
                           <SelectContent>
-                            {Array.from(new Map(inventoryItems.filter(entry => entry.locationId).map(entry => [String(entry.locationId), entry.locationName])).entries()).map(([id, name]) => (
-                              <SelectItem key={id} value={id}>{name || "Warehouse"}</SelectItem>
+                            {isReturn ? warehouses.map(location => <SelectItem key={location.id} value={String(location.id)}>{location.name || location.locationName || `Warehouse #${location.id}`}</SelectItem>) : inventoryItems.filter(entry => Number(entry.materialId) === Number(item.itemId) && entry.locationId && (Number(entry.quantityOnHand) > 0 || Number(entry.locationId) === Number(item.warehouseId))).map(entry => (
+                              <SelectItem key={entry.id} value={String(entry.locationId)}>{entry.locationName || "Warehouse"} ({entry.quantityOnHand} {entry.unit})</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -912,22 +1198,31 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
           </Card>
         </div>
       </div>
+      </fieldset>
       </div>
 
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader><DialogTitle>Send Quotation</DialogTitle><p className="text-sm text-muted-foreground">Save as Sent or share the Sent revision through WhatsApp.</p></DialogHeader>
+          <DialogHeader><DialogTitle>{isChallan ? "Dispatch Delivery Challan" : `Send ${type}`}</DialogTitle><p className="text-sm text-muted-foreground">{isChallan ? "Dispatching will permanently reduce stock from each selected warehouse." : "Save as Sent or share the Sent revision through WhatsApp."}</p></DialogHeader>
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2"><div><Label>Recipient Name</Label><Input value={clientName} readOnly /></div><div><Label>WhatsApp Number</Label><Input value={customerWhatsapp} onChange={e => setCustomerWhatsapp(e.target.value)} /></div></div>
             <div className="rounded-md border"><div className="grid grid-cols-[1fr_80px_100px_120px] bg-muted px-3 py-2 text-xs font-semibold"><span>Description</span><span>Qty</span><span>Rate</span><span className="text-right">Amount</span></div>{items.filter(item => item.itemId || item.serviceId).map(item => <div key={item.id} className="grid grid-cols-[1fr_80px_100px_120px] border-t px-3 py-2 text-sm"><span>{item.description}</span><span>{item.qty} {item.uom}</span><span>Rs {Number(item.rate).toFixed(2)}</span><span className="text-right font-medium">Rs {(Number(item.qty) * Number(item.rate) * (1 + (item.cgst + item.sgst) / 100)).toFixed(2)}</span></div>)}<div className="flex justify-end border-t px-3 py-2 font-bold">Grand Total&nbsp; Rs {grandTotal.toFixed(2)}</div></div>
-            <div><Label>Message</Label><textarea className="mt-1 min-h-32 w-full rounded-md border p-3 text-sm" value={sendMessage || `Dear ${clientName},\n\nPlease find quotation ${quotationNumber} for Rs ${grandTotal.toFixed(2)}. Valid until ${validUntil}.`} onChange={e => setSendMessage(e.target.value)} /></div>
+            <div><Label>Message</Label><textarea className="mt-1 min-h-32 w-full rounded-md border p-3 text-sm" value={sendMessage || `Dear ${clientName},\n\nPlease find ${type.toLowerCase()} ${quotationNumber} for Rs ${grandTotal.toFixed(2)}. Valid until ${validUntil}.`} onChange={e => setSendMessage(e.target.value)} /></div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setSendOpen(false)}>Cancel</Button><Button variant="outline" disabled={saving} onClick={() => void handleSave(true, false)}>Save as Sent</Button><Button disabled={saving} onClick={() => void handleSave(true, true)}>Open WhatsApp</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setSendOpen(false)}>Cancel</Button><Button variant="outline" disabled={saving} onClick={() => void handleSave(true, false)}>{isChallan ? "Dispatch" : "Save as Sent"}</Button><Button disabled={saving} onClick={() => void handleSave(true, true)}>{isChallan ? "Dispatch & Open WhatsApp" : "Open WhatsApp"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={Boolean(feedback)} onOpenChange={open => { if (!open) setFeedback(null); }}>
-        <DialogContent><DialogHeader><DialogTitle>{feedback?.title}</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">{feedback?.message}</p><DialogFooter>{feedback?.success && <Button variant="outline" onClick={() => { setFeedback(null); onCancel(); }}>View Quotations</Button>}<Button onClick={() => setFeedback(null)}>Continue Editing</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>{feedback?.title}</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">{feedback?.message}</p><DialogFooter><Button onClick={() => setFeedback(null)}>Close</Button></DialogFooter></DialogContent>
+      </Dialog>
+
+      <Dialog open={previewOpen} onOpenChange={open => { if (!open) closePreview(); }}>
+        <DialogContent className="flex h-[88vh] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b px-5 py-4"><DialogTitle>Sales PDF Preview</DialogTitle><p className="text-sm text-muted-foreground">Review first, then download or print.</p></DialogHeader>
+          <div className="min-h-0 flex-1 bg-zinc-800">{previewLoading ? <div className="flex h-full items-center justify-center text-white"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Preparing preview...</div> : previewUrl ? <iframe title="Sales PDF Preview" src={previewUrl} className="h-full w-full border-0" /> : null}</div>
+          <DialogFooter className="border-t px-5 py-3"><Button variant="outline" onClick={closePreview}>Close</Button><Button variant="outline" disabled={!previewUrl} onClick={() => downloadSalesPdf(buildSalesPdfBlob(pdfInput()), pdfInput())}><Download className="mr-2 h-4 w-4" />Download PDF</Button><Button disabled={!previewUrl} onClick={() => { const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Sales PDF Preview"]'); frame?.contentWindow?.focus(); frame?.contentWindow?.print(); }}><Printer className="mr-2 h-4 w-4" />Print</Button></DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

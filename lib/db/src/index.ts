@@ -57,5 +57,5 @@ async function bootstrapAdmin() {
 }
 
 await bootstrapAdmin();
-export { connectMongo, eq, and, gte, lte, ilike, inArray, isNull, asc, desc } from "./query";
+export { connectMongo, syncTableIndexes, eq, and, gte, lte, ilike, inArray, isNull, asc, desc } from "./query";
 export * from "./schema";

@@ -46,6 +46,11 @@ export function modelFor(table: MongoTable) {
   models.set(table.$name, model); return model;
 }
 
+export async function syncTableIndexes(table: MongoTable) {
+  await connectMongo();
+  await modelFor(table).syncIndexes();
+}
+
 async function nextId(table: MongoTable, session?: ClientSession) {
   const Counter = mongoose.models.Vidhai_Counter || mongoose.model("Vidhai_Counter", new Schema({ _id: String, value: Number }, { collection: "_counters", versionKey: false }));
   const row = await Counter.findOneAndUpdate({ _id: table.$name }, { $inc: { value: 1 } }, { upsert: true, new: true, session }).lean();

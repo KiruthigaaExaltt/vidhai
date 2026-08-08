@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, materialsTable, inventoryCategoriesTable } from "@workspace/db";
-import { eq } from "@workspace/db";
+import { db, materialsTable, inventoryCategoriesTable, inventoryLocationsTable } from "@workspace/db";
+import { eq, and } from "@workspace/db";
 import crypto from "crypto";
 import { inventoryTable } from "@workspace/db";
 
@@ -82,6 +82,13 @@ router.post("/", async (req, res) => {
   const qrPayload = `/product/${encodeURIComponent(sku || itemIdentifier)}`;
 
   try {
+    const normalizedStocks = Array.isArray(warehouseStocks) ? warehouseStocks.filter((ws: any) => ws.warehouseId).map((ws: any) => ({ warehouseId: Number(ws.warehouseId), stock: Number(ws.stock || 0) })) : [];
+    if (new Set(normalizedStocks.map((ws: any) => ws.warehouseId)).size !== normalizedStocks.length) return res.status(400).json({ error: "Each warehouse can be selected only once" });
+    for (const ws of normalizedStocks) {
+      if (!Number.isFinite(ws.stock) || ws.stock < 0) return res.status(400).json({ error: "Warehouse quantity must be zero or greater" });
+      const [warehouse] = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.id, ws.warehouseId)).limit(1);
+      if (!warehouse) return res.status(400).json({ error: `Warehouse #${ws.warehouseId} was not found` });
+    }
     const [mat] = await db
       .insert(materialsTable)
       .values({
@@ -102,24 +109,16 @@ router.post("/", async (req, res) => {
       })
       .returning();
 
-    // Insert warehouse stocks — each try/catch individually so one FK failure doesn't block others
-    if (warehouseStocks && Array.isArray(warehouseStocks) && warehouseStocks.length > 0) {
-      for (const ws of warehouseStocks) {
-        if (!ws.warehouseId) continue;
-        try {
-          await db.insert(inventoryTable).values({
-            materialId: mat.id,
-            locationId: Number(ws.warehouseId),
-            quantityOnHand: String(ws.stock || 0),
-            costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null,
-          });
-        } catch (_err) {
-          // FK constraint mismatch between vault locations and old locations — skip silently
-        }
-      }
+    try {
+      for (const ws of normalizedStocks) await db.insert(inventoryTable).values({ materialId: mat.id, locationId: ws.warehouseId, quantityOnHand: String(ws.stock), costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null });
+    } catch (stockError) {
+      await db.delete(inventoryTable).where(eq(inventoryTable.materialId, mat.id));
+      await db.delete(materialsTable).where(eq(materialsTable.id, mat.id));
+      throw stockError;
     }
 
-    res.status(201).json(mat);
+    const savedStocks = await db.select().from(inventoryTable).where(eq(inventoryTable.materialId, mat.id));
+    res.status(201).json({ ...mat, warehouseStocks: savedStocks.map(row => ({ warehouseId: row.locationId, stock: Number(row.quantityOnHand) })) });
   } catch (err: any) {
     if (err.code === 11000 || err.code === "23505") {
       res.status(400).json({ error: "Item with this Name or SKU already exists" });
@@ -130,7 +129,7 @@ router.post("/", async (req, res) => {
 });
 
 router.patch("/:id", async (req, res) => {
-  const { name, sku, unit, itemType, hsnSac, buyPricePerUnit, sellPricePerUnit, gstPercent, criticalLevel, imageUrl, defaultMoisturePercent, defaultNitrogenPercent, notes, categoryId, attributeValues } = req.body;
+  const { name, sku, unit, itemType, hsnSac, buyPricePerUnit, sellPricePerUnit, gstPercent, criticalLevel, imageUrl, defaultMoisturePercent, defaultNitrogenPercent, notes, categoryId, attributeValues, warehouseStocks } = req.body;
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (sku !== undefined) updates.sku = sku;
@@ -149,6 +148,17 @@ router.patch("/:id", async (req, res) => {
   if (notes !== undefined) updates.notes = notes;
   const [mat] = await db.update(materialsTable).set(updates).where(eq(materialsTable.id, Number(req.params.id))).returning();
   if (!mat) return res.status(404).json({ error: "Not found" });
+  if (Array.isArray(warehouseStocks)) {
+    const normalized = warehouseStocks.filter((ws: any) => ws.warehouseId).map((ws: any) => ({ warehouseId: Number(ws.warehouseId), stock: Number(ws.stock || 0) }));
+    if (new Set(normalized.map((ws: any) => ws.warehouseId)).size !== normalized.length) return res.status(400).json({ error: "Each warehouse can be selected only once" });
+    for (const ws of normalized) {
+      const [warehouse] = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.id, ws.warehouseId)).limit(1);
+      if (!warehouse || !Number.isFinite(ws.stock) || ws.stock < 0) return res.status(400).json({ error: "Invalid warehouse or quantity" });
+      const [existing] = await db.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, mat.id), eq(inventoryTable.locationId, ws.warehouseId))).limit(1);
+      if (existing) await db.update(inventoryTable).set({ quantityOnHand: String(ws.stock), costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : existing.costBasis, lastUpdated: new Date() }).where(eq(inventoryTable.id, existing.id));
+      else await db.insert(inventoryTable).values({ materialId: mat.id, locationId: ws.warehouseId, quantityOnHand: String(ws.stock), costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null });
+    }
+  }
   return res.json({
     ...mat,
     defaultMoisturePercent: mat.defaultMoisturePercent != null ? Number(mat.defaultMoisturePercent) : null,

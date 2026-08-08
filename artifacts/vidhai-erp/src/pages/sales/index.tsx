@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/layout/Shell";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, CirclePlay, AlertTriangle, Eye } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SalesDocumentForm } from "./components/SalesDocumentForm";
@@ -36,6 +36,11 @@ export default function Sales() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [quotations, setQuotations] = useState<any[]>([]);
+  const [proformas, setProformas] = useState<any[]>([]);
+  const [challans, setChallans] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [returns, setReturns] = useState<any[]>([]);
+  const [approvedDocuments, setApprovedDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -60,8 +65,63 @@ export default function Sales() {
     }
   };
 
+  const loadProformas = async () => {
+    setLoading(true); setLoadError("");
+    try {
+      const response = await fetch("/api/sales/proforma-invoices", { credentials: "include" });
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Unable to load Proforma invoices");
+      setProformas(await response.json());
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Proforma invoices"); }
+    finally { setLoading(false); }
+  };
+
+  const loadApprovedDocuments = async () => {
+    setLoading(true); setLoadError("");
+    try {
+      const response = await fetch("/api/sales/approved-quotations", { credentials: "include" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to load confirmed sales documents");
+      setApprovedDocuments(body.data || []);
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load confirmed sales documents"); }
+    finally { setLoading(false); }
+  };
+
+  const loadChallans = async () => {
+    setLoading(true); setLoadError("");
+    try {
+      const response = await fetch("/api/sales/challans", { credentials: "include" });
+      const body = await response.json().catch(() => ([]));
+      if (!response.ok) throw new Error(body.error || "Unable to load Delivery Challans");
+      setChallans(body);
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Delivery Challans"); }
+    finally { setLoading(false); }
+  };
+
+  const loadInvoices = async () => {
+    setLoading(true); setLoadError("");
+    try {
+      const response = await fetch("/api/sales/invoices", { credentials: "include" });
+      const body = await response.json().catch(() => ([]));
+      if (!response.ok) throw new Error(body.error || "Unable to load Invoices");
+      setInvoices(body);
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Invoices"); }
+    finally { setLoading(false); }
+  };
+
+  const loadReturns = async () => {
+    setLoading(true); setLoadError("");
+    try { const response = await fetch("/api/sales/returns", { credentials: "include" }); const body = await response.json().catch(() => ([])); if (!response.ok) throw new Error(body.error || "Unable to load Sales Returns"); setReturns(body); }
+    catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Sales Returns"); }
+    finally { setLoading(false); }
+  };
+
   useEffect(() => {
     if (activeTab === "Quotation") void loadQuotations();
+    if (activeTab === "Proforma Invoice") void loadProformas();
+    if (activeTab === "Sales Order") void loadApprovedDocuments();
+    if (activeTab === "Delivery Challan") void loadChallans();
+    if (activeTab === "Invoices") void loadInvoices();
+    if (activeTab === "Sales Return") void loadReturns();
   }, [activeTab]);
 
   if (creatingType) {
@@ -75,7 +135,7 @@ export default function Sales() {
               setCreatingType(null);
               setEditingId(null);
             }}
-            onSaved={() => void loadQuotations()}
+            onSaved={() => void (creatingType === "Proforma Invoice" ? loadProformas() : creatingType === "Delivery Challan" ? loadChallans() : creatingType === "Invoices" ? loadInvoices() : creatingType === "Sales Return" ? loadReturns() : loadQuotations())}
           />
         </div>
       </Shell>
@@ -89,6 +149,45 @@ export default function Sales() {
     "Invoices",
     "Sales Return",
   ].includes(activeTab);
+  const listedDocuments = activeTab === "Quotation" ? quotations : activeTab === "Proforma Invoice" ? proformas : activeTab === "Invoices" ? invoices : activeTab === "Sales Return" ? returns : challans;
+
+  const salesOrderQueue = loading ? (
+    <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">Loading confirmed documents...</div>
+  ) : loadError ? (
+    <div className="rounded-xl border bg-card p-12 text-center text-destructive">{loadError}</div>
+  ) : approvedDocuments.length === 0 ? (
+    <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">No confirmed Quotations or Proforma Invoices are ready.</div>
+  ) : (
+    <div className="space-y-4">
+      {approvedDocuments.map(row => {
+        const total = Number(row.grandTotal || 0);
+        const hasStockIssue = Boolean(row.insufficientItems?.length);
+        return (
+          <Card key={`${row.source}-${row.id}`} className="rounded-xl border shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold">{row.documentNumber} · {row.customerCompany || row.clientName}</h3>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="rounded border bg-muted px-2 py-0.5 font-semibold uppercase">{row.source}</span>
+                    <span>{row.versionLabel}</span>
+                    <span>·</span>
+                    <span>Confirmed {row.customerApprovedAt ? new Date(row.customerApprovedAt).toLocaleDateString("en-IN") : ""}</span>
+                  </div>
+                </div>
+                <div className="text-right"><div className="font-bold">Rs {Number.isFinite(total) ? total.toFixed(2) : "0.00"}</div><div className="text-xs font-medium text-emerald-700">Approved</div></div>
+              </div>
+              <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                {(row.items || []).map((item: any) => <div key={item.id || `${item.description}-${item.quantity}`}>{item.description || item.productName} — {Number(item.quantity || 0)} {item.uom || "Nos"}</div>)}
+              </div>
+              {hasStockIssue && <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{row.insufficientItems.map((item: any) => `${item.description}: requires ${item.required}, available ${item.available}`).join("; ")}</span></div>}
+              <div className="mt-4"><Button disabled title="Work Order integration will be added next"><CirclePlay className="mr-2 h-4 w-4" />Start Work Order</Button></div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
 
   return (
     <Shell>
@@ -138,7 +237,7 @@ export default function Sales() {
           </div>
 
           {/* Content Area */}
-          {activeTab === "Quotation" ? (
+          {activeTab === "Sales Order" ? salesOrderQueue : (activeTab === "Quotation" || activeTab === "Proforma Invoice" || activeTab === "Delivery Challan" || activeTab === "Invoices" || activeTab === "Sales Return") ? (
             <Card className="rounded-xl border border-border shadow-sm bg-card">
               <CardContent className="p-0">
                 {loading ? (
@@ -149,16 +248,16 @@ export default function Sales() {
                   <div className="p-12 text-center text-destructive">
                     {loadError}
                   </div>
-                ) : quotations.length === 0 ? (
+                ) : listedDocuments.length === 0 ? (
                   <div className="p-12 text-center text-muted-foreground">
-                    No quotations found
+                    No {activeTab.toLowerCase()}s found
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-3">Quotation</th>
+                          <th className="px-4 py-3">{activeTab === "Quotation" ? "Quotation" : activeTab === "Proforma Invoice" ? "Proforma" : activeTab === "Invoices" ? "Invoice" : activeTab === "Sales Return" ? "Sales Return" : "Delivery Challan"}</th>
                           <th className="px-4 py-3">Client</th>
                           <th className="px-4 py-3">Date</th>
                           <th className="px-4 py-3">Revision</th>
@@ -169,20 +268,21 @@ export default function Sales() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {quotations.map((row) => {
+                        {listedDocuments.map((row) => {
                           const total = Number(row.grandTotal);
+                          const isViewOnly = ["Approved", "Rejected", "Dispatched", "Received", "Credit Issued", "Paid", "Cancelled"].includes(row.status);
                           return (
                             <tr key={row.id} className="hover:bg-muted/30">
                               <td className="px-4 py-3 font-semibold">
-                                {row.quotationNumber || row.quoteNumber}
+                                {row.returnNumber || row.invoiceNumber || row.dcNumber || row.piNumber || row.quotationNumber || row.quoteNumber}
                               </td>
                               <td className="px-4 py-3">
                                 {row.customerCompany || row.clientName}
                               </td>
                               <td className="px-4 py-3">
-                                {String(row.quotationDate || "").slice(0, 10)}
+                                {String(row.returnDate || row.invoiceDate || row.dcDate || row.piDate || row.quotationDate || "").slice(0, 10)}
                               </td>
-                              <td className="px-4 py-3">{row.versionLabel}</td>
+                              <td className="px-4 py-3">{row.versionLabel || "—"}</td>
                               <td className="px-4 py-3">
                                 <span
                                   className={`rounded-full px-2 py-1 text-xs font-medium ${row.status === "Sent" ? "bg-blue-100 text-blue-700" : row.status === "Approved" ? "bg-green-100 text-green-700" : row.status === "Rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
@@ -191,7 +291,7 @@ export default function Sales() {
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-xs font-medium">
-                                {row.status === "Approved" ? (
+                                {row.status === "Dispatched" ? <span className="text-emerald-700">Stock dispatched</span> : row.status === "Received" ? <span className="text-emerald-700">Goods received and restocked</span> : row.status === "Confirmed" ? <span className="text-blue-700">Awaiting receipt confirmation</span> : row.status === "Approved" ? (
                                   <span className="text-green-700">
                                     Confirmed
                                   </span>
@@ -218,23 +318,24 @@ export default function Sales() {
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    title="Edit quotation"
+                                    title={`${isViewOnly ? "View" : "Edit"} ${activeTab.toLowerCase()}`}
                                     onClick={() => {
                                       setEditingId(Number(row.id));
-                                      setCreatingType("Quotation");
+                                      setCreatingType(activeTab);
                                     }}
                                   >
-                                    <Pencil className="h-4 w-4" />
+                                    {isViewOnly ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
                                   </Button>
-                                  <Button
+                                  {!isViewOnly && <Button
                                     size="icon"
                                     variant="ghost"
-                                    title="Delete quotation"
+                                    disabled={row.status === "Dispatched" || row.status === "Approved" || row.status === "Rejected" || row.status === "Paid" || row.status === "Cancelled"}
+                                    title={`Delete ${activeTab.toLowerCase()}`}
                                     className="text-destructive"
-                                    onClick={() => setDeleteTarget(row)}
+                                    onClick={() => setDeleteTarget({ ...row, documentType: activeTab })}
                                   >
                                     <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  </Button>}
                                 </div>
                               </td>
                             </tr>
@@ -264,10 +365,10 @@ export default function Sales() {
           >
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Delete quotation?</DialogTitle>
+                <DialogTitle>Delete {deleteTarget?.documentType?.toLowerCase() || "quotation"}?</DialogTitle>
               </DialogHeader>
               <p className="text-sm text-muted-foreground">
-                This removes {deleteTarget?.quotationNumber} and its complete
+                This removes {deleteTarget?.returnNumber || deleteTarget?.invoiceNumber || deleteTarget?.dcNumber || deleteTarget?.piNumber || deleteTarget?.quotationNumber} and its complete
                 revision history.
               </p>
               <DialogFooter>
@@ -278,12 +379,12 @@ export default function Sales() {
                   variant="destructive"
                   onClick={async () => {
                     const response = await fetch(
-                      `/api/sales/quotations/${deleteTarget.id}`,
+                      `/api/sales/${deleteTarget.documentType === "Proforma Invoice" ? "proforma-invoices" : deleteTarget.documentType === "Delivery Challan" ? "challans" : deleteTarget.documentType === "Invoices" ? "invoices" : deleteTarget.documentType === "Sales Return" ? "returns" : "quotations"}/${deleteTarget.id}`,
                       { method: "DELETE", credentials: "include" },
                     );
                     if (response.ok) {
                       setDeleteTarget(null);
-                      await loadQuotations();
+                      if (deleteTarget.documentType === "Proforma Invoice") await loadProformas(); else if (deleteTarget.documentType === "Delivery Challan") await loadChallans(); else if (deleteTarget.documentType === "Invoices") await loadInvoices(); else if (deleteTarget.documentType === "Sales Return") await loadReturns(); else await loadQuotations();
                     }
                   }}
                 >

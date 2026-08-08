@@ -30,8 +30,8 @@ export const inventoryAdjustmentsTable = mongoTable("inventory_adjustments", {
 export const inventoryMovementsTable = mongoTable("inventory_movements", {
   id: serial("id").primaryKey(),
   materialId: integer("material_id").notNull().references(() => materialsTable.id),
-  fromLocationId: integer("from_location_id").references(() => locationsTable.id),
-  toLocationId: integer("to_location_id").references(() => locationsTable.id),
+  fromLocationId: integer("from_location_id").references(() => inventoryLocationsTable.id),
+  toLocationId: integer("to_location_id").references(() => inventoryLocationsTable.id),
   quantityKg: numeric("quantity_kg", { precision: 12, scale: 4 }).notNull(),
   reason: text("reason"),
   notes: text("notes"),

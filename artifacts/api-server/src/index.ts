@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { proformaInvoicesTable, syncTableIndexes } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
 
@@ -14,6 +15,10 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+// Proforma revisions share their root PI number. Synchronize this collection
+// so deployments created with the former unique piNumber index can save V2+.
+await syncTableIndexes(proformaInvoicesTable);
 
 app.listen(port, (err) => {
   if (err) {
