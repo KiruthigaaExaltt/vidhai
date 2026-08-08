@@ -21,6 +21,7 @@ export const materialsTable = mongoTable("materials", {
   qrCode: text("qr_code"),
   itemType: text("item_type").notNull().default("Raw Material"),
   hsnSac: text("hsn_sac"),
+  gstPercent: numeric("gst_percent", { precision: 5, scale: 2 }).notNull().default("0"),
   criticalLevel: numeric("critical_level", { precision: 12, scale: 4 }).notNull().default("10"),
   itemIdentifier: text("item_identifier").unique(),
   qrPayload: text("qr_payload"),

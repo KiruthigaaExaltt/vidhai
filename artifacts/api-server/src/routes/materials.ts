@@ -13,6 +13,7 @@ router.get("/", async (_req, res) => {
       ...m,
       defaultMoisturePercent: m.defaultMoisturePercent != null ? Number(m.defaultMoisturePercent) : null,
       defaultNitrogenPercent: m.defaultNitrogenPercent != null ? Number(m.defaultNitrogenPercent) : null,
+      gstPercent: m.gstPercent != null ? Number(m.gstPercent) : 0,
     }))
   );
 });
@@ -67,7 +68,7 @@ router.post("/generate-sku", async (req, res) => {
 router.post("/", async (req, res) => {
   const { 
     name, sku, unit, itemType, hsnSac, criticalLevel, imageUrl,
-    buyPricePerUnit, sellPricePerUnit, categoryId, attributeValues, warehouseStocks 
+    buyPricePerUnit, sellPricePerUnit, gstPercent, categoryId, attributeValues, warehouseStocks 
   } = req.body;
 
   // Generate internal identifier
@@ -92,6 +93,7 @@ router.post("/", async (req, res) => {
         criticalLevel: criticalLevel != null ? String(criticalLevel) : "10",
         buyPricePerUnit: buyPricePerUnit != null ? String(buyPricePerUnit) : null,
         sellPricePerUnit: sellPricePerUnit != null ? String(sellPricePerUnit) : null,
+        gstPercent: gstPercent != null ? String(gstPercent) : "0",
         imageUrl: imageUrl ?? null,
         categoryId: categoryId ? Number(categoryId) : null,
         attributeValues: attributeValues || {},
@@ -128,11 +130,18 @@ router.post("/", async (req, res) => {
 });
 
 router.patch("/:id", async (req, res) => {
-  const { name, sku, unit, defaultMoisturePercent, defaultNitrogenPercent, notes, categoryId, attributeValues } = req.body;
+  const { name, sku, unit, itemType, hsnSac, buyPricePerUnit, sellPricePerUnit, gstPercent, criticalLevel, imageUrl, defaultMoisturePercent, defaultNitrogenPercent, notes, categoryId, attributeValues } = req.body;
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (sku !== undefined) updates.sku = sku;
   if (unit !== undefined) updates.unit = unit;
+  if (itemType !== undefined) updates.itemType = itemType;
+  if (hsnSac !== undefined) updates.hsnSac = hsnSac?.trim() || null;
+  if (buyPricePerUnit !== undefined) updates.buyPricePerUnit = buyPricePerUnit != null ? String(buyPricePerUnit) : null;
+  if (sellPricePerUnit !== undefined) updates.sellPricePerUnit = sellPricePerUnit != null ? String(sellPricePerUnit) : null;
+  if (gstPercent !== undefined) updates.gstPercent = gstPercent != null ? String(gstPercent) : "0";
+  if (criticalLevel !== undefined) updates.criticalLevel = String(criticalLevel);
+  if (imageUrl !== undefined) updates.imageUrl = imageUrl || null;
   if (categoryId !== undefined) updates.categoryId = categoryId ? Number(categoryId) : null;
   if (attributeValues !== undefined) updates.attributeValues = attributeValues;
   if (defaultMoisturePercent !== undefined) updates.defaultMoisturePercent = defaultMoisturePercent != null ? String(defaultMoisturePercent) : null;

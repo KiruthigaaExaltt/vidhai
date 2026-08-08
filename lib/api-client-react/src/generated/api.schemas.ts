@@ -134,6 +134,8 @@ export interface MaterialInput {
   /** @nullable */
   sku?: string | null;
   category?: string;
+  /** @nullable */
+  categoryId?: number | null;
   unit: string;
   /** @nullable */
   defaultMoisturePercent?: number | null;
@@ -189,6 +191,9 @@ export interface Contact {
   name: string;
   company: string;
   phone: string;
+  whatsappNumber: string;
+  gstin: string;
+  stateCode: string;
   email: string;
   address: string;
   notes: string;
@@ -210,6 +215,9 @@ export interface ContactInput {
   name: string;
   company?: string;
   phone?: string;
+  whatsappNumber?: string;
+  gstin?: string;
+  stateCode?: string;
   email?: string;
   address?: string;
   notes?: string;
@@ -230,6 +238,9 @@ export interface ContactUpdate {
   name?: string;
   company?: string;
   phone?: string;
+  whatsappNumber?: string;
+  gstin?: string;
+  stateCode?: string;
   email?: string;
   address?: string;
   notes?: string;
@@ -242,6 +253,8 @@ export interface InventoryItem {
   /** @nullable */
   sku?: string | null;
   category?: string;
+  /** @nullable */
+  categoryId?: number | null;
   unit: string;
   quantityOnHand: number;
   /** @nullable */

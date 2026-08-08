@@ -1915,6 +1915,7 @@ components:
         name: { type: string }
         sku: { type: ["string", "null"] }
         category: { type: string }
+        categoryId: { type: ["integer", "null"] }
         unit: { type: string }
         defaultMoisturePercent: { type: ["number", "null"] }
         defaultNitrogenPercent: { type: ["number", "null"] }
@@ -1960,13 +1961,16 @@ components:
 
     Contact:
       type: object
-      required: [id, type, name, company, phone, email, address, notes, createdAt]
+      required: [id, type, name, company, phone, whatsappNumber, gstin, email, address, notes, createdAt]
       properties:
         id: { type: integer }
         type: { type: string, enum: [client, vendor, other] }
         name: { type: string }
         company: { type: string }
         phone: { type: string }
+        whatsappNumber: { type: string }
+        gstin: { type: string }
+        stateCode: { type: string }
         email: { type: string }
         address: { type: string }
         notes: { type: string }
@@ -1980,6 +1984,9 @@ components:
         name: { type: string, minLength: 1 }
         company: { type: string }
         phone: { type: string }
+        whatsappNumber: { type: string }
+        gstin: { type: string }
+        stateCode: { type: string }
         email: { type: string }
         address: { type: string }
         notes: { type: string }
@@ -1991,6 +1998,9 @@ components:
         name: { type: string, minLength: 1 }
         company: { type: string }
         phone: { type: string }
+        whatsappNumber: { type: string }
+        gstin: { type: string }
+        stateCode: { type: string }
         email: { type: string }
         address: { type: string }
         notes: { type: string }

@@ -13,6 +13,8 @@ export interface InventoryItem {
   /** @nullable */
   sku?: string | null;
   category?: string;
+  /** @nullable */
+  categoryId?: number | null;
   unit: string;
   quantityOnHand: number;
   /** @nullable */

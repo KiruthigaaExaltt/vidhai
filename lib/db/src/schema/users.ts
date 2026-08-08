@@ -31,7 +31,6 @@ export const usersTable = mongoTable("users", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 
   // ── Profile page fields ──
-  department: text("department"),
   designation: text("designation"),
   phoneNumber: text("phone_number"),
   workLocation: text("work_location"),

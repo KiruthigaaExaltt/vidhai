@@ -302,7 +302,7 @@ export default function InventoryModule() {
   const [itemNameForm, setItemNameForm] = useState<any>({ name: "", categoryId: "" });
 
   // ── forms ──
-  const EMPTY_PRODUCT = { name: "", unit: "kg", sku: "", categoryId: "", attributeValues: {} as Record<string, string>, buyPricePerUnit: "", sellPricePerUnit: "", criticalLevel: "10", itemType: "Raw Material", hsnSac: "", imageUrl: "", warehouseStocks: [{ warehouseId: "", stock: "" }] };
+  const EMPTY_PRODUCT = { name: "", unit: "kg", sku: "", categoryId: "", attributeValues: {} as Record<string, string>, buyPricePerUnit: "", sellPricePerUnit: "", gstPercent: "", criticalLevel: "10", itemType: "Raw Material", hsnSac: "", imageUrl: "", warehouseStocks: [{ warehouseId: "", stock: "" }] };
   const EMPTY_MOV = { materialId: "", quantityDelta: "", type: "inward", reference: "", reason: "receipt", notes: "" };
   const EMPTY_TRANSFER = { materialId: "", fromLocationId: "", toLocationId: "", quantityKg: "", notes: "" };
   const EMPTY_WAREHOUSE = { name: "", type: "general", capacity: "" };
@@ -349,6 +349,7 @@ export default function InventoryModule() {
       categoryId: productForm.categoryId ? Number(productForm.categoryId) : undefined,
       buyPricePerUnit: productForm.buyPricePerUnit ? Number(productForm.buyPricePerUnit) : null,
       sellPricePerUnit: productForm.sellPricePerUnit ? Number(productForm.sellPricePerUnit) : null,
+      gstPercent: productForm.gstPercent ? Number(productForm.gstPercent) : 0,
       attributeValues: productForm.attributeValues,
       itemType: productForm.itemType,
       hsnSac: productForm.hsnSac,
@@ -649,6 +650,7 @@ export default function InventoryModule() {
                                     attributeValues: (inv as any).attributeValues || {},
                                     buyPricePerUnit: inv.buyPricePerUnit ? String(inv.buyPricePerUnit) : "",
                                     sellPricePerUnit: inv.sellPricePerUnit ? String(inv.sellPricePerUnit) : "",
+                                    gstPercent: String((inv as any).gstPercent ?? ""),
                                     criticalLevel: (inv as any).criticalLevel ? String((inv as any).criticalLevel) : "10",
                                     itemType: (inv as any).itemType || "Raw Material",
                                     hsnSac: (inv as any).hsnSac || "",
@@ -674,6 +676,7 @@ export default function InventoryModule() {
                                     attributeValues: (inv as any).attributeValues || {},
                                     buyPricePerUnit: inv.buyPricePerUnit ? String(inv.buyPricePerUnit) : "",
                                     sellPricePerUnit: inv.sellPricePerUnit ? String(inv.sellPricePerUnit) : "",
+                                    gstPercent: String((inv as any).gstPercent ?? ""),
                                     criticalLevel: (inv as any).criticalLevel ? String((inv as any).criticalLevel) : "10",
                                     itemType: (inv as any).itemType || "Raw Material",
                                     hsnSac: (inv as any).hsnSac || "",
@@ -1286,6 +1289,10 @@ export default function InventoryModule() {
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">Selling Price (₹) <span className="text-destructive">*</span></Label>
                 <Input type="number" disabled={viewMode} step="0.01" min="0" value={productForm.sellPricePerUnit} onChange={(e) => setProductForm({ ...productForm, sellPricePerUnit: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="0.00" />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">GST %</Label>
+                <Input type="number" disabled={viewMode} step="0.1" min="0" max="100" value={productForm.gstPercent} onChange={(e) => setProductForm({ ...productForm, gstPercent: e.target.value })} className="rounded-sm h-10 font-mono" placeholder="0" />
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">UOM <span className="text-destructive">*</span></Label>

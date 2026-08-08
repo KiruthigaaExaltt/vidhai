@@ -10,7 +10,7 @@ router.get("/", async (_req, res) => {
 });
 
 router.post("/", async (req, res) => {
-  const { type, name, company, phone, email, address, notes } = req.body;
+  const { type, name, company, phone, whatsappNumber, gstin, stateCode, email, address, notes } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: "Name is required" });
   if (!validTypes.has(type)) return res.status(400).json({ error: "Invalid contact type" });
 
@@ -19,6 +19,9 @@ router.post("/", async (req, res) => {
     name: name.trim(),
     company: company?.trim() ?? "",
     phone: phone?.trim() ?? "",
+    whatsappNumber: whatsappNumber?.trim() ?? "",
+    gstin: gstin?.trim().toUpperCase() ?? "",
+    stateCode: stateCode?.trim() || gstin?.trim().slice(0, 2) || "",
     email: email?.trim() ?? "",
     address: address?.trim() ?? "",
     notes: notes?.trim() ?? "",
@@ -27,7 +30,7 @@ router.post("/", async (req, res) => {
 });
 
 router.patch("/:id", async (req, res) => {
-  const { type, name, company, phone, email, address, notes } = req.body;
+  const { type, name, company, phone, whatsappNumber, gstin, stateCode, email, address, notes } = req.body;
   if (name !== undefined && !name.trim()) return res.status(400).json({ error: "Name is required" });
   if (type !== undefined && !validTypes.has(type)) return res.status(400).json({ error: "Invalid contact type" });
 
@@ -36,6 +39,9 @@ router.patch("/:id", async (req, res) => {
   if (name !== undefined) updates.name = name.trim();
   if (company !== undefined) updates.company = company.trim();
   if (phone !== undefined) updates.phone = phone.trim();
+  if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber.trim();
+  if (gstin !== undefined) updates.gstin = gstin.trim().toUpperCase();
+  if (stateCode !== undefined) updates.stateCode = stateCode.trim();
   if (email !== undefined) updates.email = email.trim();
   if (address !== undefined) updates.address = address.trim();
   if (notes !== undefined) updates.notes = notes.trim();

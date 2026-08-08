@@ -13,6 +13,9 @@ export interface ContactInput {
   name: string;
   company?: string;
   phone?: string;
+  whatsappNumber?: string;
+  gstin?: string;
+  stateCode?: string;
   email?: string;
   address?: string;
   notes?: string;

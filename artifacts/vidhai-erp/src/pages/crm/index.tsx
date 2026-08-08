@@ -39,6 +39,9 @@ interface Contact {
   name: string;
   company: string;
   phone: string;
+  whatsappNumber: string;
+  gstin: string;
+  stateCode: string;
   email: string;
   address: string;
   notes: string;
@@ -61,6 +64,9 @@ const EMPTY_FORM: Omit<Contact, "id"> = {
   name: "",
   company: "",
   phone: "",
+  whatsappNumber: "",
+  gstin: "",
+  stateCode: "",
   email: "",
   address: "",
   notes: "",
@@ -85,7 +91,7 @@ export default function CRMPage() {
         setDialogOpen(false);
         toast.success("Contact added");
       },
-      onError: () => toast.error("Could not add contact"),
+      onError: (error) => toast.error(error instanceof Error ? error.message : "Could not add contact"),
     },
   });
   const updateContact = useUpdateContact({
@@ -95,7 +101,7 @@ export default function CRMPage() {
         setDialogOpen(false);
         toast.success("Contact updated");
       },
-      onError: () => toast.error("Could not update contact"),
+      onError: (error) => toast.error(error instanceof Error ? error.message : "Could not update contact"),
     },
   });
   const deleteContact = useDeleteContact({
@@ -117,6 +123,8 @@ export default function CRMPage() {
       c.name.toLowerCase().includes(q) ||
       c.company.toLowerCase().includes(q) ||
       c.phone.includes(q) ||
+      (c.whatsappNumber || "").includes(q) ||
+      (c.gstin || "").toLowerCase().includes(q) ||
       c.email.toLowerCase().includes(q);
     return matchesTab && matchesSearch;
   });
@@ -136,7 +144,7 @@ export default function CRMPage() {
 
   const openEdit = (c: Contact) => {
     setEditContact(c);
-    setForm({ type: c.type, name: c.name, company: c.company, phone: c.phone, email: c.email, address: c.address, notes: c.notes });
+    setForm({ type: c.type, name: c.name, company: c.company, phone: c.phone, whatsappNumber: c.whatsappNumber || "", gstin: c.gstin || "", stateCode: c.stateCode || "", email: c.email, address: c.address, notes: c.notes });
     setDialogOpen(true);
   };
 
@@ -241,6 +249,8 @@ export default function CRMPage() {
                       <th className="px-4 py-3 font-semibold">Type</th>
                       <th className="px-4 py-3 font-semibold">Company / Org</th>
                       <th className="px-4 py-3 font-semibold">Phone</th>
+                      <th className="px-4 py-3 font-semibold">WhatsApp</th>
+                      <th className="px-4 py-3 font-semibold">GSTIN</th>
                       <th className="px-4 py-3 font-semibold">Email</th>
                       <th className="px-4 py-3 font-semibold">Address</th>
                       <th className="px-4 py-3 font-semibold">Notes</th>
@@ -282,6 +292,8 @@ export default function CRMPage() {
                             </a>
                           ) : "—"}
                         </td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{c.whatsappNumber || "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{c.gstin || "—"}</td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">
                           {c.email ? (
                             <a href={`mailto:${c.email}`} className="flex items-center gap-1.5 hover:text-foreground transition-colors">
@@ -389,6 +401,29 @@ export default function CRMPage() {
                   placeholder="email@example.com"
                   className="rounded-sm h-10"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">WhatsApp Number</Label>
+                <Input
+                  type="tel"
+                  value={form.whatsappNumber}
+                  onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })}
+                  placeholder="+91 XXXXX XXXXX"
+                  className="rounded-sm h-10 font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">GSTIN</Label>
+                <Input
+                  value={form.gstin}
+                  onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
+                  placeholder="GST identification number"
+                  className="rounded-sm h-10 font-mono uppercase"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">GST State Code</Label>
+                <Input value={form.stateCode} maxLength={2} onChange={(e) => setForm({ ...form, stateCode: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="33" className="rounded-sm h-10 font-mono" />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">Address</Label>
