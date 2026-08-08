@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const empty = { sku: "", name: "", category: "", totalQuantity: "1", purchaseValue: "0", purchaseDate: new Date().toISOString().slice(0, 10), status: "Active", imageUrl: "" };
 const request = async (path: string, init?: RequestInit) => { const r = await fetch(`/api${path}`, { credentials: "include", headers: { "Content-Type": "application/json", ...init?.headers }, ...init }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Request failed"); return r.status === 204 ? null : r.json(); };
+const deallocateRequest = async (allocationId: number) => { const response = await fetch(`/api/assets/allocations/${allocationId}/deallocate`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" } }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `Unable to deallocate asset (HTTP ${response.status})`); } return response.json(); };
 const Field = ({ label, children }: any) => <div className="space-y-1.5"><Label>{label}</Label>{children}</div>;
 
 export function AssetManagement() {
@@ -27,7 +28,7 @@ export function AssetManagement() {
   const update = useMutation({ mutationFn: () => request(`/assets/${editing.id}`, { method: "PATCH", body: JSON.stringify(payload()) }), onSuccess: () => { toast.success("Asset updated"); closeForm(); refresh(); }, onError: (e: Error) => toast.error(e.message) });
   const allocate = useMutation({ mutationFn: () => request(`/assets/${selected.id}/allocate`, { method: "POST", body: JSON.stringify({ ...allocation, employeeId: Number(allocation.employeeId), quantity: Number(allocation.quantity) }) }), onSuccess: () => { toast.success("Asset allocated"); setAllocateOpen(false); refresh(); }, onError: (e: Error) => toast.error(e.message) });
   const remove = useMutation({ mutationFn: () => request(`/assets/${deleteTarget.id}`, { method: "DELETE" }), onSuccess: () => { toast.success("Asset deleted"); setDeleteTarget(null); refresh(); }, onError: (e: Error) => toast.error(e.message) });
-  const deallocate = useMutation({ mutationFn: () => request(`/assets/allocations/${deallocateTarget.id}/deallocate`, { method: "POST" }), onSuccess: () => { toast.success("Asset deallocated"); setDeallocateTarget(null); refresh(); }, onError: (e: Error) => toast.error(e.message) });
+  const deallocate = useMutation({ mutationFn: () => deallocateRequest(deallocateTarget.id), onSuccess: () => { toast.success("Asset deallocated"); setDeallocateTarget(null); refresh(); }, onError: (e: Error) => toast.error(e.message) });
   const closeForm = () => { setFormOpen(false); setEditing(null); setForm(empty); };
   const edit = (a: any) => { setEditing(a); setForm({ sku: a.sku, name: a.name, category: a.category, totalQuantity: String(a.totalQuantity), purchaseValue: String(a.purchaseValue), purchaseDate: a.purchaseDate, status: a.status, imageUrl: a.imageUrl || "" }); setFormOpen(true); };
   const startAllocate = (a: any) => { setSelected(a); setAllocation({ employeeId: "", quantity: "1", allocatedDate: new Date().toISOString().slice(0, 10) }); setAllocateOpen(true); };
