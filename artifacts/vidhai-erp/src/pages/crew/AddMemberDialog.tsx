@@ -49,7 +49,6 @@ const initial = () => ({
   reportingManager: "",
   location: "",
   joinDate: today(),
-  exitDate: "",
   attendanceRulesTemplate: "",
   workPatternTemplate: "",
   holidayTemplate: "",
@@ -62,7 +61,6 @@ const initial = () => ({
   panNumber: "",
   uan: "",
   pfNumber: "",
-  pfJoiningDate: "",
   esiNumber: "",
   bankName: "",
   accountHolderName: "",
@@ -351,10 +349,6 @@ export function AddMemberDialog({
       e.alternatePhone = "Enter exactly 10 digits.";
     if (f.dateOfBirth && f.dateOfBirth > today())
       e.dateOfBirth = "Date of birth cannot be in the future.";
-    if (f.exitDate && f.joinDate && f.exitDate < f.joinDate)
-      e.exitDate = "Exit date cannot be before joining date.";
-    if (f.status === "Offboarded" && !f.exitDate)
-      e.exitDate = "Exit date is required when offboarded.";
     for (const k of ["annualCtc", "baseSalary"] as const)
       if (f[k] !== "" && (!Number.isFinite(Number(f[k])) || Number(f[k]) < 0))
         e[k] = "Enter a non-negative amount.";
@@ -477,7 +471,7 @@ export function AddMemberDialog({
     <MemberFormContext.Provider value={{ f, errors, refs, field }}>
       <>
         <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
-          <DialogContent className="flex h-[min(94vh,900px)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
+          <DialogContent onInteractOutside={(e) => e.preventDefault()} className="flex h-[min(94vh,900px)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
             <DialogHeader className="shrink-0 border-b px-6 py-5">
               <DialogTitle>{"Add Member"}</DialogTitle>
             </DialogHeader>
@@ -721,12 +715,6 @@ export function AddMemberDialog({
                     required
                     type="date"
                   />
-                  <Text
-                    k="exitDate"
-                    label="Exit Date"
-                    type="date"
-                    min={f.joinDate}
-                  />
                   <Choice
                     k="workMode"
                     label="Work Mode"
@@ -824,7 +812,6 @@ export function AddMemberDialog({
                   <Text k="panNumber" label="PAN Number" />
                   <Text k="uan" label="UAN" />
                   <Text k="pfNumber" label="PF Number" />
-                  <Text k="pfJoiningDate" label="PF Joining Date" type="date" />
                   <Text k="esiNumber" label="ESI Number" />
                 </div>
               </Section>
