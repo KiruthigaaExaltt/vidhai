@@ -6,6 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -19,6 +25,7 @@ import {
   Gift,
   HandCoins,
   MinusCircle,
+  MoreVertical,
   Pencil,
   Plus,
   Search,
@@ -203,16 +210,18 @@ export default function Crew() {
     }
   };
   const remove = async (row: any) => {
-    if (!confirm(`Remove ${row.name || "this record"}?`)) return;
     try {
       await api(`${tab}/${row.id}`, { method: "DELETE" });
       await load();
+      toast({ title: "Member deleted successfully." });
+      return true;
     } catch (e: any) {
       toast({
         title: "Unable to remove",
         description: e.message,
         variant: "destructive",
       });
+      return false;
     }
   };
   const punch = async () => {
@@ -475,8 +484,20 @@ function Metric({ icon: Icon, label, value, tone = "text-primary" }: any) {
   );
 }
 function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
+  const [employeeToDelete, setEmployeeToDelete] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteConfirm = async () => {
+    if (!employeeToDelete) return;
+    setIsDeleting(true);
+    const success = await remove(employeeToDelete);
+    setIsDeleting(false);
+    if (success) {
+      setEmployeeToDelete(null);
+    }
+  };
   const formatDate = (value: any) => {
-    if (!value) return "�";
+    if (!value) return "—";
     const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   };
@@ -489,14 +510,58 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
       </tr></thead>
       <tbody>{rows.map((employee:any)=><tr key={employee.id} className="border-t transition-colors hover:bg-muted/20">
         <td className="px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-semibold text-primary">{employee.photoUrl?<img src={`${base}${employee.photoUrl}`} alt="" className="h-full w-full object-cover"/>:initials(employee.name)}</span><span className="font-medium text-muted-foreground">{employee.employeeCode}</span></div></td>
-        <td className="px-4 py-3"><div className="font-semibold">{employee.name}</div><div className="text-xs text-muted-foreground">{employee.designation || "�"}</div></td>
-        <td className="px-4 py-3 text-muted-foreground">{employee.department || "�"}</td>
+        <td className="px-4 py-3"><div className="font-semibold">{employee.name}</div><div className="text-xs text-muted-foreground">{employee.designation || "—"}</div></td>
+        <td className="px-4 py-3 text-muted-foreground">{employee.department || "—"}</td>
         <td className="px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(employee.status)}`}>{employee.status}</span></td>
         <td className="px-4 py-3 text-muted-foreground">{formatDate(employee.joinDate)}</td>
-        <td className="px-4 py-3"><div className="flex justify-center gap-1">{canEdit&&<Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={()=>edit(employee)} aria-label={`Edit ${employee.name}`}><Pencil className="h-4 w-4"/></Button>}{canDelete&&!employee.isSystemGenerated&&<Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={()=>remove(employee)}>Offboard</Button>}</div></td>
+        <td className="px-4 py-3">
+          <div className="flex justify-center">
+            {(canEdit || (canDelete && !employee.isSystemGenerated)) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 p-0" aria-label="Member actions">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {canEdit && (
+                    <DropdownMenuItem onClick={() => edit(employee)}>
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {canDelete && !employee.isSystemGenerated && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                      onClick={() => setEmployeeToDelete(employee)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </td>
       </tr>)}</tbody>
     </table>
     <div className="border-t px-4 py-3 text-sm text-muted-foreground">Showing {rows.length} employee{rows.length===1?"":"s"}</div>
+    
+    <Dialog open={!!employeeToDelete} onOpenChange={(isOpen) => !isOpen && setEmployeeToDelete(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Member?</DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          Are you sure you want to remove "{employeeToDelete?.name}" from this member list?
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setEmployeeToDelete(null)} disabled={isDeleting}>Cancel</Button>
+          <Button variant="destructive" onClick={handleDeleteConfirm} disabled={isDeleting}>
+            {isDeleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 function RecordTable({ tab, rows, canApprove, canReject, decide }: any) {
