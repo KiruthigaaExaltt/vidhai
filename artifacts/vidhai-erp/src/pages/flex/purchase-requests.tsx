@@ -66,6 +66,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useLocation } from "wouter";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -87,12 +88,25 @@ export interface VersionLog {
 }
 
 export interface VendorAvailabilityItem {
+  id: number;
+  purchaseRequestId: number;
+  vendorId: string;
+  vendorName: string;
+  phone: string;
+  whatsapp: string;
+  status: "Pending" | "Sent" | "Confirmed" | "Rejected";
+  sentAt?: string | null;
+  confirmedAt?: string | null;
+  purchaseOrderId?: number | null;
   prNumber: string;
   version: string;
-  date: string;
-  status: string;
-  vendorCount: number;
-  vendors: { name: string; quote: string; status: string }[];
+  lineItems: Array<{
+    itemId?: number;
+    itemName: string;
+    description?: string;
+    quantity: number;
+    unit: string;
+  }>;
 }
 
 export interface PurchaseRequestItem {
@@ -206,8 +220,33 @@ async function convertPrToPo(id: number) {
   return res.json();
 }
 
+async function fetchVendorAvailability(): Promise<VendorAvailabilityItem[]> {
+  const response = await fetch(`${BASE}/api/flex/vendor-availability`, {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to load vendor availability");
+  return response.json();
+}
+
+async function updateVendorAvailability(
+  id: number,
+  action: "send" | "confirm",
+) {
+  const response = await fetch(
+    `${BASE}/api/flex/vendor-availability/${id}/${action}`,
+    {
+      method: action === "send" ? "PATCH" : "POST",
+      credentials: "include",
+    },
+  );
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Failed to ${action} vendor`);
+  return body;
+}
+
 export default function PurchaseRequestsPage() {
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const {
     data: prs = [],
     refetch,
@@ -236,29 +275,13 @@ export default function PurchaseRequestsPage() {
   const departmentOptions = masterData?.departments ?? [];
   const projectOptions = masterData?.projects ?? [];
 
-  const vendorAvailability = useMemo<VendorAvailabilityItem[]>(
-    () =>
-      prs
-        .filter((pr) => pr.vendor)
-        .map((pr) => {
-          const vendorNames = pr.vendorNames?.length
-            ? pr.vendorNames
-            : [pr.vendor].filter(Boolean);
-          return {
-            prNumber: pr.prNumber,
-            version: pr.version,
-            date: pr.reqDate,
-            status: pr.status,
-            vendorCount: vendorNames.length,
-            vendors: vendorNames.map((name) => ({
-              name,
-              quote: "",
-              status: pr.status,
-            })),
-          };
-        }),
-    [prs],
-  );
+  const { data: vendorAvailability = [], isLoading: isAvailabilityLoading } =
+    useQuery({
+      queryKey: ["get", "/api/flex/vendor-availability"],
+      queryFn: fetchVendorAvailability,
+      select: (rows) =>
+        rows.filter((row) => row.status === "Pending" || row.status === "Sent"),
+    });
 
   const [activeSubTab, setActiveSubTab] = useState<"requests" | "availability">(
     "requests",
@@ -278,6 +301,8 @@ export default function PurchaseRequestsPage() {
   );
   const [editingPr, setEditingPr] = useState<PurchaseRequestItem | null>(null);
   const [selectedVendorAvailability, setSelectedVendorAvailability] =
+    useState<VendorAvailabilityItem | null>(null);
+  const [vendorToConfirm, setVendorToConfirm] =
     useState<VendorAvailabilityItem | null>(null);
 
   // Edit PR State Fields
@@ -353,6 +378,9 @@ export default function PurchaseRequestsPage() {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/vendor-availability"],
+      });
       toast.success(
         variables.status === "Draft"
           ? FLEX_TEXT.purchaseRequestSavedAsDraft
@@ -420,6 +448,35 @@ export default function PurchaseRequestsPage() {
     },
   });
 
+  const availabilityQueryKey = [
+    "get",
+    "/api/flex/vendor-availability",
+  ] as const;
+  const sendAvailabilityMutation = useMutation({
+    mutationFn: (id: number) => updateVendorAvailability(id, "send"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: availabilityQueryKey });
+      setSelectedVendorAvailability(null);
+      toast.success("Purchase request marked as sent");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const confirmAvailabilityMutation = useMutation({
+    mutationFn: (id: number) => updateVendorAvailability(id, "confirm"),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: availabilityQueryKey });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-orders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-requests"],
+      });
+      setVendorToConfirm(null);
+      toast.success("Vendor confirmed and Purchase Order draft created.");
+      setLocation(data.navigationPath || "/flex/purchase-orders");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
   const resetForm = () => {
     setLineItems([{ id: "1", item: "", description: "", qty: 1, unit: "" }]);
     setNotes("");
@@ -671,6 +728,15 @@ export default function PurchaseRequestsPage() {
     const vendorId = vendorIds[0];
     const vendor = vendorNames[0];
     createMutation.mutate({
+      lineItems: lineItems
+        .filter((line) => line.item.trim())
+        .map((line) => ({
+          itemId: line.itemId,
+          itemName: line.item.trim(),
+          description: line.description.trim(),
+          quantity: Number(line.qty) || 0,
+          unit: line.unit,
+        })),
       itemId: firstItem?.itemId,
       itemName,
       quantity,
@@ -1058,62 +1124,88 @@ export default function PurchaseRequestsPage() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-3.5 font-semibold">
-                        {FLEX_TEXT.prNumber}
-                      </th>
-                      <th className="px-4 py-3.5 font-semibold">
-                        {FLEX_TEXT.version}
-                      </th>
-                      <th className="px-4 py-3.5 font-semibold">
-                        {FLEX_TEXT.date}
-                      </th>
-                      <th className="px-4 py-3.5 font-semibold">
-                        {FLEX_TEXT.status}
-                      </th>
-                      <th className="px-4 py-3.5 font-semibold text-right">
-                        {FLEX_TEXT.actions}
+                      <th className="px-4 py-3.5 font-semibold">S.No</th>
+                      <th className="px-4 py-3.5 font-semibold">Vendor Name</th>
+                      <th className="px-4 py-3.5 font-semibold">Phone</th>
+                      <th className="px-4 py-3.5 font-semibold">WhatsApp</th>
+                      <th className="px-4 py-3.5 font-semibold">Status</th>
+                      <th className="px-4 py-3.5 text-right font-semibold">
+                        Action
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {vendorAvailability.map((item, i) => (
-                      <tr
-                        key={i}
-                        className="hover:bg-muted/40 transition-colors"
-                      >
-                        <td className="px-4 py-3.5 font-bold text-foreground">
-                          {item.prNumber}
-                        </td>
-                        <td className="px-4 py-3.5 text-muted-foreground font-medium">
-                          {item.version}
-                        </td>
-                        <td className="px-4 py-3.5 text-muted-foreground">
-                          {item.date}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300">
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-right space-x-2">
-                          <button className="text-muted-foreground hover:text-primary p-1 rounded transition-colors">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button className="text-muted-foreground hover:text-primary p-1 rounded transition-colors">
-                            <Download className="w-3.5 h-3.5" />
-                          </button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs font-semibold border-primary/30 text-primary hover:bg-primary/10 rounded-md"
-                            onClick={() => setSelectedVendorAvailability(item)}
-                          >
-                            {FLEX_TEXT.vendors}
-                            {item.vendorCount})
-                          </Button>
+                    {isAvailabilityLoading ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-10 text-center text-muted-foreground"
+                        >
+                          Loading vendor availability...
                         </td>
                       </tr>
-                    ))}
+                    ) : vendorAvailability.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-10 text-center text-muted-foreground"
+                        >
+                          No vendor availability records found
+                        </td>
+                      </tr>
+                    ) : (
+                      vendorAvailability.map((item, index) => (
+                        <tr
+                          key={item.id}
+                          className="transition-colors hover:bg-muted/40"
+                        >
+                          <td className="px-4 py-3.5 text-muted-foreground">
+                            {index + 1}
+                          </td>
+                          <td className="px-4 py-3.5 font-bold text-foreground">
+                            <div>{item.vendorName}</div>
+                            <div className="text-[10px] font-normal text-muted-foreground">
+                              {item.prNumber}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3.5 text-muted-foreground">
+                            {item.phone || FLEX_TEXT.notAvailable}
+                          </td>
+                          <td className="px-4 py-3.5 text-muted-foreground">
+                            {item.whatsapp || FLEX_TEXT.notAvailable}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary">
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            {item.status === "Pending" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs font-semibold border-primary/30 text-primary hover:bg-primary/10 rounded-md"
+                                onClick={() =>
+                                  setSelectedVendorAvailability(item)
+                                }
+                              >
+                                Send PR
+                              </Button>
+                            ) : item.status === "Sent" ? (
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs font-semibold"
+                                onClick={() => setVendorToConfirm(item)}
+                              >
+                                Confirm
+                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground">�</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -2052,53 +2144,167 @@ export default function PurchaseRequestsPage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── 3. VENDOR AVAILABILITY DETAILS DIALOG MODAL ────────────────── */}
+        <Dialog
+          open={!!vendorToConfirm}
+          onOpenChange={(open) => {
+            if (!open && !confirmAvailabilityMutation.isPending) {
+              setVendorToConfirm(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-md rounded-lg p-6">
+            {vendorToConfirm && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Confirm Vendor</DialogTitle>
+                </DialogHeader>
+                <p className="py-3 text-sm leading-6 text-muted-foreground">
+                  Confirm {vendorToConfirm.vendorName} for{" "}
+                  {vendorToConfirm.prNumber}? All other vendors will be rejected
+                  and a purchase order draft will be created.
+                </p>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    disabled={confirmAvailabilityMutation.isPending}
+                    onClick={() => setVendorToConfirm(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={confirmAvailabilityMutation.isPending}
+                    onClick={() =>
+                      confirmAvailabilityMutation.mutate(vendorToConfirm.id)
+                    }
+                  >
+                    {confirmAvailabilityMutation.isPending
+                      ? "Confirming..."
+                      : "Confirm Vendor"}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+        {/* Send Purchase Request modal */}
         <Dialog
           open={!!selectedVendorAvailability}
-          onOpenChange={() => setSelectedVendorAvailability(null)}
+          onOpenChange={(open) => !open && setSelectedVendorAvailability(null)}
         >
-          <DialogContent className="sm:max-w-md p-6">
+          <DialogContent className="sm:max-w-2xl p-6">
             {selectedVendorAvailability && (
               <div className="space-y-4">
-                <DialogHeader className="pb-2 border-b border-border">
+                <DialogHeader className="border-b border-border pb-2">
                   <DialogTitle className="text-lg font-bold text-foreground">
-                    {FLEX_TEXT.vendorQuotesFor}{" "}
-                    {selectedVendorAvailability.prNumber}
+                    Send Purchase Request
                   </DialogTitle>
                 </DialogHeader>
-
-                <div className="space-y-2 py-2 text-xs">
-                  {selectedVendorAvailability.vendors.map((v, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 text-primary" />
-                        <div>
-                          <p className="font-bold text-foreground">{v.name}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {FLEX_TEXT.quote}{" "}
-                            <span className="font-semibold text-foreground">
-                              {v.quote}
-                            </span>
-                          </p>
-                        </div>
-                      </div>
-                      <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200">
-                        {v.status}
-                      </span>
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Recipient Details
+                  </h3>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label className="text-xs">Vendor Name</Label>
+                      <Input
+                        value={selectedVendorAvailability.vendorName}
+                        readOnly
+                        className="mt-1 h-9 text-xs"
+                      />
                     </div>
-                  ))}
+                    <div>
+                      <Label className="text-xs">WhatsApp Number</Label>
+                      <Input
+                        value={selectedVendorAvailability.whatsapp}
+                        readOnly
+                        className="mt-1 h-9 text-xs"
+                      />
+                    </div>
+                  </div>
                 </div>
-
-                <DialogFooter className="pt-3 border-t border-border">
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/40 text-left text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2">#</th>
+                        <th className="px-3 py-2">Description</th>
+                        <th className="px-3 py-2">Qty</th>
+                        <th className="px-3 py-2">UOM</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {selectedVendorAvailability.lineItems.map(
+                        (line, index) => (
+                          <tr key={`${line.itemId || line.itemName}-${index}`}>
+                            <td className="px-3 py-2">{index + 1}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{line.itemName}</div>
+                              {line.description && (
+                                <div className="text-muted-foreground">
+                                  {line.description}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">{line.quantity}</td>
+                            <td className="px-3 py-2">{line.unit}</td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <Label className="text-xs">Message</Label>
+                  <Textarea
+                    readOnly
+                    rows={7}
+                    className="mt-1 text-xs"
+                    value={`Hello ${selectedVendorAvailability.vendorName},\n\nPlease review our purchase request and share availability.\n\nRef: ${selectedVendorAvailability.prNumber} - ${selectedVendorAvailability.version}\n\n${selectedVendorAvailability.lineItems.map((line, index) => `${index + 1}. ${line.itemName}\nQuantity: ${line.quantity} ${line.unit}`).join("\n\n")}`}
+                  />
+                </div>
+                <DialogFooter className="border-t border-border pt-3">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setSelectedVendorAvailability(null)}
                   >
-                    {FLEX_TEXT.close}
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={sendAvailabilityMutation.isPending}
+                    onClick={() =>
+                      sendAvailabilityMutation.mutate(
+                        selectedVendorAvailability.id,
+                      )
+                    }
+                  >
+                    {sendAvailabilityMutation.isPending
+                      ? "Sending..."
+                      : "Save as Sent"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const digits =
+                        selectedVendorAvailability.whatsapp.replace(/\D/g, "");
+                      if (!digits) {
+                        toast.error(
+                          "WhatsApp number is not available for this vendor",
+                        );
+                        return;
+                      }
+                      const message = `Hello ${selectedVendorAvailability.vendorName},\n\nPlease review our purchase request and share availability.\n\nRef: ${selectedVendorAvailability.prNumber} - ${selectedVendorAvailability.version}\n\n${selectedVendorAvailability.lineItems.map((line, index) => `${index + 1}. ${line.itemName}\nQuantity: ${line.quantity} ${line.unit}`).join("\n\n")}`;
+                      window.open(
+                        `https://wa.me/${digits}?text=${encodeURIComponent(message)}`,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
+                    }}
+                  >
+                    Send via WhatsApp
                   </Button>
                 </DialogFooter>
               </div>

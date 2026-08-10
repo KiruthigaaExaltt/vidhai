@@ -4,7 +4,7 @@ import {
   useFlexMasterData,
   useFlexPurchaseOrders,
 } from "./flexData";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
@@ -31,6 +31,7 @@ import {
   Plus,
   Search,
   Printer,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Receipt,
@@ -50,6 +51,7 @@ interface PurchaseInvoiceItem {
   vendor: string;
   invoiceNumber: string;
   poReference?: string;
+  grnReference?: string;
   date: string;
   invoiceAmt: number;
   poAmt: number;
@@ -60,10 +62,15 @@ interface PurchaseInvoiceItem {
 
 interface InvoiceLineItem {
   id: string;
+  itemId?: number;
   item: string;
   qty: number;
   price: number;
+  cgstPct: number;
+  sgstPct: number;
+  igstPct: number;
   total: number;
+  source?: string;
 }
 
 async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
@@ -79,16 +86,37 @@ async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
         vendor: inv.vendor,
         invoiceNumber: inv.invoiceNumber,
         poReference: inv.poReference,
+        grnReference: inv.grnReference,
         date: inv.invoiceDate,
         invoiceAmt: Number(inv.amount || 0),
         poAmt: Number(inv.poAmount || 0),
         grnAmt: Number(inv.grnAmount || 0),
-        match: inv.matchStatus || "",
+        match: inv.matchStatus || "Mismatch",
         payment: inv.status,
       }));
     }
   } catch {}
   return [];
+}
+
+async function markPurchaseInvoiceMatched({
+  id,
+  matchStatus,
+}: {
+  id: number;
+  matchStatus: "2-Way Match" | "3-Way Match";
+}) {
+  const res = await fetch(`${BASE}/api/flex/purchase-invoices/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ matchStatus }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToLogInvoice);
+  }
+  return res.json();
 }
 
 async function createPurchaseInvoice(payload: any) {
@@ -98,7 +126,10 @@ async function createPurchaseInvoice(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToLogInvoice);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToLogInvoice);
+  }
   return res.json();
 }
 
@@ -139,6 +170,17 @@ export default function PurchaseInvoices() {
   const [invoiceTotalAmount, setInvoiceTotalAmount] = useState("");
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([]);
   const [attachmentName, setAttachmentName] = useState("");
+
+  const markMatchedMutation = useMutation({
+    mutationFn: markPurchaseInvoiceMatched,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-invoices"],
+      });
+      toast.success(FLEX_TEXT.invoiceMarkedAsMatched);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   const createMutation = useMutation({
     mutationFn: createPurchaseInvoice,
@@ -193,21 +235,139 @@ export default function PurchaseInvoices() {
   const handleAddItem = () => {
     setLineItems((prev) => [
       ...prev,
-      { id: String(Date.now()), item: "", qty: 1, price: 0, total: 0 },
+      {
+        id: String(Date.now()),
+        item: "",
+        qty: 1,
+        price: 0,
+        cgstPct: 9,
+        sgstPct: 9,
+        igstPct: 0,
+        total: 0,
+      },
     ]);
   };
 
+  const updateLineItem = (
+    id: string,
+    field: keyof InvoiceLineItem,
+    value: string | number,
+  ) => {
+    setLineItems((current) =>
+      current.map((line) => {
+        if (line.id !== id) return line;
+        const updated = { ...line, [field]: value } as InvoiceLineItem;
+        const base = Number(updated.qty || 0) * Number(updated.price || 0);
+        updated.total =
+          base *
+          (1 +
+            (Number(updated.cgstPct || 0) +
+              Number(updated.sgstPct || 0) +
+              Number(updated.igstPct || 0)) /
+              100);
+        return updated;
+      }),
+    );
+  };
+
+  const selectInvoiceItem = (lineId: string, itemId: string) => {
+    const selectedItem = itemOptions.find(
+      (option) => Number(option.id) === Number(itemId),
+    );
+    if (!selectedItem) return;
+    setLineItems((current) =>
+      current.map((line) => {
+        if (line.id !== lineId) return line;
+        const updated = {
+          ...line,
+          itemId: selectedItem.id,
+          item: selectedItem.name,
+          price: Number(selectedItem.buyPricePerUnit || 0),
+        };
+        const base = Number(updated.qty || 0) * updated.price;
+        return {
+          ...updated,
+          total:
+            base *
+            (1 +
+              (Number(updated.cgstPct || 0) +
+                Number(updated.sgstPct || 0) +
+                Number(updated.igstPct || 0)) /
+                100),
+        };
+      }),
+    );
+  };
+
+  const calculatedInvoiceAmount = useMemo(
+    () => lineItems.reduce((sum, line) => sum + Number(line.total || 0), 0),
+    [lineItems],
+  );
+
+  const mappedGrnAmount = useMemo(() => {
+    const receipt = goodsReceipts.find(
+      (grn: any) => grn.grnNumber === mappedGrn,
+    );
+    if (!receipt) return 0;
+    const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
+    const lineAmount = lines.reduce((sum: number, line: any) => {
+      const quantity = Number(
+        line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
+      );
+      const rate = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
+      const taxPercent =
+        Number(line.cgstPct ?? line.cgstPercent ?? 0) +
+        Number(line.sgstPct ?? line.sgstPercent ?? 0) +
+        Number(line.igstPct ?? line.igstPercent ?? 0);
+      return (
+        sum +
+        Number(
+          line.lineTotal ??
+            line.total ??
+            quantity * rate * (1 + taxPercent / 100),
+        )
+      );
+    }, 0);
+    const storedAmount = Number(receipt.totalAmount || 0);
+    if (storedAmount > 0) return storedAmount;
+    if (lineAmount > 0) return lineAmount;
+
+    // Older GRNs can have a zero stored amount even though their mapped
+    // invoice lines now contain a valid rate and tax calculation.
+    return calculatedInvoiceAmount;
+  }, [goodsReceipts, mappedGrn, calculatedInvoiceAmount]);
+
+  useEffect(() => {
+    if (lineItems.length) {
+      setInvoiceTotalAmount(calculatedInvoiceAmount.toFixed(2));
+    }
+  }, [calculatedInvoiceAmount, lineItems.length]);
+
   const handleCreateInvoice = (e: React.FormEvent) => {
     e.preventDefault();
+    if (
+      !invoiceNumber.trim() ||
+      !vendor ||
+      lineItems.length === 0 ||
+      lineItems.some(
+        (line) => !line.item.trim() || line.qty <= 0 || line.price < 0,
+      )
+    ) {
+      toast.error("Invoice number, vendor and valid line items are required");
+      return;
+    }
     const amount =
       parseFloat(invoiceTotalAmount) ||
       lineItems.reduce((sum, line) => sum + line.total, 0);
+    const vendorRecord = vendorsList.find((option) => option.name === vendor);
     createMutation.mutate({
       invoiceNumber: invoiceNumber.trim(),
       vendorName: vendor,
+      vendorId: vendorRecord?.id || "",
       poReference: mappedPo,
       grnReference: mappedGrn,
       amount,
+      lineItems: lineItems.map(({ id, ...line }) => line),
       invoiceDate,
       dueDate: invoiceDate,
       status: "Unpaid",
@@ -249,9 +409,9 @@ export default function PurchaseInvoices() {
             <tbody>
               <tr>
                 <td>${FLEX_TEXT.printGoodsDeliveryBilling}</td>
-                <td>₹ ${inv.invoiceAmt.toLocaleString("en-IN")}</td>
-                <td>₹ ${inv.poAmt.toLocaleString("en-IN")}</td>
-                <td>₹ ${inv.grnAmt.toLocaleString("en-IN")}</td>
+                <td>₹ ${Number(inv.invoiceAmt || 0).toLocaleString("en-IN")}</td>
+                <td>₹ ${Number(inv.poAmt || 0).toLocaleString("en-IN")}</td>
+                <td>₹ ${Number(inv.grnAmt || 0).toLocaleString("en-IN")}</td>
                 <td>${inv.match}</td>
               </tr>
             </tbody>
@@ -426,13 +586,14 @@ export default function PurchaseInvoices() {
                           {inv.date}
                         </td>
                         <td className="px-4 py-3 font-bold text-foreground">
-                          ₹ {inv.invoiceAmt.toLocaleString("en-IN")}
+                          ₹{" "}
+                          {Number(inv.invoiceAmt || 0).toLocaleString("en-IN")}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          ₹ {inv.poAmt.toLocaleString("en-IN")}
+                          ₹ {Number(inv.poAmt || 0).toLocaleString("en-IN")}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          ₹ {inv.grnAmt.toLocaleString("en-IN")}
+                          ₹ {Number(inv.grnAmt || 0).toLocaleString("en-IN")}
                         </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
@@ -445,6 +606,29 @@ export default function PurchaseInvoices() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
+                          {inv.match === "Mismatch" &&
+                            (inv.poReference || inv.grnReference) && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  markMatchedMutation.mutate({
+                                    id: inv.id,
+                                    matchStatus:
+                                      inv.poReference && inv.grnReference
+                                        ? "3-Way Match"
+                                        : "2-Way Match",
+                                  })
+                                }
+                                disabled={markMatchedMutation.isPending}
+                                className="h-7 px-2.5 text-[10px] font-semibold text-primary border-primary/30 hover:bg-primary/10 mr-1.5"
+                                title={FLEX_TEXT.markMatched}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                                {FLEX_TEXT.match}
+                              </Button>
+                            )}
                           <button
                             onClick={() => handlePrintInvoice(inv)}
                             className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
@@ -509,7 +693,7 @@ export default function PurchaseInvoices() {
 
         {/* Log Purchase Invoice Dialog (Vidhai Teal Green Theme) */}
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-6 bg-white rounded-2xl border-none shadow-2xl">
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl max-h-[92vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6 bg-white rounded-2xl border-none shadow-2xl">
             <form onSubmit={handleCreateInvoice}>
               <DialogHeader className="pb-3 border-b border-slate-100">
                 <DialogTitle className="flex items-center gap-3 text-lg font-bold text-slate-900">
@@ -574,15 +758,47 @@ export default function PurchaseInvoices() {
                         if (po) {
                           setVendor(po.vendor || "");
                           setInvoiceTotalAmount(String(po.grandTotal || 0));
-                          setLineItems([
-                            {
-                              id: String(Date.now()),
-                              item: po.items || "",
-                              qty: 1,
-                              price: Number(po.grandTotal || 0),
-                              total: Number(po.grandTotal || 0),
-                            },
-                          ]);
+                          const poLines = Array.isArray(po.lineItems)
+                            ? po.lineItems
+                            : [];
+                          setLineItems(
+                            poLines.map((line: any, index: number) => {
+                              const qty = Number(
+                                line.qty ?? line.quantity ?? 0,
+                              );
+                              const price = Number(
+                                line.rate ?? line.price ?? 0,
+                              );
+                              const cgstPct = Number(
+                                line.cgstPct ?? line.cgstPercent ?? 0,
+                              );
+                              const sgstPct = Number(
+                                line.sgstPct ?? line.sgstPercent ?? 0,
+                              );
+                              const igstPct = Number(
+                                line.igstPct ?? line.igstPercent ?? 0,
+                              );
+                              const base = qty * price;
+                              return {
+                                id: `${po.id}-${line.id ?? index}`,
+                                itemId: Number(line.itemId) || undefined,
+                                item: String(
+                                  line.description ?? line.item ?? "",
+                                ),
+                                qty,
+                                price,
+                                cgstPct,
+                                sgstPct,
+                                igstPct,
+                                total: Number(
+                                  line.total ??
+                                    base *
+                                      (1 + (cgstPct + sgstPct + igstPct) / 100),
+                                ),
+                                source: po.poNumber,
+                              };
+                            }),
+                          );
                           const vendorRecord = vendorsList.find(
                             (option) =>
                               option.id === po.vendorId ||
@@ -627,15 +843,50 @@ export default function PurchaseInvoices() {
                         );
                         if (grn) {
                           setVendor(grn.vendor || "");
-                          setLineItems([
-                            {
-                              id: String(Date.now()),
-                              item: grn.itemsReceived || "",
-                              qty: 1,
-                              price: 0,
-                              total: 0,
-                            },
-                          ]);
+                          const grnLines = Array.isArray(grn.lineItems)
+                            ? grn.lineItems
+                            : [];
+                          setLineItems(
+                            grnLines.map((line: any, index: number) => {
+                              const qty = Number(
+                                line.acceptedQty ?? line.receivedQty ?? 0,
+                              );
+                              const price = Number(
+                                line.rate ?? line.unitPrice ?? 0,
+                              );
+                              const cgstPct = Number(
+                                line.cgstPct ?? line.cgstPercent ?? 0,
+                              );
+                              const sgstPct = Number(
+                                line.sgstPct ?? line.sgstPercent ?? 0,
+                              );
+                              const igstPct = Number(
+                                line.igstPct ?? line.igstPercent ?? 0,
+                              );
+                              const base = qty * price;
+                              return {
+                                id: `${grn.id}-${line.id ?? index}`,
+                                itemId: Number(line.itemId) || undefined,
+                                item: String(
+                                  line.description ?? line.itemName ?? "",
+                                ),
+                                qty,
+                                price,
+                                cgstPct,
+                                sgstPct,
+                                igstPct,
+                                total: Number(
+                                  line.lineTotal ??
+                                    base *
+                                      (1 + (cgstPct + sgstPct + igstPct) / 100),
+                                ),
+                                source: grn.grnNumber,
+                              };
+                            }),
+                          );
+                          setInvoiceTotalAmount(
+                            String(Number(grn.totalAmount || 0)),
+                          );
                         }
                       }}
                     >
@@ -722,7 +973,7 @@ export default function PurchaseInvoices() {
                   />
                 </div>
 
-                {/* LINE ITEMS Header & Empty Box */}
+                {/* LINE ITEMS */}
                 <div className="space-y-2 pt-1">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold tracking-wider text-slate-500 uppercase">
@@ -733,7 +984,7 @@ export default function PurchaseInvoices() {
                       onClick={handleAddItem}
                       className="text-xs font-bold text-primary hover:underline flex items-center gap-1 transition-colors"
                     >
-                      {FLEX_TEXT.addItem}
+                      <Plus className="w-3.5 h-3.5" /> {FLEX_TEXT.addItem}
                     </button>
                   </div>
 
@@ -742,56 +993,195 @@ export default function PurchaseInvoices() {
                       {FLEX_TEXT.noLineItemsYetMapPoGrOrAddItemsManually}
                     </div>
                   ) : (
-                    <div className="border border-slate-200 rounded-xl p-3 bg-white space-y-2">
-                      {lineItems.map((line) => (
-                        <div
-                          key={line.id}
-                          className="flex items-center justify-between text-xs py-1 border-b border-slate-100 last:border-none"
-                        >
-                          <span className="font-semibold text-slate-800">
-                            {line.item}
-                          </span>
-                          <span className="text-slate-500">
-                            {line.qty} {FLEX_TEXT.x}
-                            {line.price} ={" "}
-                            <strong className="text-slate-900">
-                              ₹{line.total}
-                            </strong>
-                          </span>
-                        </div>
-                      ))}
+                    <div className="border border-slate-200 rounded-xl bg-white overflow-x-auto">
+                      <table className="w-full min-w-[760px] text-xs">
+                        <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="px-2 py-2 text-left min-w-[210px]">
+                              Item
+                            </th>
+                            <th className="px-2 py-2 text-right w-20">Qty</th>
+                            <th className="px-2 py-2 text-right w-24">Rate</th>
+                            <th className="px-2 py-2 text-center w-20">
+                              CGST %
+                            </th>
+                            <th className="px-2 py-2 text-center w-20">
+                              SGST %
+                            </th>
+                            <th className="px-2 py-2 text-center w-20">
+                              IGST %
+                            </th>
+                            <th className="px-2 py-2 text-right w-28">
+                              Line Total
+                            </th>
+                            <th className="px-2 py-2 w-9" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {lineItems.map((line) => (
+                            <tr key={line.id}>
+                              <td className="p-2">
+                                <Select
+                                  value={line.itemId ? String(line.itemId) : ""}
+                                  onValueChange={(value) =>
+                                    selectInvoiceItem(line.id, value)
+                                  }
+                                >
+                                  <SelectTrigger className="h-9 text-xs bg-white">
+                                    <SelectValue
+                                      placeholder={
+                                        line.item || "Select Item Master item"
+                                      }
+                                    />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {itemOptions.map((item) => (
+                                      <SelectItem
+                                        key={item.id}
+                                        value={String(item.id)}
+                                      >
+                                        {item.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={line.qty}
+                                  onChange={(event) =>
+                                    updateLineItem(
+                                      line.id,
+                                      "qty",
+                                      Number(event.target.value),
+                                    )
+                                  }
+                                  className="h-9 text-xs text-right"
+                                />
+                              </td>
+                              <td className="p-2">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  value={line.price}
+                                  onChange={(event) =>
+                                    updateLineItem(
+                                      line.id,
+                                      "price",
+                                      Number(event.target.value),
+                                    )
+                                  }
+                                  className="h-9 text-xs text-right"
+                                />
+                              </td>
+                              {(["cgstPct", "sgstPct", "igstPct"] as const).map(
+                                (field) => (
+                                  <td key={field} className="p-2">
+                                    <Select
+                                      value={String(line[field])}
+                                      onValueChange={(value) =>
+                                        updateLineItem(
+                                          line.id,
+                                          field,
+                                          Number(value),
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="h-9 text-xs bg-white">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {[0, 5, 9, 12, 18, 28].map((tax) => (
+                                          <SelectItem
+                                            key={tax}
+                                            value={String(tax)}
+                                          >
+                                            {tax}%
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                ),
+                              )}
+                              <td className="p-2 text-right font-bold text-slate-800 whitespace-nowrap">
+                                {"\u20B9"}{" "}
+                                {Number(line.total || 0).toLocaleString(
+                                  "en-IN",
+                                  {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  },
+                                )}
+                              </td>
+                              <td className="p-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLineItems((current) =>
+                                      current.filter(
+                                        (item) => item.id !== line.id,
+                                      ),
+                                    )
+                                  }
+                                  className="text-slate-400 hover:text-red-500"
+                                  aria-label="Remove line item"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
 
-                {/* 2-WAY MATCH PREVIEW Card */}
+                {/* MATCH PREVIEW Card */}
                 <div className="space-y-1.5 pt-1">
                   <span className="text-xs font-bold tracking-wider text-slate-500 uppercase block">
-                    {FLEX_TEXT.text2WayMatchPreview}
+                    {FLEX_TEXT.matchPreview}
                   </span>
-                  <div className="bg-slate-50/80 border border-slate-200/70 rounded-xl p-4 flex items-center justify-between text-center">
-                    <div className="w-1/3 text-left">
-                      <span className="text-xs text-slate-400 italic font-medium">
-                        {FLEX_TEXT.noPoLinked}
-                      </span>
+                  <div className="bg-slate-50/80 border border-slate-200/70 rounded-xl p-4 grid grid-cols-3 gap-3 text-center">
+                    <div className="text-left">
+                      <div className="text-[11px] font-semibold text-slate-400">
+                        {FLEX_TEXT.printPoAmount}
+                      </div>
+                      <div className="text-sm font-bold text-slate-800 mt-0.5">
+                        {"\u20B9"}{" "}
+                        {Number(
+                          purchaseOrders.find(
+                            (po: any) => po.poNumber === mappedPo,
+                          )?.grandTotal || 0,
+                        ).toLocaleString("en-IN")}
+                      </div>
                     </div>
-                    <div className="w-1/3 text-center">
+                    <div>
                       <div className="text-[11px] font-semibold text-slate-400">
                         {FLEX_TEXT.grnAmount}
                       </div>
                       <div className="text-sm font-bold text-slate-800 mt-0.5">
-                        ₹ 0
-                      </div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">
-                        ₹ 0 + ₹ 0
+                        {"\u20B9"}{" "}
+                        {mappedGrnAmount.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </div>
                     </div>
-                    <div className="w-1/3 text-right">
+                    <div className="text-right">
                       <div className="text-[11px] font-semibold text-slate-400">
                         {FLEX_TEXT.invoiceAmount}
                       </div>
                       <div className="text-sm font-bold text-slate-800 mt-0.5">
-                        -
+                        {"\u20B9"}{" "}
+                        {Number(invoiceTotalAmount || 0).toLocaleString(
+                          "en-IN",
+                        )}
                       </div>
                     </div>
                   </div>

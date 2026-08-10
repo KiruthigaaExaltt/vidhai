@@ -27,6 +27,7 @@ import {
   Plus,
   Search,
   Printer,
+  Eye,
   ChevronLeft,
   ChevronRight,
   PackageCheck,
@@ -41,10 +42,15 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export interface GRNLineItem {
   id: string;
+  purchaseOrderId: number;
+  poLineId: string;
+  poNumber: string;
+  itemId?: number;
   itemMaster: string;
   customSpec: string;
   warehouse: string;
   qty: number;
+  alreadyReceived: number;
   price: number;
   recvQty: number;
   cgstPct: number;
@@ -64,32 +70,67 @@ export interface GoodsReceiptItem {
   receivedOrdered: string;
   pending: string;
   status: string;
+  purchaseOrderId?: number;
+  purchaseOrderIds?: number[];
+  lineItems?: any[];
+  totalAmount: number;
+  receivedQuantity: number;
+  orderedQuantity: number;
+  remainingQuantity: number;
+  notes?: string;
+  attachmentName?: string;
+}
+
+function receiptPurchaseOrderKeys(receipt: GoodsReceiptItem): string[] {
+  const ids = receipt.purchaseOrderIds?.length
+    ? receipt.purchaseOrderIds
+    : receipt.purchaseOrderId
+      ? [receipt.purchaseOrderId]
+      : [];
+  if (ids.length) return ids.map((id) => `id:${id}`);
+  return receipt.poNumber
+    .split(",")
+    .map((poNumber) => `number:${poNumber.trim().toLowerCase()}`)
+    .filter((key) => key !== "number:");
+}
+
+function sharesPurchaseOrder(
+  left: GoodsReceiptItem,
+  right: GoodsReceiptItem,
+): boolean {
+  const leftKeys = new Set(receiptPurchaseOrderKeys(left));
+  return receiptPurchaseOrderKeys(right).some((key) => leftKeys.has(key));
 }
 
 async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
-  try {
-    const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
-      credentials: "include",
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return (data || []).map((g: any) => ({
-        id: g.id,
-        vendorId: g.vendorId || "",
-        vendor: g.vendor,
-        grnNumber: g.grnNumber,
-        poNumber: g.poReference,
-        receivedDate: g.receivedDate,
-        receivedBy: g.inspectedBy || "",
-        receivedOrdered: g.itemsReceived || "",
-        pending: "",
-        status: g.status,
-      }));
-    }
-  } catch {}
-  return [];
+  const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to load Goods Receipts");
+  const data = await res.json();
+  return (data || []).map((g: any) => ({
+    id: g.id,
+    vendorId: g.vendorId || "",
+    vendor: g.vendor,
+    grnNumber: g.grnNumber,
+    poNumber: g.poReference,
+    receivedDate: g.receivedDate,
+    receivedBy: g.inspectedBy || "",
+    receivedOrdered: g.itemsReceived || "",
+    pending: "",
+    status: g.status,
+    purchaseOrderId: g.purchaseOrderId,
+    purchaseOrderIds:
+      g.purchaseOrderIds || (g.purchaseOrderId ? [g.purchaseOrderId] : []),
+    lineItems: g.lineItems || [],
+    totalAmount: Number(g.totalAmount || 0),
+    receivedQuantity: Number(g.receivedQuantity || 0),
+    orderedQuantity: Number(g.orderedQuantity || 0),
+    remainingQuantity: Number(g.remainingQuantity || 0),
+    notes: g.notes || "",
+    attachmentName: g.attachmentName || "",
+  }));
 }
-
 async function createGoodsReceipt(payload: any) {
   const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
     method: "POST",
@@ -97,7 +138,10 @@ async function createGoodsReceipt(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToCreateGrn);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error || FLEX_TEXT.failedToCreateGrn);
+  }
   return res.json();
 }
 
@@ -107,6 +151,7 @@ export default function GoodsReceipts() {
     data: grns = [],
     refetch,
     isFetching,
+    isError: receiptsLoadFailed,
   } = useQuery({
     queryKey: ["get", "/api/flex/goods-receipts"],
     queryFn: fetchGoodsReceipts,
@@ -124,14 +169,17 @@ export default function GoodsReceipts() {
   const [toDate, setToDate] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [viewReceipt, setViewReceipt] = useState<GoodsReceiptItem | null>(null);
   const [rowsPerPage, setRowsPerPage] = useState("10");
 
   // Form fields for Log Goods Receipt
-  const [mappedPo, setMappedPo] = useState("");
+  const [mappedPoIds, setMappedPoIds] = useState<string[]>([]);
+  const [poSearch, setPoSearch] = useState("");
+  const [userSearch, setUserSearch] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
-  const [placeOfSupply, setPlaceOfSupply] = useState("27");
+  const [placeOfSupply, setPlaceOfSupply] = useState("");
   const [receivedDate, setReceivedDate] = useState(
     new Date().toISOString().split("T")[0],
   );
@@ -148,7 +196,8 @@ export default function GoodsReceipts() {
 
   const calculatedTax = useMemo(() => {
     return lineItems.reduce(
-      (acc, l) => acc + (l.recvQty * l.price * (l.cgstPct + l.sgstPct)) / 100,
+      (acc, l) =>
+        acc + (l.recvQty * l.price * (l.cgstPct + l.sgstPct + l.igstPct)) / 100,
       0,
     );
   }, [lineItems]);
@@ -159,14 +208,16 @@ export default function GoodsReceipts() {
 
   const createMutation = useMutation({
     mutationFn: createGoodsReceipt,
-    onSuccess: () => {
+    onSuccess: (created: any) => {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/goods-receipts"],
       });
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
       });
-      toast.success(FLEX_TEXT.goodsReceiptLoggedSuccessfully);
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+      toast.success(`${created.grnNumber} saved successfully`);
       setIsAddOpen(false);
       resetForm();
     },
@@ -175,9 +226,52 @@ export default function GoodsReceipts() {
     },
   });
 
+  const markCompleteMutation = useMutation({
+    mutationFn: async (receipt: GoodsReceiptItem) => {
+      const response = await fetch(
+        `${BASE}/api/flex/goods-receipts/${receipt.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status: "Complete" }),
+        },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error || "Failed to complete Goods Receipt");
+      }
+      return response.json();
+    },
+    onSuccess: (_data, completedReceipt) => {
+      queryClient.setQueryData<GoodsReceiptItem[]>(
+        ["get", "/api/flex/goods-receipts"],
+        (current = []) =>
+          current.map((receipt) =>
+            sharesPurchaseOrder(receipt, completedReceipt)
+              ? { ...receipt, status: "Complete" }
+              : receipt,
+          ),
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/goods-receipts"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-orders"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/dashboard"],
+      });
+      toast.success("Goods Receipt marked Complete");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
   const resetForm = () => {
     setLineItems([]);
-    setMappedPo("");
+    setMappedPoIds([]);
+    setPoSearch("");
+    setUserSearch("");
+    setReceivedBy("");
     setVendorName("");
     setVendorAddress("");
     setVendorPhone("");
@@ -190,10 +284,14 @@ export default function GoodsReceipts() {
       ...prev,
       {
         id: String(Date.now()),
+        purchaseOrderId: 0,
+        poLineId: "",
+        poNumber: "",
         itemMaster: "",
         customSpec: "",
         warehouse: "",
         qty: 1,
+        alreadyReceived: 0,
         price: 0,
         recvQty: 1,
         cgstPct: 9,
@@ -225,8 +323,149 @@ export default function GoodsReceipts() {
     );
   };
 
+  const updateMappedPurchaseOrders = (nextIds: string[]) => {
+    setMappedPoIds(nextIds);
+    const selected = purchaseOrders.filter((po: any) =>
+      nextIds.includes(String(po.id)),
+    );
+    const selectedVendors = selected.map((po: any) =>
+      vendorsList.find((vendor) => String(vendor.id) === String(po.vendorId)),
+    );
+    setVendorName(
+      [...new Set(selected.map((po: any) => po.vendor).filter(Boolean))].join(
+        ", ",
+      ),
+    );
+    setVendorAddress(
+      [
+        ...new Set(
+          selected
+            .map(
+              (po: any, index: number) =>
+                po.vendorAddress || selectedVendors[index]?.address,
+            )
+            .filter(Boolean),
+        ),
+      ].join(" | "),
+    );
+    setVendorPhone(
+      [
+        ...new Set(
+          selected
+            .map(
+              (po: any, index: number) =>
+                po.vendorPhone || selectedVendors[index]?.phone,
+            )
+            .filter(Boolean),
+        ),
+      ].join(", "),
+    );
+    setPlaceOfSupply(
+      [
+        ...new Set(selected.map((po: any) => po.placeOfSupply).filter(Boolean)),
+      ].join(", "),
+    );
+    const mappedLines = selected.flatMap((po: any) => {
+      const poLines = Array.isArray(po.lineItems) ? po.lineItems : [];
+      return poLines.map((line: any) => {
+        const lineKey = String(line.itemId || line.id || line.description || "")
+          .trim()
+          .toLowerCase();
+        const alreadyReceived = grns
+          .filter((receipt) =>
+            (receipt.purchaseOrderIds || [receipt.purchaseOrderId])
+              .map(Number)
+              .includes(Number(po.id)),
+          )
+          .flatMap((receipt) => receipt.lineItems || [])
+          .filter(
+            (received: any) =>
+              Number(
+                received.purchaseOrderId ||
+                  receiptPurchaseOrderId(received, po.id),
+              ) === Number(po.id) &&
+              String(
+                received.itemId ||
+                  received.poLineId ||
+                  received.description ||
+                  "",
+              )
+                .trim()
+                .toLowerCase() === lineKey,
+          )
+          .reduce(
+            (sum: number, received: any) =>
+              sum + Number(received.receivedQty || 0),
+            0,
+          );
+        const qty = Number(line.qty ?? line.quantity ?? 0);
+        const price = Number(line.rate ?? line.price ?? 0);
+        return {
+          id: `${po.id}:${String(line.id || line.itemId || line.description)}`,
+          purchaseOrderId: Number(po.id),
+          poLineId: String(line.id || line.itemId || line.description),
+          poNumber: String(po.poNumber),
+          itemId: line.itemId ? Number(line.itemId) : undefined,
+          itemMaster: String(line.description || ""),
+          customSpec: String(line.unit || ""),
+          warehouse: String(po.warehouse || ""),
+          qty,
+          alreadyReceived,
+          price,
+          recvQty: 0,
+          cgstPct: Number(line.cgstPct || 0),
+          sgstPct: Number(line.sgstPct || 0),
+          igstPct: Number(line.igstPct || 0),
+          total: 0,
+        };
+      });
+    });
+    setLineItems(mappedLines);
+  };
+
+  const receiptPurchaseOrderId = (line: any, fallback: number) =>
+    line.purchaseOrderId || fallback;
+  const togglePurchaseOrder = (value: string) =>
+    updateMappedPurchaseOrders(
+      mappedPoIds.includes(value)
+        ? mappedPoIds.filter((id) => id !== value)
+        : [...mappedPoIds, value],
+    );
+  const filteredPurchaseOrders = useMemo(() => {
+    const term = poSearch.trim().toLowerCase();
+    return purchaseOrders.filter(
+      (po: any) =>
+        po.status !== "Completed" &&
+        (!term ||
+          `${po.poNumber} ${po.vendorId} ${po.vendor}`
+            .toLowerCase()
+            .includes(term)),
+    );
+  }, [purchaseOrders, poSearch]);
+  const filteredUsers = useMemo(() => {
+    const term = userSearch.trim().toLowerCase();
+    return userOptions.filter(
+      (user) => !term || `${user.name} ${user.id}`.toLowerCase().includes(term),
+    );
+  }, [userOptions, userSearch]);
+
+  const synchronizedGrns = useMemo(() => {
+    const completedPurchaseOrders = new Set(
+      grns
+        .filter((receipt) => receipt.status === "Complete")
+        .flatMap(receiptPurchaseOrderKeys),
+    );
+    return grns.map((receipt) =>
+      receiptPurchaseOrderKeys(receipt).some((key) =>
+        completedPurchaseOrders.has(key),
+      )
+        ? { ...receipt, status: "Complete" }
+        : receipt,
+    );
+  }, [grns]);
+
   const filtered = useMemo(() => {
-    return grns.filter((g) => {
+    return synchronizedGrns.filter((g) => {
       const matchesVendor =
         selectedVendor === "All" || g.vendor === selectedVendor;
       const matchesSearch =
@@ -244,7 +483,7 @@ export default function GoodsReceipts() {
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
-  }, [grns, search, selectedVendor, fromDate, toDate]);
+  }, [synchronizedGrns, search, selectedVendor, fromDate, toDate]);
 
   const handlePrintGRN = (g: GoodsReceiptItem) => {
     const printWindow = window.open("", "_blank");
@@ -273,24 +512,61 @@ export default function GoodsReceipts() {
     printWindow.print();
   };
 
-  const handleCreateGRN = (e: React.FormEvent) => {
-    e.preventDefault();
-    const selectedPo = purchaseOrders.find(
-      (po: any) => po.poNumber === mappedPo,
+  const handleCreateGRN = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!mappedPoIds.length) {
+      toast.error("Select at least one Purchase Order");
+      return;
+    }
+    if (!receivedBy) {
+      toast.error("Select who received the goods");
+      return;
+    }
+    const negativeLine = lineItems.find((line) => line.recvQty < 0);
+    if (negativeLine) {
+      toast.error("Received quantity cannot be negative.");
+      return;
+    }
+    const overReceivedLine = lineItems.find(
+      (line) => line.recvQty > Math.max(0, line.qty - line.alreadyReceived),
     );
+    if (overReceivedLine) {
+      const remaining = Math.max(
+        0,
+        overReceivedLine.qty - overReceivedLine.alreadyReceived,
+      );
+      toast.error(
+        `Cannot receive ${overReceivedLine.recvQty}. Only ${remaining} units remain for this purchase order item.`,
+      );
+      return;
+    }
+    const receiptLines = lineItems.filter((line) => line.recvQty > 0);
+    if (!receiptLines.length) {
+      toast.error("Enter This GRN Qty for at least one item.");
+      return;
+    }
+    if (receiptLines.some((line) => !line.warehouse)) {
+      toast.error("Select a warehouse for every received item");
+      return;
+    }
     createMutation.mutate({
-      poReference: mappedPo,
-      vendorName: selectedPo?.vendor || vendorName,
-      vendorId: selectedPo?.vendorId || "",
-      itemsReceived: lineItems
-        .map((line) => line.itemMaster)
-        .filter(Boolean)
-        .join(", "),
+      purchaseOrderIds: mappedPoIds.map(Number),
+      receivedDate,
       inspectedByUserId: Number(receivedBy),
-      status: "Complete",
+      notes,
+      attachmentName,
+      lineItems: receiptLines.map((line) => ({
+        purchaseOrderId: line.purchaseOrderId,
+        itemId: line.itemId,
+        poLineId: line.poLineId,
+        description: line.itemMaster,
+        receivedQty: line.recvQty,
+        unit: line.customSpec,
+        unitPrice: line.price,
+        warehouse: line.warehouse,
+      })),
     });
   };
-
   return (
     <Shell>
       <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full space-y-5">
@@ -393,13 +669,11 @@ export default function GoodsReceipts() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-4 py-3 font-semibold">
-                      {FLEX_TEXT.vendorId}
-                    </th>
+                    <th className="px-4 py-3 font-semibold">S.No</th>
+                    <th className="px-4 py-3 font-semibold">{FLEX_TEXT.grn}</th>
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.vendor2}
                     </th>
-                    <th className="px-4 py-3 font-semibold">{FLEX_TEXT.grn}</th>
                     <th className="px-4 py-3 font-semibold">{FLEX_TEXT.po}</th>
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.receivedDate}
@@ -407,11 +681,14 @@ export default function GoodsReceipts() {
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.receivedBy}
                     </th>
-                    <th className="px-4 py-3 font-semibold">
-                      {FLEX_TEXT.receivedOrdered}
+                    <th className="px-4 py-3 font-semibold text-right">
+                      Received Qty
                     </th>
-                    <th className="px-4 py-3 font-semibold">
-                      {FLEX_TEXT.pending}
+                    <th className="px-4 py-3 font-semibold text-right">
+                      Remaining
+                    </th>
+                    <th className="px-4 py-3 font-semibold text-right">
+                      Amount
                     </th>
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.status}
@@ -425,51 +702,85 @@ export default function GoodsReceipts() {
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={10}
+                        colSpan={11}
                         className="px-4 py-8 text-center text-muted-foreground text-sm"
                       >
-                        {FLEX_TEXT.noGoodsReceiptNotesFound}
+                        {receiptsLoadFailed
+                          ? "Failed to load Goods Receipts"
+                          : FLEX_TEXT.noGoodsReceiptNotesFound}
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((g) => (
+                    filtered.map((receipt, index) => (
                       <tr
-                        key={g.id}
+                        key={receipt.id}
                         className="hover:bg-muted/40 transition-colors"
                       >
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
-                          {g.vendorId}
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-foreground">
-                          {g.vendor}
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-muted-foreground font-mono text-[10px]">
-                          {g.grnNumber}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
-                          {g.poNumber}
-                        </td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          {g.receivedDate}
+                          {index + 1}
                         </td>
-                        <td className="px-4 py-3 font-medium text-foreground">
-                          {g.receivedBy}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-foreground">
-                          {g.receivedOrdered}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {g.pending}
+                        <td className="px-4 py-3 font-semibold font-mono text-[11px]">
+                          {receipt.grnNumber}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
-                            {g.status}
+                          <div className="font-semibold">{receipt.vendor}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {receipt.vendorId}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
+                          {receipt.poNumber}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {receipt.receivedDate}
+                        </td>
+                        <td className="px-4 py-3 font-medium">
+                          {receipt.receivedBy}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium">
+                          {receipt.receivedQuantity} / {receipt.orderedQuantity}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium">
+                          {receipt.remainingQuantity}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold">
+                          {"\u20B9"}{" "}
+                          {receipt.totalAmount.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${receipt.status === "Partial" ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300" : "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300"}`}
+                          >
+                            {receipt.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {receipt.status === "Partial" && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={markCompleteMutation.isPending}
+                              onClick={() =>
+                                markCompleteMutation.mutate(receipt)
+                              }
+                              className="mr-1 h-7 px-2 text-[10px]"
+                            >
+                              Mark Complete
+                            </Button>
+                          )}
                           <button
-                            onClick={() => handlePrintGRN(g)}
-                            className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
+                            onClick={() => setViewReceipt(receipt)}
+                            className="text-muted-foreground hover:text-primary p-1 rounded-md"
+                            title="View Goods Receipt"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handlePrintGRN(receipt)}
+                            className="text-muted-foreground hover:text-primary p-1 rounded-md"
                             title={FLEX_TEXT.printGrn}
                           >
                             <Printer className="w-3.5 h-3.5" />
@@ -531,7 +842,7 @@ export default function GoodsReceipts() {
 
         {/* ── LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) ── */}
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6">
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-[940px] max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <form onSubmit={handleCreateGRN}>
               <DialogHeader className="pb-2 border-b border-border">
                 <DialogTitle className="flex items-center gap-2.5 text-xl font-bold text-foreground">
@@ -543,61 +854,49 @@ export default function GoodsReceipts() {
               </DialogHeader>
 
               <div className="space-y-4 py-3 text-xs">
-                {/* Row 1: Map Purchase Order(s) | GRN Number * */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-muted-foreground block">
                       {FLEX_TEXT.mapPurchaseOrderS}
                     </Label>
-                    <Select
-                      value={mappedPo}
-                      onValueChange={(value) => {
-                        setMappedPo(value);
-                        const po = purchaseOrders.find(
-                          (order: any) => order.poNumber === value,
-                        );
-                        if (po) {
-                          setVendorName(po.vendor || "");
-                          const vendor = vendorsList.find(
-                            (option) =>
-                              option.id === po.vendorId ||
-                              option.name === po.vendor,
+                    <Input
+                      value={poSearch}
+                      onChange={(event) => setPoSearch(event.target.value)}
+                      placeholder="Search by PO number, vendor ID, or vendor name..."
+                      className="h-8 text-xs bg-background"
+                    />
+                    <div className="max-h-44 overflow-y-auto rounded-md border border-border bg-background p-1">
+                      {filteredPurchaseOrders.length ? (
+                        filteredPurchaseOrders.map((po: any) => {
+                          const checked = mappedPoIds.includes(String(po.id));
+                          return (
+                            <label
+                              key={po.id}
+                              className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-xs hover:bg-muted/50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  togglePurchaseOrder(String(po.id))
+                                }
+                                className="h-4 w-4 accent-primary"
+                              />
+                              <span className="font-mono font-semibold">
+                                {po.poNumber}
+                              </span>
+                              <span className="text-muted-foreground">
+                                ({po.vendorId}) - {po.vendor}
+                              </span>
+                            </label>
                           );
-                          setVendorAddress(vendor?.address || "");
-                          setVendorPhone(vendor?.phone || "");
-                          setLineItems([
-                            {
-                              id: String(Date.now()),
-                              itemMaster: po.items || "",
-                              customSpec: "",
-                              warehouse: po.warehouse || "",
-                              qty: 1,
-                              price: Number(po.subtotal || 0),
-                              recvQty: 1,
-                              cgstPct: 0,
-                              sgstPct: 0,
-                              igstPct: 0,
-                              total: Number(po.grandTotal || 0),
-                            },
-                          ]);
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue
-                          placeholder={
-                            FLEX_TEXT.typeToFilterAndSelectPurchaseOrderS
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {purchaseOrders.map((po: any) => (
-                          <SelectItem key={po.id} value={po.poNumber}>
-                            {po.poNumber} ({po.vendor})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        })
+                      ) : (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">
+                          No Purchase Orders available
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
@@ -612,72 +911,71 @@ export default function GoodsReceipts() {
                   </div>
                 </div>
 
-                {/* Row 2: Vendor Name * | Vendor Address * | Vendor Phone * */}
+                {mappedPoIds.length > 0 && (
+                  <div className="rounded-lg border border-border bg-muted/20 p-3">
+                    <div className="text-[10px] font-bold tracking-wider text-muted-foreground mb-2">
+                      MAPPED
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {purchaseOrders
+                        .filter((po: any) =>
+                          mappedPoIds.includes(String(po.id)),
+                        )
+                        .map((po: any) => (
+                          <div
+                            key={po.id}
+                            className="inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs"
+                          >
+                            <span className="font-mono font-semibold">
+                              {po.poNumber}
+                            </span>
+                            <span>{po.vendor}</span>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${po.poNumber}`}
+                              onClick={() => togglePurchaseOrder(String(po.id))}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              �
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      {FLEX_TEXT.vendorName}{" "}
-                      <span className="text-primary">*</span>
+                      {FLEX_TEXT.vendorName} *
                     </Label>
-                    <Select value={vendorName} onValueChange={setVendorName}>
-                      <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue
-                          placeholder={FLEX_TEXT.selectOrTypeVendor}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {vendorsList.map((vendor) => (
-                          <SelectItem key={vendor.id} value={vendor.name}>
-                            {vendor.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Input
+                      readOnly
+                      value={vendorName}
+                      className="h-9 text-xs bg-muted/30"
+                    />
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      {FLEX_TEXT.vendorAddress}{" "}
-                      <span className="text-primary">*</span>
+                      {FLEX_TEXT.vendorAddress} *
                     </Label>
                     <Input
-                      placeholder={FLEX_TEXT.vendorAddress2}
+                      readOnly
                       value={vendorAddress}
-                      onChange={(e) => setVendorAddress(e.target.value)}
-                      className="h-9 text-xs bg-background"
+                      className="h-9 text-xs bg-muted/30"
                     />
                   </div>
                   <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
-                      {FLEX_TEXT.vendorPhone}{" "}
-                      <span className="text-primary">*</span>
+                      {FLEX_TEXT.vendorPhone} *
                     </Label>
                     <Input
-                      placeholder={FLEX_TEXT.vendorPhone2}
+                      readOnly
                       value={vendorPhone}
-                      onChange={(e) => setVendorPhone(e.target.value)}
-                      className="h-9 text-xs bg-background"
+                      className="h-9 text-xs bg-muted/30"
                     />
                   </div>
                 </div>
-
-                {/* Row 3: Place of Supply (State Code) */}
-                <div>
-                  <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
-                    {FLEX_TEXT.placeOfSupplyStateCode}
-                  </Label>
-                  <Input
-                    value={placeOfSupply}
-                    onChange={(e) => setPlaceOfSupply(e.target.value)}
-                    placeholder="27"
-                    className="h-9 text-xs bg-background font-mono"
-                  />
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {
-                      FLEX_TEXT.addLineItemsManuallyOrMapPurchaseOrderSAboveToAutoFillVendorAndItems
-                    }
-                  </p>
-                </div>
-
                 {/* Row 4: Received Date * | Received By * */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -702,7 +1000,18 @@ export default function GoodsReceipts() {
                         <SelectValue placeholder={FLEX_TEXT.selectEmployee} />
                       </SelectTrigger>
                       <SelectContent>
-                        {userOptions.map((user) => (
+                        <div className="p-2">
+                          <Input
+                            value={userSearch}
+                            onChange={(event) =>
+                              setUserSearch(event.target.value)
+                            }
+                            onKeyDown={(event) => event.stopPropagation()}
+                            placeholder="Search employees..."
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        {filteredUsers.map((user) => (
                           <SelectItem key={user.id} value={String(user.id)}>
                             {user.name}
                           </SelectItem>
@@ -712,258 +1021,152 @@ export default function GoodsReceipts() {
                   </div>
                 </div>
 
-                {/* Line Items Section */}
                 <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-bold text-foreground">
-                      {FLEX_TEXT.lineItems}
-                    </Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs font-semibold text-foreground border-border hover:bg-muted"
-                      onClick={handleAddBlankRow}
-                    >
-                      {FLEX_TEXT.addBlankRow}
-                    </Button>
-                  </div>
-
+                  <Label className="text-xs font-bold text-foreground">
+                    Line Items - Ordered vs Received
+                  </Label>
                   {lineItems.length === 0 ? (
                     <div className="border border-dashed border-border rounded-lg p-6 text-center text-xs text-muted-foreground bg-muted/20">
-                      {
-                        FLEX_TEXT.noLineItemsYetAddItemsManuallyOrMapPurchaseOrderS
-                      }
+                      {mappedPoIds.length
+                        ? "All items on the selected Purchase Orders have already been received."
+                        : "Map one or more Purchase Orders to load line items."}
                     </div>
                   ) : (
-                    <div className="border border-border/80 rounded-lg p-2.5 bg-background space-y-2 shadow-2xs overflow-x-auto">
-                      <div className="min-w-[800px]">
-                        <div className="grid grid-cols-12 gap-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-1">
-                          <div className="col-span-3">
-                            {FLEX_TEXT.itemProductAsset}
-                          </div>
-                          <div className="col-span-2">
-                            {FLEX_TEXT.warehouse}
-                          </div>
-                          <div className="col-span-1 text-center">
-                            {FLEX_TEXT.qty}
-                          </div>
-                          <div className="col-span-1 text-center">
-                            {FLEX_TEXT.price}
-                          </div>
-                          <div className="col-span-1 text-center">
-                            {FLEX_TEXT.recvQty}
-                          </div>
-                          <div className="col-span-2 text-center">
-                            {FLEX_TEXT.tax}
-                          </div>
-                          <div className="col-span-2 text-right">
-                            {FLEX_TEXT.total}
-                          </div>
-                        </div>
-
-                        {lineItems.map((line) => (
-                          <div
-                            key={line.id}
-                            className="grid grid-cols-12 gap-2 items-start py-1"
-                          >
-                            {/* Item / Product / Asset + Custom Specification */}
-                            <div className="col-span-3 space-y-1">
-                              <Select
-                                value={line.itemMaster}
-                                onValueChange={(val) =>
-                                  handleLineChange(line.id, "itemMaster", val)
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-xs bg-background">
-                                  <SelectValue
-                                    placeholder={FLEX_TEXT.selectMasterItem}
+                    <div className="border border-border/80 rounded-lg overflow-x-auto bg-background">
+                      <table className="w-full table-fixed text-[10px] lg:text-[11px]">
+                        <colgroup>
+                          <col className="w-[22%]" />
+                          <col className="w-[8%]" />
+                          <col className="w-[10%]" />
+                          <col className="w-[8%]" />
+                          <col className="w-[10%]" />
+                          <col className="w-[15%]" />
+                          <col className="w-[10%]" />
+                          <col className="w-[7%]" />
+                          <col className="w-[10%]" />
+                        </colgroup>
+                        <thead className="bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Description</th>
+                            <th className="px-3 py-2 text-right">
+                              Ordered Qty
+                            </th>
+                            <th className="px-3 py-2 text-right">
+                              Already Received
+                            </th>
+                            <th className="px-3 py-2 text-right">Remaining</th>
+                            <th className="px-3 py-2 text-right">Unit Price</th>
+                            <th className="px-3 py-2 text-left">Warehouse</th>
+                            <th className="px-3 py-2 text-right">
+                              This GRN Qty
+                            </th>
+                            <th className="px-3 py-2 text-right">Tax</th>
+                            <th className="px-3 py-2 text-right">GRN Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {lineItems.map((line) => {
+                            const remaining = Math.max(
+                              0,
+                              line.qty - line.alreadyReceived,
+                            );
+                            const taxPct =
+                              line.cgstPct + line.sgstPct + line.igstPct;
+                            const base = line.recvQty * line.price;
+                            const lineTotal = base + (base * taxPct) / 100;
+                            return (
+                              <tr key={`${line.purchaseOrderId}-${line.id}`}>
+                                <td className="px-3 py-2">
+                                  <div className="font-medium">
+                                    {line.itemMaster}
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {line.poNumber} - {line.customSpec || "-"}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {line.qty}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {line.alreadyReceived}
+                                </td>
+                                <td className="px-3 py-2 text-right font-semibold">
+                                  {remaining}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {"\u20B9"}{" "}
+                                  {line.price.toLocaleString("en-IN")}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Select
+                                    value={line.warehouse}
+                                    onValueChange={(value) =>
+                                      handleLineChange(
+                                        line.id,
+                                        "warehouse",
+                                        value,
+                                      )
+                                    }
+                                  >
+                                    <SelectTrigger className="h-8 w-full min-w-0 px-2 text-[10px]">
+                                      <SelectValue placeholder="Select warehouse" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {warehouseOptions.map((warehouse) => (
+                                        <SelectItem
+                                          key={warehouse.id}
+                                          value={warehouse.name}
+                                        >
+                                          {warehouse.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={remaining}
+                                    step="any"
+                                    value={line.recvQty || ""}
+                                    onChange={(event) =>
+                                      handleLineChange(
+                                        line.id,
+                                        "recvQty",
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    disabled={remaining === 0}
+                                    placeholder={
+                                      remaining === 0 ? "Fully received" : "0"
+                                    }
+                                    className="h-8 w-full min-w-16 text-right px-2"
                                   />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {itemOptions.map((item) => (
-                                    <SelectItem key={item.id} value={item.name}>
-                                      {item.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Input
-                                placeholder={FLEX_TEXT.customSpecification}
-                                value={line.customSpec}
-                                onChange={(e) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "customSpec",
-                                    e.target.value,
-                                  )
-                                }
-                                className="h-7 text-[11px] bg-background"
-                              />
-                            </div>
-
-                            {/* Warehouse */}
-                            <div className="col-span-2">
-                              <Select
-                                value={line.warehouse}
-                                onValueChange={(val) =>
-                                  handleLineChange(line.id, "warehouse", val)
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-xs bg-background">
-                                  <SelectValue
-                                    placeholder={FLEX_TEXT.bangalore4}
-                                  />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {warehouseOptions.map((warehouse) => (
-                                    <SelectItem
-                                      key={warehouse.id}
-                                      value={warehouse.name}
-                                    >
-                                      {warehouse.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            {/* Qty */}
-                            <div className="col-span-1">
-                              <Input
-                                type="number"
-                                value={line.qty}
-                                onChange={(e) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "qty",
-                                    parseFloat(e.target.value) || 1,
-                                  )
-                                }
-                                className="h-8 text-xs bg-background text-center px-1"
-                              />
-                            </div>
-
-                            {/* Price */}
-                            <div className="col-span-1">
-                              <Input
-                                type="number"
-                                value={line.price}
-                                onChange={(e) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "price",
-                                    parseFloat(e.target.value) || 0,
-                                  )
-                                }
-                                className="h-8 text-xs bg-background text-center px-1"
-                              />
-                            </div>
-
-                            {/* Recv Qty */}
-                            <div className="col-span-1">
-                              <Input
-                                type="number"
-                                value={line.recvQty}
-                                onChange={(e) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "recvQty",
-                                    parseFloat(e.target.value) || 1,
-                                  )
-                                }
-                                className="h-8 text-xs bg-background text-center px-1 font-bold"
-                              />
-                            </div>
-
-                            {/* Tax (%) - 3 dropdown selectors for CGST/SGST/IGST */}
-                            <div className="col-span-2 grid grid-cols-3 gap-1">
-                              <Select
-                                value={`${line.cgstPct}%`}
-                                onValueChange={(val) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "cgstPct",
-                                    parseFloat(val) || 0,
-                                  )
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-[10px] bg-background px-1">
-                                  <SelectValue placeholder="9%" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="0%">0%</SelectItem>
-                                  <SelectItem value="9%">9%</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <Select
-                                value={`${line.sgstPct}%`}
-                                onValueChange={(val) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "sgstPct",
-                                    parseFloat(val) || 0,
-                                  )
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-[10px] bg-background px-1">
-                                  <SelectValue placeholder="9%" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="0%">0%</SelectItem>
-                                  <SelectItem value="9%">9%</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <Select
-                                value={`${line.igstPct}%`}
-                                onValueChange={(val) =>
-                                  handleLineChange(
-                                    line.id,
-                                    "igstPct",
-                                    parseFloat(val) || 0,
-                                  )
-                                }
-                              >
-                                <SelectTrigger className="h-8 text-[10px] bg-background px-1">
-                                  <SelectValue placeholder="18%" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="0%">0%</SelectItem>
-                                  <SelectItem value="18%">18%</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            {/* Total */}
-                            <div className="col-span-2 flex items-center justify-end gap-1.5 text-right font-bold text-foreground font-mono text-xs pt-1">
-                              ₹ {line.total.toLocaleString("en-IN")}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRow(line.id)}
-                                className="text-muted-foreground hover:text-destructive p-0.5 rounded transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Right-aligned Total Amount Box */}
-                      <div className="flex justify-end pt-2">
-                        <div className="bg-muted/40 px-4 py-2 rounded-lg border border-border/80 text-xs font-semibold text-foreground">
-                          {FLEX_TEXT.totalAmount}{" "}
-                          {calculatedSubtotal.toLocaleString("en-IN")} + ₹{" "}
-                          {calculatedTax.toLocaleString("en-IN")} ={" "}
-                          <span className="text-primary font-bold font-mono">
-                            ₹ {calculatedGrandTotal.toLocaleString("en-IN")}
-                          </span>
-                        </div>
-                      </div>
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {taxPct}%
+                                </td>
+                                <td className="px-3 py-2 text-right font-semibold">
+                                  {"\u20B9"}{" "}
+                                  {lineTotal.toLocaleString("en-IN", {
+                                    minimumFractionDigits: 2,
+                                  })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
+                  <div className="flex justify-end rounded-md bg-muted/30 px-4 py-2 text-sm font-semibold">
+                    GRN Total: {"\u20B9"}{" "}
+                    {calculatedGrandTotal.toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                    })}
+                  </div>
                 </div>
-
                 {/* Notes */}
                 <div>
                   <Label className="text-xs font-semibold text-muted-foreground mb-1 block">
@@ -1052,12 +1255,155 @@ export default function GoodsReceipts() {
                 <Button
                   type="submit"
                   size="sm"
+                  disabled={createMutation.isPending}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 gap-1.5 shadow-2xs"
                 >
-                  <Plus className="w-3.5 h-3.5" /> {FLEX_TEXT.logReceipt}
+                  <Plus className="w-3.5 h-3.5" />{" "}
+                  {createMutation.isPending
+                    ? "Saving..."
+                    : FLEX_TEXT.logReceipt}
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={Boolean(viewReceipt)}
+          onOpenChange={(open) => !open && setViewReceipt(null)}
+        >
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Goods Receipt {viewReceipt?.grnNumber}</DialogTitle>
+            </DialogHeader>
+            {viewReceipt && (
+              <div className="space-y-4 text-sm">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 rounded-lg border border-border p-4">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Vendor</div>
+                    <div className="font-semibold">{viewReceipt.vendor}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {viewReceipt.vendorId}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      Purchase Order
+                    </div>
+                    <div className="font-mono font-semibold">
+                      {viewReceipt.poNumber}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      Received Date
+                    </div>
+                    <div className="font-semibold">
+                      {viewReceipt.receivedDate}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      Received By
+                    </div>
+                    <div className="font-semibold">
+                      {viewReceipt.receivedBy}
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[760px] text-xs">
+                    <thead className="bg-muted/30 text-muted-foreground uppercase text-[10px]">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Item</th>
+                        <th className="px-3 py-2 text-right">Ordered</th>
+                        <th className="px-3 py-2 text-right">
+                          Previously Received
+                        </th>
+                        <th className="px-3 py-2 text-right">Received</th>
+                        <th className="px-3 py-2 text-right">Remaining</th>
+                        <th className="px-3 py-2 text-right">Unit Price</th>
+                        <th className="px-3 py-2 text-left">Warehouse</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {(viewReceipt.lineItems || []).map(
+                        (line: any, index: number) => (
+                          <tr key={`${line.itemId || line.poLineId}-${index}`}>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">
+                                {line.description}
+                              </div>
+                              <div className="text-muted-foreground">
+                                {line.unit || "-"}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {line.orderedQty}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {line.alreadyReceived}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold">
+                              {line.receivedQty}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {Math.max(
+                                0,
+                                Number(line.orderedQty) -
+                                  Number(line.alreadyReceived) -
+                                  Number(line.receivedQty),
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {"\u20B9"}{" "}
+                              {Number(line.unitPrice || 0).toLocaleString(
+                                "en-IN",
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {line.warehouse || "-"}
+                            </td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end text-base font-bold">
+                  Total: {"\u20B9"}{" "}
+                  {viewReceipt.totalAmount.toLocaleString("en-IN", {
+                    minimumFractionDigits: 2,
+                  })}
+                </div>
+                {viewReceipt.notes && (
+                  <div>
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      Notes
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap">
+                      {viewReceipt.notes}
+                    </p>
+                  </div>
+                )}
+                {viewReceipt.attachmentName && (
+                  <div>
+                    <div className="text-xs font-semibold text-muted-foreground">
+                      Supporting Document
+                    </div>
+                    <div className="mt-1">{viewReceipt.attachmentName}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setViewReceipt(null)}
+              >
+                Close
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

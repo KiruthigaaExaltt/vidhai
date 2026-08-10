@@ -34,7 +34,7 @@ return {
   plugins: [
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
+    ...(env.REPL_ID !== undefined ? [runtimeErrorOverlay()] : []),
     VitePWA({
       strategies: "injectManifest", srcDir: "src", filename: "sw.ts",
       injectRegister: false, registerType: "prompt",
