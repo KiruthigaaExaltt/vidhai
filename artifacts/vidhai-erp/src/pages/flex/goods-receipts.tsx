@@ -81,6 +81,27 @@ export interface GoodsReceiptItem {
   attachmentName?: string;
 }
 
+function receiptPurchaseOrderKeys(receipt: GoodsReceiptItem): string[] {
+  const ids = receipt.purchaseOrderIds?.length
+    ? receipt.purchaseOrderIds
+    : receipt.purchaseOrderId
+      ? [receipt.purchaseOrderId]
+      : [];
+  if (ids.length) return ids.map((id) => `id:${id}`);
+  return receipt.poNumber
+    .split(",")
+    .map((poNumber) => `number:${poNumber.trim().toLowerCase()}`)
+    .filter((key) => key !== "number:");
+}
+
+function sharesPurchaseOrder(
+  left: GoodsReceiptItem,
+  right: GoodsReceiptItem,
+): boolean {
+  const leftKeys = new Set(receiptPurchaseOrderKeys(left));
+  return receiptPurchaseOrderKeys(right).some((key) => leftKeys.has(key));
+}
+
 async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
   const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
     credentials: "include",
@@ -222,7 +243,16 @@ export default function GoodsReceipts() {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, completedReceipt) => {
+      queryClient.setQueryData<GoodsReceiptItem[]>(
+        ["get", "/api/flex/goods-receipts"],
+        (current = []) =>
+          current.map((receipt) =>
+            sharesPurchaseOrder(receipt, completedReceipt)
+              ? { ...receipt, status: "Complete" }
+              : receipt,
+          ),
+      );
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/goods-receipts"],
       });
@@ -419,8 +449,23 @@ export default function GoodsReceipts() {
     );
   }, [userOptions, userSearch]);
 
+  const synchronizedGrns = useMemo(() => {
+    const completedPurchaseOrders = new Set(
+      grns
+        .filter((receipt) => receipt.status === "Complete")
+        .flatMap(receiptPurchaseOrderKeys),
+    );
+    return grns.map((receipt) =>
+      receiptPurchaseOrderKeys(receipt).some((key) =>
+        completedPurchaseOrders.has(key),
+      )
+        ? { ...receipt, status: "Complete" }
+        : receipt,
+    );
+  }, [grns]);
+
   const filtered = useMemo(() => {
-    return grns.filter((g) => {
+    return synchronizedGrns.filter((g) => {
       const matchesVendor =
         selectedVendor === "All" || g.vendor === selectedVendor;
       const matchesSearch =
@@ -438,7 +483,7 @@ export default function GoodsReceipts() {
 
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
-  }, [grns, search, selectedVendor, fromDate, toDate]);
+  }, [synchronizedGrns, search, selectedVendor, fromDate, toDate]);
 
   const handlePrintGRN = (g: GoodsReceiptItem) => {
     const printWindow = window.open("", "_blank");

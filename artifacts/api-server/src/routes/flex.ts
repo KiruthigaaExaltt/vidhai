@@ -995,85 +995,109 @@ router.delete("/purchase-orders/:id", requireAuth, async (req, res) => {
 router.get("/goods-receipts", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
-  const grns = await db
-    .select()
-    .from(goodsReceiptsTable)
-    .where(eq(goodsReceiptsTable.organizationId, org))
-    .orderBy(desc(goodsReceiptsTable.createdAt));
+  const [grns, purchaseOrders] = await Promise.all([
+    db
+      .select()
+      .from(goodsReceiptsTable)
+      .where(eq(goodsReceiptsTable.organizationId, org))
+      .orderBy(desc(goodsReceiptsTable.createdAt)),
+    db
+      .select()
+      .from(purchaseOrdersTable)
+      .where(eq(purchaseOrdersTable.organizationId, org)),
+  ]);
+  const completedPurchaseOrderIds = new Set(
+    (purchaseOrders as any[])
+      .filter((purchaseOrder) => purchaseOrder.status === "Completed")
+      .map((purchaseOrder) => Number(purchaseOrder.id)),
+  );
   return res.json(
-    grns.map((g: any) => ({
-      id: g.id,
-      grnNumber: g.grnNumber,
-      purchaseOrderId: g.purchaseOrderId,
-      purchaseOrderIds:
+    grns.map((g: any) => {
+      const mappedPurchaseOrderIds =
         Array.isArray(g.purchaseOrderIds) && g.purchaseOrderIds.length
-          ? g.purchaseOrderIds
+          ? g.purchaseOrderIds.map(Number).filter(Boolean)
           : g.purchaseOrderId
-            ? [g.purchaseOrderId]
-            : [],
-      poReferences:
-        Array.isArray(g.poReferences) && g.poReferences.length
-          ? g.poReferences
-          : g.poReference
-            ? [g.poReference]
-            : [],
-      vendorIds:
-        Array.isArray(g.vendorIds) && g.vendorIds.length
-          ? g.vendorIds
-          : g.vendorId
-            ? [g.vendorId]
-            : [],
-      poReference: g.poReference,
-      vendorId: g.vendorId || "",
-      vendor: g.vendorName,
-      itemsReceived: g.itemsReceived,
-      lineItems: Array.isArray(g.lineItems) ? g.lineItems : [],
-      receivedDate:
-        g.receivedDate || new Date(g.createdAt).toISOString().slice(0, 10),
-      inspectedByUserId: g.inspectedByUserId,
-      inspectedBy: userMap.get(g.inspectedByUserId) || g.inspectedByName || "",
-      notes: g.notes || "",
-      attachmentName: g.attachmentName || "",
-      receivedQuantity:
-        g.receivedQuantity != null
-          ? Number(g.receivedQuantity)
-          : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-              (sum: number, line: any) => sum + Number(line.receivedQty || 0),
-              0,
+            ? [Number(g.purchaseOrderId)]
+            : [];
+      return {
+        id: g.id,
+        grnNumber: g.grnNumber,
+        purchaseOrderId: g.purchaseOrderId,
+        purchaseOrderIds:
+          Array.isArray(g.purchaseOrderIds) && g.purchaseOrderIds.length
+            ? g.purchaseOrderIds
+            : g.purchaseOrderId
+              ? [g.purchaseOrderId]
+              : [],
+        poReferences:
+          Array.isArray(g.poReferences) && g.poReferences.length
+            ? g.poReferences
+            : g.poReference
+              ? [g.poReference]
+              : [],
+        vendorIds:
+          Array.isArray(g.vendorIds) && g.vendorIds.length
+            ? g.vendorIds
+            : g.vendorId
+              ? [g.vendorId]
+              : [],
+        poReference: g.poReference,
+        vendorId: g.vendorId || "",
+        vendor: g.vendorName,
+        itemsReceived: g.itemsReceived,
+        lineItems: Array.isArray(g.lineItems) ? g.lineItems : [],
+        receivedDate:
+          g.receivedDate || new Date(g.createdAt).toISOString().slice(0, 10),
+        inspectedByUserId: g.inspectedByUserId,
+        inspectedBy:
+          userMap.get(g.inspectedByUserId) || g.inspectedByName || "",
+        notes: g.notes || "",
+        attachmentName: g.attachmentName || "",
+        receivedQuantity:
+          g.receivedQuantity != null
+            ? Number(g.receivedQuantity)
+            : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
+                (sum: number, line: any) => sum + Number(line.receivedQty || 0),
+                0,
+              ),
+        totalAmount: (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
+          (sum: number, line: any) =>
+            sum +
+            Number(
+              line.lineTotal ??
+                Number(line.receivedQty || 0) * Number(line.unitPrice || 0),
             ),
-      totalAmount: (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-        (sum: number, line: any) =>
-          sum +
-          Number(
-            line.lineTotal ??
-              Number(line.receivedQty || 0) * Number(line.unitPrice || 0),
-          ),
-        0,
-      ),
-      orderedQuantity:
-        g.orderedQuantity != null
-          ? Number(g.orderedQuantity)
-          : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-              (sum: number, line: any) => sum + Number(line.orderedQty || 0),
-              0,
-            ),
-      remainingQuantity:
-        g.remainingQuantity != null
-          ? Number(g.remainingQuantity)
-          : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-              (sum: number, line: any) =>
-                sum +
-                Math.max(
-                  0,
-                  Number(line.orderedQty || 0) -
-                    Number(line.alreadyReceived || 0) -
-                    Number(line.receivedQty || 0),
-                ),
-              0,
-            ),
-      status: g.status,
-      createdAt: g.createdAt,
-    })),
+          0,
+        ),
+        orderedQuantity:
+          g.orderedQuantity != null
+            ? Number(g.orderedQuantity)
+            : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
+                (sum: number, line: any) => sum + Number(line.orderedQty || 0),
+                0,
+              ),
+        remainingQuantity:
+          g.remainingQuantity != null
+            ? Number(g.remainingQuantity)
+            : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
+                (sum: number, line: any) =>
+                  sum +
+                  Math.max(
+                    0,
+                    Number(line.orderedQty || 0) -
+                      Number(line.alreadyReceived || 0) -
+                      Number(line.receivedQty || 0),
+                  ),
+                0,
+              ),
+        status: mappedPurchaseOrderIds.some((purchaseOrderId: number) =>
+          completedPurchaseOrderIds.has(purchaseOrderId),
+        )
+          ? "Complete"
+          : g.status,
+        createdAt: g.createdAt,
+      };
+    }),
   );
 });
 
@@ -1459,6 +1483,46 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
           );
       }
     }
+
+    // A GRN status represents the state of its purchase order. Once a PO is
+    // fully received, keep every receipt mapped to that PO in sync so an
+    // earlier partial receipt is not left looking incomplete.
+    const completedPurchaseOrderIds = new Set(
+      purchaseOrders
+        .filter((po) => completionByPurchaseOrder.get(po.id))
+        .map((po) => Number(po.id)),
+    );
+    if (completedPurchaseOrderIds.size) {
+      const relatedReceipts = await db
+        .select()
+        .from(goodsReceiptsTable)
+        .where(eq(goodsReceiptsTable.organizationId, org));
+      for (const receipt of relatedReceipts as any[]) {
+        const receiptPurchaseOrderIds =
+          Array.isArray(receipt.purchaseOrderIds) &&
+          receipt.purchaseOrderIds.length
+            ? receipt.purchaseOrderIds.map(Number).filter(Boolean)
+            : receipt.purchaseOrderId
+              ? [Number(receipt.purchaseOrderId)]
+              : [];
+        if (
+          receiptPurchaseOrderIds.some((purchaseOrderId: number) =>
+            completedPurchaseOrderIds.has(purchaseOrderId),
+          ) &&
+          receipt.status !== "Complete"
+        ) {
+          await db
+            .update(goodsReceiptsTable)
+            .set({ status: "Complete" })
+            .where(
+              and(
+                eq(goodsReceiptsTable.id, receipt.id),
+                eq(goodsReceiptsTable.organizationId, org),
+              ),
+            );
+        }
+      }
+    }
   } catch (error) {
     for (const rollback of [...purchaseOrderRollbacks].reverse())
       await db
@@ -1525,6 +1589,37 @@ router.patch("/goods-receipts/:id", requireAuth, async (req, res) => {
             eq(purchaseOrdersTable.organizationId, org),
           ),
         );
+    }
+
+    const relatedReceipts = await db
+      .select()
+      .from(goodsReceiptsTable)
+      .where(eq(goodsReceiptsTable.organizationId, org));
+    const mappedPurchaseOrderIdSet = new Set(mappedPurchaseOrderIds);
+    for (const receipt of relatedReceipts as any[]) {
+      const receiptPurchaseOrderIds =
+        Array.isArray(receipt.purchaseOrderIds) &&
+        receipt.purchaseOrderIds.length
+          ? receipt.purchaseOrderIds.map(Number).filter(Boolean)
+          : receipt.purchaseOrderId
+            ? [Number(receipt.purchaseOrderId)]
+            : [];
+      if (
+        receiptPurchaseOrderIds.some((purchaseOrderId: number) =>
+          mappedPurchaseOrderIdSet.has(purchaseOrderId),
+        ) &&
+        receipt.status !== "Complete"
+      ) {
+        await db
+          .update(goodsReceiptsTable)
+          .set({ status: "Complete" })
+          .where(
+            and(
+              eq(goodsReceiptsTable.id, receipt.id),
+              eq(goodsReceiptsTable.organizationId, org),
+            ),
+          );
+      }
     }
   }
   return res.json(updated);

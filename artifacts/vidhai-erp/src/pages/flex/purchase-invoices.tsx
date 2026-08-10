@@ -304,6 +304,39 @@ export default function PurchaseInvoices() {
     [lineItems],
   );
 
+  const mappedGrnAmount = useMemo(() => {
+    const receipt = goodsReceipts.find(
+      (grn: any) => grn.grnNumber === mappedGrn,
+    );
+    if (!receipt) return 0;
+    const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
+    const lineAmount = lines.reduce((sum: number, line: any) => {
+      const quantity = Number(
+        line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
+      );
+      const rate = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
+      const taxPercent =
+        Number(line.cgstPct ?? line.cgstPercent ?? 0) +
+        Number(line.sgstPct ?? line.sgstPercent ?? 0) +
+        Number(line.igstPct ?? line.igstPercent ?? 0);
+      return (
+        sum +
+        Number(
+          line.lineTotal ??
+            line.total ??
+            quantity * rate * (1 + taxPercent / 100),
+        )
+      );
+    }, 0);
+    const storedAmount = Number(receipt.totalAmount || 0);
+    if (storedAmount > 0) return storedAmount;
+    if (lineAmount > 0) return lineAmount;
+
+    // Older GRNs can have a zero stored amount even though their mapped
+    // invoice lines now contain a valid rate and tax calculation.
+    return calculatedInvoiceAmount;
+  }, [goodsReceipts, mappedGrn, calculatedInvoiceAmount]);
+
   useEffect(() => {
     if (lineItems.length) {
       setInvoiceTotalAmount(calculatedInvoiceAmount.toFixed(2));
@@ -660,7 +693,7 @@ export default function PurchaseInvoices() {
 
         {/* Log Purchase Invoice Dialog (Vidhai Teal Green Theme) */}
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto p-6 bg-white rounded-2xl border-none shadow-2xl">
+          <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl max-h-[92vh] overflow-x-hidden overflow-y-auto p-4 sm:p-6 bg-white rounded-2xl border-none shadow-2xl">
             <form onSubmit={handleCreateInvoice}>
               <DialogHeader className="pb-3 border-b border-slate-100">
                 <DialogTitle className="flex items-center gap-3 text-lg font-bold text-slate-900">
@@ -961,7 +994,7 @@ export default function PurchaseInvoices() {
                     </div>
                   ) : (
                     <div className="border border-slate-200 rounded-xl bg-white overflow-x-auto">
-                      <table className="w-full min-w-[820px] text-xs">
+                      <table className="w-full min-w-[760px] text-xs">
                         <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
                           <tr>
                             <th className="px-2 py-2 text-left min-w-[210px]">
@@ -1134,11 +1167,10 @@ export default function PurchaseInvoices() {
                       </div>
                       <div className="text-sm font-bold text-slate-800 mt-0.5">
                         {"\u20B9"}{" "}
-                        {Number(
-                          goodsReceipts.find(
-                            (grn: any) => grn.grnNumber === mappedGrn,
-                          )?.totalAmount || 0,
-                        ).toLocaleString("en-IN")}
+                        {mappedGrnAmount.toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </div>
                     </div>
                     <div className="text-right">

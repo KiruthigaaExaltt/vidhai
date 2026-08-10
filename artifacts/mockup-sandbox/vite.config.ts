@@ -33,7 +33,9 @@ export default defineConfig({
     mockupPreviewPlugin(),
     react(),
     tailwindcss(),
-    runtimeErrorOverlay() as any,
+    ...(process.env.REPL_ID !== undefined
+      ? [runtimeErrorOverlay() as any]
+      : []),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
