@@ -182,8 +182,11 @@ export const purchaseInvoicesTable = mongoTable("purchase_invoices", {
   organizationId: integer("organization_id").notNull().default(1),
   invoiceNumber: text("invoice_number").notNull(),
   vendorName: text("vendor_name").notNull(),
+  vendorAddress: text("vendor_address").notNull().default(""),
+  vendorPhone: text("vendor_phone").notNull().default(""),
   poReference: text("po_reference").default(""),
-  grnReference: text("grn_reference").notNull().default(""),
+  // Manual and PO-only invoices legitimately have no GRN mapping.
+  grnReference: text("grn_reference").default(""),
   purchaseOrderId: integer("purchase_order_id").references(
     () => purchaseOrdersTable.id,
   ),
@@ -204,6 +207,7 @@ export const purchaseInvoicesTable = mongoTable("purchase_invoices", {
   dueDate: text("due_date").notNull(),
   status: text("status").notNull().default("Unpaid"), // Unpaid | Partially Paid | Paid | Overdue
   notes: text("notes").default(""),
+  attachmentName: text("attachment_name").default(""),
   createdByUserId: integer("created_by_user_id").references(
     () => usersTable.id,
   ),
@@ -232,6 +236,10 @@ export const vendorPaymentsTable = mongoTable("vendor_payments", {
   invoiceReference: text("invoice_reference").notNull().default(""),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   paymentMode: text("payment_mode").notNull().default("UPI / NetBanking"),
+  bankAccount: text("bank_account").default(""),
+  transactionReference: text("transaction_reference").default(""),
+  notes: text("notes").default(""),
+  attachmentName: text("attachment_name").default(""),
   paymentDate: text("payment_date").notNull(),
   status: text("status").notNull().default("Completed"), // Completed | Pending | Failed
   createdByUserId: integer("created_by_user_id").references(
@@ -259,8 +267,16 @@ export const purchaseReturnsTable = mongoTable("purchase_returns", {
   organizationId: integer("organization_id").notNull().default(1),
   returnNumber: text("return_number").notNull(),
   vendorName: text("vendor_name").notNull(),
-  grnReference: text("grn_reference").notNull().default(""),
+  vendorId: text("vendor_id").default(""),
+  vendorAddress: text("vendor_address").default(""),
+  vendorPhone: text("vendor_phone").default(""),
+  invoiceReference: text("invoice_reference").default(""),
+  grnReference: text("grn_reference").default(""),
   reason: text("reason").notNull(),
+  returnDate: text("return_date").notNull().default(""),
+  lineItems: json("line_items").notNull().default([]),
+  notes: text("notes").default(""),
+  attachmentName: text("attachment_name").default(""),
   refundAmount: numeric("refund_amount", { precision: 12, scale: 2 })
     .notNull()
     .default("0"),

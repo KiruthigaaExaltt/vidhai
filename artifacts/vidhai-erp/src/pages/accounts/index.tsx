@@ -19,12 +19,20 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
         );
       return r.status === 204 ? null : r.json();
     });
+const numberValue = (value: any): number => {
+  const numeric = Number(
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? value.$numberDecimal
+      : value,
+  );
+  return Number.isFinite(numeric) ? numeric : 0;
+};
 const inr = (v: any) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
-  }).format(Number(v || 0));
+  }).format(numberValue(v));
 export default function Accounts() {
   const { can } = useAuth(),
     [summary, setSummary] = useState<any>({}),
@@ -84,7 +92,7 @@ export default function Accounts() {
     cols,
   }: {
     rows: any[];
-    cols: [string, string, ((v: any) => React.ReactNode)?][];
+    cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
   }) => (
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full text-sm">
@@ -102,7 +110,7 @@ export default function Accounts() {
             <tr key={r.id ?? i} className="border-t">
               {cols.map((c) => (
                 <td key={c[1]} className="px-3 py-2">
-                  {c[2] ? c[2](r[c[1]]) : String(r[c[1]] ?? "—")}
+                  {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
                 </td>
               ))}
             </tr>
@@ -222,17 +230,56 @@ export default function Accounts() {
             />
           </TabsContent>
           <TabsContent value="ap">
-            <Table
-              rows={f(ap)}
-              cols={[
-                ["Bill", "billNumber"],
-                ["Vendor", "vendorName"],
-                ["Due", "dueDate"],
-                ["Amount", "amount", inr],
-                ["Paid", "paidAmount", inr],
-                ["Status", "status"],
-              ]}
-            />
+            <Tabs defaultValue="bills">
+              <TabsList>
+                <TabsTrigger value="bills">Pending Bills</TabsTrigger>
+                <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
+              </TabsList>
+              <TabsContent value="bills">
+                <Table
+                  rows={f(
+                    ap.filter((entry) => entry.entryType !== "Debit Note"),
+                  )}
+                  cols={[
+                    ["Vendor", "vendorName"],
+                    ["Bill #", "billNumber"],
+                    ["Bill Date", "billDate"],
+                    ["Due Date", "dueDate"],
+                    ["Amount", "amount", inr],
+                    ["Paid", "paidAmount", inr],
+                    ["Adjustment", "adjustedAmount", inr],
+                    [
+                      "Balance",
+                      "balance",
+                      (_value, row) =>
+                        inr(
+                          Math.max(
+                            0,
+                            numberValue(row.amount) -
+                              numberValue(row.paidAmount) -
+                              numberValue(row.adjustedAmount),
+                          ),
+                        ),
+                    ],
+                    ["Status", "status"],
+                  ]}
+                />
+              </TabsContent>
+              <TabsContent value="debit-notes">
+                <Table
+                  rows={f(ap.filter((entry) => entry.entryType === "Debit Note"))}
+                  cols={[
+                    ["Vendor", "vendorName"],
+                    ["Debit Note #", "billNumber"],
+                    ["Against Bill", "againstBillNumber"],
+                    ["Date", "billDate"],
+                    ["Amount", "amount", inr],
+                    ["Status", "status"],
+                    ["Notes", "notes"],
+                  ]}
+                />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
           <TabsContent value="ar">
             <Table

@@ -1,5 +1,5 @@
 import { FLEX_TEXT } from "./flexText";
-import { useFlexMasterData, useFlexPurchaseInvoices } from "./flexData";
+import { useFlexMasterData } from "./flexData";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -36,14 +36,15 @@ export interface OutstandingBillItem {
   date: string;
   amount: number;
   paid: number;
+  adjusted: number;
   outstanding: number;
   status?: string;
   paymentMode?: string;
 }
 
-async function fetchVendorPayments(): Promise<OutstandingBillItem[]> {
+async function fetchOutstandingBills(): Promise<OutstandingBillItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendor-payments`, {
+    const res = await fetch(`${BASE}/api/flex/vendor-payments/outstanding-bills`, {
       credentials: "include",
     });
     if (res.ok) {
@@ -51,13 +52,14 @@ async function fetchVendorPayments(): Promise<OutstandingBillItem[]> {
       return (data || []).map((p: any) => ({
         id: p.id,
         vendorId: p.vendorId || "",
-        vendor: p.vendor,
-        billNumber: p.paymentNumber,
-        invoiceReference: p.invoiceReference,
-        date: p.paymentDate,
+        vendor: p.vendorName,
+        billNumber: p.billNumber,
+        invoiceReference: p.billNumber,
+        date: p.billDate,
         amount: Number(p.amount || 0),
-        paid: Number(p.amount || 0),
-        outstanding: 0,
+        paid: Number(p.paidAmount || 0),
+        adjusted: Number(p.adjustedAmount || 0),
+        outstanding: Number(p.outstanding || 0),
         status: p.status,
         paymentMode: p.paymentMode,
       }));
@@ -73,19 +75,21 @@ async function createVendorPayment(payload: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToRecordPayment);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToRecordPayment);
+  }
   return res.json();
 }
 
 export default function VendorPayments() {
   const queryClient = useQueryClient();
   const { data: bills = [] } = useQuery({
-    queryKey: ["get", "/api/flex/vendor-payments"],
-    queryFn: fetchVendorPayments,
+    queryKey: ["get", "/api/flex/vendor-payments/outstanding-bills"],
+    queryFn: fetchOutstandingBills,
   });
 
   const { data: masterData } = useFlexMasterData();
-  const { data: purchaseInvoices = [] } = useFlexPurchaseInvoices();
   const vendorsList = masterData?.vendors ?? [];
 
   const [selectedVendor, setSelectedVendor] = useState("All");
@@ -110,6 +114,9 @@ export default function VendorPayments() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/vendor-payments"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/vendor-payments/outstanding-bills"],
       });
       queryClient.invalidateQueries({
         queryKey: ["get", "/api/flex/dashboard"],
@@ -140,11 +147,22 @@ export default function VendorPayments() {
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
-    const invoice = purchaseInvoices.find(
-      (item: any) => item.invoiceNumber === outstandingBill,
-    );
+    const bill = bills.find((item) => item.billNumber === outstandingBill);
+    const paymentAmount = Number(amount);
+    if (
+      !bill ||
+      !vendor ||
+      !bankAccount ||
+      paymentAmount <= 0 ||
+      paymentAmount > bill.outstanding
+    ) {
+      toast.error(
+        "Select an outstanding bill, bank/cash account and valid payment amount",
+      );
+      return;
+    }
     createMutation.mutate({
-      vendorName: invoice?.vendor || vendor,
+      vendorName: bill.vendor || vendor,
       invoiceReference: outstandingBill,
       amount: parseFloat(amount) || 0,
       paymentMode,
@@ -153,6 +171,7 @@ export default function VendorPayments() {
       notes,
       transactionReference: transactionRef,
       bankAccount,
+      attachmentName,
     });
   };
 
@@ -167,6 +186,15 @@ export default function VendorPayments() {
   const filteredModes = paymentModeOptions.filter((m) =>
     m.label.toLowerCase().includes(modeFilter.toLowerCase()),
   );
+
+  const vendorBills = useMemo(() => {
+    const selectedName = vendor.trim().toLowerCase();
+    return bills.filter(
+      (bill) =>
+        bill.outstanding > 0 &&
+        (!selectedName || bill.vendor.trim().toLowerCase() === selectedName),
+    );
+  }, [bills, vendor]);
 
   return (
     <Shell>
@@ -233,8 +261,8 @@ export default function VendorPayments() {
                     <th className="px-6 py-3.5">{FLEX_TEXT.vendor2}</th>
                     <th className="px-6 py-3.5">{FLEX_TEXT.bill}</th>
                     <th className="px-6 py-3.5">{FLEX_TEXT.date}</th>
-                    <th className="px-6 py-3.5">{FLEX_TEXT.amount}</th>
-                    <th className="px-6 py-3.5">{FLEX_TEXT.paid}</th>
+                    <th className="px-6 py-3.5">Bill Amount</th>
+                    <th className="px-6 py-3.5">Amount Paid</th>
                     <th className="px-6 py-3.5">{FLEX_TEXT.outstanding}</th>
                   </tr>
                 </thead>
@@ -303,7 +331,14 @@ export default function VendorPayments() {
                   <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
                     {FLEX_TEXT.vendor}
                   </Label>
-                  <Select value={vendor} onValueChange={setVendor}>
+                  <Select
+                    value={vendor}
+                    onValueChange={(value) => {
+                      setVendor(value);
+                      setOutstandingBill("");
+                      setAmount("");
+                    }}
+                  >
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
                       <SelectValue placeholder={FLEX_TEXT.selectVendor2} />
                     </SelectTrigger>
@@ -326,12 +361,10 @@ export default function VendorPayments() {
                     value={outstandingBill}
                     onValueChange={(value) => {
                       setOutstandingBill(value);
-                      const invoice = purchaseInvoices.find(
-                        (item: any) => item.invoiceNumber === value,
-                      );
-                      if (invoice) {
-                        setVendor(invoice.vendor || "");
-                        setAmount(String(invoice.amount || 0));
+                      const bill = bills.find((item) => item.billNumber === value);
+                      if (bill) {
+                        setVendor(bill.vendor || "");
+                        setAmount(String(bill.outstanding));
                       }
                     }}
                   >
@@ -339,15 +372,13 @@ export default function VendorPayments() {
                       <SelectValue placeholder={FLEX_TEXT.selectBill} />
                     </SelectTrigger>
                     <SelectContent>
-                      {purchaseInvoices
-                        .filter((invoice: any) => invoice.status !== "Paid")
-                        .map((invoice: any) => (
+                      {vendorBills.map((bill) => (
                           <SelectItem
-                            key={invoice.id}
-                            value={invoice.invoiceNumber}
+                            key={bill.id}
+                            value={bill.billNumber}
                           >
-                            {invoice.invoiceNumber} ({invoice.vendor} - ?
-                            {Number(invoice.amount || 0).toLocaleString(
+                            {bill.billNumber} ({bill.vendor} - ₹
+                            {bill.outstanding.toLocaleString(
                               "en-IN",
                             )}
                             )
@@ -429,7 +460,10 @@ export default function VendorPayments() {
                     <SelectTrigger className="h-10 text-xs bg-background border-border rounded-xl">
                       <SelectValue placeholder={FLEX_TEXT.bankAccount10201} />
                     </SelectTrigger>
-                    <SelectContent></SelectContent>
+                    <SelectContent>
+                      <SelectItem value="Bank Account (1020)">Bank Account (1020)</SelectItem>
+                      <SelectItem value="Cash Account (1010)">Cash Account (1010)</SelectItem>
+                    </SelectContent>
                   </Select>
                 </div>
 

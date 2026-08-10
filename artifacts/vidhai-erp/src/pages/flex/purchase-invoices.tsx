@@ -104,7 +104,7 @@ async function markPurchaseInvoiceMatched({
   matchStatus,
 }: {
   id: number;
-  matchStatus: "2-Way Match" | "3-Way Match";
+  matchStatus: "Matched";
 }) {
   const res = await fetch(`${BASE}/api/flex/purchase-invoices/${id}`, {
     method: "PATCH",
@@ -304,6 +304,17 @@ export default function PurchaseInvoices() {
     [lineItems],
   );
 
+  const duplicateInvoice = useMemo(() => {
+    const normalizedNumber = invoiceNumber.trim().toLowerCase();
+    const normalizedVendor = vendor.trim().toLowerCase();
+    if (!normalizedNumber || !normalizedVendor) return false;
+    return invoices.some(
+      (invoice) =>
+        invoice.invoiceNumber.trim().toLowerCase() === normalizedNumber &&
+        invoice.vendor.trim().toLowerCase() === normalizedVendor,
+    );
+  }, [invoiceNumber, vendor, invoices]);
+
   const mappedGrnAmount = useMemo(() => {
     const receipt = goodsReceipts.find(
       (grn: any) => grn.grnNumber === mappedGrn,
@@ -348,12 +359,19 @@ export default function PurchaseInvoices() {
     if (
       !invoiceNumber.trim() ||
       !vendor ||
+      !vendorAddress.trim() ||
+      !vendorPhone.trim() ||
+      duplicateInvoice ||
       lineItems.length === 0 ||
       lineItems.some(
         (line) => !line.item.trim() || line.qty <= 0 || line.price < 0,
       )
     ) {
-      toast.error("Invoice number, vendor and valid line items are required");
+      toast.error(
+        duplicateInvoice
+          ? `Invoice number "${invoiceNumber.trim()}" already exists for this vendor.`
+          : "Invoice number, vendor details and valid line items are required",
+      );
       return;
     }
     const amount =
@@ -364,6 +382,8 @@ export default function PurchaseInvoices() {
       invoiceNumber: invoiceNumber.trim(),
       vendorName: vendor,
       vendorId: vendorRecord?.id || "",
+      vendorAddress: vendorAddress.trim(),
+      vendorPhone: vendorPhone.trim(),
       poReference: mappedPo,
       grnReference: mappedGrn,
       amount,
@@ -371,6 +391,7 @@ export default function PurchaseInvoices() {
       invoiceDate,
       dueDate: invoiceDate,
       status: "Unpaid",
+      attachmentName,
     });
   };
 
@@ -596,7 +617,9 @@ export default function PurchaseInvoices() {
                           ₹ {Number(inv.grnAmt || 0).toLocaleString("en-IN")}
                         </td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300">
+                          <span
+                            className={`inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${inv.match === "Mismatch" ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-950/60 dark:text-red-300" : "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300"}`}
+                          >
                             {inv.match}
                           </span>
                         </td>
@@ -606,8 +629,7 @@ export default function PurchaseInvoices() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {inv.match === "Mismatch" &&
-                            (inv.poReference || inv.grnReference) && (
+                          {inv.match !== "Matched" && (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -615,10 +637,7 @@ export default function PurchaseInvoices() {
                                 onClick={() =>
                                   markMatchedMutation.mutate({
                                     id: inv.id,
-                                    matchStatus:
-                                      inv.poReference && inv.grnReference
-                                        ? "3-Way Match"
-                                        : "2-Way Match",
+                                    matchStatus: "Matched",
                                   })
                                 }
                                 disabled={markMatchedMutation.isPending}
@@ -716,8 +735,14 @@ export default function PurchaseInvoices() {
                       value={invoiceNumber}
                       onChange={(e) => setInvoiceNumber(e.target.value)}
                       placeholder=""
-                      className="h-10 text-xs border-slate-200 rounded-lg focus-visible:ring-primary"
+                      className={`h-10 text-xs rounded-lg focus-visible:ring-primary ${duplicateInvoice ? "border-red-400" : "border-slate-200"}`}
                     />
+                    {duplicateInvoice && (
+                      <p className="mt-1 text-[11px] text-red-600">
+                        Invoice number &quot;{invoiceNumber.trim()}&quot; already
+                        exists for this vendor.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
@@ -801,7 +826,7 @@ export default function PurchaseInvoices() {
                           );
                           const vendorRecord = vendorsList.find(
                             (option) =>
-                              option.id === po.vendorId ||
+                              String(option.id) === String(po.vendorId) ||
                               option.name === po.vendor,
                           );
                           setVendorAddress(vendorRecord?.address || "");
@@ -843,6 +868,13 @@ export default function PurchaseInvoices() {
                         );
                         if (grn) {
                           setVendor(grn.vendor || "");
+                          const vendorRecord = vendorsList.find(
+                            (option) =>
+                              String(option.id) === String(grn.vendorId) ||
+                              option.name === grn.vendor,
+                          );
+                          setVendorAddress(vendorRecord?.address || "");
+                          setVendorPhone(vendorRecord?.phone || "");
                           const grnLines = Array.isArray(grn.lineItems)
                             ? grn.lineItems
                             : [];
@@ -918,7 +950,17 @@ export default function PurchaseInvoices() {
                       {FLEX_TEXT.vendorName}{" "}
                       <span className="text-red-500">*</span>
                     </Label>
-                    <Select value={vendor} onValueChange={setVendor}>
+                    <Select
+                      value={vendor}
+                      onValueChange={(value) => {
+                        setVendor(value);
+                        const selectedVendor = vendorsList.find(
+                          (option) => option.name === value,
+                        );
+                        setVendorAddress(selectedVendor?.address || "");
+                        setVendorPhone(selectedVendor?.phone || "");
+                      }}
+                    >
                       <SelectTrigger className="h-10 text-xs bg-white border-slate-200 rounded-lg">
                         <SelectValue
                           placeholder={FLEX_TEXT.selectOrTypeVendor}
@@ -1021,30 +1063,31 @@ export default function PurchaseInvoices() {
                           {lineItems.map((line) => (
                             <tr key={line.id}>
                               <td className="p-2">
-                                <Select
-                                  value={line.itemId ? String(line.itemId) : ""}
-                                  onValueChange={(value) =>
-                                    selectInvoiceItem(line.id, value)
-                                  }
-                                >
-                                  <SelectTrigger className="h-9 text-xs bg-white">
-                                    <SelectValue
-                                      placeholder={
-                                        line.item || "Select Item Master item"
-                                      }
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {itemOptions.map((item) => (
-                                      <SelectItem
-                                        key={item.id}
-                                        value={String(item.id)}
-                                      >
-                                        {item.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <Input
+                                  list="purchase-invoice-item-options"
+                                  value={line.item}
+                                  placeholder="Enter or select an item"
+                                  className="h-9 text-xs bg-white"
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    const masterItem = itemOptions.find(
+                                      (item) =>
+                                        item.name.trim().toLowerCase() ===
+                                        value.trim().toLowerCase(),
+                                    );
+                                    setLineItems((current) =>
+                                      current.map((currentLine) =>
+                                        currentLine.id === line.id
+                                          ? {
+                                              ...currentLine,
+                                              item: value,
+                                              itemId: masterItem?.id,
+                                            }
+                                          : currentLine,
+                                      ),
+                                    );
+                                  }}
+                                />
                               </td>
                               <td className="p-2">
                                 <Input
@@ -1138,6 +1181,11 @@ export default function PurchaseInvoices() {
                           ))}
                         </tbody>
                       </table>
+                      <datalist id="purchase-invoice-item-options">
+                        {itemOptions.map((item) => (
+                          <option key={item.id} value={item.name} />
+                        ))}
+                      </datalist>
                     </div>
                   )}
                 </div>

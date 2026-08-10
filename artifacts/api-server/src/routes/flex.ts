@@ -15,6 +15,7 @@ import {
   vendorAvailabilityTable,
   inventoryTable,
   inventoryMovementsTable,
+  accountsPayableTable,
 } from "@workspace/db";
 
 const router = Router();
@@ -1657,6 +1658,37 @@ function calculatePurchaseInvoiceMatchStatus(
   }
   return "Mismatch";
 }
+
+function isPurchaseInvoicePaymentEligible(invoice: any) {
+  const status = String(invoice?.status || "Unpaid").trim().toLowerCase();
+  return Number(invoice?.amount || 0) > 0 && status !== "paid";
+}
+
+function calculatePurchaseReturnPosting(
+  billAmount: number,
+  paidAmount: number,
+  previousAdjustment: number,
+  returnAmount: number,
+) {
+  const amount = Math.max(0, Number(billAmount || 0));
+  const paid = Math.min(amount, Math.max(0, Number(paidAmount || 0)));
+  const adjustment = Math.min(
+    Math.max(0, amount - paid),
+    Math.max(0, Number(previousAdjustment || 0)),
+  );
+  const returned = Math.max(0, Number(returnAmount || 0));
+  const fullyPaidByPayment = amount > 0 && paid >= amount - 0.005;
+
+  if (fullyPaidByPayment) {
+    return { debitNoteAmount: returned, adjustedAmount: adjustment };
+  }
+
+  const remainingPayable = Math.max(0, amount - paid - adjustment);
+  return {
+    debitNoteAmount: 0,
+    adjustedAmount: adjustment + Math.min(returned, remainingPayable),
+  };
+}
 router.get("/purchase-invoices", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
@@ -1677,6 +1709,8 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
         vendorMap.get(String(inv.vendorName).toLowerCase()) ||
         "",
       vendor: inv.vendorName,
+      vendorAddress: inv.vendorAddress || "",
+      vendorPhone: inv.vendorPhone || "",
       poReference: inv.poReference,
       grnReference: inv.grnReference,
       purchaseOrderId: inv.purchaseOrderId,
@@ -1690,6 +1724,7 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
       dueDate: inv.dueDate,
       status: inv.status,
       notes: inv.notes,
+      attachmentName: inv.attachmentName || "",
       createdBy: userMap.get(inv.createdByUserId) || "",
     })),
   );
@@ -1718,6 +1753,25 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     return res
       .status(400)
       .json({ error: FLEX_API_MESSAGES.amountMustBeGreaterThanZero });
+
+  const existingInvoices = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(eq(purchaseInvoicesTable.organizationId, org));
+  const duplicateInvoice = (existingInvoices as any[]).some(
+    (invoice) =>
+      String(invoice.invoiceNumber || "")
+        .trim()
+        .toLowerCase() === invoiceNumber.toLowerCase() &&
+      String(invoice.vendorName || "")
+        .trim()
+        .toLowerCase() === vendorName.toLowerCase(),
+  );
+  if (duplicateInvoice) {
+    return res.status(409).json({
+      error: `Invoice number "${invoiceNumber}" already exists for this vendor.`,
+    });
+  }
 
   const [purchaseOrder] = poReference
     ? await db
@@ -1850,6 +1904,8 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       organizationId: org,
       invoiceNumber,
       vendorName,
+      vendorAddress: String(req.body.vendorAddress ?? "").trim(),
+      vendorPhone: String(req.body.vendorPhone ?? "").trim(),
       poReference: linkedPurchaseOrder?.poNumber || poReference,
       grnReference,
       purchaseOrderId: linkedPurchaseOrder?.id || null,
@@ -1873,6 +1929,7 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       ),
       status: String(req.body.status ?? "Unpaid"),
       notes: String(req.body.notes ?? ""),
+      attachmentName: String(req.body.attachmentName ?? ""),
       createdByUserId: creatingUser ? userId : null,
     })
     .returning();
@@ -1935,6 +1992,107 @@ router.delete("/purchase-invoices/:id", requireAuth, async (req, res) => {
 });
 
 // ── Vendor Payments ──────────────────────────────────────────────────────────
+router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) => {
+  const org = orgId(req);
+  const vendorMap = await getVendorMap();
+  const [invoices, existingBills, payments] = await Promise.all([
+    db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.organizationId, org)),
+    db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org)),
+    db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, org)),
+  ]);
+  const billNumbers = new Set(existingBills.map((bill: any) => bill.billNumber));
+  for (const invoice of invoices as any[]) {
+    if (
+      !isPurchaseInvoicePaymentEligible(invoice) ||
+      billNumbers.has(invoice.invoiceNumber) ||
+      Number(invoice.amount || 0) <= 0
+    )
+      continue;
+    await db.insert(accountsPayableTable).values({
+      organizationId: org, vendorName: invoice.vendorName,
+      billNumber: invoice.invoiceNumber, billDate: invoice.invoiceDate,
+      dueDate: invoice.dueDate || invoice.invoiceDate, amount: Number(invoice.amount),
+      paidAmount: invoice.status === "Paid" ? Number(invoice.amount) : 0,
+      adjustedAmount: 0, status: invoice.status === "Paid" ? "Paid" : "Pending",
+      entryType: "Bill", notes: `From invoice ${invoice.invoiceNumber}`,
+      sourceType: "Purchase Invoice", sourceId: invoice.id,
+    });
+  }
+  const bills = await db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org));
+  const completedPaymentsByInvoice = new Map<string, number>();
+  for (const payment of payments as any[]) {
+    if (String(payment.status).toLowerCase() !== "completed") continue;
+    const reference = String(payment.invoiceReference || "").trim().toLowerCase();
+    if (!reference) continue;
+    completedPaymentsByInvoice.set(
+      reference,
+      (completedPaymentsByInvoice.get(reference) || 0) + Number(payment.amount || 0),
+    );
+  }
+  const invoiceByNumber = new Map(
+    (invoices as any[]).map((invoice) => [
+      String(invoice.invoiceNumber || "").trim().toLowerCase(),
+      invoice,
+    ]),
+  );
+  for (const bill of bills as any[]) {
+    const reference = String(bill.billNumber || "").trim().toLowerCase();
+    const invoice = invoiceByNumber.get(reference) as any;
+    if (!invoice || bill.sourceType !== "Purchase Invoice") continue;
+    const amount = Number(bill.amount || 0);
+    const paidAmount = invoice.status === "Paid"
+      ? amount
+      : completedPaymentsByInvoice.get(reference) || 0;
+    const adjustedAmount = Number(bill.adjustedAmount || 0);
+    const covered = paidAmount + adjustedAmount;
+    if (
+      paidAmount !== Number(bill.paidAmount || 0) ||
+      (covered >= amount ? "Paid" : covered > 0 ? "Partial" : "Pending") !== bill.status
+    ) {
+      await db
+        .update(accountsPayableTable)
+        .set({
+          paidAmount,
+          status: covered >= amount ? "Paid" : covered > 0 ? "Partial" : "Pending",
+        })
+        .where(eq(accountsPayableTable.id, bill.id));
+      bill.paidAmount = paidAmount;
+    }
+  }
+  const eligibleInvoiceIds = new Set(
+    (invoices as any[])
+      .filter(isPurchaseInvoicePaymentEligible)
+      .map((invoice) => Number(invoice.id)),
+  );
+  const eligibleInvoiceNumbers = new Set(
+    (invoices as any[])
+      .filter(isPurchaseInvoicePaymentEligible)
+      .map((invoice) => String(invoice.invoiceNumber)),
+  );
+  return res.json((bills as any[]).filter((bill) =>
+    bill.entryType !== "Debit Note" &&
+    bill.sourceType === "Purchase Invoice" &&
+    (eligibleInvoiceIds.has(Number(bill.sourceId)) ||
+      eligibleInvoiceNumbers.has(String(bill.billNumber)))
+  ).map((bill) => {
+    const reference = String(bill.billNumber || "").trim().toLowerCase();
+    const invoice = invoiceByNumber.get(reference) as any;
+    const amount = Number(bill.amount || 0);
+    const paidAmount = invoice?.status === "Paid"
+      ? amount
+      : completedPaymentsByInvoice.get(reference) || 0;
+    const adjustedAmount = Number(bill.adjustedAmount || 0);
+    return {
+      ...bill,
+      vendorId: vendorMap.get(String(bill.vendorName).toLowerCase()) || "",
+      amount,
+      paidAmount,
+      adjustedAmount,
+      outstanding: Math.max(0, amount - paidAmount - adjustedAmount),
+    };
+  }));
+});
+
 router.get("/vendor-payments", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
@@ -1987,15 +2145,59 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       .status(400)
       .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
 
+  const invoiceReference = String(req.body.invoiceReference ?? "").trim();
+  if (!invoiceReference)
+    return res.status(400).json({ error: "Outstanding bill is required" });
+  const [matchedInvoice] = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(
+      and(
+        eq(purchaseInvoicesTable.organizationId, org),
+        eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
+      ),
+    )
+    .limit(1);
+  if (!matchedInvoice || !isPurchaseInvoicePaymentEligible(matchedInvoice))
+    return res.status(400).json({
+      error: "Only unpaid purchase invoices can be paid",
+    });
+  const [bill] = await db
+    .select()
+    .from(accountsPayableTable)
+    .where(
+      and(
+        eq(accountsPayableTable.organizationId, org),
+        eq(accountsPayableTable.billNumber, invoiceReference),
+      ),
+    )
+    .limit(1);
+  if (!bill)
+    return res.status(404).json({ error: "Outstanding bill not found" });
+  const outstanding = Math.max(
+    0,
+    Number(bill.amount || 0) -
+      Number(bill.paidAmount || 0) -
+      Number(bill.adjustedAmount || 0),
+  );
+  if (!Number.isFinite(amount) || amount <= 0 || amount > outstanding)
+    return res.status(400).json({
+      error: `Payment must be greater than zero and cannot exceed ₹${outstanding.toLocaleString("en-IN")}`,
+    });
+
   const [created] = await db
     .insert(vendorPaymentsTable)
     .values({
       organizationId: org,
       paymentNumber,
       vendorName,
-      invoiceReference: String(req.body.invoiceReference ?? ""),
+      invoiceReference,
       amount,
       paymentMode: String(req.body.paymentMode ?? "UPI / NetBanking"),
+      bankAccount: String(req.body.bankAccount ?? ""),
+      transactionReference: String(req.body.transactionReference ?? ""),
+      notes: String(req.body.notes ?? ""),
+      attachmentName: String(req.body.attachmentName ?? ""),
       paymentDate: String(
         req.body.paymentDate ?? new Date().toLocaleDateString("en-IN"),
       ),
@@ -2003,6 +2205,27 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       createdByUserId: userId,
     })
     .returning();
+
+  const paidAmount = Number(bill.paidAmount || 0) + amount;
+  const covered = paidAmount + Number(bill.adjustedAmount || 0);
+  await db
+    .update(accountsPayableTable)
+    .set({
+      paidAmount,
+      status: covered >= Number(bill.amount || 0) ? "Paid" : "Partial",
+    })
+    .where(eq(accountsPayableTable.id, bill.id));
+  if (covered >= Number(bill.amount || 0)) {
+    await db
+      .update(purchaseInvoicesTable)
+      .set({ status: "Paid" })
+      .where(
+        and(
+          eq(purchaseInvoicesTable.organizationId, org),
+          eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
+        ),
+      );
+  }
 
   return res.status(201).json(created);
 });
@@ -2068,17 +2291,22 @@ router.get("/purchase-returns", requireAuth, async (req, res) => {
     returns.map((r: any) => ({
       id: r.id,
       returnNumber: r.returnNumber,
-      vendorId: vendorMap.get(String(r.vendorName).toLowerCase()) || "",
+      vendorId:
+        r.vendorId || vendorMap.get(String(r.vendorName).toLowerCase()) || "",
       vendor: r.vendorName,
+      vendorAddress: r.vendorAddress || "",
+      vendorPhone: r.vendorPhone || "",
+      invoiceReference: r.invoiceReference || "",
       grnReference: r.grnReference,
       reason: r.reason,
       refundAmount: Number(r.refundAmount),
+      lineItems: Array.isArray(r.lineItems) ? r.lineItems : [],
+      notes: r.notes || "",
+      attachmentName: r.attachmentName || "",
       status: r.status,
-      returnDate: new Date(r.createdAt).toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }),
+      returnDate:
+        r.returnDate ||
+        new Date(r.createdAt).toISOString().slice(0, 10),
       createdBy: userMap.get(r.createdByUserId) || "",
     })),
   );
@@ -2108,6 +2336,40 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
     return res
       .status(400)
       .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
+  if (!reason)
+    return res.status(400).json({ error: "Reason for return is required" });
+  const lineItems = Array.isArray(req.body.lineItems) ? req.body.lineItems : [];
+  if (
+    !lineItems.length ||
+    lineItems.some(
+      (line: any) =>
+        !String(line.item || line.description || "").trim() ||
+        Number(line.returnQty || 0) <= 0 ||
+        Number(line.returnQty || 0) > Number(line.receivedQty || 0) ||
+        !String(line.warehouse || "").trim(),
+    )
+  )
+    return res.status(400).json({
+      error:
+        "Add at least one valid return line with warehouse and return quantity",
+    });
+
+  // The financial return value must always follow the quantities actually
+  // returned. Do not trust a separately submitted refund total.
+  const calculatedReturnAmount = Number(
+    lineItems
+      .reduce((total: number, line: any) => {
+        const quantity = Number(line.returnQty || 0);
+        const rate = Number(line.rate || 0);
+        const taxPercent =
+          Number(line.cgstPct ?? line.cgstPercent ?? 0) +
+          Number(line.sgstPct ?? line.sgstPercent ?? 0) +
+          Number(line.igstPct ?? line.igstPercent ?? 0);
+        const taxableAmount = quantity * rate;
+        return total + taxableAmount * (1 + taxPercent / 100);
+      }, 0)
+      .toFixed(2),
+  );
 
   const [created] = await db
     .insert(purchaseReturnsTable)
@@ -2115,13 +2377,149 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
       organizationId: org,
       returnNumber,
       vendorName,
+      vendorId: String(req.body.vendorId ?? ""),
+      vendorAddress: String(req.body.vendorAddress ?? ""),
+      vendorPhone: String(req.body.vendorPhone ?? ""),
+      invoiceReference: String(req.body.invoiceReference ?? ""),
       grnReference: String(req.body.grnReference ?? ""),
       reason,
-      refundAmount: Number(req.body.refundAmount ?? 0),
+      refundAmount: calculatedReturnAmount,
+      returnDate: String(
+        req.body.returnDate ?? new Date().toISOString().slice(0, 10),
+      ),
+      lineItems,
+      notes: String(req.body.notes ?? ""),
+      attachmentName: String(req.body.attachmentName ?? ""),
       status: String(req.body.status ?? "Requested"),
       createdByUserId: userId,
     })
     .returning();
+
+  const returnAmount = Number(created.refundAmount || 0);
+  if (returnAmount > 0) {
+    const requestedInvoiceReference = String(
+      created.invoiceReference || "",
+    ).trim();
+    const linkedInvoice = requestedInvoiceReference
+      ? (
+          await db
+            .select()
+            .from(purchaseInvoicesTable)
+            .where(
+              and(
+                eq(purchaseInvoicesTable.organizationId, org),
+                eq(
+                  purchaseInvoicesTable.invoiceNumber,
+                  requestedInvoiceReference,
+                ),
+              ),
+            )
+            .limit(1)
+        )[0]
+      : created.grnReference
+        ? (
+            await db
+              .select()
+              .from(purchaseInvoicesTable)
+              .where(eq(purchaseInvoicesTable.organizationId, org))
+          ).find(
+            (invoice: any) =>
+              String(invoice.grnReference || "") ===
+              String(created.grnReference),
+          )
+        : undefined;
+    const againstBillNumber = String(
+      linkedInvoice?.invoiceNumber || requestedInvoiceReference,
+    );
+    let debitNoteAmount = 0;
+
+    if (againstBillNumber) {
+      const [bill] = await db
+        .select()
+        .from(accountsPayableTable)
+        .where(
+          and(
+            eq(accountsPayableTable.organizationId, org),
+            eq(accountsPayableTable.billNumber, againstBillNumber),
+            eq(accountsPayableTable.vendorName, vendorName),
+          ),
+        )
+        .limit(1);
+      if (bill) {
+        const billAmount = Number(bill.amount || 0);
+        const paidAmount = Number(bill.paidAmount || 0);
+        const posting = calculatePurchaseReturnPosting(
+          billAmount,
+          paidAmount,
+          Number(bill.adjustedAmount || 0),
+          returnAmount,
+        );
+        debitNoteAmount = posting.debitNoteAmount;
+
+        // A partially paid bill stays in Pending Bills and the value of only
+        // the returned quantity is applied to its adjustment.
+        if (debitNoteAmount === 0) {
+          const adjustedAmount = posting.adjustedAmount;
+          const covered = paidAmount + adjustedAmount;
+          await db
+            .update(accountsPayableTable)
+            .set({
+              adjustedAmount,
+              status: covered >= billAmount ? "Paid" : "Partial",
+            })
+            .where(eq(accountsPayableTable.id, bill.id));
+        }
+      } else if (linkedInvoice) {
+        const invoiceAmount = Number(linkedInvoice.amount || 0);
+        const invoicePaid = linkedInvoice.status === "Paid";
+        const adjustedAmount = invoicePaid
+          ? 0
+          : Math.min(invoiceAmount, returnAmount);
+        debitNoteAmount = invoicePaid ? returnAmount : 0;
+        await db.insert(accountsPayableTable).values({
+          organizationId: org,
+          vendorName,
+          billNumber: againstBillNumber,
+          billDate: linkedInvoice.invoiceDate,
+          dueDate: linkedInvoice.dueDate || linkedInvoice.invoiceDate,
+          amount: invoiceAmount,
+          paidAmount: linkedInvoice.status === "Paid" ? invoiceAmount : 0,
+          adjustedAmount,
+          status:
+            (linkedInvoice.status === "Paid" ? invoiceAmount : 0) +
+                adjustedAmount >=
+              invoiceAmount
+              ? "Paid"
+              : adjustedAmount > 0
+                ? "Partial"
+                : "Pending",
+          entryType: "Bill",
+          notes: `From invoice ${againstBillNumber}`,
+          sourceType: "Purchase Invoice",
+          sourceId: linkedInvoice.id,
+        });
+      }
+    }
+
+    if (debitNoteAmount > 0) {
+      await db.insert(accountsPayableTable).values({
+        organizationId: org,
+        vendorName,
+        billNumber: created.returnNumber,
+        againstBillNumber,
+        billDate: created.returnDate,
+        dueDate: created.returnDate,
+        amount: debitNoteAmount,
+        paidAmount: 0,
+        adjustedAmount: debitNoteAmount,
+        status: "Paid",
+        entryType: "Debit Note",
+        notes: `Purchase return ${created.returnNumber}: ${reason}`,
+        sourceType: "Purchase Return",
+        sourceId: created.id,
+      });
+    }
+  }
 
   return res.status(201).json(created);
 });

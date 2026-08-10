@@ -1,0 +1,6 @@
+{"level":30,"time":1786346123815,"pid":8464,"hostname":"KANINI","port":5001,"msg":"Server listening"}
+{"level":30,"time":1786346138324,"pid":8464,"hostname":"KANINI","req":{"id":1,"method":"POST","url":"/api/flex/purchase-returns"},"res":{"statusCode":201},"responseTime":73,"msg":"request completed"}
+{"level":30,"time":1786346150149,"pid":8464,"hostname":"KANINI","req":{"id":2,"method":"DELETE","url":"/api/flex/purchase-returns/5"},"res":{"statusCode":200},"responseTime":19,"msg":"request completed"}
+{"level":30,"time":1786346911506,"pid":8464,"hostname":"KANINI","req":{"id":3,"method":"POST","url":"/api/flex/purchase-returns"},"res":{"statusCode":201},"responseTime":32,"msg":"request completed"}
+{"level":30,"time":1786346911564,"pid":8464,"hostname":"KANINI","req":{"id":4,"method":"GET","url":"/api/accounts/ap"},"res":{"statusCode":404},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1786346970452,"pid":8464,"hostname":"KANINI","req":{"id":5,"method":"DELETE","url":"/api/flex/purchase-returns/8"},"res":{"statusCode":200},"responseTime":10,"msg":"request completed"}
