@@ -49,7 +49,6 @@ import {
   Warehouse,
   ArrowRightLeft,
   ClipboardList,
-  ShoppingBag,
   Wrench,
   Plus,
   IndianRupee,
@@ -134,7 +133,6 @@ const NAV = [
   { id: "warehouses", icon: Warehouse, label: "Warehouses & Stores" },
   { id: "movements", icon: ArrowRightLeft, label: "Stock Movements" },
   { id: "indents", icon: ClipboardList, label: "Material Issue" },
-  { id: "store", icon: ShoppingBag, label: "Store Management" },
   { id: "assets", icon: Wrench, label: "Asset Management" },
 ];
 
@@ -205,7 +203,6 @@ export default function InventoryModule() {
   const [addWarehouseOpen, setAddWarehouseOpen] = useState(false);
   const [addAssetOpen, setAddAssetOpen] = useState(false);
   const [addIndentOpen, setAddIndentOpen] = useState(false);
-  const [addStoreIssueOpen, setAddStoreIssueOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
   // ── api ──
@@ -435,12 +432,6 @@ export default function InventoryModule() {
     requestedBy: "",
     department: "",
   };
-  const EMPTY_STORE_ISSUE = {
-    product: "",
-    quantity: "",
-    fromStore: "",
-    soldBy: "",
-  };
   const EMPTY_SERVICE = {
     name: "",
     hsnSac: "",
@@ -455,13 +446,11 @@ export default function InventoryModule() {
   const [warehouseForm, setWarehouseForm] = useState(EMPTY_WAREHOUSE);
   const [assetForm, setAssetForm] = useState(EMPTY_ASSET);
   const [indentForm, setIndentForm] = useState(EMPTY_INDENT);
-  const [storeIssueForm, setStoreIssueForm] = useState(EMPTY_STORE_ISSUE);
   const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE);
   const [productsSubTab, setProductsSubTab] = useState("inventory");
 
   const [assets, setAssets] = useState<any[]>([]);
   const [indents, setIndents] = useState<any[]>([]);
-  const [storeIssues, setStoreIssues] = useState<any[]>([]);
 
   // ── computed dashboard stats ──
   const totalItems = materials?.length ?? 0;
@@ -611,24 +600,6 @@ export default function InventoryModule() {
     setIndentForm(EMPTY_INDENT);
     setAddIndentOpen(false);
     toast.success("Material indent raised");
-  };
-
-  const handleAddStoreIssue = (e: React.FormEvent) => {
-    e.preventDefault();
-    setStoreIssues((s) => [
-      ...s,
-      {
-        id: Date.now(),
-        product: storeIssueForm.product,
-        qty: storeIssueForm.quantity,
-        from: storeIssueForm.fromStore,
-        by: storeIssueForm.soldBy,
-        date: new Date().toLocaleDateString(),
-      },
-    ]);
-    setStoreIssueForm(EMPTY_STORE_ISSUE);
-    setAddStoreIssueOpen(false);
-    toast.success("Store issue recorded");
   };
 
   // SKU Generation Effect
@@ -1768,68 +1739,6 @@ export default function InventoryModule() {
               </div>
             </TabsContent>
 
-            {/* ── STORE MANAGEMENT ── */}
-            <TabsContent value="store" className="outline-none mt-0 space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold tracking-tight font-display">
-                    Store Management
-                  </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Record product sales and store issues
-                  </p>
-                </div>
-                <Button
-                  onClick={() => setAddStoreIssueOpen(true)}
-                  className="rounded-sm h-9 px-3 text-sm gap-2"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Record Issue
-                </Button>
-              </div>
-              <Card className="rounded-sm border-border shadow-md">
-                <CardContent className="p-0">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold">Date</th>
-                        <th className="px-4 py-3 font-semibold">Product</th>
-                        <th className="px-4 py-3 font-semibold">Quantity</th>
-                        <th className="px-4 py-3 font-semibold">From Store</th>
-                        <th className="px-4 py-3 font-semibold">Sold By</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {storeIssues.map((s) => (
-                        <tr key={s.id} className="hover:bg-muted/30 h-[44px]">
-                          <td className="px-4 font-mono text-xs text-muted-foreground">
-                            {s.date}
-                          </td>
-                          <td className="px-4 font-medium">{s.product}</td>
-                          <td className="px-4 font-mono">{s.qty}</td>
-                          <td className="px-4 text-muted-foreground text-xs">
-                            {s.from}
-                          </td>
-                          <td className="px-4 text-muted-foreground text-xs">
-                            {s.by}
-                          </td>
-                        </tr>
-                      ))}
-                      {storeIssues.length === 0 && (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-12 text-center text-muted-foreground text-sm"
-                          >
-                            No store issues recorded yet.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
             {/* ── ASSET MANAGEMENT ── */}
             <AssetManagement />
             <TabsContent value="assets-legacy" className="outline-none mt-0 space-y-6">
@@ -2681,103 +2590,7 @@ export default function InventoryModule() {
         </DialogContent>
       </Dialog>
 
-      {/* Store Issue */}
-      <Dialog open={addStoreIssueOpen} onOpenChange={setAddStoreIssueOpen}>
-        <DialogContent className="rounded-sm shadow-xl max-w-md">
-          <DialogHeader>
-            <DialogTitle>Record Store Issue / Sale</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddStoreIssue} className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Product <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={storeIssueForm.product}
-                onValueChange={(v) =>
-                  setStoreIssueForm({ ...storeIssueForm, product: v })
-                }
-              >
-                <SelectTrigger className="rounded-sm h-10">
-                  <SelectValue placeholder="Select product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(materials ?? []).map((m) => (
-                    <SelectItem key={m.id} value={m.name}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Quantity
-                </Label>
-                <Input
-                  required
-                  type="number"
-                  min="0"
-                  value={storeIssueForm.quantity}
-                  onChange={(e) =>
-                    setStoreIssueForm({
-                      ...storeIssueForm,
-                      quantity: e.target.value,
-                    })
-                  }
-                  className="rounded-sm h-10 font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                  From Store
-                </Label>
-                <Select
-                  value={storeIssueForm.fromStore}
-                  onValueChange={(v) =>
-                    setStoreIssueForm({ ...storeIssueForm, fromStore: v })
-                  }
-                >
-                  <SelectTrigger className="rounded-sm h-10">
-                    <SelectValue placeholder="Select store" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vaultLocations.map((w: any) => (
-                      <SelectItem key={w.id} value={w.locationName}>
-                        {w.locationName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Sold By
-              </Label>
-              <Input
-                value={storeIssueForm.soldBy}
-                onChange={(e) =>
-                  setStoreIssueForm({
-                    ...storeIssueForm,
-                    soldBy: e.target.value,
-                  })
-                }
-                placeholder="e.g. Murugan"
-                className="rounded-sm h-10"
-              />
-            </div>
-            <DialogFooter>
-              <Button type="submit" className="w-full rounded-sm h-10">
-                Record Issue
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Asset */}
+{/* Add Asset */}
       <Dialog open={addAssetOpen} onOpenChange={setAddAssetOpen}>
         <DialogContent className="rounded-sm shadow-xl max-w-md">
           <DialogHeader>
