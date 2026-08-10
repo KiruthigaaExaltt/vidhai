@@ -376,7 +376,13 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       setClientDetails({ company: document.customerCompany || "", address: document.customerAddress || "", phone: document.customerMobile || "", whatsappNumber: document.customerWhatsappNumber || "", gstin: document.customerGstin || "" });
       setPlaceOfSupply(document.placeOfSupply || companyStateCode); setBankName(document.bankName || ""); setAccountNumber(document.accountNumber || ""); setIfscCode(document.ifscCode || ""); setBranch(document.branch || "");
       setBillingDetails({ name: document.billedByCompanyName || billingDetails.name, address: document.billedByAddress || billingDetails.address, gstin: document.billedByGstin || billingDetails.gstin, contactNumber: document.billedByContactNumber || billingDetails.contactNumber });
-      setItems((document.items || []).map((line: any) => { const sourceQty = numericValue(line.dispatchedQty || line.quantity); const igstHalf = numericValue(line.igstPercent) / 2; return { id: `return-${source}-${sourceId}-${line.id}`, invoiceItemId: source === "invoice" ? Number(line.id) : null, itemId: line.itemId == null ? null : Number(line.itemId), productId: line.productId == null ? null : Number(line.productId), serviceId: line.serviceId == null ? null : Number(line.serviceId), inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: sourceQty, returnedQty: sourceQty, uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId: line.warehouseId == null ? null : Number(line.warehouseId), warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource }; }));
+      setItems((document.items || []).map((line: any) => {
+        const sourceQty = numericValue(line.dispatchedQty || line.quantity);
+        const alreadyReturnedQty = source === "invoice" ? numericValue(line.alreadyReturnedQty) : 0;
+        const returnableQty = source === "invoice" ? numericValue(line.returnableQty) : sourceQty;
+        const igstHalf = numericValue(line.igstPercent) / 2;
+        return { id: `return-${source}-${sourceId}-${line.id}`, invoiceItemId: source === "invoice" ? Number(line.id) : null, itemId: line.itemId == null ? null : Number(line.itemId), productId: line.productId == null ? null : Number(line.productId), serviceId: line.serviceId == null ? null : Number(line.serviceId), inventoryId: null, description: line.description || line.productName || "", hsn: line.hsnSac || "", qty: sourceQty, alreadyReturnedQty, returnableQty, returnedQty: returnableQty, uom: line.uom || "Nos", rate: numericValue(line.rate), cgst: numericValue(line.cgstPercent) || igstHalf, sgst: numericValue(line.sgstPercent) || igstHalf, warehouseId: line.warehouseId == null ? null : Number(line.warehouseId), warehouse: line.warehouseName || "", itemType: line.itemType, lineSource: line.lineSource };
+      }));
     } catch (error: any) { setFeedback({ title: "Unable to map Sales Return source", message: error.message }); }
   };
 
@@ -402,7 +408,8 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
     if (isReturn) {
       if (!selectedReturnInvoiceId && !selectedReturnDcId) { setFeedback({ title: "Source required", message: "Map an approved Invoice or dispatched Delivery Challan." }); return; }
       for (const item of validItems) {
-        if (Number(item.returnedQty) > Number(item.qty)) { setFeedback({ title: "Invalid returned quantity", message: `${item.description} cannot return more than the source quantity of ${item.qty}.` }); return; }
+        const availableToReturn = Number(item.returnableQty ?? item.qty);
+        if (Number(item.returnedQty) > availableToReturn) { setFeedback({ title: "Invalid returned quantity", message: `${item.description} cannot return more than the remaining quantity of ${availableToReturn}.` }); return; }
         if (!item.serviceId && !item.warehouseId) { setFeedback({ title: "Receiving warehouse required", message: `Select a receiving warehouse for ${item.description}.` }); return; }
       }
     }
@@ -653,38 +660,25 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
         </Card>
       )}
 
-      {/* Billed By */}
-      <Card className="shadow-sm border-border">
-        <CardContent className="p-6">
-          <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 block">Billed By</Label>
-          <div className="bg-slate-50 p-4 rounded-md space-y-2">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <Label className="text-[10px] text-muted-foreground">Company Name</Label>
-                <Input value={billingDetails.name} onChange={(e) => setBillingDetails({ ...billingDetails, name: e.target.value })} className="h-8 text-xs bg-white" />
-              </div>
-              <div>
-                <Label className="text-[10px] text-muted-foreground">Address</Label>
-                <Input value={billingDetails.address} onChange={(e) => setBillingDetails({ ...billingDetails, address: e.target.value })} className="h-8 text-xs bg-white" />
-              </div>
-              <div>
-                <Label className="text-[10px] text-muted-foreground">GSTIN</Label>
-                <Input value={billingDetails.gstin} onChange={(e) => setBillingDetails({ ...billingDetails, gstin: e.target.value })} className="h-8 text-xs bg-white" />
-              </div>
-              <div>
-                <Label className="text-[10px] text-muted-foreground">Contact Number</Label>
-                <Input value={billingDetails.contactNumber} onChange={(e) => setBillingDetails({ ...billingDetails, contactNumber: e.target.value })} className="h-8 text-xs bg-white" />
-              </div>
+      {/* Sales document identity and customer details */}
+      <Card className="border-border shadow-sm">
+        <CardContent className="space-y-5 p-6">
+        <section>
+          <Label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Billed By</Label>
+          <div className="rounded-md bg-muted/45 px-4 py-3">
+            <Input aria-label="Billed by company name" value={billingDetails.name} onChange={(e) => setBillingDetails({ ...billingDetails, name: e.target.value })} className="h-7 border-0 bg-transparent px-0 text-sm font-bold shadow-none focus-visible:ring-0" />
+            <Input aria-label="Billed by address" value={billingDetails.address} onChange={(e) => setBillingDetails({ ...billingDetails, address: e.target.value })} className="h-6 border-0 bg-transparent px-0 text-xs text-muted-foreground shadow-none focus-visible:ring-0" />
+            <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="shrink-0 font-medium uppercase tracking-wide">GSTIN:</span>
+              <Input aria-label="Billed by GSTIN" value={billingDetails.gstin} onChange={(e) => setBillingDetails({ ...billingDetails, gstin: e.target.value })} className="h-5 border-0 bg-transparent px-0 text-[11px] shadow-none focus-visible:ring-0" />
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </section>
 
       {/* Details Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-6">
-          <Card className="shadow-sm border-border h-full">
-            <CardContent className="p-6 space-y-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <section className="h-full rounded-md border border-border bg-muted/15 p-4">
+            <div className="space-y-4">
               <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                 {isChallan ? "Delivery To" : isReturn ? "Return From" : "Invoice To"}
               </Label>
@@ -706,7 +700,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
                   });
                 }
               }}>
-                <SelectTrigger>
+                <SelectTrigger className="h-11 bg-card">
                   <SelectValue placeholder="Select Client" />
                 </SelectTrigger>
                 <SelectContent>
@@ -717,12 +711,9 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
               </Select>
 
               {clientId && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-md border bg-slate-50 p-4 text-xs">
-                  <div><span className="block text-muted-foreground">Company</span><span className="font-medium">{clientDetails.company || clientName || "—"}</span></div>
+                <div className="grid grid-cols-1 gap-3 rounded-md border bg-muted/35 p-4 text-xs sm:grid-cols-[minmax(10rem,0.35fr)_minmax(0,1fr)]">
                   <div><span className="block text-muted-foreground">GSTIN</span><span className="font-medium">{clientDetails.gstin || "—"}</span></div>
-                  <div><span className="block text-muted-foreground">Phone</span><span className="font-medium">{clientDetails.phone || "—"}</span></div>
-                  <div><span className="block text-muted-foreground">WhatsApp</span><span className="font-medium">{clientDetails.whatsappNumber || "—"}</span></div>
-                  <div className="sm:col-span-2"><span className="block text-muted-foreground">Address</span><span className="font-medium whitespace-pre-wrap">{clientDetails.address || "—"}</span></div>
+                  <div><span className="block text-muted-foreground">Address</span><span className="whitespace-pre-wrap font-medium">{clientDetails.address || "—"}</span></div>
                 </div>
               )}
 
@@ -742,15 +733,13 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
               )}
 
 
-            </CardContent>
-          </Card>
-        </div>
-        <div className="space-y-6">
-          <Card className="shadow-sm border-border h-full">
-            <CardContent className="p-6">
+            </div>
+          </section>
+          <section className="h-full rounded-md border border-border bg-muted/15 p-4">
+            <div>
               <div className="flex justify-between items-center mb-4">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Document Number</Label>
-                <span className="font-bold text-sm">Draft</span>
+                <span className="text-sm font-bold">{quotationNumber}</span>
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="space-y-1.5">
@@ -772,12 +761,31 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
               </div>
               <div className="flex justify-between items-center text-xs text-muted-foreground mt-1">
                 <span>SALES CONTACT</span>
-                <span className="font-medium text-foreground">—</span>
+                <span className="font-medium text-foreground">{billingDetails.contactNumber || "—"}</span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-x-4 gap-y-5 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Place of Supply (State Code) <span className="text-primary">*</span></Label>
+          <Input className="h-11" maxLength={2} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value.replace(/\D/g, "").slice(0, 2))} placeholder="e.g. 33" />
+          <p className="text-[10px] text-muted-foreground">{isInterState ? "Inter-state — IGST applies" : "Intra-state — CGST + SGST applies"}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Status</Label>
+          <div className="flex h-11 items-center rounded-md border bg-muted/35 px-3 text-sm font-medium">{status}</div>
+          <p className="text-[10px] text-muted-foreground">Status updates automatically based on your actions.</p>
+        </div>
+        <div className="space-y-1.5 md:col-span-2">
+          <Label className="text-xs">WhatsApp Number <span className="text-primary">*</span></Label>
+          <Input className="h-11" placeholder="10-digit WhatsApp number" value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} />
+          <p className="text-[10px] text-muted-foreground">Auto-filled from contacts when client changes. Editable before sharing the {documentLabel.toLowerCase()}.</p>
         </div>
       </div>
+        </CardContent>
+      </Card>
 
       {isChallan && (
         <Card className="shadow-sm border-border bg-slate-50/30">
@@ -802,82 +810,6 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
           </CardContent>
         </Card>
       )}
-
-      {isInvoice && (
-        <Card className="shadow-sm border-border bg-slate-50/30">
-          <CardContent className="p-6 space-y-4">
-            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 block">
-              Tax & E-Way Details
-            </Label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Reverse Charge</Label>
-                <Select>
-                  <SelectTrigger className="bg-white"><SelectValue placeholder="No" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="no">No</SelectItem>
-                    <SelectItem value="yes">Yes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">e-Way Bill Number</Label>
-                <Input placeholder="Optional" className="bg-white h-9" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">IRN Number</Label>
-                <Input placeholder="Optional" className="bg-white h-9" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {isReturn && (
-        <Card className="shadow-sm border-border bg-slate-50/30">
-          <CardContent className="p-6 space-y-4">
-            <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 block">
-              Return Details
-            </Label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Credit Note Number</Label>
-                <Input placeholder="Generated after receipt" className="bg-white h-9" disabled />
-              </div>
-              <div className="space-y-1.5 flex items-center pt-5">
-                <Input type="checkbox" className="w-4 h-4 mr-2" defaultChecked />
-                <Label className="text-sm font-medium">Restock Inventory upon Receipt</Label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="shadow-sm border-border">
-          <CardContent className="p-6 space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Place of Supply (State Code) <span className="text-primary">*</span></Label>
-              <Input maxLength={2} value={placeOfSupply} onChange={(e) => setPlaceOfSupply(e.target.value.replace(/\D/g, "").slice(0, 2))} placeholder="e.g. 33" />
-              <p className="text-[10px] text-muted-foreground">{isInterState ? "Inter-state — IGST applies" : "Intra-state — CGST + SGST applies"}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">WhatsApp Number <span className="text-primary">*</span></Label>
-              <Input placeholder="10-digit WhatsApp number" value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} />
-              <p className="text-[10px] text-muted-foreground">Auto-filled from contacts when client changes.</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm border-border">
-          <CardContent className="p-6 space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Status</Label>
-              <div className="bg-slate-50 p-2.5 rounded-md border text-sm font-medium">{status}</div>
-              <p className="text-[10px] text-muted-foreground">Status updates automatically based on your actions.</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
       {(isProforma || isChallan || isInvoice) && (
         <Card className="shadow-sm border-border">
@@ -944,6 +876,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
                 {(isChallan || isReturn) && <th className="px-4 py-3 text-left font-medium w-40">Warehouse</th>}
                 <th className="px-4 py-3 text-left font-medium">HSN/SAC</th>
                 <th className="px-4 py-3 text-left font-medium w-20">{isReturn ? "Invoiced Qty" : "QTY"}</th>
+                {isReturn && <th className="px-4 py-3 text-left font-medium w-24">Already Returned</th>}
                 {isReturn && <th className="px-4 py-3 text-left font-medium w-24">Returned Qty</th>}
                 <th className="px-4 py-3 text-left font-medium w-24">UOM</th>
                 <th className="px-4 py-3 text-left font-medium w-28">Rate</th>
@@ -1055,7 +988,13 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
                     </td>
                     {isReturn && (
                       <td className="px-4 py-3 align-top">
-                        <Input type="number" value={item.returnedQty} onChange={(e) => updateItem(item.id, 'returnedQty', Number(e.target.value))} className="h-8 text-sm" />
+                        <div className="flex h-8 items-center rounded-md border bg-muted/35 px-3 text-sm">{item.alreadyReturnedQty || 0}</div>
+                      </td>
+                    )}
+                    {isReturn && (
+                      <td className="px-4 py-3 align-top">
+                        <Input type="number" min={0} max={item.returnableQty ?? item.qty} value={item.returnedQty} onChange={(e) => updateItem(item.id, 'returnedQty', Math.min(Number(e.target.value), Number(item.returnableQty ?? item.qty)))} className="h-8 text-sm" disabled={Number(item.returnableQty ?? item.qty) <= 0} />
+                        {Number(item.returnableQty ?? item.qty) <= 0 && <p className="mt-1 text-[10px] font-medium text-destructive">Already fully returned</p>}
                       </td>
                     )}
                     <td className="px-4 py-3 align-top">
