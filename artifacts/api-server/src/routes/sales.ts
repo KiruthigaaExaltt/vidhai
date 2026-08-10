@@ -13,6 +13,8 @@ import {
   deliveryChallanItemsTable,
   salesInvoicesTable,
   salesInvoiceItemsTable,
+  salesPaymentsTable,
+  salesReceivableAdjustmentsTable,
   salesReturnsTable,
   salesReturnItemsTable,
   contactsTable,
@@ -23,6 +25,16 @@ import {
   organizationDetailsTable
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
+import {
+  cancelInvoiceAccounting,
+  deletePaymentAccounting,
+  deleteReceivableAdjustment,
+  recalculateInvoiceAccounting,
+  triggerInvoiceApproved,
+  triggerPaymentReceived,
+  triggerReceivableAdjustment,
+  triggerSalesReturnCredited,
+} from "../lib/salesAccounting";
 
 const router = Router();
 
@@ -157,7 +169,30 @@ async function saveInvoiceItems(invoiceId: number, items: any[]) {
 
 async function invoiceWithItems(doc: any) {
   const items = await db.select().from(salesInvoiceItemsTable).where(eq(salesInvoiceItemsTable.invoiceId, doc.id));
-  return { ...serializeProforma(doc), items: items.map(serializeQuotationItem) };
+  const activeReturns = (await db.select().from(salesReturnsTable)).filter(row =>
+    Number(row.invoiceId) === Number(doc.id) && !["Cancelled", "Rejected"].includes(row.status),
+  );
+  const returnedByInvoiceItem = new Map<number, number>();
+  for (const salesReturn of activeReturns) {
+    const returnedItems = await db.select().from(salesReturnItemsTable).where(eq(salesReturnItemsTable.returnId, salesReturn.id));
+    for (const returnedItem of returnedItems) {
+      const invoiceItemId = Number(returnedItem.invoiceItemId || 0);
+      if (invoiceItemId)
+        returnedByInvoiceItem.set(invoiceItemId, (returnedByInvoiceItem.get(invoiceItemId) || 0) + Number(returnedItem.returnedQty || 0));
+    }
+  }
+  return {
+    ...serializeProforma(doc),
+    items: items.map(item => {
+      const serialized = serializeQuotationItem(item);
+      const alreadyReturnedQty = returnedByInvoiceItem.get(Number(item.id)) || 0;
+      return {
+        ...serialized,
+        alreadyReturnedQty,
+        returnableQty: Math.max(0, Number(serialized.quantity || 0) - alreadyReturnedQty),
+      };
+    }),
+  };
 }
 
 
@@ -237,6 +272,22 @@ function piCode(seq: number) {
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   return `PI-${yy}${mm}-${String(seq).padStart(4, "0")}`;
+}
+
+async function accountingContext(req: any) {
+  const userId = Number((req.session as any).userId);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  return { userId, organizationId: Number(user?.organizationId ?? 1) };
+}
+
+function paymentCode(sequence: number) {
+  const date = new Date();
+  return `RCPT-${date.getFullYear()}-${String(sequence).padStart(5, "0")}`;
+}
+
+function adjustmentCode(sequence: number) {
+  const date = new Date();
+  return `ADJ-${date.getFullYear()}-${String(sequence).padStart(5, "0")}`;
 }
 
 function dcCode(seq: number) {
@@ -1241,8 +1292,12 @@ router.delete("/challans/:id", requireAuth, async (req, res) => {
 });
 
 // --- Sales Invoices: document workflow only (ledger automation intentionally excluded) ---
-router.get("/invoices", requireAuth, async (_req, res) => {
-  const rows = await db.select().from(salesInvoicesTable).orderBy(desc(salesInvoicesTable.createdAt));
+router.get("/invoices", requireAuth, async (req, res) => {
+  let rows = await db.select().from(salesInvoicesTable).orderBy(desc(salesInvoicesTable.createdAt));
+  const context = await accountingContext(req);
+  for (const invoice of rows.filter(row => row.isLatestVersion && ["Approved", "Paid"].includes(row.status)))
+    await recalculateInvoiceAccounting(invoice.id, context.organizationId);
+  rows = await db.select().from(salesInvoicesTable).orderBy(desc(salesInvoicesTable.createdAt));
   const latest = rows.filter(row => row.isLatestVersion || !row.rootInvoiceNumber);
   return res.json(latest.map(serializeProforma));
 });
@@ -1254,7 +1309,8 @@ router.post("/invoices", requireAuth, async (req, res) => {
     const families = [req.body.quotationIds || req.body.quoteIds, req.body.piIds, req.body.dcIds].filter(value => Array.isArray(value) && value.length);
     if (families.length > 1) return res.status(400).json({ error: "Select only one mapping type: Quotations, Proforma Invoices, or Delivery Challans" });
     const invoiceNumber = invoiceCode((await db.select().from(salesInvoicesTable)).length + 1);
-    const [doc] = await db.insert(salesInvoicesTable).values({ invoiceNumber, rootInvoiceNumber: invoiceNumber, ...invoiceData(req.body), status: "Draft", versionSeries: "Draft", versionNumber: 1, versionLabel: "Draft V1", isLatestVersion: true, isLocked: false }).returning();
+    const invoicePayload = invoiceData(req.body);
+    const [doc] = await db.insert(salesInvoicesTable).values({ invoiceNumber, rootInvoiceNumber: invoiceNumber, ...invoicePayload, amountPaid: "0", balanceDue: invoicePayload.grandTotal, paymentStatus: "Unpaid", status: "Draft", versionSeries: "Draft", versionNumber: 1, versionLabel: "Draft V1", isLatestVersion: true, isLocked: false }).returning();
     await saveInvoiceItems(Number(doc.id), req.body.items);
     return res.status(201).json(await invoiceWithItems(doc));
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
@@ -1317,7 +1373,17 @@ router.post("/invoices/:id/customer-response", requireAuth, async (req, res) => 
   if (!["confirm", "reject"].includes(action)) return res.status(400).json({ error: "Invalid customer response" });
   const status = action === "confirm" ? "Approved" : "Rejected";
   const [updated] = await db.update(salesInvoicesTable).set({ status, isLocked: true, customerResponseAt: new Date(), confirmedByUserId: (req.session as any).userId, rejectionReason: req.body?.reason || "" }).where(eq(salesInvoicesTable.id, id)).returning();
-  return res.json(serializeProforma(updated));
+  if (status === "Approved") {
+    try {
+      const context = await accountingContext(req);
+      await triggerInvoiceApproved(id, context.organizationId, context.userId);
+    } catch (error: any) {
+      await db.update(salesInvoicesTable).set({ status: "Sent", isLocked: false, customerResponseAt: null, confirmedByUserId: null }).where(eq(salesInvoicesTable.id, id));
+      return res.status(500).json({ error: `Invoice approval accounting failed: ${error.message}` });
+    }
+  }
+  const [finalInvoice] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, id)).limit(1);
+  return res.json(serializeProforma(finalInvoice || updated));
 });
 
 router.delete("/invoices/:id", requireAuth, async (req, res) => {
@@ -1328,6 +1394,131 @@ router.delete("/invoices/:id", requireAuth, async (req, res) => {
   if (!siblings.length) siblings = [doc];
   for (const sibling of siblings) { await db.delete(salesInvoiceItemsTable).where(eq(salesInvoiceItemsTable.invoiceId, sibling.id)); await db.delete(salesInvoicesTable).where(eq(salesInvoicesTable.id, sibling.id)); }
   return res.status(204).send();
+});
+
+router.post("/invoices/:id/cancel", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [invoice] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, id)).limit(1);
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    if (invoice.status === "Cancelled") return res.json(serializeProforma(invoice));
+    if (!["Approved", "Paid"].includes(invoice.status)) return res.status(409).json({ error: "Only approved or paid invoices can be cancelled" });
+    const context = await accountingContext(req);
+    await cancelInvoiceAccounting(id, context.organizationId);
+    const [cancelled] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, id)).limit(1);
+    return res.json(serializeProforma(cancelled));
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/payments", requireAuth, async (req, res) => {
+  const invoiceId = Number(req.query.invoiceId || 0);
+  const rows = invoiceId
+    ? await db.select().from(salesPaymentsTable).where(eq(salesPaymentsTable.invoiceId, invoiceId)).orderBy(desc(salesPaymentsTable.createdAt))
+    : await db.select().from(salesPaymentsTable).orderBy(desc(salesPaymentsTable.createdAt));
+  return res.json(rows.map(row => ({ ...row, amount: Number(row.amount), tdsAmount: Number(row.tdsAmount), bankCharges: Number(row.bankCharges), netReceived: Number(row.netReceived) })));
+});
+
+router.post("/payments", requireAuth, async (req, res) => {
+  try {
+    const invoiceId = Number(req.body?.invoiceId);
+    const amount = Math.round(Number(req.body?.amount || 0) * 100) / 100;
+    const tdsAmount = Math.round(Number(req.body?.tdsAmount || 0) * 100) / 100;
+    const bankCharges = Math.round(Number(req.body?.bankCharges || 0) * 100) / 100;
+    const [invoice] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, invoiceId)).limit(1);
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    if (!["Approved", "Paid"].includes(invoice.status)) return res.status(409).json({ error: "Payments can be recorded only against approved invoices" });
+    if (!(amount > 0)) return res.status(400).json({ error: "Payment amount must be greater than zero" });
+    if (tdsAmount < 0 || bankCharges < 0 || tdsAmount + bankCharges > amount) return res.status(400).json({ error: "TDS and bank charges must be non-negative and cannot exceed the payment amount" });
+    if (amount > Number(invoice.balanceDue || invoice.grandTotal) + 0.009) return res.status(400).json({ error: "Payment amount cannot exceed the invoice balance due" });
+    const paymentNumber = String(req.body.paymentNumber || paymentCode((await db.select().from(salesPaymentsTable)).length + 1));
+    const context = await accountingContext(req);
+    const [payment] = await db.insert(salesPaymentsTable).values({
+      invoiceId,
+      paymentNumber,
+      paymentDate: req.body.paymentDate || new Date().toISOString().slice(0, 10),
+      amount: String(amount),
+      tdsAmount: String(tdsAmount),
+      bankCharges: String(bankCharges),
+      netReceived: String(amount - tdsAmount - bankCharges),
+      paymentMethod: req.body.paymentMethod || "Bank Transfer",
+      reference: req.body.reference || "",
+      notes: req.body.notes || "",
+      createdByUserId: context.userId,
+    }).returning();
+    try {
+      await triggerPaymentReceived(payment.id, context.organizationId, context.userId);
+    } catch (error) {
+      await db.delete(salesPaymentsTable).where(eq(salesPaymentsTable.id, payment.id));
+      throw error;
+    }
+    const [saved] = await db.select().from(salesPaymentsTable).where(eq(salesPaymentsTable.id, payment.id)).limit(1);
+    return res.status(201).json(saved);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/payments/:id", requireAuth, async (req, res) => {
+  try {
+    const context = await accountingContext(req);
+    const deleted = await deletePaymentAccounting(Number(req.params.id), context.organizationId);
+    if (!deleted) return res.status(404).json({ error: "Payment not found" });
+    return res.status(204).send();
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/receivable-adjustments", requireAuth, async (req, res) => {
+  const invoiceId = Number(req.query.invoiceId || 0);
+  const rows = invoiceId
+    ? await db.select().from(salesReceivableAdjustmentsTable).where(eq(salesReceivableAdjustmentsTable.invoiceId, invoiceId)).orderBy(desc(salesReceivableAdjustmentsTable.createdAt))
+    : await db.select().from(salesReceivableAdjustmentsTable).orderBy(desc(salesReceivableAdjustmentsTable.createdAt));
+  return res.json(rows.map(row => ({ ...row, amount: Number(row.amount?.$numberDecimal ?? row.amount?.toString?.() ?? row.amount ?? 0) })));
+});
+
+router.post("/receivable-adjustments", requireAuth, async (req, res) => {
+  try {
+    const invoiceId = Number(req.body?.invoiceId);
+    const amount = Math.round(Number(req.body?.amount || 0) * 100) / 100;
+    const [invoice] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, invoiceId)).limit(1);
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    if (!["Approved", "Paid"].includes(invoice.status)) return res.status(409).json({ error: "Adjustments can be recorded only against approved invoices" });
+    if (!(amount > 0)) return res.status(400).json({ error: "Adjustment amount must be greater than zero" });
+    if (amount > Number(invoice.balanceDue?.$numberDecimal ?? invoice.balanceDue?.toString?.() ?? invoice.balanceDue ?? 0) + 0.009) return res.status(400).json({ error: "Adjustment cannot exceed the invoice balance" });
+    const context = await accountingContext(req);
+    const [adjustment] = await db.insert(salesReceivableAdjustmentsTable).values({
+      invoiceId,
+      adjustmentNumber: String(req.body.adjustmentNumber || adjustmentCode((await db.select().from(salesReceivableAdjustmentsTable)).length + 1)),
+      adjustmentDate: req.body.adjustmentDate || new Date().toISOString().slice(0, 10),
+      amount: String(amount),
+      reason: req.body.reason || "Receivable adjustment",
+      createdByUserId: context.userId,
+    }).returning();
+    try {
+      await triggerReceivableAdjustment(adjustment.id, context.organizationId, context.userId);
+    } catch (error) {
+      await db.delete(salesReceivableAdjustmentsTable).where(eq(salesReceivableAdjustmentsTable.id, adjustment.id));
+      throw error;
+    }
+    const [saved] = await db.select().from(salesReceivableAdjustmentsTable).where(eq(salesReceivableAdjustmentsTable.id, adjustment.id)).limit(1);
+    return res.status(201).json(saved);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/receivable-adjustments/:id", requireAuth, async (req, res) => {
+  try {
+    const context = await accountingContext(req);
+    const deleted = await deleteReceivableAdjustment(Number(req.params.id), context.organizationId);
+    if (!deleted) return res.status(404).json({ error: "Receivable adjustment not found" });
+    return res.status(204).send();
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
 });
 
 function salesReturnData(payload: any) {
@@ -1357,6 +1548,33 @@ async function saveSalesReturnItems(returnId: number, items: any[]) {
       itemType: item.itemType || (service ? "Service" : "Product"), lineSource: item.lineSource || (service ? "Service" : "Inventory"),
       warehouseId: service ? null : item.warehouseId ?? null, warehouseName: service ? "" : item.warehouseName || "", reason: item.reason || "", condition: item.condition || "Good", attributeValues: item.attributeValues || {},
     });
+  }
+}
+
+async function validateInvoiceReturnAvailability(invoiceId: number, items: any[], excludeReturnId?: number) {
+  const invoiceItems = await db.select().from(salesInvoiceItemsTable).where(eq(salesInvoiceItemsTable.invoiceId, invoiceId));
+  const activeReturns = (await db.select().from(salesReturnsTable)).filter(row =>
+    Number(row.invoiceId) === invoiceId && Number(row.id) !== Number(excludeReturnId || 0) && !["Cancelled", "Rejected"].includes(row.status),
+  );
+  const alreadyReturned = new Map<number, number>();
+  for (const salesReturn of activeReturns) {
+    const priorItems = await db.select().from(salesReturnItemsTable).where(eq(salesReturnItemsTable.returnId, salesReturn.id));
+    for (const prior of priorItems) {
+      const invoiceItemId = Number(prior.invoiceItemId || 0);
+      if (invoiceItemId)
+        alreadyReturned.set(invoiceItemId, (alreadyReturned.get(invoiceItemId) || 0) + Number(prior.returnedQty || 0));
+    }
+  }
+  for (const item of items) {
+    const invoiceItemId = Number(item.invoiceItemId || 0);
+    const sourceItem = invoiceItems.find(row => Number(row.id) === invoiceItemId);
+    if (!sourceItem) throw new Error(`The source invoice item for ${item.description || "this line"} is invalid`);
+    const sourceQty = Number(sourceItem.quantity || 0);
+    const priorQty = alreadyReturned.get(invoiceItemId) || 0;
+    const remainingQty = Math.max(0, sourceQty - priorQty);
+    const requestedQty = Number(item.returnedQty ?? item.quantity ?? 0);
+    if (requestedQty > remainingQty)
+      throw new Error(`${item.description || sourceItem.description || "Item"} has ${priorQty} already returned; only ${remainingQty} remains returnable`);
   }
 }
 
@@ -1409,6 +1627,7 @@ router.post("/returns", requireAuth, async (req, res) => {
     const items = req.body.items || [];
     if (!items.length) return res.status(400).json({ error: "At least one return item is required" });
     for (let index = 0; index < items.length; index++) { const item = items[index]; const service = item.serviceId || String(item.itemType || "").toLowerCase() === "service"; if (Number(item.returnedQty ?? item.quantity) <= 0) return res.status(400).json({ error: `Returned quantity must be greater than zero for line ${index + 1}` }); if (Number(item.returnedQty ?? item.quantity) > Number(item.invoicedQty ?? item.quantity)) return res.status(400).json({ error: `Returned quantity cannot exceed source quantity for line ${index + 1}` }); if (!service && !item.warehouseId) return res.status(400).json({ error: `Select the receiving warehouse for line item ${index + 1}` }); }
+    if (req.body.invoiceId) await validateInvoiceReturnAvailability(Number(req.body.invoiceId), items);
     const returnNumber = returnCode((await db.select().from(salesReturnsTable)).length + 1);
     const [doc] = await db.insert(salesReturnsTable).values({ returnNumber, ...salesReturnData(req.body), status: "Draft", restocked: false }).returning();
     await saveSalesReturnItems(Number(doc.id), items); return res.status(201).json(await salesReturnWithItems(doc));
@@ -1421,6 +1640,10 @@ router.patch("/returns/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id); const [existing] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1);
   if (!existing) return res.status(404).json({ error: "Sales return not found" });
   if (["Received", "Credit Issued", "Cancelled", "Rejected"].includes(existing.status)) return res.status(409).json({ error: "Received or closed Sales Returns cannot be edited" });
+  if (Array.isArray(req.body.items) && Number(req.body.invoiceId || existing.invoiceId)) {
+    try { await validateInvoiceReturnAvailability(Number(req.body.invoiceId || existing.invoiceId), req.body.items, id); }
+    catch (error: any) { return res.status(400).json({ error: error.message }); }
+  }
   const [doc] = await db.update(salesReturnsTable).set({ ...salesReturnData({ ...existing, ...req.body }), status: "Draft" }).where(eq(salesReturnsTable.id, id)).returning();
   if (Array.isArray(req.body.items)) await saveSalesReturnItems(id, req.body.items); return res.json(await salesReturnWithItems(doc));
 });
@@ -1430,6 +1653,10 @@ router.post("/returns/:id/send", requireAuth, async (req, res) => {
   if (!existing) return res.status(404).json({ error: "Sales return not found" });
   if (["Received", "Credit Issued", "Cancelled", "Rejected"].includes(existing.status)) return res.status(409).json({ error: "Received or closed Sales Returns cannot be sent" });
   if (Array.isArray(req.body.items)) for (let index = 0; index < req.body.items.length; index++) { const item = req.body.items[index]; const returned = Number(item.returnedQty ?? item.quantity); const source = Number(item.invoicedQty ?? item.quantity); const service = item.serviceId || String(item.itemType || "").toLowerCase() === "service"; if (!(returned > 0) || returned > source) return res.status(400).json({ error: `Invalid returned quantity for line ${index + 1}` }); if (!service && !item.warehouseId) return res.status(400).json({ error: `Select the receiving warehouse for line item ${index + 1}` }); }
+  if (Array.isArray(req.body.items) && Number(req.body.invoiceId || existing.invoiceId)) {
+    try { await validateInvoiceReturnAvailability(Number(req.body.invoiceId || existing.invoiceId), req.body.items, id); }
+    catch (error: any) { return res.status(400).json({ error: error.message }); }
+  }
   const [doc] = await db.update(salesReturnsTable).set({ ...salesReturnData({ ...existing, ...req.body }), status: "Confirmed" }).where(eq(salesReturnsTable.id, id)).returning();
   if (Array.isArray(req.body.items)) await saveSalesReturnItems(id, req.body.items); return res.json(await salesReturnWithItems(doc));
 });
@@ -1437,12 +1664,37 @@ router.post("/returns/:id/send", requireAuth, async (req, res) => {
 router.post("/returns/:id/customer-response", requireAuth, async (req, res) => {
   const id = Number(req.params.id); const action = String(req.body?.action || ""); const [existing] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1);
   if (!existing) return res.status(404).json({ error: "Sales return not found" });
-  if (existing.status !== "Confirmed") return res.status(400).json({ error: "Customer response is only allowed for confirmed Sales Returns" });
+  if (existing.status !== "Confirmed" && !(existing.status === "Received" && action === "confirm")) return res.status(400).json({ error: "Customer response is only allowed for confirmed Sales Returns" });
   if (!["confirm", "reject"].includes(action)) return res.status(400).json({ error: "Invalid customer response" });
   const status = action === "confirm" ? "Received" : "Rejected";
   await db.update(salesReturnsTable).set({ status, customerResponseAt: new Date(), rejectionReason: req.body?.reason || "" }).where(eq(salesReturnsTable.id, id));
-  if (status === "Received") await restockSalesReturn(id, (req.session as any).userId);
+  if (status === "Received") {
+    await restockSalesReturn(id, (req.session as any).userId);
+    try {
+      const context = await accountingContext(req);
+      await db.update(salesReturnsTable).set({ status: "Credit Issued" }).where(eq(salesReturnsTable.id, id));
+      await triggerSalesReturnCredited(id, context.organizationId, context.userId);
+    } catch (error: any) {
+      return res.status(500).json({ error: `Sales return accounting failed: ${error.message}` });
+    }
+  }
   const [updated] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1); return res.json(await salesReturnWithItems(updated));
+});
+
+router.post("/returns/:id/issue-credit", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const [salesReturn] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1);
+    if (!salesReturn) return res.status(404).json({ error: "Sales return not found" });
+    if (!["Received", "Credit Issued", "Credited"].includes(salesReturn.status)) return res.status(409).json({ error: "Credit can be issued only after the return is received" });
+    await db.update(salesReturnsTable).set({ status: "Credit Issued" }).where(eq(salesReturnsTable.id, id));
+    const context = await accountingContext(req);
+    await triggerSalesReturnCredited(id, context.organizationId, context.userId);
+    const [updated] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1);
+    return res.json(await salesReturnWithItems(updated));
+  } catch (error: any) {
+    return res.status(500).json({ error: `Credit note accounting failed: ${error.message}` });
+  }
 });
 
 router.delete("/returns/:id", requireAuth, async (req, res) => { const id = Number(req.params.id); const [doc] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1); if (!doc) return res.status(404).json({ error: "Sales return not found" }); if (doc.restocked || ["Received", "Credit Issued"].includes(doc.status)) return res.status(409).json({ error: "Received Sales Returns cannot be deleted" }); await db.delete(salesReturnItemsTable).where(eq(salesReturnItemsTable.returnId, id)); await db.delete(salesReturnsTable).where(eq(salesReturnsTable.id, id)); return res.status(204).send(); });

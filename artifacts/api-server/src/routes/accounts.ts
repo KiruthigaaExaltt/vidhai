@@ -13,7 +13,10 @@ import {
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 const router = Router(),
-  m = (v: any) => Math.round(Number(v || 0) * 100) / 100,
+  m = (v: any) => {
+    const parsed = Number(v?.$numberDecimal ?? v?.toString?.() ?? v ?? 0);
+    return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+  },
   day = () => new Date().toISOString().slice(0, 10);
 const canonical = [
   ["1020", "Bank Account", "Asset"],
@@ -131,6 +134,19 @@ async function post(org: number, b: any, userId?: number) {
       )
   )[0];
   if (dup) return dup;
+  if (b.sourceType && b.sourceType !== "Manual" && b.sourceId) {
+    const sourceDuplicate = (
+      await db
+        .select()
+        .from(journalEntriesTable)
+        .where(eq(journalEntriesTable.organizationId, org))
+    ).find(
+      (entry: any) =>
+        entry.sourceType === b.sourceType &&
+        Number(entry.sourceId) === Number(b.sourceId),
+    );
+    if (sourceDuplicate) return sourceDuplicate;
+  }
   const accounts = await coa(org);
   return db.transaction(async (tx) => {
     const [e] = await tx
@@ -173,59 +189,139 @@ async function post(org: number, b: any, userId?: number) {
     return e;
   });
 }
+async function reverseJournal(org: number, journalEntryId: number) {
+  const [entry] = await db
+    .select()
+    .from(journalEntriesTable)
+    .where(
+      and(
+        eq(journalEntriesTable.organizationId, org),
+        eq(journalEntriesTable.id, journalEntryId),
+      ),
+    )
+    .limit(1);
+  if (!entry) return false;
+  const lines = await db
+    .select()
+    .from(journalLinesTable)
+    .where(eq(journalLinesTable.journalEntryId, journalEntryId));
+  await db.transaction(async (tx) => {
+    for (const line of lines) {
+      const [account] = await tx
+        .select()
+        .from(chartOfAccountsTable)
+        .where(eq(chartOfAccountsTable.id, line.accountId))
+        .limit(1);
+      if (account)
+        await tx
+          .update(chartOfAccountsTable)
+          .set({
+            currentBalance: m(
+              Number(account.currentBalance) -
+                Number(line.debit) +
+                Number(line.credit),
+            ),
+          })
+          .where(eq(chartOfAccountsTable.id, account.id));
+    }
+    await tx
+      .delete(journalEntriesTable)
+      .where(eq(journalEntriesTable.id, journalEntryId));
+  });
+  return true;
+}
 async function automate(org: number) {
   const accounts = await coa(org),
     id = (code: string) =>
       accounts.find((a: any) => a.accountCode === code)?.id;
   const {
     salesInvoicesTable,
+    salesReturnsTable,
+    salesReceivableAdjustmentsTable,
     purchaseInvoicesTable,
     vendorPaymentsTable,
     payrollTable,
     crewClaimsTable,
   } = await import("@workspace/db");
   for (const x of await db.select().from(salesInvoicesTable)) {
-    if (
-      !["Approved", "Sent", "Paid"].includes(x.status) ||
-      Number(x.grandTotal) <= 0
-    )
+    const eligible = ["Approved", "Paid"].includes(x.status) && m(x.grandTotal) > 0;
+    if (!eligible) {
+      const staleReceivables = (
+        await db
+          .select()
+          .from(accountsReceivableTable)
+          .where(eq(accountsReceivableTable.organizationId, org))
+      ).filter((row: any) => row.sourceType === "Sales Invoice" && Number(row.sourceId) === Number(x.id));
+      for (const row of staleReceivables)
+        await db.delete(accountsReceivableTable).where(eq(accountsReceivableTable.id, row.id));
+      const staleJournals = (
+        await db
+          .select()
+          .from(journalEntriesTable)
+          .where(eq(journalEntriesTable.organizationId, org))
+      ).filter((row: any) => row.sourceType === "Sales Invoice" && Number(row.sourceId) === Number(x.id));
+      for (const journal of staleJournals) await reverseJournal(org, journal.id);
+      if (x.journalEntryId)
+        await db.update(salesInvoicesTable).set({ journalEntryId: null }).where(eq(salesInvoicesTable.id, x.id));
       continue;
+    }
     const lines = [
       { accountId: id("1100"), debit: m(x.grandTotal) },
       {
         accountId: id("4100"),
         credit: m(
-          Number(x.grandTotal) -
-            Number(x.cgstTotal) -
-            Number(x.sgstTotal) -
-            Number(x.igstTotal),
+          m(x.grandTotal) - m(x.cgstTotal) - m(x.sgstTotal) - m(x.igstTotal),
         ),
       },
       { accountId: id("2210"), credit: m(x.cgstTotal) },
       { accountId: id("2220"), credit: m(x.sgstTotal) },
       { accountId: id("2230"), credit: m(x.igstTotal) },
     ].filter((l: any) => l.debit || l.credit);
-    const j = await post(org, {
-      entryDate: x.invoiceDate,
-      reference: `AUTO:SALES:${x.invoiceNumber}`,
-      description: `Sales invoice ${x.invoiceNumber}`,
-      sourceType: "Sales Invoice",
-      sourceId: x.id,
-      lines,
-    });
-    if (
-      !(
-        await db
-          .select()
-          .from(accountsReceivableTable)
-          .where(
-            and(
-              eq(accountsReceivableTable.organizationId, org),
-              eq(accountsReceivableTable.invoiceNumber, x.invoiceNumber),
-            ),
-          )
-      ).length
-    )
+    const sourceJournals = (
+      await db
+        .select()
+        .from(journalEntriesTable)
+        .where(eq(journalEntriesTable.organizationId, org))
+    ).filter(
+      (entry: any) =>
+        entry.sourceType === "Sales Invoice" &&
+        Number(entry.sourceId) === Number(x.id),
+    );
+    const linkedJournal = sourceJournals.find(
+      (entry: any) => Number(entry.id) === Number(x.journalEntryId),
+    );
+    const keeper = linkedJournal || sourceJournals.sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+    for (const duplicate of sourceJournals)
+      if (keeper && Number(duplicate.id) !== Number(keeper.id))
+        await reverseJournal(org, duplicate.id);
+    const j =
+      keeper ||
+      (await post(org, {
+        entryDate: x.invoiceDate,
+        reference: `AUTO:SALES:${x.invoiceNumber}:${x.id}`,
+        description: `Sales invoice ${x.invoiceNumber}`,
+        sourceType: "Sales Invoice",
+        sourceId: x.id,
+        lines,
+      }));
+    if (Number(x.journalEntryId || 0) !== Number(j.id))
+      await db
+        .update(salesInvoicesTable)
+        .set({ journalEntryId: j.id })
+        .where(eq(salesInvoicesTable.id, x.id));
+    const existingReceivable = (
+      await db
+        .select()
+        .from(accountsReceivableTable)
+        .where(
+          and(
+            eq(accountsReceivableTable.organizationId, org),
+            eq(accountsReceivableTable.sourceType, "Sales Invoice"),
+            eq(accountsReceivableTable.sourceId, x.id),
+          ),
+        )
+    )[0];
+    if (!existingReceivable)
       await db
         .insert(accountsReceivableTable)
         .values({
@@ -239,9 +335,9 @@ async function automate(org: number) {
           receivedAmount: m(x.amountPaid),
           adjustedAmount: 0,
           status:
-            Number(x.amountPaid) >= Number(x.grandTotal)
+            m(x.amountPaid) >= m(x.grandTotal)
               ? "Received"
-              : Number(x.amountPaid) > 0
+              : m(x.amountPaid) > 0
                 ? "Partial"
                 : "Pending",
           entryType: "Invoice",
@@ -249,6 +345,74 @@ async function automate(org: number) {
           sourceType: "Sales Invoice",
           sourceId: x.id,
         });
+    else if (Number(existingReceivable.journalEntryId) !== Number(j.id))
+      await db
+        .update(accountsReceivableTable)
+        .set({ journalEntryId: j.id })
+        .where(eq(accountsReceivableTable.id, existingReceivable.id));
+  }
+  const receivables = await db
+    .select()
+    .from(accountsReceivableTable)
+    .where(eq(accountsReceivableTable.organizationId, org));
+  const creditedReturns = (await db.select().from(salesReturnsTable)).filter(
+    (row: any) => row.status === "Credit Issued" && row.invoiceId,
+  );
+  const receivableAdjustments = await db.select().from(salesReceivableAdjustmentsTable);
+  for (const ar of receivables.filter(
+    (row: any) =>
+      row.entryType === "Invoice" &&
+      ["Pending", "Partial", "Overdue"].includes(row.status),
+  )) {
+    const requestedAdjustment =
+      ar.sourceType === "Sales Invoice" && ar.sourceId
+        ? m(
+            creditedReturns
+              .filter((row: any) => Number(row.invoiceId) === Number(ar.sourceId))
+              .reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
+              receivableAdjustments
+                .filter((row: any) => Number(row.invoiceId) === Number(ar.sourceId))
+                .reduce((sum: number, row: any) => sum + m(row.amount), 0),
+          )
+        : m(ar.adjustedAmount);
+    const adjustedAmount = Math.min(
+      Math.max(0, m(ar.amount) - m(ar.receivedAmount)),
+      requestedAdjustment,
+    );
+    const outstanding = m(
+      m(ar.amount) - m(ar.receivedAmount) - adjustedAmount,
+    );
+    const overdue = outstanding > 0 && String(ar.dueDate).slice(0, 10) < day();
+    const nextArStatus =
+      outstanding <= 0
+        ? adjustedAmount > 0
+          ? "Settled"
+          : "Received"
+        : overdue
+          ? "Overdue"
+          : m(ar.receivedAmount) > 0 || adjustedAmount > 0
+            ? "Partial"
+            : "Pending";
+    if (nextArStatus !== ar.status || adjustedAmount !== m(ar.adjustedAmount))
+      await db
+        .update(accountsReceivableTable)
+        .set({ status: nextArStatus, adjustedAmount: String(adjustedAmount) })
+        .where(eq(accountsReceivableTable.id, ar.id));
+    if (ar.sourceType === "Sales Invoice" && ar.sourceId)
+      await db
+        .update(salesInvoicesTable)
+        .set({
+          balanceDue: String(Math.max(0, outstanding)),
+          paymentStatus:
+            nextArStatus === "Received"
+              ? "Paid"
+              : nextArStatus === "Settled"
+                ? "Settled"
+                : nextArStatus === "Pending"
+                  ? "Unpaid"
+                  : nextArStatus,
+        })
+        .where(eq(salesInvoicesTable.id, ar.sourceId));
   }
   for (const x of await db.select().from(purchaseInvoicesTable)) {
     if (Number(x.amount) <= 0) continue;
@@ -366,6 +530,12 @@ const pg = (xs: any[], r: any) => {
     limit = Math.min(100, Math.max(1, Number(r.query.limit || 25)));
   return { items: xs.slice(skip, skip + limit), total: xs.length, skip, limit };
 };
+const serializeMoneyFields = (row: any) => {
+  const result = { ...row };
+  for (const field of ["amount", "paidAmount", "receivedAmount", "adjustedAmount", "totalDebit", "totalCredit", "currentBalance"])
+    if (field in result) result[field] = m(result[field]);
+  return result;
+};
 router.get("/coa", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.chart_of_accounts.view"))
     s.json(await coa(r.acc.org));
@@ -476,30 +646,7 @@ router.post("/journal-entries", async (r: any, s): Promise<any> => {
 });
 router.delete("/journal-entries/:id", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.journal_entries.delete")) return;
-  const id = Number(r.params.id),
-    ls = await db
-      .select()
-      .from(journalLinesTable)
-      .where(eq(journalLinesTable.journalEntryId, id));
-  await db.transaction(async (tx) => {
-    for (const l of ls) {
-      const [a] = await tx
-        .select()
-        .from(chartOfAccountsTable)
-        .where(eq(chartOfAccountsTable.id, l.accountId))
-        .limit(1);
-      if (a)
-        await tx
-          .update(chartOfAccountsTable)
-          .set({
-            currentBalance: m(
-              Number(a.currentBalance) - Number(l.debit) + Number(l.credit),
-            ),
-          })
-          .where(eq(chartOfAccountsTable.id, a.id));
-    }
-    await tx.delete(journalEntriesTable).where(eq(journalEntriesTable.id, id));
-  });
+  await reverseJournal(r.acc.org, Number(r.params.id));
   s.status(204).send();
 });
 for (const c of [
@@ -522,11 +669,13 @@ for (const c of [
     if (need(r, s, `${c.k}.view`))
       s.json(
         pg(
-          await db
-            .select()
-            .from(c.t)
-            .where(eq(c.t.organizationId, r.acc.org))
-            .orderBy(desc(c.t.createdAt)),
+          (
+            await db
+              .select()
+              .from(c.t)
+              .where(eq(c.t.organizationId, r.acc.org))
+              .orderBy(desc(c.t.createdAt))
+          ).map(serializeMoneyFields),
           r,
         ),
       );
@@ -602,7 +751,9 @@ router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
         .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
     ),
     receivables: m(
-      ar.reduce((q: number, x: any) => q + out(x, "receivedAmount"), 0),
+      ar
+        .filter((x: any) => x.entryType !== "Credit Note")
+        .reduce((q: number, x: any) => q + out(x, "receivedAmount"), 0),
     ),
     payables: m(ap.reduce((q: number, x: any) => q + out(x, "paidAmount"), 0)),
     income: m(
@@ -665,13 +816,19 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
         clientName: k,
         invoiced: 0,
         received: 0,
+        credited: 0,
         outstanding: 0,
       };
-    q.invoiced += Number(x.amount);
-    q.received += Number(x.receivedAmount);
+    if (x.entryType === "Credit Note") {
+      q.credited += m(x.amount);
+      z.set(k, q);
+      continue;
+    }
+    q.invoiced += m(x.amount);
+    q.received += m(x.receivedAmount);
     q.outstanding += Math.max(
       0,
-      Number(x.amount) - Number(x.receivedAmount) - Number(x.adjustedAmount),
+      m(x.amount) - m(x.receivedAmount) - m(x.adjustedAmount),
     );
     z.set(k, q);
   }
@@ -701,5 +858,9 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view"))
     s.redirect(307, "./dashboard-summary");
 });
-export { post as postJournal, coa as ensureCanonicalAccounts };
+export {
+  post as postJournal,
+  coa as ensureCanonicalAccounts,
+  reverseJournal,
+};
 export default router;

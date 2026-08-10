@@ -57,6 +57,19 @@ type User = {
   lastLogin?: string;
   locationScope: string[];
 };
+const isAssignableRole = (role: any) => {
+  const slug = String(role.slug || role.name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+  return (
+    role.isActive !== false &&
+    !role.isSuperAdmin &&
+    role.systemKey !== "SUPER_ADMIN" &&
+    slug !== "admin" &&
+    slug !== "super_admin"
+  );
+};
 const empty = {
   displayName: "",
   username: "",
@@ -131,7 +144,7 @@ export default function UserManagement() {
         return response.json();
       });
       const assignable = (Array.isArray(latestRoles) ? latestRoles : []).filter(
-        (role: any) => role.isActive !== false && !role.isSuperAdmin,
+        (role: any) => isAssignableRole(role),
       );
       setRoles(latestRoles);
       setEditing(u || null);
@@ -568,13 +581,11 @@ export default function UserManagement() {
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value })}
               >
-                {roles
-                  .filter((r) => r.isActive !== false && !r.isSuperAdmin)
-                  .map((r) => (
-                    <option key={r.id} value={r.name}>
-                      {r.name}
-                    </option>
-                  ))}
+                {roles.filter(isAssignableRole).map((r) => (
+                  <option key={r.id} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
               </select>
             </Field>
             {!editing && !form.employeeId && (
@@ -654,9 +665,7 @@ export default function UserManagement() {
                     }
                   >
                     {roles
-                      .filter(
-                        (role) => role.isActive !== false && !role.isSuperAdmin,
-                      )
+                      .filter((role) => isAssignableRole(role))
                       .map((role) => (
                         <option key={role.id} value={role.name}>
                           {role.name}

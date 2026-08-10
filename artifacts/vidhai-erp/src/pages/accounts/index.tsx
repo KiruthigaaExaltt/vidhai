@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BookOpen, RefreshCw } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { BookOpen, CreditCard, RefreshCw, SlidersHorizontal, Trash2 } from "lucide-react";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -18,14 +20,19 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
           (await r.json().catch(() => ({}))).error || "Request failed",
         );
       return r.status === 204 ? null : r.json();
+    }),
+  salesApi = (p: string, o?: RequestInit) =>
+    fetch(`${base}/api/sales${p}`, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      ...o,
+    }).then(async (r) => {
+      if (!r.ok) throw Error((await r.json().catch(() => ({}))).error || "Request failed");
+      return r.status === 204 ? null : r.json();
     });
-const numberValue = (value: any): number => {
-  const numeric = Number(
-    value && typeof value === "object" && "$numberDecimal" in value
-      ? value.$numberDecimal
-      : value,
-  );
-  return Number.isFinite(numeric) ? numeric : 0;
+const numberValue = (value: any) => {
+  const parsed = Number(value?.$numberDecimal ?? value?.toString?.() ?? value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 const inr = (v: any) =>
   new Intl.NumberFormat("en-IN", {
@@ -45,7 +52,13 @@ export default function Accounts() {
     [statements, setStatements] = useState<any>({}),
     [search, setSearch] = useState(""),
     [loading, setLoading] = useState(true),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [paymentAr, setPaymentAr] = useState<any | null>(null),
+    [paymentAmount, setPaymentAmount] = useState(""),
+    [adjustmentAr, setAdjustmentAr] = useState<any | null>(null),
+    [adjustmentAmount, setAdjustmentAmount] = useState(""),
+    [adjustmentReason, setAdjustmentReason] = useState(""),
+    [submitting, setSubmitting] = useState(false);
   const load = async () => {
     setLoading(true);
     setError("");
@@ -79,6 +92,8 @@ export default function Accounts() {
       if (k === "v") setVendors(v as any[]);
       if (k === "f") setStatements(v);
     }
+    const reconciledAr = await api("/ar?limit=100").catch(() => null);
+    if (reconciledAr) setAr(reconciledAr.items || []);
     setLoading(false);
   };
   useEffect(() => {
@@ -87,6 +102,73 @@ export default function Accounts() {
   const match = (x: any) =>
       JSON.stringify(x).toLowerCase().includes(search.toLowerCase()),
     f = (xs: any[]) => xs.filter(match);
+  const outstanding = (row: any) => Math.max(0, numberValue(row.amount) - numberValue(row.receivedAmount) - numberValue(row.adjustedAmount));
+  const openPayment = (row: any) => {
+    setPaymentAr(row);
+    setPaymentAmount(String(outstanding(row)));
+  };
+  const receivePayment = async () => {
+    if (!paymentAr?.sourceId) return;
+    const amount = numberValue(paymentAmount);
+    if (!(amount > 0) || amount > outstanding(paymentAr) + 0.009) {
+      setError("Enter a payment amount greater than zero and not more than the balance.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await salesApi("/payments", { method: "POST", body: JSON.stringify({ invoiceId: paymentAr.sourceId, amount }) });
+      setPaymentAr(null);
+      setPaymentAmount("");
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const openAdjustment = (row: any) => {
+    setAdjustmentAr(row);
+    setAdjustmentAmount("");
+    setAdjustmentReason("");
+  };
+  const saveAdjustment = async () => {
+    if (!adjustmentAr?.sourceId) return;
+    const amount = numberValue(adjustmentAmount);
+    if (!(amount > 0) || amount > outstanding(adjustmentAr) + 0.009) {
+      setError("Enter an adjustment greater than zero and not more than the balance.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      await salesApi("/receivable-adjustments", { method: "POST", body: JSON.stringify({ invoiceId: adjustmentAr.sourceId, amount, reason: adjustmentReason || "Receivable adjustment" }) });
+      setAdjustmentAr(null);
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const deleteReceivable = async (row: any) => {
+    const message = row.sourceType === "Sales Invoice"
+      ? `Cancel invoice ${row.invoiceNumber} and remove its receivable and accounting entries?`
+      : `Delete receivable ${row.invoiceNumber}?`;
+    if (!window.confirm(message)) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      if (row.sourceType === "Sales Invoice" && row.sourceId)
+        await salesApi(`/invoices/${row.sourceId}/cancel`, { method: "POST" });
+      else await api(`/ar/${row.id}`, { method: "DELETE" });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const Table = ({
     rows,
     cols,
@@ -203,6 +285,7 @@ export default function Accounts() {
                 ["Customer", "clientName"],
                 ["Invoiced", "invoiced", inr],
                 ["Received", "received", inr],
+                ["Credits", "credited", inr],
                 ["Outstanding", "outstanding", inr],
               ]}
             />
@@ -282,17 +365,59 @@ export default function Accounts() {
             </Tabs>
           </TabsContent>
           <TabsContent value="ar">
+            <Tabs defaultValue="invoices" className="space-y-3">
+              <TabsList>
+                <TabsTrigger value="invoices">Pending Invoices</TabsTrigger>
+                <TabsTrigger value="credit-notes">Credit Notes</TabsTrigger>
+              </TabsList>
+              <TabsContent value="invoices">
             <Table
-              rows={f(ar)}
+              rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
               cols={[
                 ["Invoice", "invoiceNumber"],
                 ["Customer", "clientName"],
                 ["Due", "dueDate"],
                 ["Amount", "amount", inr],
                 ["Received", "receivedAmount", inr],
+                ["Adjusted", "adjustedAmount", inr],
+                ["Balance", "balance", (_value, row) => inr(outstanding(row))],
                 ["Status", "status"],
+                ["Actions", "actions", (_value, row) => (
+                  <div className="flex items-center gap-2">
+                    {row.sourceType === "Sales Invoice" && outstanding(row) > 0 && (
+                      <Button size="sm" onClick={() => openPayment(row)} disabled={submitting}>
+                        <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                      </Button>
+                    )}
+                    {row.sourceType === "Sales Invoice" && outstanding(row) > 0 && (
+                      <Button size="sm" variant="outline" onClick={() => openAdjustment(row)} disabled={submitting}>
+                        <SlidersHorizontal className="mr-1 h-3.5 w-3.5" /> Adjust
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => void deleteReceivable(row)} disabled={submitting}>
+                      <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                    </Button>
+                  </div>
+                )],
               ]}
             />
+              </TabsContent>
+              <TabsContent value="credit-notes">
+                <Table
+                  rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
+                  cols={[
+                    ["Credit Note", "creditNoteNumber"],
+                    ["Original Invoice", "linkedInvoiceNumber"],
+                    ["Customer", "clientName"],
+                    ["Date", "invoiceDate"],
+                    ["Credit Amount", "amount", inr],
+                    ["Applied to Invoice", "adjustedAmount", inr],
+                    ["Customer Credit", "creditBalance", (_value, row) => inr(Math.max(0, numberValue(row.amount) - numberValue(row.adjustedAmount)))],
+                    ["Status", "status"],
+                  ]}
+                />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
           <TabsContent value="journals">
             <Table
@@ -336,6 +461,60 @@ export default function Accounts() {
             </div>
           </TabsContent>
         </Tabs>
+        <Dialog open={Boolean(paymentAr)} onOpenChange={(open) => { if (!open && !submitting) setPaymentAr(null); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Receive Payment</DialogTitle>
+            </DialogHeader>
+            {paymentAr && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                  <div><p className="text-[10px] uppercase text-muted-foreground">Total Amount</p><p className="font-semibold">{inr(paymentAr.amount)}</p></div>
+                  <div><p className="text-[10px] uppercase text-muted-foreground">Already Paid</p><p className="font-semibold text-primary">{inr(paymentAr.receivedAmount)}</p></div>
+                  <div><p className="text-[10px] uppercase text-muted-foreground">Balance</p><p className="font-semibold">{inr(outstanding(paymentAr))}</p></div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="payment-amount">Payment Amount (₹)</Label>
+                  <Input id="payment-amount" type="number" min="0.01" step="0.01" max={outstanding(paymentAr)} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPaymentAr(null)} disabled={submitting}>Cancel</Button>
+              <Button onClick={() => void receivePayment()} disabled={submitting || !paymentAmount}>
+                <CreditCard className="mr-2 h-4 w-4" /> {submitting ? "Receiving..." : "Receive Payment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={Boolean(adjustmentAr)} onOpenChange={(open) => { if (!open && !submitting) setAdjustmentAr(null); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader><DialogTitle>Adjust Receivable</DialogTitle></DialogHeader>
+            {adjustmentAr && (
+              <div className="space-y-5">
+                <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                  <div><p className="text-[10px] uppercase text-muted-foreground">Invoice</p><p className="font-semibold">{inr(adjustmentAr.amount)}</p></div>
+                  <div><p className="text-[10px] uppercase text-muted-foreground">Adjusted</p><p className="font-semibold text-primary">{inr(adjustmentAr.adjustedAmount)}</p></div>
+                  <div><p className="text-[10px] uppercase text-muted-foreground">Balance</p><p className="font-semibold">{inr(outstanding(adjustmentAr))}</p></div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="adjustment-amount">Adjustment Amount (₹)</Label>
+                  <Input id="adjustment-amount" type="number" min="0.01" step="0.01" max={outstanding(adjustmentAr)} value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="adjustment-reason">Reason</Label>
+                  <Input id="adjustment-reason" placeholder="Discount, write-off, settlement..." value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAdjustmentAr(null)} disabled={submitting}>Cancel</Button>
+              <Button onClick={() => void saveAdjustment()} disabled={submitting || !adjustmentAmount}>
+                <SlidersHorizontal className="mr-2 h-4 w-4" /> {submitting ? "Adjusting..." : "Apply Adjustment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Shell>
   );

@@ -19,70 +19,99 @@ function parsePerms(raw: string): string[] {
 }
 const responseRole = (role: any) => {
   const permissionKeys = parsePerms(role.permissions);
-  return { ...role, permissions: permissionKeys, permissionKeys };
+  const slug = String(role.slug || role.name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+  return {
+    ...role,
+    isSuperAdmin:
+      Boolean(role.isSuperAdmin) ||
+      role.systemKey === "SUPER_ADMIN" ||
+      slug === "admin" ||
+      slug === "super_admin",
+    permissions: permissionKeys,
+    permissionKeys,
+  };
 };
 
-/** Idempotently seed the four canonical system roles on first run. */
-export async function seedSystemRoles() {
-  const existing = await db
-    .select({ id: rolesTable.id })
-    .from(rolesTable)
-    .limit(1);
-  if (existing.length > 0) return;
-
-  await db.insert(rolesTable).values([
+/** Ensure every organization has the canonical roles without deleting custom roles. */
+export async function seedSystemRoles(org = 1) {
+  const definitions = [
     {
       name: "admin",
       slug: "admin",
       description: "Full access to all locations and actions",
-      permissions: JSON.stringify({
+      permissions: {
         view: ALL_LOCATIONS,
         create: ALL_LOCATIONS,
         approve: ALL_LOCATIONS,
         delete: ALL_LOCATIONS,
-      }),
-      isSystem: true,
+      },
+      isSuperAdmin: true,
     },
     {
       name: "location_manager",
       slug: "location_manager",
       description: "Can view, create, and approve for assigned locations",
-      permissions: JSON.stringify({
+      permissions: {
         view: ALL_LOCATIONS,
         create: ALL_LOCATIONS,
         approve: ALL_LOCATIONS,
         delete: [],
-      }),
-      isSystem: true,
+      },
+      isSuperAdmin: false,
     },
     {
       name: "operator",
       slug: "operator",
       description: "Can view and create for assigned locations",
-      permissions: JSON.stringify({
+      permissions: {
         view: ALL_LOCATIONS,
         create: ALL_LOCATIONS,
         approve: [],
         delete: [],
-      }),
-      isSystem: true,
+      },
+      isSuperAdmin: false,
     },
     {
       name: "viewer",
       slug: "viewer",
       description: "Read-only access to assigned locations",
-      permissions: JSON.stringify({
-        view: ALL_LOCATIONS,
-        create: [],
-        approve: [],
-        delete: [],
-      }),
-      isSystem: true,
+      permissions: { view: ALL_LOCATIONS, create: [], approve: [], delete: [] },
+      isSuperAdmin: false,
     },
-  ]);
+  ];
+  const existing = await db
+    .select()
+    .from(rolesTable)
+    .where(eq(rolesTable.organizationId, org));
+  for (const role of definitions) {
+    if (
+      existing.some(
+        (item: any) =>
+          String(item.slug || item.name)
+            .trim()
+            .toLowerCase() === role.slug,
+      )
+    )
+      continue;
+    try {
+      await db.insert(rolesTable).values({
+        ...role,
+        organizationId: org,
+        permissions: JSON.stringify(role.permissions),
+        isSystem: true,
+        isActive: true,
+        updatedAt: new Date(),
+      });
+    } catch (error: any) {
+      if (error?.code !== 11000) throw error;
+    }
+  }
 }
 
-// Seed on module load (idempotent — safe to call every startup)
+// Seed the default organization at startup; GET also repairs the active organization.
 seedSystemRoles().catch(() => {});
 
 // GET /api/roles
@@ -90,15 +119,16 @@ router.get(
   "/",
   requirePermission("settings.user_management.view"),
   async (req, res) => {
+    const org = organizationId(req);
+    await seedSystemRoles(org);
     const rows = await db
       .select()
       .from(rolesTable)
-      .where(eq(rolesTable.organizationId, organizationId(req)))
+      .where(eq(rolesTable.organizationId, org))
       .orderBy(rolesTable.id);
     return res.json(rows.map(responseRole));
   },
 );
-
 // POST /api/roles
 router.post(
   "/",
@@ -121,14 +151,12 @@ router.post(
           normalizedName.replace(/[^a-z0-9]+/g, "_"),
     );
     if (duplicate)
-      return res
-        .status(409)
-        .json({
-          error:
-            duplicate.isSystem || duplicate.isSuperAdmin || duplicate.systemKey
-              ? `The ${duplicate.name} role already exists and is protected`
-              : `A role named ${duplicate.name} already exists`,
-        });
+      return res.status(409).json({
+        error:
+          duplicate.isSystem || duplicate.isSuperAdmin || duplicate.systemKey
+            ? `The ${duplicate.name} role already exists and is protected`
+            : `A role named ${duplicate.name} already exists`,
+      });
     const slug = name
       .trim()
       .toLowerCase()

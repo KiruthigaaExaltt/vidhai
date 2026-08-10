@@ -269,6 +269,7 @@ export const salesInvoicesTable = mongoTable("sales_invoices", {
   discountAmount: numeric("discount_amount").notNull().default("0"), transportCharges: numeric("transport_charges").notNull().default("0"),
   amountPaid: numeric("amount_paid").notNull().default("0"), balanceDue: numeric("balance_due").notNull().default("0"),
   paymentStatus: text("payment_status").notNull().default("Unpaid"),
+  journalEntryId: integer("journal_entry_id"),
   bankName: text("bank_name").default(""), accountNumber: text("account_number").default(""), ifscCode: text("ifsc_code").default(""), branch: text("branch").default(""),
   billedByCompanyName: text("billed_by_company_name").default(""), billedByAddress: text("billed_by_address").default(""), billedByGstin: text("billed_by_gstin").default(""), billedByContactNumber: text("billed_by_contact_number").default(""),
   terms: text("terms").default(""), notes: text("notes").default(""), status: text("status").notNull().default("Draft"),
@@ -295,8 +296,44 @@ export const insertSalesInvoiceItemSchema = createInsertSchema(salesInvoiceItems
 export type SalesInvoice = typeof salesInvoicesTable.$inferSelect;
 export type SalesInvoiceItem = typeof salesInvoiceItemsTable.$inferSelect;
 
+export const salesPaymentsTable = mongoTable("sales_payments", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull(),
+  paymentNumber: text("payment_number").notNull().unique(),
+  paymentDate: date("payment_date").notNull(),
+  amount: numeric("amount").notNull(),
+  tdsAmount: numeric("tds_amount").notNull().default("0"),
+  bankCharges: numeric("bank_charges").notNull().default("0"),
+  netReceived: numeric("net_received").notNull().default("0"),
+  paymentMethod: text("payment_method").default("Bank Transfer"),
+  reference: text("reference").default(""),
+  notes: text("notes").default(""),
+  journalEntryId: integer("journal_entry_id"),
+  createdByUserId: integer("created_by_user_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertSalesPaymentSchema = createInsertSchema(salesPaymentsTable).omit({ id: true, createdAt: true });
+export type SalesPayment = typeof salesPaymentsTable.$inferSelect;
+
+export const salesReceivableAdjustmentsTable = mongoTable("sales_receivable_adjustments", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull(),
+  adjustmentNumber: text("adjustment_number").notNull().unique(),
+  adjustmentDate: date("adjustment_date").notNull(),
+  amount: numeric("amount").notNull(),
+  reason: text("reason").notNull().default("Receivable adjustment"),
+  journalEntryId: integer("journal_entry_id"),
+  createdByUserId: integer("created_by_user_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertSalesReceivableAdjustmentSchema = createInsertSchema(salesReceivableAdjustmentsTable).omit({ id: true, createdAt: true });
+export type SalesReceivableAdjustment = typeof salesReceivableAdjustmentsTable.$inferSelect;
+
 export const salesReturnsTable = mongoTable("sales_returns", {
   id: serial("id").primaryKey(), returnNumber: text("return_number").notNull().unique(), creditNoteNumber: text("credit_note_number"),
+  journalEntryId: integer("journal_entry_id"),
   invoiceId: integer("invoice_id"), dcId: integer("dc_id"), clientId: integer("client_id").notNull(), clientName: text("client_name").notNull().default(""),
   customerMobile: text("customer_mobile").default(""), customerWhatsappNumber: text("customer_whatsapp_number").default(""),
   customerCompany: text("customer_company").default(""), customerAddress: text("customer_address").default(""), customerGstin: text("customer_gstin").default(""),

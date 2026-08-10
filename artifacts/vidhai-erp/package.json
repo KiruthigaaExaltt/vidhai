@@ -84,5 +84,10 @@
     "workbox-window": "^7.4.1",
     "wouter": "^3.3.5",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "@tensorflow-models/blazeface": "^0.1.0",
+    "@tensorflow/tfjs": "^4.22.0",
+    "react-webcam": "^7.2.0"
   }
 }

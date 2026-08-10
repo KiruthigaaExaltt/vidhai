@@ -264,12 +264,16 @@ export default function Sales() {
                           <th className="px-4 py-3">Status</th>
                           <th className="px-4 py-3">Customer Response</th>
                           <th className="px-4 py-3 text-right">Total</th>
+                          {activeTab === "Invoices" && <th className="px-4 py-3 text-right">Paid</th>}
+                          {activeTab === "Invoices" && <th className="px-4 py-3 text-right">Balance</th>}
+                          {activeTab === "Invoices" && <th className="px-4 py-3">Payment</th>}
                           <th className="px-4 py-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
                         {listedDocuments.map((row) => {
-                          const total = Number(row.grandTotal);
+                          const numeric = (value: any) => { const parsed = Number(value?.$numberDecimal ?? value?.toString?.() ?? value ?? 0); return Number.isFinite(parsed) ? parsed : 0; };
+                          const total = numeric(row.grandTotal);
                           const isViewOnly = ["Approved", "Rejected", "Dispatched", "Received", "Credit Issued", "Paid", "Cancelled"].includes(row.status);
                           return (
                             <tr key={row.id} className="hover:bg-muted/30">
@@ -313,6 +317,9 @@ export default function Sales() {
                                   ? total.toFixed(2)
                                   : "0.00"}
                               </td>
+                              {activeTab === "Invoices" && <td className="px-4 py-3 text-right">Rs {numeric(row.amountPaid).toFixed(2)}</td>}
+                              {activeTab === "Invoices" && <td className="px-4 py-3 text-right">Rs {numeric(row.balanceDue).toFixed(2)}</td>}
+                              {activeTab === "Invoices" && <td className="px-4 py-3"><span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{row.paymentStatus || "Unpaid"}</span></td>}
                               <td className="px-4 py-3">
                                 <div className="flex justify-end gap-1">
                                   <Button
