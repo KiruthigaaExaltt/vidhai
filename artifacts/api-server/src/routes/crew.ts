@@ -172,6 +172,28 @@ async function audit(
     });
   } catch {}
 }
+async function saveAttendancePhoto(value: any) {
+  if (!value || typeof value !== "string" || !value.startsWith("data:"))
+    return value || null;
+  const m = value.match(
+    /^data:(image\/(jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\r\n]+)$/s,
+  );
+  if (!m) throw new Error("Photo must be a valid JPG, PNG or WEBP image");
+  const buffer = Buffer.from(m[3].replace(/\s/g, ""), "base64");
+  if (!buffer.length) throw new Error("Photo data is malformed");
+  if (buffer.length > 5 * 1024 * 1024)
+    throw new Error("Photo must not exceed 5 MB");
+  const ext = m[1].includes("png")
+    ? "png"
+    : m[1].includes("webp")
+      ? "webp"
+      : "jpg";
+  const dir = path.resolve(process.cwd(), "uploads", "crew", "attendance");
+  await mkdir(dir, { recursive: true });
+  const file = `${Date.now()}-${randomUUID()}.${ext}`;
+  await writeFile(path.join(dir, file), buffer);
+  return `/api/crew/files/attendance/${file}`;
+}
 async function saveDataUrl(value: any, folder: string) {
   if (!value || typeof value !== "string" || !value.startsWith("data:"))
     return value || null;
@@ -192,7 +214,9 @@ async function saveDataUrl(value: any, folder: string) {
 }
 
 router.get("/employees", async (req: any, res: any): Promise<any> => {
-  if (!need(req, res, "crew.employees.view")) return;
+  const canViewDirectory = can(req, "crew.employees.view");
+  if (!canViewDirectory && !can(req, "crew.attendance.view"))
+    return res.status(403).json({ error: "Crew employee access denied" });
   let rows = (
     await db
       .select()
@@ -200,7 +224,13 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
       .where(eq(employeesTable.organizationId, req.crew.org))
       .orderBy(asc(employeesTable.name))
   ).filter((x: any) => !x.isDeleted);
-  rows = await scopedRows(req, rows, "employees");
+  if (canViewDirectory) rows = await scopedRows(req, rows, "employees");
+  else {
+    const own = await ownEmployee(req);
+    rows = own
+      ? rows.filter((row: any) => Number(row.id) === Number(own.id))
+      : [];
+  }
   const q = String(req.query.search || "").toLowerCase(),
     status = String(req.query.status || "");
   if (q)
@@ -752,6 +782,14 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
 });
 router.post("/attendance", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.attendance.create")) return;
+  if (
+    req.body.checkInTime &&
+    !can(req, "crew.attendance.changeTime") &&
+    req.body.punchAction !== "punchIn"
+  )
+    return res
+      .status(403)
+      .json({ error: "Manual attendance time changes are not allowed" });
   const employee = await scopedEmployee(
     req,
     res,
@@ -759,7 +797,8 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
     "attendance",
   );
   if (!employee) return;
-  const date = req.body.attendanceDate || today();
+  const isPunchIn = req.body.punchAction === "punchIn";
+  const date = isPunchIn ? today() : req.body.attendanceDate || today();
   const existing = (
     await db
       .select()
@@ -777,23 +816,28 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
       .json({ error: "Attendance already exists for this employee and date" });
   try {
     if (
-      req.body.punchAction === "punchIn" &&
+      isPunchIn &&
       (!req.body.location ||
         !Number.isFinite(Number(req.body.location.latitude)) ||
         !Number.isFinite(Number(req.body.location.longitude)))
     )
       return res.status(400).json({ error: "Punch-in location is required" });
-    const photo = await saveDataUrl(req.body.photoDataUrl, "attendance");
-    if (req.body.punchAction === "punchIn" && !photo)
+    const photo = await saveAttendancePhoto(req.body.photoDataUrl);
+    if (isPunchIn && !photo)
       return res.status(400).json({ error: "Punch-in photograph is required" });
     const now = new Date(),
-      time =
-        req.body.checkInTime ||
-        now.toLocaleTimeString("en-GB", {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "Asia/Kolkata",
-        });
+      time = isPunchIn
+        ? now.toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "Asia/Kolkata",
+          })
+        : req.body.checkInTime ||
+          now.toLocaleTimeString("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "Asia/Kolkata",
+          });
     let status = req.body.status || "Present";
     const [template] = employee.attendanceRulesTemplate
       ? await db
@@ -841,7 +885,16 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
   }
 });
 router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
-  if (!need(req, res, "crew.attendance.update")) return;
+  const isPunchOut = req.body.punchAction === "punchOut";
+  if (isPunchOut) {
+    if (
+      !can(req, "crew.attendance.update") &&
+      !can(req, "crew.attendance.create")
+    )
+      return res
+        .status(403)
+        .json({ error: "Missing attendance punch permission" });
+  } else if (!need(req, res, "crew.attendance.update")) return;
   const [old] = await db
     .select()
     .from(attendanceLogsTable)
@@ -853,6 +906,10 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
     );
   if (!old) return res.status(404).json({ error: "Attendance not found" });
   if (!(await scopedEmployee(req, res, old.employeeId, "attendance"))) return;
+  if (old.locked && !isPunchOut)
+    return res
+      .status(409)
+      .json({ error: "Attendance is locked after checkout" });
   try {
     const b: any = { ...req.body, updatedAt: new Date() };
     delete b.employeeId;
@@ -865,7 +922,7 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
       return res.status(403).json({
         error: "Manual time changes require crew.attendance.changeTime",
       });
-    if (b.punchAction === "punchOut") {
+    if (isPunchOut) {
       if (old.checkOutTime)
         return res
           .status(409)
@@ -880,19 +937,17 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
         return res
           .status(400)
           .json({ error: "Punch-out location is required" });
-      const photo = await saveDataUrl(b.photoDataUrl, "attendance");
+      const photo = await saveAttendancePhoto(b.photoDataUrl);
       if (!photo)
         return res
           .status(400)
           .json({ error: "Punch-out photograph is required" });
       const now = new Date();
-      b.checkOutTime =
-        b.checkOutTime ||
-        now.toLocaleTimeString("en-GB", {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "Asia/Kolkata",
-        });
+      b.checkOutTime = now.toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Kolkata",
+      });
       if (minutes(b.checkOutTime) < minutes(old.checkInTime))
         return res
           .status(400)
@@ -1255,12 +1310,10 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
       context,
     );
   if (b.leaveType !== "Other" && requestedDays <= 0)
-    return res
-      .status(400)
-      .json({
-        error:
-          "Selected dates fall on week-offs/holidays only. Choose working days.",
-      });
+    return res.status(400).json({
+      error:
+        "Selected dates fall on week-offs/holidays only. Choose working days.",
+    });
   if (b.leaveType !== "Other") {
     if (!context.leaveTemplate)
       return res
@@ -1780,12 +1833,10 @@ router.get(
   },
 );
 router.patch("/bonus/:id/status", (_req: any, res: any) =>
-  res
-    .status(400)
-    .json({
-      error:
-        "Bonus entries are added directly to salary and do not support approve/reject actions.",
-    }),
+  res.status(400).json({
+    error:
+      "Bonus entries are added directly to salary and do not support approve/reject actions.",
+  }),
 );
 router.post("/bonus", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.bonus.create")) return;
@@ -1906,11 +1957,9 @@ for (const type of ["claims"]) {
           .json({ error: "A maximum of 10 attachments is allowed" });
       for (const file of files) {
         if (!allowed.has(String(file.type)))
-          return res
-            .status(400)
-            .json({
-              error: `Unsupported attachment type: ${file.name || "file"}`,
-            });
+          return res.status(400).json({
+            error: `Unsupported attachment type: ${file.name || "file"}`,
+          });
         if (Number(file.size) > 25 * 1024 * 1024)
           return res
             .status(400)
