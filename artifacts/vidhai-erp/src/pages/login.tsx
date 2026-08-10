@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
 import maharishiImage from "@assets/maharishi-for-vsp_1783669693733.jpg";
-
+ 
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -16,7 +16,7 @@ export default function Login() {
   const { login } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-
+ 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -31,35 +31,44 @@ export default function Login() {
       });
     }
   };
-
+ 
   return (
-    <div className="min-h-screen flex bg-background">
-      <div className="hidden lg:flex w-1/2 items-center justify-center bg-[#EAFAF7] border-r border-border relative overflow-hidden">
-        <div className="flex flex-col items-center gap-6 px-12">
-          <img src={vidhaiLogo} alt="Vidhai logo" className="w-[420px] max-w-full object-contain" />
-          <div className="text-center">
-            <p className="text-sm tracking-[0.3em] uppercase text-[#178F80] font-semibold">Nilgiri Farm Produce</p>
-            <p className="text-xs tracking-widest uppercase text-muted-foreground mt-2">Multi-Site Production Control</p>
+    <div className="min-h-[100svh] w-full grid grid-cols-1 lg:grid-cols-2 bg-background box-border">
+      {/* Left Branding Section */}
+      <div className="hidden lg:flex flex-col items-center justify-center bg-[#EAFAF7] border-r border-border p-8 lg:p-12">
+        <div className="flex flex-col items-center justify-center gap-8 max-w-[420px] w-full">
+          <img src={vidhaiLogo} alt="Vidhai logo" className="w-full h-auto object-contain" />
+          <div className="flex flex-col items-center text-center gap-2">
+            <p className="text-sm tracking-[0.3em] uppercase text-[#178F80] font-semibold m-0">Nilgiri Farm Produce</p>
+            <p className="text-xs tracking-widest uppercase text-muted-foreground m-0">Multi-Site Production Control</p>
           </div>
         </div>
       </div>
-
-      <div className="flex w-full lg:w-1/2 flex-col items-center">
-        <div className="w-full flex items-center justify-center pt-10 pb-6 px-6">
+ 
+      {/* Right Login Section */}
+      <div className="flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 min-h-[100svh] w-full">
+        {/* ONE RESPONSIVE GROUP */}
+        <div className="w-full max-w-[400px] flex flex-col items-center gap-8">
+         
+          {/* Mobile logo */}
+          <img src={vidhaiLogo} alt="Vidhai logo" className="w-20 h-20 object-contain lg:hidden" />
+ 
+          {/* Login Image */}
           <img
             src={maharishiImage}
             alt="Maharishi"
-            className="w-full max-w-md object-cover rounded-sm"
+            className="w-full h-auto max-h-[260px] object-cover rounded-sm"
           />
-        </div>
-        <div className="w-full max-w-sm px-6 pb-10">
-          <div className="flex flex-col items-center mb-10">
-            <img src={vidhaiLogo} alt="Vidhai logo" className="w-20 h-20 object-contain mb-4 lg:hidden" />
-            <h1 className="text-2xl font-serif tracking-wider text-foreground">VIDHAI ERP</h1>
-            <p className="text-sm text-muted-foreground mt-1">Production Control Center</p>
+ 
+          {/* Heading */}
+          <div className="flex flex-col items-center text-center gap-1 w-full">
+            <h1 className="text-2xl font-serif tracking-wider text-foreground m-0">VIDHAI ERP</h1>
+            <p className="text-sm text-muted-foreground m-0">Production Control Center</p>
           </div>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
+ 
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-5">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="username" className="text-muted-foreground text-xs uppercase tracking-wider">Username</Label>
               <Input
                 id="username"
@@ -67,10 +76,10 @@ export default function Login() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
-                className="font-mono"
+                className="font-mono w-full"
               />
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="password" className="text-muted-foreground text-xs uppercase tracking-wider">Password</Label>
               <Input
                 id="password"
@@ -78,12 +87,12 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="font-mono"
+                className="font-mono w-full"
               />
             </div>
             <Button
               type="submit"
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-sm tracking-wide mt-4"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-sm tracking-wide mt-2 h-11"
               disabled={loginMutation.isPending}
             >
               {loginMutation.isPending ? "AUTHENTICATING..." : "AUTHENTICATE"}
