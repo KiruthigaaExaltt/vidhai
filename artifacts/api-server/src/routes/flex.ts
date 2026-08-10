@@ -1739,7 +1739,15 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   ).trim();
   const amount = Number(req.body.amount ?? 0);
   const poReference = String(req.body.poReference ?? "").trim();
+  const poReferences = poReference
+    .split(",")
+    .map((reference) => reference.trim())
+    .filter(Boolean);
   const grnReference = String(req.body.grnReference ?? "").trim();
+  const grnReferences = grnReference
+    .split(",")
+    .map((reference) => reference.trim())
+    .filter(Boolean);
 
   if (!invoiceNumber)
     return res
@@ -1773,48 +1781,39 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     });
   }
 
-  const [purchaseOrder] = poReference
-    ? await db
+  const purchaseOrders = poReferences.length
+    ? (await db
         .select()
         .from(purchaseOrdersTable)
-        .where(
-          and(
-            eq(purchaseOrdersTable.organizationId, org),
-            eq(purchaseOrdersTable.poNumber, poReference),
-          ),
-        )
-        .limit(1)
+        .where(eq(purchaseOrdersTable.organizationId, org)))
+        .filter((order) => poReferences.includes(order.poNumber))
     : [];
-  const [goodsReceipt] = grnReference
-    ? await db
+  const purchaseOrder = purchaseOrders[0];
+  const goodsReceipts = grnReferences.length
+    ? (await db
         .select()
         .from(goodsReceiptsTable)
-        .where(
-          and(
-            eq(goodsReceiptsTable.organizationId, org),
-            eq(goodsReceiptsTable.grnNumber, grnReference),
-          ),
-        )
-        .limit(1)
+        .where(eq(goodsReceiptsTable.organizationId, org)))
+        .filter((receipt) => grnReferences.includes(receipt.grnNumber))
     : [];
+  const goodsReceipt = goodsReceipts[0];
 
-  if (poReference && !purchaseOrder)
+  if (poReferences.length && purchaseOrders.length !== poReferences.length)
     return res
       .status(400)
       .json({ error: "Selected purchase order was not found" });
-  if (grnReference && !goodsReceipt)
+  if (grnReferences.length && goodsReceipts.length !== grnReferences.length)
     return res
       .status(400)
       .json({ error: "Selected goods receipt was not found" });
 
-  const grnPurchaseOrderIds = goodsReceipt
-    ? Array.isArray(goodsReceipt.purchaseOrderIds) &&
-      goodsReceipt.purchaseOrderIds.length
-      ? goodsReceipt.purchaseOrderIds.map(Number)
-      : goodsReceipt.purchaseOrderId
-        ? [Number(goodsReceipt.purchaseOrderId)]
-        : []
-    : [];
+  const grnPurchaseOrderIds = goodsReceipts.flatMap((receipt) =>
+    Array.isArray(receipt.purchaseOrderIds) && receipt.purchaseOrderIds.length
+      ? receipt.purchaseOrderIds.map(Number)
+      : receipt.purchaseOrderId
+        ? [Number(receipt.purchaseOrderId)]
+        : [],
+  );
   if (
     purchaseOrder &&
     goodsReceipt &&
@@ -1827,8 +1826,8 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   }
   const selectedVendorNames = [
     vendorName,
-    purchaseOrder?.vendorName,
-    goodsReceipt?.vendorName,
+    ...purchaseOrders.map((order) => order.vendorName),
+    ...goodsReceipts.map((receipt) => receipt.vendorName),
   ]
     .filter(Boolean)
     .map((name) => String(name).trim().toLowerCase());
@@ -1856,12 +1855,14 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       : undefined);
   // Only an explicitly selected PO participates in matching. A GRN-linked PO is
   // retained for traceability, but GRN-only invoices remain a 2-way comparison.
-  const poAmount = Number(purchaseOrder?.totalAmount || 0);
-  const grnAmount = goodsReceipt
-    ? (Array.isArray(goodsReceipt.lineItems)
-        ? goodsReceipt.lineItems
-        : []
-      ).reduce(
+  const poAmount = purchaseOrders.reduce(
+    (sum, order) => sum + Number(order.totalAmount || 0),
+    0,
+  );
+  const grnAmount = goodsReceipts.reduce(
+    (receiptsTotal, receipt) =>
+      receiptsTotal +
+      (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).reduce(
         (sum: number, line: any) =>
           sum +
           Number(
@@ -1869,8 +1870,9 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
               Number(line.receivedQty || 0) * Number(line.unitPrice || 0),
           ),
         0,
-      )
-    : 0;
+      ),
+    0,
+  );
   const matchStatus = calculatePurchaseInvoiceMatchStatus(
     amount,
     poAmount,
@@ -1906,7 +1908,7 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       vendorName,
       vendorAddress: String(req.body.vendorAddress ?? "").trim(),
       vendorPhone: String(req.body.vendorPhone ?? "").trim(),
-      poReference: linkedPurchaseOrder?.poNumber || poReference,
+      poReference,
       grnReference,
       purchaseOrderId: linkedPurchaseOrder?.id || null,
       goodsReceiptId: goodsReceipt?.id || null,
@@ -2040,11 +2042,21 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
     const invoice = invoiceByNumber.get(reference) as any;
     if (!invoice || bill.sourceType !== "Purchase Invoice") continue;
     const amount = Number(bill.amount || 0);
-    const paidAmount = invoice.status === "Paid"
-      ? amount
-      : completedPaymentsByInvoice.get(reference) || 0;
+    const paidAmount = Math.min(
+      amount,
+      Math.max(
+        Number(bill.paidAmount || 0),
+        completedPaymentsByInvoice.get(reference) || 0,
+      ),
+    );
     const adjustedAmount = Number(bill.adjustedAmount || 0);
     const covered = paidAmount + adjustedAmount;
+    const invoiceStatus =
+      covered >= amount - 0.005
+        ? "Paid"
+        : covered > 0
+          ? "Partially Paid"
+          : "Unpaid";
     if (
       paidAmount !== Number(bill.paidAmount || 0) ||
       (covered >= amount ? "Paid" : covered > 0 ? "Partial" : "Pending") !== bill.status
@@ -2057,6 +2069,13 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
         })
         .where(eq(accountsPayableTable.id, bill.id));
       bill.paidAmount = paidAmount;
+    }
+    if (invoice.status !== invoiceStatus) {
+      await db
+        .update(purchaseInvoicesTable)
+        .set({ status: invoiceStatus })
+        .where(eq(purchaseInvoicesTable.id, invoice.id));
+      invoice.status = invoiceStatus;
     }
   }
   const eligibleInvoiceIds = new Set(
@@ -2078,9 +2097,13 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
     const reference = String(bill.billNumber || "").trim().toLowerCase();
     const invoice = invoiceByNumber.get(reference) as any;
     const amount = Number(bill.amount || 0);
-    const paidAmount = invoice?.status === "Paid"
-      ? amount
-      : completedPaymentsByInvoice.get(reference) || 0;
+    const paidAmount = Math.min(
+      amount,
+      Math.max(
+        Number(bill.paidAmount || 0),
+        completedPaymentsByInvoice.get(reference) || 0,
+      ),
+    );
     const adjustedAmount = Number(bill.adjustedAmount || 0);
     return {
       ...bill,
@@ -2390,13 +2413,15 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
       lineItems,
       notes: String(req.body.notes ?? ""),
       attachmentName: String(req.body.attachmentName ?? ""),
-      status: String(req.body.status ?? "Requested"),
+      status: String(req.body.status ?? "Draft"),
       createdByUserId: userId,
     })
     .returning();
 
   const returnAmount = Number(created.refundAmount || 0);
-  if (returnAmount > 0) {
+  // Draft returns do not affect Accounts Payable. Accounting is posted only
+  // after the return is confirmed as Product Dispatched.
+  if (returnAmount > 0 && created.status === "Product Dispatched") {
     const requestedInvoiceReference = String(
       created.invoiceReference || "",
     ).trim();
@@ -2526,7 +2551,253 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
 
 router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
   const org = orgId(req);
+  const userId = currentUserId(req);
   const id = Number(req.params.id);
+
+  const [existingReturn] = await db
+    .select()
+    .from(purchaseReturnsTable)
+    .where(
+      and(
+        eq(purchaseReturnsTable.id, id),
+        eq(purchaseReturnsTable.organizationId, org),
+      ),
+    )
+    .limit(1);
+  if (!existingReturn)
+    return res.status(404).json({ error: "Purchase return not found" });
+
+  const requestedStatus =
+    req.body.status === undefined ? undefined : String(req.body.status);
+  if (
+    requestedStatus &&
+    !["Product Dispatched", "Rejected"].includes(requestedStatus)
+  )
+    return res.status(400).json({ error: "Invalid purchase return status" });
+  if (
+    requestedStatus &&
+    !["Draft", "Requested"].includes(String(existingReturn.status))
+  )
+    return res.status(409).json({
+      error: `This purchase return is already ${existingReturn.status}`,
+    });
+
+  if (requestedStatus === "Product Dispatched") {
+    const returnLines = Array.isArray(existingReturn.lineItems)
+      ? existingReturn.lineItems
+      : [];
+    const activeWarehouses = await db
+      .select()
+      .from(inventoryLocationsTable)
+      .where(eq(inventoryLocationsTable.isActive, true));
+    const warehouseByName = new Map(
+      activeWarehouses.map((warehouse: any) => [
+        String(warehouse.locationName).trim().toLowerCase(),
+        warehouse,
+      ]),
+    );
+    const materials = await db.select().from(materialsTable);
+    const dispatches: Array<{
+      materialId: number;
+      locationId: number;
+      inventoryId: number;
+      currentQuantity: number;
+      returnQuantity: number;
+    }> = [];
+
+    for (const line of returnLines as any[]) {
+      const returnQuantity = Number(line.returnQty || 0);
+      const material = Number(line.itemId)
+        ? materials.find((item) => Number(item.id) === Number(line.itemId))
+        : materials.find(
+            (item) =>
+              String(item.name).trim().toLowerCase() ===
+              String(line.item || line.description || "").trim().toLowerCase(),
+          );
+      const warehouse: any = warehouseByName.get(
+        String(line.warehouse || "").trim().toLowerCase(),
+      );
+      if (!material)
+        return res.status(400).json({
+          error: `${line.item || "A returned item"} was not found in Item & Product Master`,
+        });
+      if (!warehouse)
+        return res.status(400).json({
+          error: `Warehouse ${line.warehouse || ""} was not found`,
+        });
+      const [stock] = await db
+        .select()
+        .from(inventoryTable)
+        .where(
+          and(
+            eq(inventoryTable.materialId, Number(material.id)),
+            eq(inventoryTable.locationId, Number(warehouse.id)),
+          ),
+        )
+        .limit(1);
+      const currentQuantity = Number(stock?.quantityOnHand || 0);
+      const existingDispatch = dispatches.find(
+        (dispatch) =>
+          dispatch.materialId === Number(material.id) &&
+          dispatch.locationId === Number(warehouse.id),
+      );
+      const combinedReturnQuantity =
+        (existingDispatch?.returnQuantity || 0) + returnQuantity;
+      if (!stock || currentQuantity < combinedReturnQuantity)
+        return res.status(400).json({
+          error: `Only ${currentQuantity} units of ${material.name} are available in ${warehouse.locationName}`,
+        });
+      if (existingDispatch) {
+        existingDispatch.returnQuantity = combinedReturnQuantity;
+      } else {
+        dispatches.push({
+          materialId: Number(material.id),
+          locationId: Number(warehouse.id),
+          inventoryId: Number(stock.id),
+          currentQuantity,
+          returnQuantity,
+        });
+      }
+    }
+
+    for (const dispatch of dispatches) {
+      await db
+        .update(inventoryTable)
+        .set({
+          quantityOnHand: String(
+            dispatch.currentQuantity - dispatch.returnQuantity,
+          ),
+          lastUpdated: new Date(),
+        })
+        .where(eq(inventoryTable.id, dispatch.inventoryId));
+      await db.insert(inventoryMovementsTable).values({
+        materialId: dispatch.materialId,
+        fromLocationId: dispatch.locationId,
+        toLocationId: null,
+        quantityKg: String(dispatch.returnQuantity),
+        reason: "Purchase Return",
+        notes: `Product dispatched for ${existingReturn.returnNumber}`,
+        createdByUserId: userId,
+      });
+    }
+
+    const returnAmount = Number(existingReturn.refundAmount || 0);
+    const invoiceReference = String(
+      existingReturn.invoiceReference || "",
+    ).trim();
+    const [linkedInvoice] = invoiceReference
+      ? await db
+          .select()
+          .from(purchaseInvoicesTable)
+          .where(
+            and(
+              eq(purchaseInvoicesTable.organizationId, org),
+              eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
+            ),
+          )
+          .limit(1)
+      : [];
+    const againstBillNumber = String(
+      linkedInvoice?.invoiceNumber || invoiceReference,
+    );
+
+    if (returnAmount > 0 && againstBillNumber) {
+      let [bill] = await db
+        .select()
+        .from(accountsPayableTable)
+        .where(
+          and(
+            eq(accountsPayableTable.organizationId, org),
+            eq(accountsPayableTable.billNumber, againstBillNumber),
+            eq(accountsPayableTable.vendorName, existingReturn.vendorName),
+          ),
+        )
+        .limit(1);
+
+      if (!bill && linkedInvoice) {
+        const invoiceAmount = Number(linkedInvoice.amount || 0);
+        const invoiceIsPaid =
+          String(linkedInvoice.status).trim().toLowerCase() === "paid";
+        [bill] = await db
+          .insert(accountsPayableTable)
+          .values({
+            organizationId: org,
+            vendorName: existingReturn.vendorName,
+            billNumber: againstBillNumber,
+            billDate: linkedInvoice.invoiceDate,
+            dueDate: linkedInvoice.dueDate || linkedInvoice.invoiceDate,
+            amount: invoiceAmount,
+            paidAmount: invoiceIsPaid ? invoiceAmount : 0,
+            adjustedAmount: 0,
+            status: invoiceIsPaid ? "Paid" : "Pending",
+            entryType: "Bill",
+            notes: `From invoice ${againstBillNumber}`,
+            sourceType: "Purchase Invoice",
+            sourceId: linkedInvoice.id,
+          })
+          .returning();
+      }
+
+      if (bill) {
+        const billAmount = Number(bill.amount || 0);
+        const paidAmount = Number(bill.paidAmount || 0);
+        const previousAdjustment = Number(bill.adjustedAmount || 0);
+        const isPaid =
+          String(bill.status).trim().toLowerCase() === "paid" ||
+          paidAmount >= billAmount - 0.005;
+
+        if (isPaid) {
+          const existingDebitNotes = await db
+            .select()
+            .from(accountsPayableTable)
+            .where(eq(accountsPayableTable.organizationId, org));
+          const alreadyPosted = existingDebitNotes.some(
+            (entry: any) =>
+              entry.entryType === "Debit Note" &&
+              entry.sourceType === "Purchase Return" &&
+              Number(entry.sourceId) === Number(existingReturn.id),
+          );
+          if (!alreadyPosted) {
+            await db.insert(accountsPayableTable).values({
+              organizationId: org,
+              vendorName: existingReturn.vendorName,
+              billNumber: existingReturn.returnNumber,
+              againstBillNumber,
+              billDate: existingReturn.returnDate,
+              dueDate: existingReturn.returnDate,
+              amount: returnAmount,
+              paidAmount: 0,
+              adjustedAmount: returnAmount,
+              status: "Paid",
+              entryType: "Debit Note",
+              notes: `Purchase return ${existingReturn.returnNumber}: ${existingReturn.reason}`,
+              sourceType: "Purchase Return",
+              sourceId: existingReturn.id,
+            });
+          }
+        } else {
+          const outstanding = Math.max(
+            0,
+            billAmount - paidAmount - previousAdjustment,
+          );
+          const adjustedAmount =
+            previousAdjustment + Math.min(returnAmount, outstanding);
+          await db
+            .update(accountsPayableTable)
+            .set({
+              adjustedAmount,
+              status:
+                paidAmount + adjustedAmount >= billAmount
+                  ? "Paid"
+                  : paidAmount > 0 || adjustedAmount > 0
+                    ? "Partial"
+                    : "Pending",
+            })
+            .where(eq(accountsPayableTable.id, bill.id));
+        }
+      }
+    }
+  }
 
   const updates: Record<string, unknown> = {};
   for (const key of [

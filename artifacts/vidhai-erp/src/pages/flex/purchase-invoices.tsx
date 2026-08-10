@@ -27,6 +27,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus,
   Search,
@@ -40,6 +50,7 @@ import {
   Paperclip,
   Trash2,
   Calendar as CalendarIcon,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -162,8 +173,10 @@ export default function PurchaseInvoices() {
   const [invoiceDate, setInvoiceDate] = useState(
     new Date().toISOString().split("T")[0],
   );
-  const [mappedPo, setMappedPo] = useState("");
-  const [mappedGrn, setMappedGrn] = useState("");
+  const [mappedPos, setMappedPos] = useState<string[]>([]);
+  const [poPickerOpen, setPoPickerOpen] = useState(false);
+  const [mappedGrns, setMappedGrns] = useState<string[]>([]);
+  const [grnPickerOpen, setGrnPickerOpen] = useState(false);
   const [vendor, setVendor] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
@@ -202,8 +215,8 @@ export default function PurchaseInvoices() {
 
   const resetForm = () => {
     setInvoiceNumber("");
-    setMappedPo("");
-    setMappedGrn("");
+    setMappedPos([]);
+    setMappedGrns([]);
     setVendor("");
     setVendorAddress("");
     setVendorPhone("");
@@ -316,12 +329,13 @@ export default function PurchaseInvoices() {
   }, [invoiceNumber, vendor, invoices]);
 
   const mappedGrnAmount = useMemo(() => {
-    const receipt = goodsReceipts.find(
-      (grn: any) => grn.grnNumber === mappedGrn,
+    const selectedReceipts = goodsReceipts.filter((grn: any) =>
+      mappedGrns.includes(String(grn.grnNumber)),
     );
-    if (!receipt) return 0;
-    const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
-    const lineAmount = lines.reduce((sum: number, line: any) => {
+    if (!selectedReceipts.length) return 0;
+    const receiptAmount = (receipt: any) => {
+      const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
+      const lineAmount = lines.reduce((sum: number, line: any) => {
       const quantity = Number(
         line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
       );
@@ -338,15 +352,147 @@ export default function PurchaseInvoices() {
             quantity * rate * (1 + taxPercent / 100),
         )
       );
-    }, 0);
-    const storedAmount = Number(receipt.totalAmount || 0);
-    if (storedAmount > 0) return storedAmount;
-    if (lineAmount > 0) return lineAmount;
+      }, 0);
+      const storedAmount = Number(receipt.totalAmount || 0);
+      return storedAmount > 0 ? storedAmount : lineAmount;
+    };
+    const total = selectedReceipts.reduce(
+      (sum: number, receipt: any) => sum + receiptAmount(receipt),
+      0,
+    );
+    if (total > 0) return total;
 
     // Older GRNs can have a zero stored amount even though their mapped
     // invoice lines now contain a valid rate and tax calculation.
     return calculatedInvoiceAmount;
-  }, [goodsReceipts, mappedGrn, calculatedInvoiceAmount]);
+  }, [goodsReceipts, mappedGrns, calculatedInvoiceAmount]);
+
+  const togglePurchaseOrder = (poNumber: string) => {
+    const nextReferences = mappedPos.includes(poNumber)
+      ? mappedPos.filter((reference) => reference !== poNumber)
+      : [...mappedPos, poNumber];
+    const selectedOrders = purchaseOrders.filter((order: any) =>
+      nextReferences.includes(String(order.poNumber)),
+    );
+    const vendorNames = new Set(
+      selectedOrders
+        .map((order: any) => String(order.vendor || "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+    if (vendorNames.size > 1) {
+      toast.error("Only purchase orders from the same vendor can be selected.");
+      return;
+    }
+
+    setMappedGrns([]);
+    setMappedPos(nextReferences);
+    const firstOrder = selectedOrders[0];
+    if (!firstOrder) {
+      setLineItems([]);
+      return;
+    }
+    setVendor(firstOrder.vendor || "");
+    const vendorRecord = vendorsList.find(
+      (option) =>
+        String(option.id) === String(firstOrder.vendorId) ||
+        option.name === firstOrder.vendor,
+    );
+    setVendorAddress(vendorRecord?.address || "");
+    setVendorPhone(vendorRecord?.phone || "");
+    setLineItems(
+      selectedOrders.flatMap((order: any) =>
+        (Array.isArray(order.lineItems) ? order.lineItems : []).map(
+          (line: any, index: number) => {
+            const qty = Number(line.qty ?? line.quantity ?? 0);
+            const price = Number(line.rate ?? line.price ?? 0);
+            const cgstPct = Number(line.cgstPct ?? line.cgstPercent ?? 0);
+            const sgstPct = Number(line.sgstPct ?? line.sgstPercent ?? 0);
+            const igstPct = Number(line.igstPct ?? line.igstPercent ?? 0);
+            const base = qty * price;
+            return {
+              id: `${order.id}-${line.id ?? index}`,
+              itemId: Number(line.itemId) || undefined,
+              item: String(line.description ?? line.item ?? ""),
+              qty,
+              price,
+              cgstPct,
+              sgstPct,
+              igstPct,
+              total: Number(
+                line.total ??
+                  base * (1 + (cgstPct + sgstPct + igstPct) / 100),
+              ),
+              source: order.poNumber,
+            };
+          },
+        ),
+      ),
+    );
+  };
+
+  const toggleGoodsReceipt = (grnNumber: string) => {
+    const isSelected = mappedGrns.includes(grnNumber);
+    const nextReferences = isSelected
+      ? mappedGrns.filter((reference) => reference !== grnNumber)
+      : [...mappedGrns, grnNumber];
+    const selectedReceipts = goodsReceipts.filter((receipt: any) =>
+      nextReferences.includes(String(receipt.grnNumber)),
+    );
+    const vendorNames = new Set(
+      selectedReceipts
+        .map((receipt: any) => String(receipt.vendor || "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+    if (vendorNames.size > 1) {
+      toast.error("Only goods receipts from the same vendor can be selected.");
+      return;
+    }
+
+    setMappedPos([]);
+    setMappedGrns(nextReferences);
+    const firstReceipt = selectedReceipts[0];
+    if (!firstReceipt) {
+      setLineItems([]);
+      return;
+    }
+    setVendor(firstReceipt.vendor || "");
+    const vendorRecord = vendorsList.find(
+      (option) =>
+        String(option.id) === String(firstReceipt.vendorId) ||
+        option.name === firstReceipt.vendor,
+    );
+    setVendorAddress(vendorRecord?.address || "");
+    setVendorPhone(vendorRecord?.phone || "");
+    setLineItems(
+      selectedReceipts.flatMap((receipt: any) => {
+        const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
+        return lines.map((line: any, index: number) => {
+          const qty = Number(line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0);
+          const price = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
+          const cgstPct = Number(line.cgstPct ?? line.cgstPercent ?? 0);
+          const sgstPct = Number(line.sgstPct ?? line.sgstPercent ?? 0);
+          const igstPct = Number(line.igstPct ?? line.igstPercent ?? 0);
+          const base = qty * price;
+          return {
+            id: `${receipt.id}-${line.id ?? index}`,
+            itemId: Number(line.itemId) || undefined,
+            item: String(line.description ?? line.itemName ?? line.item ?? ""),
+            qty,
+            price,
+            cgstPct,
+            sgstPct,
+            igstPct,
+            total: Number(
+              line.lineTotal ??
+                line.total ??
+                base * (1 + (cgstPct + sgstPct + igstPct) / 100),
+            ),
+            source: receipt.grnNumber,
+          };
+        });
+      }),
+    );
+  };
 
   useEffect(() => {
     if (lineItems.length) {
@@ -384,8 +530,8 @@ export default function PurchaseInvoices() {
       vendorId: vendorRecord?.id || "",
       vendorAddress: vendorAddress.trim(),
       vendorPhone: vendorPhone.trim(),
-      poReference: mappedPo,
-      grnReference: mappedGrn,
+      poReference: mappedPos.join(","),
+      grnReference: mappedGrns.join(","),
       amount,
       lineItems: lineItems.map(({ id, ...line }) => line),
       invoiceDate,
@@ -773,82 +919,53 @@ export default function PurchaseInvoices() {
                     <Label className="text-xs font-bold text-slate-700 mb-1 block">
                       {FLEX_TEXT.mapPurchaseOrderS}
                     </Label>
-                    <Select
-                      value={mappedPo}
-                      onValueChange={(value) => {
-                        setMappedPo(value);
-                        const po = purchaseOrders.find(
-                          (order: any) => order.poNumber === value,
-                        );
-                        if (po) {
-                          setVendor(po.vendor || "");
-                          setInvoiceTotalAmount(String(po.grandTotal || 0));
-                          const poLines = Array.isArray(po.lineItems)
-                            ? po.lineItems
-                            : [];
-                          setLineItems(
-                            poLines.map((line: any, index: number) => {
-                              const qty = Number(
-                                line.qty ?? line.quantity ?? 0,
-                              );
-                              const price = Number(
-                                line.rate ?? line.price ?? 0,
-                              );
-                              const cgstPct = Number(
-                                line.cgstPct ?? line.cgstPercent ?? 0,
-                              );
-                              const sgstPct = Number(
-                                line.sgstPct ?? line.sgstPercent ?? 0,
-                              );
-                              const igstPct = Number(
-                                line.igstPct ?? line.igstPercent ?? 0,
-                              );
-                              const base = qty * price;
-                              return {
-                                id: `${po.id}-${line.id ?? index}`,
-                                itemId: Number(line.itemId) || undefined,
-                                item: String(
-                                  line.description ?? line.item ?? "",
-                                ),
-                                qty,
-                                price,
-                                cgstPct,
-                                sgstPct,
-                                igstPct,
-                                total: Number(
-                                  line.total ??
-                                    base *
-                                      (1 + (cgstPct + sgstPct + igstPct) / 100),
-                                ),
-                                source: po.poNumber,
-                              };
-                            }),
-                          );
-                          const vendorRecord = vendorsList.find(
-                            (option) =>
-                              String(option.id) === String(po.vendorId) ||
-                              option.name === po.vendor,
-                          );
-                          setVendorAddress(vendorRecord?.address || "");
-                          setVendorPhone(vendorRecord?.phone || "");
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-10 text-xs bg-white border-slate-200 rounded-lg">
-                        <SelectValue
-                          placeholder={
-                            FLEX_TEXT.typeToFilterAndSelectPurchaseOrderS
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {purchaseOrders.map((po: any) => (
-                          <SelectItem key={po.id} value={po.poNumber}>
-                            {po.poNumber} ({po.vendor})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={poPickerOpen} onOpenChange={setPoPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={poPickerOpen}
+                          className="h-10 w-full justify-between bg-white border-slate-200 rounded-lg px-3 text-xs font-normal"
+                        >
+                          <span className="truncate text-left">
+                            {mappedPos.length
+                              ? `${mappedPos.length} purchase order${mappedPos.length === 1 ? "" : "s"} selected`
+                              : FLEX_TEXT.typeToFilterAndSelectPurchaseOrderS}
+                          </span>
+                          <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="w-[var(--radix-popover-trigger-width)] p-0"
+                        align="start"
+                      >
+                        <Command>
+                          <CommandInput placeholder={FLEX_TEXT.typeToFilter} />
+                          <CommandList>
+                            <CommandEmpty>No purchase orders found.</CommandEmpty>
+                            <CommandGroup>
+                              {purchaseOrders.map((po: any) => {
+                                const reference = String(po.poNumber);
+                                return (
+                                  <CommandItem
+                                    key={po.id}
+                                    value={`${reference} ${po.vendor}`}
+                                    onSelect={() => togglePurchaseOrder(reference)}
+                                  >
+                                    <Checkbox
+                                      checked={mappedPos.includes(reference)}
+                                      tabIndex={-1}
+                                    />
+                                    <span>{reference} ({po.vendor})</span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     <p className="text-[11px] text-slate-400 mt-1">
                       {FLEX_TEXT.sameVendorOnlyPoAmountsAreSummedForMatching}
                     </p>
@@ -859,84 +976,51 @@ export default function PurchaseInvoices() {
                     <Label className="text-xs font-bold text-slate-700 mb-1 block">
                       {FLEX_TEXT.mapGoodsReceiptS}
                     </Label>
-                    <Select
-                      value={mappedGrn}
-                      onValueChange={(value) => {
-                        setMappedGrn(value);
-                        const grn = goodsReceipts.find(
-                          (receipt: any) => receipt.grnNumber === value,
-                        );
-                        if (grn) {
-                          setVendor(grn.vendor || "");
-                          const vendorRecord = vendorsList.find(
-                            (option) =>
-                              String(option.id) === String(grn.vendorId) ||
-                              option.name === grn.vendor,
-                          );
-                          setVendorAddress(vendorRecord?.address || "");
-                          setVendorPhone(vendorRecord?.phone || "");
-                          const grnLines = Array.isArray(grn.lineItems)
-                            ? grn.lineItems
-                            : [];
-                          setLineItems(
-                            grnLines.map((line: any, index: number) => {
-                              const qty = Number(
-                                line.acceptedQty ?? line.receivedQty ?? 0,
-                              );
-                              const price = Number(
-                                line.rate ?? line.unitPrice ?? 0,
-                              );
-                              const cgstPct = Number(
-                                line.cgstPct ?? line.cgstPercent ?? 0,
-                              );
-                              const sgstPct = Number(
-                                line.sgstPct ?? line.sgstPercent ?? 0,
-                              );
-                              const igstPct = Number(
-                                line.igstPct ?? line.igstPercent ?? 0,
-                              );
-                              const base = qty * price;
-                              return {
-                                id: `${grn.id}-${line.id ?? index}`,
-                                itemId: Number(line.itemId) || undefined,
-                                item: String(
-                                  line.description ?? line.itemName ?? "",
-                                ),
-                                qty,
-                                price,
-                                cgstPct,
-                                sgstPct,
-                                igstPct,
-                                total: Number(
-                                  line.lineTotal ??
-                                    base *
-                                      (1 + (cgstPct + sgstPct + igstPct) / 100),
-                                ),
-                                source: grn.grnNumber,
-                              };
-                            }),
-                          );
-                          setInvoiceTotalAmount(
-                            String(Number(grn.totalAmount || 0)),
-                          );
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-10 text-xs bg-white border-slate-200 rounded-lg">
-                        <SelectValue
-                          placeholder={
-                            FLEX_TEXT.typeToFilterAndSelectGoodsReceiptS
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {goodsReceipts.map((grn: any) => (
-                          <SelectItem key={grn.id} value={grn.grnNumber}>
-                            {grn.grnNumber} ({grn.vendor})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={grnPickerOpen} onOpenChange={setGrnPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={grnPickerOpen}
+                          className="h-10 w-full justify-between bg-white border-slate-200 rounded-lg px-3 text-xs font-normal"
+                        >
+                          <span className="truncate text-left">
+                            {mappedGrns.length
+                              ? `${mappedGrns.length} goods receipt${mappedGrns.length === 1 ? "" : "s"} selected`
+                              : FLEX_TEXT.typeToFilterAndSelectGoodsReceiptS}
+                          </span>
+                          <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="w-[var(--radix-popover-trigger-width)] p-0"
+                        align="start"
+                      >
+                        <Command>
+                          <CommandInput placeholder={FLEX_TEXT.typeToFilter} />
+                          <CommandList>
+                            <CommandEmpty>No goods receipts found.</CommandEmpty>
+                            <CommandGroup>
+                              {goodsReceipts.map((grn: any) => {
+                                const reference = String(grn.grnNumber);
+                                const checked = mappedGrns.includes(reference);
+                                return (
+                                  <CommandItem
+                                    key={grn.id}
+                                    value={`${reference} ${grn.vendor}`}
+                                    onSelect={() => toggleGoodsReceipt(reference)}
+                                  >
+                                    <Checkbox checked={checked} tabIndex={-1} />
+                                    <span>{reference} ({grn.vendor})</span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     <p className="text-[11px] text-slate-400 mt-1">
                       {FLEX_TEXT.sameVendorOnlyGrnAmountsAreSummedForMatching}
                     </p>
@@ -1202,11 +1286,16 @@ export default function PurchaseInvoices() {
                       </div>
                       <div className="text-sm font-bold text-slate-800 mt-0.5">
                         {"\u20B9"}{" "}
-                        {Number(
-                          purchaseOrders.find(
-                            (po: any) => po.poNumber === mappedPo,
-                          )?.grandTotal || 0,
-                        ).toLocaleString("en-IN")}
+                        {purchaseOrders
+                          .filter((po: any) =>
+                            mappedPos.includes(String(po.poNumber)),
+                          )
+                          .reduce(
+                            (sum: number, po: any) =>
+                              sum + Number(po.grandTotal || po.totalAmount || 0),
+                            0,
+                          )
+                          .toLocaleString("en-IN")}
                       </div>
                     </div>
                     <div>

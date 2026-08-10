@@ -151,4 +151,5 @@ allowBuilds:allowBuilds:
   esbuild: true
 
 allowBuilds:
+  core-js: true
   esbuild: true

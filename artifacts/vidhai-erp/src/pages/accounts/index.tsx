@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { BookOpen, CreditCard, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { BookOpen, CreditCard, DollarSign, Plus, RefreshCw, Trash2 } from "lucide-react";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -299,6 +299,18 @@ export default function Accounts() {
       setSubmitting(false);
     }
   };
+  const openSettlement = (kind: "ap" | "ar", row: any) => {
+    const paidField = kind === "ap" ? "paidAmount" : "receivedAmount";
+    const balance = Math.max(
+      0,
+      numberValue(row.amount) -
+        numberValue(row[paidField]) -
+        numberValue(row.adjustedAmount),
+    );
+    setSettlement({ kind, row });
+    setSettlementAmount(balance.toFixed(2));
+    setError("");
+  };
   const openPayment = (row: any) => {
     setPaymentAr(row);
     setPaymentAmount(String(outstanding(row)));
@@ -546,6 +558,32 @@ export default function Accounts() {
                         ),
                     ],
                     ["Status", "status"],
+                    [
+                      "Actions",
+                      "actions",
+                      (_value, row) => {
+                        const balance = Math.max(
+                          0,
+                          numberValue(row.amount) -
+                            numberValue(row.paidAmount) -
+                            numberValue(row.adjustedAmount),
+                        );
+                        return balance > 0 ? (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                            title="Record payment"
+                            aria-label={`Record payment for ${row.billNumber}`}
+                            disabled={submitting}
+                            onClick={() => openSettlement("ap", row)}
+                          >
+                            <DollarSign className="h-4 w-4" />
+                          </Button>
+                        ) : null;
+                      },
+                    ],
                   ]}
                 />
               </TabsContent>
@@ -1128,6 +1166,81 @@ export default function Accounts() {
               </Button>
               <Button onClick={() => void submitManual()} disabled={submitting}>
                 {submitting ? "Saving..." : "Save Entry"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={settlement?.kind === "ap"}
+          onOpenChange={(open) => {
+            if (!open && !submitting) {
+              setSettlement(null);
+              setSettlementAmount("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg rounded-2xl p-6">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-500">
+                  <DollarSign className="h-5 w-5" />
+                </span>
+                Record Payment
+              </DialogTitle>
+            </DialogHeader>
+            {settlement?.kind === "ap" && (
+              <div className="space-y-5 py-2">
+                <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Total Amount</p>
+                    <p className="font-semibold">{inr(settlement.row.amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Already Paid</p>
+                    <p className="font-semibold text-emerald-600">{inr(settlement.row.paidAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Balance</p>
+                    <p className="font-semibold text-red-500">
+                      {inr(
+                        Math.max(
+                          0,
+                          numberValue(settlement.row.amount) -
+                            numberValue(settlement.row.paidAmount) -
+                            numberValue(settlement.row.adjustedAmount),
+                        ),
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ap-payment-amount">Payment Amount (₹)</Label>
+                  <Input
+                    id="ap-payment-amount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={settlementAmount}
+                    onChange={(event) => setSettlementAmount(event.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setSettlement(null)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="bg-red-500 hover:bg-red-600"
+                onClick={() => void saveSettlement()}
+                disabled={submitting || !settlementAmount}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {submitting ? "Recording..." : "Record Payment"}
               </Button>
             </DialogFooter>
           </DialogContent>

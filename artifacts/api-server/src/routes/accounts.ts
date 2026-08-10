@@ -10,6 +10,7 @@ import {
   eq,
   journalEntriesTable,
   journalLinesTable,
+  purchaseInvoicesTable,
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 const router = Router(),
@@ -716,6 +717,38 @@ for (const c of [
       })
       .where(eq(c.t.id, o.id))
       .returning();
+    if (c.p === "ap" && x.entryType !== "Debit Note") {
+      const invoices = await db
+        .select()
+        .from(purchaseInvoicesTable)
+        .where(eq(purchaseInvoicesTable.organizationId, r.acc.org));
+      const linkedInvoice = invoices.find(
+        (invoice: any) =>
+          (x.sourceType === "Purchase Invoice" &&
+            Number(x.sourceId) === Number(invoice.id)) ||
+          (String(invoice.invoiceNumber).trim().toLowerCase() ===
+            String(x.billNumber).trim().toLowerCase() &&
+            String(invoice.vendorName).trim().toLowerCase() ===
+              String(x.vendorName).trim().toLowerCase()),
+      );
+      if (linkedInvoice) {
+        const invoiceAmount = m(linkedInvoice.amount);
+        const invoiceCovered = Math.min(
+          invoiceAmount,
+          m(x.paidAmount) + m(x.adjustedAmount),
+        );
+        const invoiceStatus =
+          invoiceCovered >= invoiceAmount - 0.005
+            ? "Paid"
+            : invoiceCovered > 0
+              ? "Partially Paid"
+              : "Unpaid";
+        await db
+          .update(purchaseInvoicesTable)
+          .set({ status: invoiceStatus })
+          .where(eq(purchaseInvoicesTable.id, linkedInvoice.id));
+      }
+    }
     s.json(x);
   });
   router.delete(`/${c.p}/:id`, async (r: any, s): Promise<any> => {

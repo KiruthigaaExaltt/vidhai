@@ -35,6 +35,8 @@ import {
   ChevronRight,
   Printer,
   Paperclip,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -102,6 +104,18 @@ async function createPurchaseReturn(payload: any) {
     throw new Error(body.error || FLEX_TEXT.failedToInitiateReturn);
   }
   return res.json();
+}
+
+async function updatePurchaseReturnStatus(id: number, status: string) {
+  const res = await fetch(`${BASE}/api/flex/purchase-returns/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ status }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Failed to update purchase return");
+  return body;
 }
 
 export default function PurchaseReturns() {
@@ -187,6 +201,24 @@ export default function PurchaseReturns() {
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      updatePurchaseReturnStatus(id, status),
+    onSuccess: (updated: PurchaseReturnItem) => {
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/purchase-returns"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+      toast.success(
+        updated.status === "Product Dispatched"
+          ? "Return confirmed and product dispatched"
+          : "Purchase return rejected",
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const filtered = useMemo(() => {
     return returnsList.filter((ret) => {
       const matchesVendor =
@@ -241,7 +273,7 @@ export default function PurchaseReturns() {
       lineItems: validLines,
       notes: notes.trim(),
       attachmentName,
-      status: "Requested",
+      status: "Draft",
     });
   };
 
@@ -476,6 +508,36 @@ export default function PurchaseReturns() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
+                          {(ret.status === "Draft" || ret.status === "Requested") && (
+                            <div className="inline-flex items-center gap-1 mr-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-7 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                disabled={statusMutation.isPending}
+                                onClick={() =>
+                                  statusMutation.mutate({
+                                    id: ret.id,
+                                    status: "Product Dispatched",
+                                  })
+                                }
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Confirm
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-7 gap-1 border-red-300 text-red-600 hover:bg-red-50"
+                                disabled={statusMutation.isPending}
+                                onClick={() =>
+                                  statusMutation.mutate({ id: ret.id, status: "Rejected" })
+                                }
+                              >
+                                <XCircle className="w-3.5 h-3.5" /> Reject
+                              </Button>
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={() => handlePrintReturn(ret)}

@@ -88,7 +88,7 @@ function receiptPurchaseOrderKeys(receipt: GoodsReceiptItem): string[] {
       ? [receipt.purchaseOrderId]
       : [];
   if (ids.length) return ids.map((id) => `id:${id}`);
-  return receipt.poNumber
+  return String(receipt.poNumber || "")
     .split(",")
     .map((poNumber) => `number:${poNumber.trim().toLowerCase()}`)
     .filter((key) => key !== "number:");
@@ -110,15 +110,15 @@ async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
   const data = await res.json();
   return (data || []).map((g: any) => ({
     id: g.id,
-    vendorId: g.vendorId || "",
-    vendor: g.vendor,
-    grnNumber: g.grnNumber,
-    poNumber: g.poReference,
-    receivedDate: g.receivedDate,
-    receivedBy: g.inspectedBy || "",
-    receivedOrdered: g.itemsReceived || "",
+    vendorId: String(g.vendorId || ""),
+    vendor: String(g.vendor || ""),
+    grnNumber: String(g.grnNumber || ""),
+    poNumber: String(g.poReference || g.poNumber || ""),
+    receivedDate: String(g.receivedDate || ""),
+    receivedBy: String(g.inspectedBy || g.receivedBy || ""),
+    receivedOrdered: String(g.itemsReceived || ""),
     pending: "",
-    status: g.status,
+    status: String(g.status || "Pending"),
     purchaseOrderId: g.purchaseOrderId,
     purchaseOrderIds:
       g.purchaseOrderIds || (g.purchaseOrderId ? [g.purchaseOrderId] : []),
