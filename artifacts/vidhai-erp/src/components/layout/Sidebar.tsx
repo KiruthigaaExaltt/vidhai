@@ -25,6 +25,7 @@ import {
   Download,
   Banknote,
   Building2,
+  Landmark,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
@@ -173,6 +174,9 @@ export function Sidebar() {
           <NavItem href="/crewpay" icon={Banknote} label="CrewPay" />
         )}
         <NavItem href="/sales" icon={ShoppingCart} label="Sales" />
+        {can("accounts.finance_dashboard.view") && (
+          <NavItem href="/accounts" icon={Landmark} label="Accounts" />
+        )}
         <NavItem href="/fleet" icon={Truck} label="Vehicle Fleet" />
         <NavItem href="/reports" icon={BarChart2} label="Reports" />
         <NavItem href="/traceability" icon={GitBranch} label="Traceability" />
