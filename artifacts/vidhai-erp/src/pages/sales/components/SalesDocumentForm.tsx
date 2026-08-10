@@ -231,6 +231,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
   const [status, setStatus] = useState<string>("Draft");
   const [versions, setVersions] = useState<any[]>([]);
   const [sendOpen, setSendOpen] = useState(false);
+  const [responseAction, setResponseAction] = useState<"confirm" | "reject" | null>(null);
   const [sendMessage, setSendMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ title: string; message: string; success?: boolean } | null>(null);
@@ -253,8 +254,18 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
     const result = await response.json().catch(() => ({}));
     if (!response.ok) return setFeedback({ title: "Unable to update response", message: result.error || "Request failed" });
     setStatus(result.status);
-    setFeedback({ title: action === "confirm" ? `${documentLabel} approved` : `${documentLabel} rejected`, message: `Customer response was recorded as ${result.status}.`, success: true });
     onSaved?.(result);
+  };
+
+  const confirmCustomerResponse = async () => {
+    if (!responseAction) return;
+    setSaving(true);
+    try {
+      await handleCustomerResponse(responseAction);
+      setResponseAction(null);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const mapSalesSource = async (source: "quotation" | "proforma" | "challan", sourceId: string) => {
@@ -550,9 +561,6 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
       setStatus(result.status);
       if (!isChallan && !isReturn) await loadVersions(targetId!);
       setSendOpen(false);
-      if (!isQuotation && !isProforma) {
-        setFeedback({ title: forSend ? (isChallan ? `${documentLabel} dispatched` : isReturn ? `${documentLabel} confirmed` : `${documentLabel} sent`) : "Draft saved", message: `${result.returnNumber || result.invoiceNumber || result.dcNumber || result.piNumber || result.quotationNumber || result.quoteNumber} was saved as ${result.versionLabel || result.status}.`, success: true });
-      }
       onSaved?.(result);
       
       if (forSend && openWhatsApp) {
@@ -655,7 +663,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
         <Card className="border-primary/20 bg-primary/5">
           <CardContent className="flex items-center justify-between gap-4 p-5">
             <div><Label className="font-semibold">Customer Response</Label><p className="text-xs text-muted-foreground">{isReturn ? "Confirmation records the goods as received and adds physical items back to inventory." : "Confirmation is available only after the document is sent."}</p></div>
-            <div className="flex gap-2"><Button onClick={() => void handleCustomerResponse("confirm")}>Confirm</Button><Button variant="destructive" onClick={() => void handleCustomerResponse("reject")}>Reject</Button></div>
+            <div className="flex gap-2"><Button onClick={() => setResponseAction("confirm")}>Confirm</Button><Button variant="destructive" onClick={() => setResponseAction("reject")}>Reject</Button></div>
           </CardContent>
         </Card>
       )}
@@ -718,7 +726,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
               )}
 
 
-              {(isChallan || isInvoice) && (
+              {isChallan && (
                 <div className="space-y-1.5 mt-4">
                   <Label className="text-xs">Shipping Address</Label>
                   <Select>
@@ -778,7 +786,7 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
           <div className="flex h-11 items-center rounded-md border bg-muted/35 px-3 text-sm font-medium">{status}</div>
           <p className="text-[10px] text-muted-foreground">Status updates automatically based on your actions.</p>
         </div>
-        <div className="space-y-1.5 md:col-span-2">
+        <div className="w-full space-y-1.5 md:max-w-md">
           <Label className="text-xs">WhatsApp Number <span className="text-primary">*</span></Label>
           <Input className="h-11" placeholder="10-digit WhatsApp number" value={customerWhatsapp} onChange={(e) => setCustomerWhatsapp(e.target.value)} />
           <p className="text-[10px] text-muted-foreground">Auto-filled from contacts when client changes. Editable before sharing the {documentLabel.toLowerCase()}.</p>
@@ -1149,6 +1157,27 @@ export function SalesDocumentForm({ type, onCancel, onSaved, documentId }: Sales
             <div><Label>Message</Label><textarea className="mt-1 min-h-32 w-full rounded-md border p-3 text-sm" value={sendMessage || `Dear ${clientName},\n\nPlease find ${type.toLowerCase()} ${quotationNumber} for Rs ${grandTotal.toFixed(2)}. Valid until ${validUntil}.`} onChange={e => setSendMessage(e.target.value)} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setSendOpen(false)}>Cancel</Button><Button variant="outline" disabled={saving} onClick={() => void handleSave(true, false)}>{isChallan ? "Dispatch" : "Save as Sent"}</Button><Button disabled={saving} onClick={() => void handleSave(true, true)}>{isChallan ? "Dispatch & Open WhatsApp" : "Open WhatsApp"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(responseAction)} onOpenChange={open => { if (!open && !saving) setResponseAction(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{responseAction === "confirm" ? `Confirm ${documentLabel}` : `Reject ${documentLabel}`}</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              {responseAction === "confirm"
+                ? isReturn
+                  ? "Confirm receipt of this return? Inventory and Credit Note automation will be processed."
+                  : `Confirm customer approval of this ${documentLabel.toLowerCase()}?`
+                : `Reject this ${documentLabel.toLowerCase()}? This action will lock the document.`}
+            </p>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResponseAction(null)} disabled={saving}>Cancel</Button>
+            <Button variant={responseAction === "reject" ? "destructive" : "default"} onClick={() => void confirmCustomerResponse()} disabled={saving}>
+              {saving ? "Processing..." : responseAction === "confirm" ? "Confirm" : "Reject"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

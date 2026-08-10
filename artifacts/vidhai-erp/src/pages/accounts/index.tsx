@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { BookOpen, CreditCard, RefreshCw, SlidersHorizontal, Trash2 } from "lucide-react";
+import { BookOpen, CreditCard, RefreshCw, Trash2 } from "lucide-react";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -55,9 +55,6 @@ export default function Accounts() {
     [error, setError] = useState(""),
     [paymentAr, setPaymentAr] = useState<any | null>(null),
     [paymentAmount, setPaymentAmount] = useState(""),
-    [adjustmentAr, setAdjustmentAr] = useState<any | null>(null),
-    [adjustmentAmount, setAdjustmentAmount] = useState(""),
-    [adjustmentReason, setAdjustmentReason] = useState(""),
     [submitting, setSubmitting] = useState(false);
   const load = async () => {
     setLoading(true);
@@ -120,30 +117,6 @@ export default function Accounts() {
       await salesApi("/payments", { method: "POST", body: JSON.stringify({ invoiceId: paymentAr.sourceId, amount }) });
       setPaymentAr(null);
       setPaymentAmount("");
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  const openAdjustment = (row: any) => {
-    setAdjustmentAr(row);
-    setAdjustmentAmount("");
-    setAdjustmentReason("");
-  };
-  const saveAdjustment = async () => {
-    if (!adjustmentAr?.sourceId) return;
-    const amount = numberValue(adjustmentAmount);
-    if (!(amount > 0) || amount > outstanding(adjustmentAr) + 0.009) {
-      setError("Enter an adjustment greater than zero and not more than the balance.");
-      return;
-    }
-    setSubmitting(true);
-    setError("");
-    try {
-      await salesApi("/receivable-adjustments", { method: "POST", body: JSON.stringify({ invoiceId: adjustmentAr.sourceId, amount, reason: adjustmentReason || "Receivable adjustment" }) });
-      setAdjustmentAr(null);
       await load();
     } catch (e: any) {
       setError(e.message);
@@ -389,11 +362,6 @@ export default function Accounts() {
                         <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
                       </Button>
                     )}
-                    {row.sourceType === "Sales Invoice" && outstanding(row) > 0 && (
-                      <Button size="sm" variant="outline" onClick={() => openAdjustment(row)} disabled={submitting}>
-                        <SlidersHorizontal className="mr-1 h-3.5 w-3.5" /> Adjust
-                      </Button>
-                    )}
                     <Button size="sm" variant="outline" onClick={() => void deleteReceivable(row)} disabled={submitting}>
                       <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
                     </Button>
@@ -483,34 +451,6 @@ export default function Accounts() {
               <Button variant="outline" onClick={() => setPaymentAr(null)} disabled={submitting}>Cancel</Button>
               <Button onClick={() => void receivePayment()} disabled={submitting || !paymentAmount}>
                 <CreditCard className="mr-2 h-4 w-4" /> {submitting ? "Receiving..." : "Receive Payment"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog open={Boolean(adjustmentAr)} onOpenChange={(open) => { if (!open && !submitting) setAdjustmentAr(null); }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader><DialogTitle>Adjust Receivable</DialogTitle></DialogHeader>
-            {adjustmentAr && (
-              <div className="space-y-5">
-                <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
-                  <div><p className="text-[10px] uppercase text-muted-foreground">Invoice</p><p className="font-semibold">{inr(adjustmentAr.amount)}</p></div>
-                  <div><p className="text-[10px] uppercase text-muted-foreground">Adjusted</p><p className="font-semibold text-primary">{inr(adjustmentAr.adjustedAmount)}</p></div>
-                  <div><p className="text-[10px] uppercase text-muted-foreground">Balance</p><p className="font-semibold">{inr(outstanding(adjustmentAr))}</p></div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="adjustment-amount">Adjustment Amount (₹)</Label>
-                  <Input id="adjustment-amount" type="number" min="0.01" step="0.01" max={outstanding(adjustmentAr)} value={adjustmentAmount} onChange={(event) => setAdjustmentAmount(event.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="adjustment-reason">Reason</Label>
-                  <Input id="adjustment-reason" placeholder="Discount, write-off, settlement..." value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} />
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setAdjustmentAr(null)} disabled={submitting}>Cancel</Button>
-              <Button onClick={() => void saveAdjustment()} disabled={submitting || !adjustmentAmount}>
-                <SlidersHorizontal className="mr-2 h-4 w-4" /> {submitting ? "Adjusting..." : "Apply Adjustment"}
               </Button>
             </DialogFooter>
           </DialogContent>

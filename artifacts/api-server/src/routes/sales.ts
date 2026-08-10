@@ -898,6 +898,7 @@ router.post("/quotations/:id/customer-response", requireAuth, async (req, res) =
     if (action === "confirm" || action === "reject") {
       updates.customerResponseAt = new Date();
       updates.confirmedByUserId = userId;
+      updates.isLocked = true;
     }
     if (action === "reject") {
       updates.rejectionReason = rejectionReason;
@@ -926,10 +927,10 @@ router.post("/quotations/:id/customer-response", requireAuth, async (req, res) =
       actorUserId: userId,
     });
 
-    // A confirmed quotation must not appear as a Proforma until the user
-    // explicitly creates/maps one from the Proforma Invoice screen.
+    // Customer confirmation automatically creates one linked Draft Proforma.
+    // autoCreatedFromQuotationId prevents duplicate Proformas for the same quotation.
     let autoCreatedProforma = null;
-    if (action === "confirm" && req.body?.createProforma === true) {
+    if (action === "confirm") {
       const [alreadyCreated] = await db.select().from(proformaInvoicesTable).where(eq(proformaInvoicesTable.autoCreatedFromQuotationId, id)).limit(1);
       if (alreadyCreated) {
         const piItems = await db.select().from(proformaInvoiceItemsTable).where(eq(proformaInvoiceItemsTable.piId, alreadyCreated.id));
@@ -1085,7 +1086,7 @@ router.get("/approved-quotations", requireAuth, async (_req, res) => {
 router.get("/proforma-invoices", requireAuth, async (req, res) => {
   const rows = await db.select().from(proformaInvoicesTable).orderBy(desc(proformaInvoicesTable.createdAt));
   return res.json(rows
-    .filter(row => row.isLatestVersion !== false && !row.autoCreatedFromQuotationId)
+    .filter(row => row.isLatestVersion !== false)
     .map(serializeProforma));
 });
 
@@ -1578,6 +1579,16 @@ async function validateInvoiceReturnAvailability(invoiceId: number, items: any[]
   }
 }
 
+async function linkedInvoiceForChallan(dcId: number) {
+  const invoices = await db.select().from(salesInvoicesTable).orderBy(desc(salesInvoicesTable.createdAt));
+  return invoices.find(invoice =>
+    invoice.isLatestVersion !== false &&
+    ["Approved", "Paid"].includes(invoice.status) &&
+    Array.isArray(invoice.dcIds) &&
+    invoice.dcIds.map(Number).includes(dcId),
+  ) || null;
+}
+
 async function salesReturnWithItems(doc: any) {
   const items = await db.select().from(salesReturnItemsTable).where(eq(salesReturnItemsTable.returnId, doc.id));
   return { ...serializeProforma(doc), items: items.map(item => ({ ...serializeQuotationItem(item), invoicedQty: Number(item.invoicedQty || 0), returnedQty: Number(item.returnedQty || 0) })) };
@@ -1628,8 +1639,9 @@ router.post("/returns", requireAuth, async (req, res) => {
     if (!items.length) return res.status(400).json({ error: "At least one return item is required" });
     for (let index = 0; index < items.length; index++) { const item = items[index]; const service = item.serviceId || String(item.itemType || "").toLowerCase() === "service"; if (Number(item.returnedQty ?? item.quantity) <= 0) return res.status(400).json({ error: `Returned quantity must be greater than zero for line ${index + 1}` }); if (Number(item.returnedQty ?? item.quantity) > Number(item.invoicedQty ?? item.quantity)) return res.status(400).json({ error: `Returned quantity cannot exceed source quantity for line ${index + 1}` }); if (!service && !item.warehouseId) return res.status(400).json({ error: `Select the receiving warehouse for line item ${index + 1}` }); }
     if (req.body.invoiceId) await validateInvoiceReturnAvailability(Number(req.body.invoiceId), items);
+    const linkedInvoice = !req.body.invoiceId && req.body.dcId ? await linkedInvoiceForChallan(Number(req.body.dcId)) : null;
     const returnNumber = returnCode((await db.select().from(salesReturnsTable)).length + 1);
-    const [doc] = await db.insert(salesReturnsTable).values({ returnNumber, ...salesReturnData(req.body), status: "Draft", restocked: false }).returning();
+    const [doc] = await db.insert(salesReturnsTable).values({ returnNumber, ...salesReturnData({ ...req.body, invoiceId: req.body.invoiceId || linkedInvoice?.id || null }), status: "Draft", restocked: false }).returning();
     await saveSalesReturnItems(Number(doc.id), items); return res.status(201).json(await salesReturnWithItems(doc));
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
@@ -1672,6 +1684,11 @@ router.post("/returns/:id/customer-response", requireAuth, async (req, res) => {
     await restockSalesReturn(id, (req.session as any).userId);
     try {
       const context = await accountingContext(req);
+      if (!existing.invoiceId && existing.dcId) {
+        const linkedInvoice = await linkedInvoiceForChallan(Number(existing.dcId));
+        if (!linkedInvoice) throw new Error("No approved or paid invoice is linked to this Delivery Challan");
+        await db.update(salesReturnsTable).set({ invoiceId: linkedInvoice.id }).where(eq(salesReturnsTable.id, id));
+      }
       await db.update(salesReturnsTable).set({ status: "Credit Issued" }).where(eq(salesReturnsTable.id, id));
       await triggerSalesReturnCredited(id, context.organizationId, context.userId);
     } catch (error: any) {
@@ -1687,6 +1704,11 @@ router.post("/returns/:id/issue-credit", requireAuth, async (req, res) => {
     const [salesReturn] = await db.select().from(salesReturnsTable).where(eq(salesReturnsTable.id, id)).limit(1);
     if (!salesReturn) return res.status(404).json({ error: "Sales return not found" });
     if (!["Received", "Credit Issued", "Credited"].includes(salesReturn.status)) return res.status(409).json({ error: "Credit can be issued only after the return is received" });
+    if (!salesReturn.invoiceId && salesReturn.dcId) {
+      const linkedInvoice = await linkedInvoiceForChallan(Number(salesReturn.dcId));
+      if (!linkedInvoice) return res.status(409).json({ error: "No approved or paid invoice is linked to this Delivery Challan" });
+      await db.update(salesReturnsTable).set({ invoiceId: linkedInvoice.id }).where(eq(salesReturnsTable.id, id));
+    }
     await db.update(salesReturnsTable).set({ status: "Credit Issued" }).where(eq(salesReturnsTable.id, id));
     const context = await accountingContext(req);
     await triggerSalesReturnCredited(id, context.organizationId, context.userId);
