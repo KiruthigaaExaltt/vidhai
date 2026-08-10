@@ -48,6 +48,7 @@ import VendorPayments from "@/pages/flex/vendor-payments";
 import PurchaseReturns from "@/pages/flex/purchase-returns";
 import Crew from "@/pages/crew";
 import CrewPay from "@/pages/crewpay";
+import Accounts from "@/pages/accounts";
 
 const queryClient = new QueryClient();
 
@@ -199,6 +200,13 @@ function Router() {
       </Route>
       <Route path="/flex/purchase-returns">
         <ProtectedRoute component={PurchaseReturns} />
+      </Route>
+
+      <Route path="/accounts">
+        <ProtectedRoute
+          component={Accounts}
+          permission="accounts.finance_dashboard.view"
+        />
       </Route>
 
       <Route path="/profile">
