@@ -18,6 +18,7 @@ export * from "./ootySchemas";
 export * from "./traceability";
 export * from "./scheduling";
 export * from "./sales";
+export * from "./workOrders";
 export * from "./fleet";
 export * from "./roles";
 export * from "./tasks";

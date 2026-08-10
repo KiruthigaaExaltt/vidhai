@@ -3,6 +3,8 @@ import { Shell } from "@/components/layout/Shell";
 import { Plus, Pencil, Trash2, CirclePlay, AlertTriangle, Eye } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SalesDocumentForm } from "./components/SalesDocumentForm";
 import {
   Dialog,
@@ -41,6 +43,13 @@ export default function Sales() {
   const [invoices, setInvoices] = useState<any[]>([]);
   const [returns, setReturns] = useState<any[]>([]);
   const [approvedDocuments, setApprovedDocuments] = useState<any[]>([]);
+  const [workOrderTemplates, setWorkOrderTemplates] = useState<any[]>([]);
+  const [startTarget, setStartTarget] = useState<any | null>(null);
+  const [workOrderTarget, setWorkOrderTarget] = useState<any | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<any | null>(null);
+  const [workOrderSaving, setWorkOrderSaving] = useState(false);
+  const [workOrderForm, setWorkOrderForm] = useState({ templateId: "", quantity: "", uom: "Nos", expectedCompletionDate: "", convertToMm: false });
+  const [rejectionReason, setRejectionReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -86,6 +95,51 @@ export default function Sales() {
     finally { setLoading(false); }
   };
 
+  const openWorkOrderForm = (row: any) => {
+    const quantity = (row.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+    setWorkOrderForm({ templateId: "", quantity: String(quantity || 1), uom: row.items?.[0]?.uom || "Nos", expectedCompletionDate: "", convertToMm: false });
+    setWorkOrderTarget(row);
+    setStartTarget(null);
+  };
+
+  const createWorkOrder = async () => {
+    if (!workOrderTarget) return;
+    setWorkOrderSaving(true); setLoadError("");
+    try {
+      const response = await fetch("/api/work-orders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        sourceDocumentType: workOrderTarget.source,
+        sourceDocumentId: workOrderTarget.id,
+        sourceDocumentNumber: workOrderTarget.documentNumber,
+        clientId: workOrderTarget.clientId,
+        clientName: workOrderTarget.clientName,
+        productId: workOrderTarget.items?.[0]?.productId || workOrderTarget.items?.[0]?.itemId,
+        variantId: workOrderTarget.items?.[0]?.variantId,
+        productionQuantity: workOrderForm.convertToMm ? Number(workOrderForm.quantity) * 304.8 : Number(workOrderForm.quantity),
+        productionUom: workOrderForm.convertToMm ? "mm" : workOrderForm.uom,
+        workOrderTemplateId: workOrderForm.templateId ? Number(workOrderForm.templateId) : undefined,
+        expectedCompletionDate: workOrderForm.expectedCompletionDate || undefined,
+      }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to create Work Order");
+      setWorkOrderTarget(null);
+      await loadApprovedDocuments();
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to create Work Order"); }
+    finally { setWorkOrderSaving(false); }
+  };
+
+  const rejectApprovedDocument = async () => {
+    if (!rejectTarget) return;
+    setWorkOrderSaving(true); setLoadError("");
+    try {
+      const response = await fetch("/api/sales/approved-quotations/reject", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: rejectTarget.source, documentId: rejectTarget.id, rejectionReason }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to reject document");
+      setRejectTarget(null); setRejectionReason("");
+      await loadApprovedDocuments();
+    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to reject document"); }
+    finally { setWorkOrderSaving(false); }
+  };
+
   const loadChallans = async () => {
     setLoading(true); setLoadError("");
     try {
@@ -118,7 +172,10 @@ export default function Sales() {
   useEffect(() => {
     if (activeTab === "Quotation") void loadQuotations();
     if (activeTab === "Proforma Invoice") void loadProformas();
-    if (activeTab === "Sales Order") void loadApprovedDocuments();
+    if (activeTab === "Sales Order") {
+      void loadApprovedDocuments();
+      void fetch("/api/work-orders/templates", { credentials: "include" }).then(response => response.ok ? response.json() : []).then(setWorkOrderTemplates).catch(() => setWorkOrderTemplates([]));
+    }
     if (activeTab === "Delivery Challan") void loadChallans();
     if (activeTab === "Invoices") void loadInvoices();
     if (activeTab === "Sales Return") void loadReturns();
@@ -181,7 +238,7 @@ export default function Sales() {
                 {(row.items || []).map((item: any) => <div key={item.id || `${item.description}-${item.quantity}`}>{item.description || item.productName} — {Number(item.quantity || 0)} {item.uom || "Nos"}</div>)}
               </div>
               {hasStockIssue && <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{row.insufficientItems.map((item: any) => `${item.description}: requires ${item.required}, available ${item.available}`).join("; ")}</span></div>}
-              <div className="mt-4"><Button disabled title="Work Order integration will be added next"><CirclePlay className="mr-2 h-4 w-4" />Start Work Order</Button></div>
+              <div className="mt-4 flex gap-2"><Button onClick={() => setStartTarget(row)}><CirclePlay className="mr-2 h-4 w-4" />Start Work Order</Button><Button variant="outline" onClick={() => { setRejectTarget(row); setRejectionReason(""); }}>Reject</Button></div>
             </CardContent>
           </Card>
         );
@@ -363,6 +420,36 @@ export default function Sales() {
               </CardContent>
             </Card>
           )}
+
+          <Dialog open={Boolean(startTarget)} onOpenChange={open => { if (!open) setStartTarget(null); }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Start Work Order?</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">Start a Work Order for {startTarget?.documentNumber}? Stock will be validated before tasks and material reservations are created.</p>
+              <DialogFooter><Button variant="outline" onClick={() => setStartTarget(null)}>Cancel</Button><Button onClick={() => openWorkOrderForm(startTarget)}>Continue</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={Boolean(workOrderTarget)} onOpenChange={open => { if (!open && !workOrderSaving) setWorkOrderTarget(null); }}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Create Work Order — {workOrderTarget?.documentNumber}</DialogTitle></DialogHeader>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5 sm:col-span-2"><Label>Workflow Template</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={workOrderForm.templateId} onChange={event => setWorkOrderForm({ ...workOrderForm, templateId: event.target.value })}><option value="">Default Production Workflow</option>{workOrderTemplates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></div>
+                <div className="space-y-1.5"><Label>Production Quantity</Label><Input type="number" min="0.0001" step="any" value={workOrderForm.quantity} onChange={event => setWorkOrderForm({ ...workOrderForm, quantity: event.target.value })} /></div>
+                <div className="space-y-1.5"><Label>Production UOM</Label><Input value={workOrderForm.uom} onChange={event => setWorkOrderForm({ ...workOrderForm, uom: event.target.value })} /></div>
+                {/^(ft|feet|foot)$/i.test(workOrderForm.uom.trim()) && <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={workOrderForm.convertToMm} onChange={event => setWorkOrderForm({ ...workOrderForm, convertToMm: event.target.checked })} />Convert feet to millimetres before production</label>}
+                <div className="space-y-1.5 sm:col-span-2"><Label>Expected Completion Date</Label><Input type="date" value={workOrderForm.expectedCompletionDate} onChange={event => setWorkOrderForm({ ...workOrderForm, expectedCompletionDate: event.target.value })} /></div>
+              </div>
+              <DialogFooter><Button variant="outline" disabled={workOrderSaving} onClick={() => setWorkOrderTarget(null)}>Cancel</Button><Button disabled={workOrderSaving || Number(workOrderForm.quantity) <= 0} onClick={() => void createWorkOrder()}>{workOrderSaving ? "Creating..." : "Create & Activate"}</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={Boolean(rejectTarget)} onOpenChange={open => { if (!open && !workOrderSaving) setRejectTarget(null); }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Reject {rejectTarget?.documentNumber}?</DialogTitle></DialogHeader>
+              <div className="space-y-1.5"><Label>Rejection Reason</Label><Input value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} placeholder="Enter the reason" /></div>
+              <DialogFooter><Button variant="outline" disabled={workOrderSaving} onClick={() => setRejectTarget(null)}>Cancel</Button><Button variant="destructive" disabled={workOrderSaving || !rejectionReason.trim()} onClick={() => void rejectApprovedDocument()}>{workOrderSaving ? "Rejecting..." : "Reject"}</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog
             open={Boolean(deleteTarget)}

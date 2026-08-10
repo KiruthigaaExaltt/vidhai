@@ -22,6 +22,7 @@ import {
   servicesTable,
   inventoryTable,
   inventoryMovementsTable,
+  salesWorkOrdersTable,
   organizationDetailsTable
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
@@ -1051,16 +1052,25 @@ router.post("/quotations/:id/restore", requireAuth, async (req, res) => {
 });
 
 router.get("/approved-quotations", requireAuth, async (_req, res) => {
-  const [quotes, proformas, inventory] = await Promise.all([
-    db.select().from(quotationsTable), db.select().from(proformaInvoicesTable), db.select().from(inventoryTable),
+  const [quotes, proformas, inventory, workOrders] = await Promise.all([
+    db.select().from(quotationsTable), db.select().from(proformaInvoicesTable), db.select().from(inventoryTable), db.select().from(salesWorkOrdersTable),
   ]);
+  const startedSources = new Set(workOrders.map(row => `${row.sourceDocumentType}:${row.sourceDocumentId}`));
   const stock = new Map<number, number>();
   for (const row of inventory) {
     const quantity = Number((row.quantityOnHand as any)?.$numberDecimal ?? (row.quantityOnHand as any)?.toString?.() ?? row.quantityOnHand ?? 0) || 0;
     stock.set(Number(row.materialId), (stock.get(Number(row.materialId)) || 0) + quantity);
   }
+  for (const active of workOrders.filter((row: any) => !["Completed", "Cancelled", "Rejected"].includes(String(row.status)))) {
+    for (const reserved of Array.isArray(active.materialRequirements) ? active.materialRequirements : []) {
+      const materialId = Number(reserved.materialId);
+      const quantity = Number(reserved.requiredQuantity || 0) || 0;
+      if (materialId) stock.set(materialId, (stock.get(materialId) || 0) - quantity);
+    }
+  }
   const result: any[] = [];
   const append = async (doc: any, source: "Quotation" | "Proforma Invoice") => {
+    if (startedSources.has(`${source}:${doc.id}`)) return;
     const items = source === "Quotation"
       ? await db.select().from(quotationItemsTable).where(eq(quotationItemsTable.quoteId, doc.id))
       : await db.select().from(proformaInvoiceItemsTable).where(eq(proformaInvoiceItemsTable.piId, doc.id));
@@ -1080,6 +1090,21 @@ router.get("/approved-quotations", requireAuth, async (_req, res) => {
   for (const doc of proformas.filter(row => row.isLatestVersion !== false && row.status === "Approved" && row.customerResponseAt && !row.autoCreatedFromQuotationId)) await append(doc, "Proforma Invoice");
   result.sort((left, right) => new Date(right.customerApprovedAt || 0).getTime() - new Date(left.customerApprovedAt || 0).getTime());
   return res.json({ data: result });
+});
+
+router.post("/approved-quotations/reject", requireAuth, async (req, res) => {
+  const source = String(req.body?.source || "");
+  const documentId = Number(req.body?.documentId);
+  const rejectionReason = String(req.body?.rejectionReason || "").trim();
+  if (!(["Quotation", "Proforma Invoice"].includes(source)) || !documentId) return res.status(400).json({ error: "A valid approved document is required" });
+  if (!rejectionReason) return res.status(400).json({ error: "Rejection reason is required" });
+  const table = source === "Quotation" ? quotationsTable : proformaInvoicesTable;
+  const [existing] = await db.select().from(table).where(eq(table.id, documentId)).limit(1);
+  if (!existing || existing.status !== "Approved") return res.status(409).json({ error: "Only an approved document can be rejected" });
+  const [workOrder] = await db.select().from(salesWorkOrdersTable).where(and(eq(salesWorkOrdersTable.sourceDocumentType, source), eq(salesWorkOrdersTable.sourceDocumentId, documentId))).limit(1);
+  if (workOrder) return res.status(409).json({ error: "This document already has a Work Order and cannot be rejected from the queue" });
+  const [updated] = await db.update(table).set({ status: "Rejected", rejectionReason, isLocked: true, updatedAt: new Date() }).where(eq(table.id, documentId)).returning();
+  return res.json(updated);
 });
 
 // --- Proforma Invoice mapping, revisions and customer workflow ---

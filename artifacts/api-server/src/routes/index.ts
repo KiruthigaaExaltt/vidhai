@@ -34,6 +34,7 @@ import vaultLocationsRouter from "./vaultLocations";
 import itemNamesRouter from "./itemNames";
 import assetsRouter from "./assets";
 import accountsRouter from "./accounts";
+import workOrdersRouter from "./workOrders";
 
 const router: IRouter = Router();
 router.use(healthRouter);
@@ -74,5 +75,6 @@ router.use("/vault/locations", vaultLocationsRouter);
 router.use("/vault/item-names", itemNamesRouter);
 router.use("/assets", assetsRouter);
 router.use("/accounts", accountsRouter);
+router.use("/work-orders", workOrdersRouter);
 
 export default router;

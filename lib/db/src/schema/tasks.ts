@@ -1,4 +1,4 @@
-import { mongoTable, serial, integer, text, timestamp, numeric, createInsertSchema } from "./dsl";
+import { mongoTable, serial, integer, text, timestamp, numeric, json, createInsertSchema } from "./dsl";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { locationsTable } from "./locations";
@@ -16,6 +16,9 @@ export const tasksTable = mongoTable("tasks", {
   actualMinutes: integer("actual_minutes"),
   notes: text("notes"),
   batchRef: text("batch_ref"),
+  sourceWorkOrderId: integer("source_work_order_id"),
+  sequenceNumber: integer("sequence_number"),
+  checklist: json("checklist").notNull().default([]),
   createdByUserId: integer("created_by_user_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
