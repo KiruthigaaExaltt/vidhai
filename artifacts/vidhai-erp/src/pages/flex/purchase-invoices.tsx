@@ -187,6 +187,7 @@ export default function PurchaseInvoices() {
   const [invoiceDate, setInvoiceDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+  const [paymentDueDays, setPaymentDueDays] = useState(30);
   const [mappedPos, setMappedPos] = useState<string[]>([]);
   const [poPickerOpen, setPoPickerOpen] = useState(false);
   const [mappedGrns, setMappedGrns] = useState<string[]>([]);
@@ -229,6 +230,7 @@ export default function PurchaseInvoices() {
 
   const resetForm = () => {
     setInvoiceNumber("");
+    setPaymentDueDays(30);
     setMappedPos([]);
     setMappedGrns([]);
     setVendor("");
@@ -549,7 +551,7 @@ export default function PurchaseInvoices() {
       amount,
       lineItems: lineItems.map(({ id, ...line }) => line),
       invoiceDate,
-      dueDate: invoiceDate,
+      paymentDueDays,
       status: "Unpaid",
       attachmentName,
     });
@@ -898,7 +900,7 @@ export default function PurchaseInvoices() {
 
               <div className="space-y-4 py-4 text-xs">
                 {/* Row 1: Invoice Number * | Invoice Date * */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
                       {FLEX_TEXT.invoiceNumber}{" "}
@@ -930,6 +932,20 @@ export default function PurchaseInvoices() {
                         className="h-10 text-xs border-slate-200 rounded-lg cursor-pointer focus-visible:ring-primary"
                       />
                     </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-bold text-slate-600 mb-1.5 block">
+                      Payment Due (Days)
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={paymentDueDays}
+                      onChange={(event) =>
+                        setPaymentDueDays(Math.max(0, Number(event.target.value)))
+                      }
+                      className="h-10 text-xs border-slate-200 rounded-lg"
+                    />
                   </div>
                 </div>
 

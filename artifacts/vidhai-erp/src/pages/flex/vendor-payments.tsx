@@ -34,6 +34,9 @@ export interface OutstandingBillItem {
   billNumber: string;
   invoiceReference?: string;
   date: string;
+  dueDate: string;
+  poReference: string;
+  grnReference: string;
   amount: number;
   paid: number;
   adjusted: number;
@@ -56,6 +59,9 @@ async function fetchOutstandingBills(): Promise<OutstandingBillItem[]> {
         billNumber: p.billNumber,
         invoiceReference: p.billNumber,
         date: p.billDate,
+        dueDate: p.dueDate || "",
+        poReference: p.poReference || "",
+        grnReference: p.grnReference || "",
         amount: Number(p.amount || 0),
         paid: Number(p.paidAmount || 0),
         adjusted: Number(p.adjustedAmount || 0),
@@ -82,17 +88,44 @@ async function createVendorPayment(payload: any) {
   return res.json();
 }
 
+async function fetchVendorPayments(): Promise<any[]> {
+  const response = await fetch(`${BASE}/api/flex/vendor-payments`, { credentials: "include" });
+  if (!response.ok) throw new Error("Failed to load payment requests");
+  return response.json();
+}
+
+async function reviewVendorPayment({ id, action, remarks }: any) {
+  const response = await fetch(`${BASE}/api/flex/vendor-payments/${id}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ remarks }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Failed to ${action} payment`);
+  return body;
+}
+
 export default function VendorPayments() {
   const queryClient = useQueryClient();
   const { data: bills = [] } = useQuery({
     queryKey: ["get", "/api/flex/vendor-payments/outstanding-bills"],
     queryFn: fetchOutstandingBills,
   });
+  const { data: paymentRequests = [] } = useQuery({
+    queryKey: ["get", "/api/flex/vendor-payments"],
+    queryFn: fetchVendorPayments,
+  });
 
   const { data: masterData } = useFlexMasterData();
   const vendorsList = masterData?.vendors ?? [];
 
   const [selectedVendor, setSelectedVendor] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [dueFilter, setDueFilter] = useState("All");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   // Form State
@@ -129,6 +162,15 @@ export default function VendorPayments() {
       toast.error(err.message || FLEX_TEXT.failedToRecordPayment);
     },
   });
+  const reviewMutation = useMutation({
+    mutationFn: reviewVendorPayment,
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/vendor-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/vendor-payments/outstanding-bills"] });
+      toast.success(`Payment ${variables.action}d successfully`);
+    },
+    onError: (error: any) => toast.error(error.message),
+  });
 
   const resetForm = () => {
     setVendor("");
@@ -141,9 +183,18 @@ export default function VendorPayments() {
 
   const filtered = useMemo(() => {
     return bills.filter((b) => {
-      return selectedVendor === "All" || b.vendor === selectedVendor;
+      const today = new Date().toISOString().slice(0, 10);
+      const isOverdue = b.outstanding > 0 && b.dueDate < today;
+      return (
+        (selectedVendor === "All" || b.vendor === selectedVendor) &&
+        (statusFilter === "All" || b.status === statusFilter) &&
+        (dueFilter === "All" || (dueFilter === "Overdue" ? isOverdue : !isOverdue)) &&
+        (!invoiceSearch.trim() || b.billNumber.toLowerCase().includes(invoiceSearch.trim().toLowerCase())) &&
+        (!fromDate || b.date >= fromDate) &&
+        (!toDate || b.date <= toDate)
+      );
     });
-  }, [bills, selectedVendor]);
+  }, [bills, selectedVendor, statusFilter, dueFilter, invoiceSearch, fromDate, toDate]);
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,7 +218,6 @@ export default function VendorPayments() {
       amount: parseFloat(amount) || 0,
       paymentMode,
       paymentDate,
-      status: "Completed",
       notes,
       transactionReference: transactionRef,
       bankAccount,
@@ -245,6 +295,20 @@ export default function VendorPayments() {
           </Select>
         </div>
 
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Input placeholder="Invoice number" value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} className="h-10 text-xs" />
+          <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 text-xs" />
+          <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-10 text-xs" />
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-10 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>{["All", "Pending", "Partial", "Paid", "Overdue"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={dueFilter} onValueChange={setDueFilter}>
+            <SelectTrigger className="h-10 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="All">All due dates</SelectItem><SelectItem value="Due">Due</SelectItem><SelectItem value="Overdue">Overdue</SelectItem></SelectContent>
+          </Select>
+        </div>
+
         {/* Data Table Card Container */}
         <Card className="rounded-2xl border border-border bg-card shadow-2xs overflow-hidden">
           <div className="px-6 py-4 border-b border-border">
@@ -260,17 +324,21 @@ export default function VendorPayments() {
                     <th className="px-6 py-3.5">{FLEX_TEXT.vendorId}</th>
                     <th className="px-6 py-3.5">{FLEX_TEXT.vendor2}</th>
                     <th className="px-6 py-3.5">{FLEX_TEXT.bill}</th>
-                    <th className="px-6 py-3.5">{FLEX_TEXT.date}</th>
+                    <th className="px-4 py-3.5">PO / GRN</th>
+                    <th className="px-4 py-3.5">Invoice / Due</th>
                     <th className="px-6 py-3.5">Bill Amount</th>
                     <th className="px-6 py-3.5">Amount Paid</th>
+                    <th className="px-4 py-3.5">Adjustment</th>
                     <th className="px-6 py-3.5">{FLEX_TEXT.outstanding}</th>
+                    <th className="px-4 py-3.5">Status</th>
+                    <th className="px-4 py-3.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {filtered.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={12}
                         className="px-6 py-8 text-center text-muted-foreground text-sm"
                       >
                         {FLEX_TEXT.noOutstandingBillsFound}
@@ -291,8 +359,13 @@ export default function VendorPayments() {
                         <td className="px-6 py-4 font-semibold text-muted-foreground font-mono text-[11px]">
                           {b.billNumber}
                         </td>
-                        <td className="px-6 py-4 text-muted-foreground">
-                          {b.date}
+                        <td className="px-4 py-4 text-muted-foreground text-[10px]">
+                          <div>{b.poReference || "-"}</div>
+                          <div>{b.grnReference || "-"}</div>
+                        </td>
+                        <td className="px-4 py-4 text-muted-foreground text-[10px]">
+                          <div>{b.date}</div>
+                          <div>{b.dueDate}</div>
                         </td>
                         <td className="px-6 py-4 font-bold text-foreground">
                           ₹ {b.amount.toLocaleString("en-IN")}
@@ -303,12 +376,47 @@ export default function VendorPayments() {
                         <td className="px-6 py-4 font-bold text-amber-600 dark:text-amber-400">
                           ₹ {b.outstanding.toLocaleString("en-IN")}
                         </td>
+                        <td className="px-4 py-4 text-muted-foreground">{b.adjusted.toLocaleString("en-IN")}</td>
+                        <td className="px-4 py-4">{b.status}</td>
+                        <td className="px-4 py-4 text-right">
+                          {b.outstanding > 0 && b.status !== "Paid" && (
+                            <Button size="sm" variant="outline" onClick={() => { setVendor(b.vendor); setOutstandingBill(b.billNumber); setAmount(String(b.outstanding)); setIsAddOpen(true); }}>Record Payment</Button>
+                          )}
+                        </td>
                       </tr>
                     ))
                   )}
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border border-border">
+          <div className="border-b p-4"><h2 className="text-sm font-bold">Payment Approval Requests</h2></div>
+          <CardContent className="p-0 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="border-b bg-muted/40 text-left"><th className="p-3">Payment</th><th className="p-3">Vendor / Invoice</th><th className="p-3">Date</th><th className="p-3">Amount</th><th className="p-3">Mode / Account</th><th className="p-3">Reference</th><th className="p-3">Status</th><th className="p-3 text-right">Approval</th></tr></thead>
+              <tbody className="divide-y">
+                {paymentRequests.map((payment: any) => (
+                  <tr key={payment.id}>
+                    <td className="p-3 font-mono">{payment.paymentNumber}</td>
+                    <td className="p-3"><div className="font-semibold">{payment.vendor}</div><div>{payment.invoiceReference}</div></td>
+                    <td className="p-3">{payment.paymentDate}</td>
+                    <td className="p-3 font-semibold">₹ {Number(payment.amount).toLocaleString("en-IN")}</td>
+                    <td className="p-3"><div>{payment.paymentMode}</div><div>{payment.bankAccount}</div></td>
+                    <td className="p-3">{payment.transactionReference || "-"}</td>
+                    <td className="p-3">{payment.status}</td>
+                    <td className="p-3 text-right space-x-2">
+                      {payment.status === "Pending Approval" && <>
+                        <Button size="sm" onClick={() => reviewMutation.mutate({ id: payment.id, action: "approve", remarks: window.prompt("Approval remarks") || "Approved" })}>Approve</Button>
+                        <Button size="sm" variant="destructive" onClick={() => { const remarks = window.prompt("Rejection remarks"); if (remarks) reviewMutation.mutate({ id: payment.id, action: "reject", remarks }); }}>Reject</Button>
+                      </>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
 

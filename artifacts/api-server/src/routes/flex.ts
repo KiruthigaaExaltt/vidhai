@@ -17,6 +17,10 @@ import {
   inventoryTable,
   inventoryMovementsTable,
   accountsPayableTable,
+  notificationsTable,
+  chartOfAccountsTable,
+  journalEntriesTable,
+  journalLinesTable,
 } from "@workspace/db";
 
 const router = Router();
@@ -1667,9 +1671,174 @@ function calculatePurchaseInvoiceMatchStatus(
   return "Mismatch";
 }
 
+function isPurchaseInvoiceApprovedForPayment(invoice: any) {
+  return (
+    Number(invoice?.amount || 0) > 0 &&
+    ["2-Way Match", "3-Way Match", "Matched"].includes(
+      String(invoice?.matchStatus || ""),
+    ) &&
+    Boolean(invoice?.isPostedToLedger)
+  );
+}
+
 function isPurchaseInvoicePaymentEligible(invoice: any) {
-  const status = String(invoice?.status || "Unpaid").trim().toLowerCase();
-  return Number(invoice?.amount || 0) > 0 && status !== "paid";
+  return (
+    isPurchaseInvoiceApprovedForPayment(invoice) &&
+    String(invoice?.status || "Unpaid").trim().toLowerCase() !== "paid"
+  );
+}
+
+const money = (value: unknown) =>
+  Math.round(Number(value || 0) * 100) / 100;
+
+async function settleApprovedVendorPayment(
+  org: number,
+  paymentId: number,
+  approverUserId: number,
+  remarks: string,
+) {
+  const [payment] = await db
+    .select()
+    .from(vendorPaymentsTable)
+    .where(
+      and(
+        eq(vendorPaymentsTable.organizationId, org),
+        eq(vendorPaymentsTable.id, paymentId),
+      ),
+    )
+    .limit(1);
+  if (!payment) throw new Error("Vendor payment not found");
+  if (payment.status === "Rejected") throw new Error("Rejected payment cannot be approved");
+  if (payment.status === "Approved" && payment.journalEntryId) return payment;
+  const nextApprovalLevel = Number(payment.approvalLevel || 0) + 1;
+  if (nextApprovalLevel < Number(payment.requiredApprovals || 1)) {
+    const [progressed] = await db
+      .update(vendorPaymentsTable)
+      .set({ approvalLevel: nextApprovalLevel, approvalRemarks: remarks })
+      .where(eq(vendorPaymentsTable.id, payment.id))
+      .returning();
+    return progressed;
+  }
+
+  const [invoice] = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(
+      and(
+        eq(purchaseInvoicesTable.organizationId, org),
+        eq(purchaseInvoicesTable.invoiceNumber, payment.invoiceReference),
+      ),
+    )
+    .limit(1);
+  if (!invoice || !isPurchaseInvoicePaymentEligible(invoice))
+    throw new Error("Only matched and posted purchase invoices can be paid");
+  const [bill] = await db
+    .select()
+    .from(accountsPayableTable)
+    .where(
+      and(
+        eq(accountsPayableTable.organizationId, org),
+        eq(accountsPayableTable.billNumber, payment.invoiceReference),
+      ),
+    )
+    .limit(1);
+  if (!bill) throw new Error("Accounts Payable bill not found");
+  const outstanding = money(
+    Number(bill.amount || 0) -
+      Number(bill.paidAmount || 0) -
+      Number(bill.adjustedAmount || 0),
+  );
+  if (money(payment.amount) <= 0 || money(payment.amount) > outstanding + 0.005)
+    throw new Error(`Payment cannot exceed the outstanding balance of ₹${outstanding.toLocaleString("en-IN")}`);
+
+  const accountCodeMatch = String(payment.bankAccount || "").match(/\((\d+)\)/);
+  const accountCode = accountCodeMatch?.[1] || (payment.paymentMode === "Cash" ? "1010" : "1020");
+  const requiredAccounts = [
+    ["2100", "Accounts Payable", "Liability"],
+    ["1010", "Cash Account", "Asset"],
+    ["1020", "Bank Account", "Asset"],
+  ] as const;
+  const accounts = await db
+    .select()
+    .from(chartOfAccountsTable)
+    .where(eq(chartOfAccountsTable.organizationId, org));
+  for (const [code, name, type] of requiredAccounts) {
+    if (!accounts.some((account: any) => account.accountCode === code)) {
+      const [created] = await db.insert(chartOfAccountsTable).values({
+        organizationId: org,
+        accountCode: code,
+        accountName: name,
+        accountType: type,
+        currentBalance: 0,
+        isActive: true,
+      }).returning();
+      accounts.push(created as any);
+    }
+  }
+  const payableAccount = accounts.find((account: any) => account.accountCode === "2100")!;
+  const settlementAccount = accounts.find((account: any) => account.accountCode === accountCode);
+  if (!settlementAccount) throw new Error("Selected bank/cash account is invalid");
+  const amount = money(payment.amount);
+
+  return db.transaction(async (tx) => {
+    const [journal] = await tx.insert(journalEntriesTable).values({
+      organizationId: org,
+      entryDate: payment.paymentDate,
+      reference: `AUTO:FLEX:PAY:${payment.invoiceReference}:${payment.paymentNumber}`,
+      description: `Vendor payment ${payment.paymentNumber}`,
+      totalDebit: amount,
+      totalCredit: amount,
+      status: "Posted",
+      sourceType: "Vendor Payment",
+      sourceId: payment.id,
+      createdByUserId: approverUserId,
+    }).returning();
+    for (const line of [
+      { account: payableAccount, debit: amount, credit: 0 },
+      { account: settlementAccount, debit: 0, credit: amount },
+    ]) {
+      await tx.insert(journalLinesTable).values({
+        organizationId: org,
+        journalEntryId: journal.id,
+        accountId: line.account.id,
+        accountCode: line.account.accountCode,
+        accountName: line.account.accountName,
+        debit: line.debit,
+        credit: line.credit,
+        memo: payment.paymentNumber,
+      });
+      await tx.update(chartOfAccountsTable).set({
+        currentBalance: money(Number(line.account.currentBalance || 0) + line.debit - line.credit),
+      }).where(eq(chartOfAccountsTable.id, line.account.id));
+    }
+    const paidAmount = money(Number(bill.paidAmount || 0) + amount);
+    const covered = money(paidAmount + Number(bill.adjustedAmount || 0));
+    const balance = money(Math.max(0, Number(bill.amount || 0) - covered));
+    const overdue = balance > 0 && String(bill.dueDate).slice(0, 10) < new Date().toISOString().slice(0, 10);
+    const billStatus = balance <= 0 ? "Paid" : overdue ? "Overdue" : paidAmount > 0 ? "Partial" : "Pending";
+    const invoiceStatus = balance <= 0 ? "Paid" : paidAmount > 0 ? "Partially Paid" : overdue ? "Overdue" : "Unpaid";
+    await tx.update(accountsPayableTable).set({ paidAmount, status: billStatus }).where(eq(accountsPayableTable.id, bill.id));
+    await tx.update(purchaseInvoicesTable).set({ status: invoiceStatus }).where(eq(purchaseInvoicesTable.id, invoice.id));
+    const [updated] = await tx.update(vendorPaymentsTable).set({
+      status: "Approved",
+      approvalLevel: payment.requiredApprovals,
+      approvalRemarks: remarks,
+      approvedByUserId: approverUserId,
+      approvedAt: new Date(),
+      journalEntryId: journal.id,
+    }).where(eq(vendorPaymentsTable.id, payment.id)).returning();
+    await tx.insert(notificationsTable).values({
+      organizationId: org,
+      sourceModule: "Flex",
+      targetModule: "Ledger",
+      eventType: "VENDOR_PAYMENT_APPROVED",
+      title: "Vendor payment approved",
+      message: `${payment.paymentNumber} was approved and posted.`,
+      metadata: { paymentId: payment.id, invoiceNumber: payment.invoiceReference, journalEntryId: journal.id },
+      isRead: false,
+    });
+    return updated;
+  });
 }
 
 function calculatePurchaseReturnPosting(
@@ -1736,6 +1905,7 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
       matchStatus: inv.matchStatus || "Mismatch",
       lineItems: Array.isArray(inv.lineItems) ? inv.lineItems : [],
       invoiceDate: inv.invoiceDate,
+      paymentDueDays: Number(inv.paymentDueDays || 0),
       dueDate: inv.dueDate,
       status: inv.status,
       paymentStatus: inv.status,
@@ -1994,9 +2164,12 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       invoiceDate: String(
         req.body.invoiceDate ?? new Date().toISOString().split("T")[0],
       ),
-      dueDate: String(
-        req.body.dueDate ?? new Date().toISOString().split("T")[0],
-      ),
+      paymentDueDays: Number(req.body.paymentDueDays ?? 30),
+      dueDate: String(req.body.dueDate ?? (() => {
+        const due = new Date(req.body.invoiceDate ?? new Date());
+        due.setDate(due.getDate() + Number(req.body.paymentDueDays ?? 30));
+        return due.toISOString().split("T")[0];
+      })()),
       status: String(req.body.status ?? "Unpaid"),
       notes: String(req.body.notes ?? ""),
       attachmentName: String(req.body.attachmentName ?? ""),
@@ -2007,6 +2180,17 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       createdByUserId: creatingUser ? userId : null,
     })
     .returning();
+
+  await db.insert(notificationsTable).values({
+    organizationId: org,
+    sourceModule: "Flex",
+    targetModule: "Ledger",
+    eventType: "PURCHASE_INVOICE_LOGGED",
+    title: "Purchase invoice logged",
+    message: `${invoiceNumber} for ${vendorName} was logged in Flex.`,
+    metadata: { invoiceId: created.id, invoiceNumber, matchStatus },
+    isRead: false,
+  });
 
   const posted = await postMatchedPurchaseInvoice(org, created.id, userId);
   return res.status(201).json(posted || created);
@@ -2060,6 +2244,7 @@ router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
     "matchStatus",
     "lineItems",
     "invoiceDate",
+    "paymentDueDays",
     "dueDate",
     "status",
     "notes",
@@ -2155,7 +2340,7 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
   const bills = await db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org));
   const completedPaymentsByInvoice = new Map<string, number>();
   for (const payment of payments as any[]) {
-    if (String(payment.status).toLowerCase() !== "completed") continue;
+    if (!["completed", "approved"].includes(String(payment.status).toLowerCase())) continue;
     const reference = String(payment.invoiceReference || "").trim().toLowerCase();
     if (!reference) continue;
     completedPaymentsByInvoice.set(
@@ -2189,9 +2374,14 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
         : covered > 0
           ? "Partially Paid"
           : "Unpaid";
+    const overdue =
+      covered < amount - 0.005 &&
+      String(bill.dueDate).slice(0, 10) < new Date().toISOString().slice(0, 10);
     const billStatus =
       covered >= amount - 0.005
         ? "Paid"
+        : overdue
+          ? "Overdue"
         : covered > 0
           ? "Partial"
           : "Pending";
@@ -2219,12 +2409,12 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
   }
   const eligibleInvoiceIds = new Set(
     (invoices as any[])
-      .filter(isPurchaseInvoicePaymentEligible)
+      .filter(isPurchaseInvoiceApprovedForPayment)
       .map((invoice) => Number(invoice.id)),
   );
   const eligibleInvoiceNumbers = new Set(
     (invoices as any[])
-      .filter(isPurchaseInvoicePaymentEligible)
+      .filter(isPurchaseInvoiceApprovedForPayment)
       .map((invoice) => String(invoice.invoiceNumber)),
   );
   return res.json((bills as any[]).filter((bill) =>
@@ -2251,6 +2441,12 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
       paidAmount,
       adjustedAmount,
       outstanding: Math.max(0, amount - paidAmount - adjustedAmount),
+      poReference: invoice?.poReference || "",
+      grnReference: invoice?.grnReference || "",
+      invoiceDate: invoice?.invoiceDate || bill.billDate,
+      dueDate: invoice?.dueDate || bill.dueDate,
+      paymentStatus: invoice?.status || bill.status,
+      matchStatus: invoice?.matchStatus || "",
     };
   }));
 });
@@ -2275,169 +2471,73 @@ router.get("/vendor-payments", requireAuth, async (req, res) => {
       invoiceReference: p.invoiceReference,
       amount: Number(p.amount),
       paymentMode: p.paymentMode,
+      bankAccount: p.bankAccount || "",
+      transactionReference: p.transactionReference || "",
+      notes: p.notes || "",
+      attachmentName: p.attachmentName || "",
       paymentDate: p.paymentDate,
       status: p.status,
+      requiredApprovals: Number(p.requiredApprovals || 1),
+      approvalLevel: Number(p.approvalLevel || 0),
+      approvalRemarks: p.approvalRemarks || "",
+      journalEntryId: p.journalEntryId || null,
       createdBy: userMap.get(p.createdByUserId) || "",
     })),
   );
 });
 
 router.post("/vendor-payments", requireAuth, async (req, res) => {
-  const org = orgId(req);
-  const userId = currentUserId(req);
-  const existingPayments = await db
-    .select()
-    .from(vendorPaymentsTable)
-    .where(eq(vendorPaymentsTable.organizationId, org));
-  const paymentNumber = String(
-    req.body.paymentNumber ??
-      `PAY-${String(existingPayments.length + 1).padStart(6, "0")}`,
-  ).trim();
-  const vendorName = String(
-    req.body.vendorName ?? req.body.vendor ?? "",
-  ).trim();
-  const amount = Number(req.body.amount ?? 0);
-
-  if (!paymentNumber)
-    return res
-      .status(400)
-      .json({ error: FLEX_API_MESSAGES.paymentNumberRequired });
-  if (!vendorName)
-    return res
-      .status(400)
-      .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
-
+  const org = orgId(req), userId = currentUserId(req);
+  const existingPayments = await db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, org));
+  const paymentNumber = String(req.body.paymentNumber ?? `PAY-${String(existingPayments.length + 1).padStart(6, "0")}`).trim();
+  const vendorName = String(req.body.vendorName ?? req.body.vendor ?? "").trim();
   const invoiceReference = String(req.body.invoiceReference ?? "").trim();
-  if (!invoiceReference)
-    return res.status(400).json({ error: "Outstanding bill is required" });
-  const [matchedInvoice] = await db
-    .select()
-    .from(purchaseInvoicesTable)
-    .where(
-      and(
-        eq(purchaseInvoicesTable.organizationId, org),
-        eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
-      ),
-    )
-    .limit(1);
-  if (!matchedInvoice || !isPurchaseInvoicePaymentEligible(matchedInvoice))
-    return res.status(400).json({
-      error: "Only unpaid purchase invoices can be paid",
-    });
-  const [bill] = await db
-    .select()
-    .from(accountsPayableTable)
-    .where(
-      and(
-        eq(accountsPayableTable.organizationId, org),
-        eq(accountsPayableTable.billNumber, invoiceReference),
-      ),
-    )
-    .limit(1);
-  if (!bill)
-    return res.status(404).json({ error: "Outstanding bill not found" });
-  const outstanding = Math.max(
-    0,
-    Number(bill.amount || 0) -
-      Number(bill.paidAmount || 0) -
-      Number(bill.adjustedAmount || 0),
-  );
-  if (!Number.isFinite(amount) || amount <= 0 || amount > outstanding)
-    return res.status(400).json({
-      error: `Payment must be greater than zero and cannot exceed ₹${outstanding.toLocaleString("en-IN")}`,
-    });
-
-  const [created] = await db
-    .insert(vendorPaymentsTable)
-    .values({
-      organizationId: org,
-      paymentNumber,
-      vendorName,
-      invoiceReference,
-      amount,
-      paymentMode: String(req.body.paymentMode ?? "UPI / NetBanking"),
-      bankAccount: String(req.body.bankAccount ?? ""),
-      transactionReference: String(req.body.transactionReference ?? ""),
-      notes: String(req.body.notes ?? ""),
-      attachmentName: String(req.body.attachmentName ?? ""),
-      paymentDate: String(
-        req.body.paymentDate ?? new Date().toLocaleDateString("en-IN"),
-      ),
-      status: String(req.body.status ?? "Completed"),
-      createdByUserId: userId,
-    })
-    .returning();
-
-  const paidAmount = Number(bill.paidAmount || 0) + amount;
-  const covered = paidAmount + Number(bill.adjustedAmount || 0);
-  await db
-    .update(accountsPayableTable)
-    .set({
-      paidAmount,
-      status: covered >= Number(bill.amount || 0) ? "Paid" : "Partial",
-    })
-    .where(eq(accountsPayableTable.id, bill.id));
-  if (covered >= Number(bill.amount || 0)) {
-    await db
-      .update(purchaseInvoicesTable)
-      .set({ status: "Paid" })
-      .where(
-        and(
-          eq(purchaseInvoicesTable.organizationId, org),
-          eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
-        ),
-      );
-  }
-
+  const amount = Number(req.body.amount ?? 0);
+  if (!paymentNumber) return res.status(400).json({ error: FLEX_API_MESSAGES.paymentNumberRequired });
+  if (!vendorName) return res.status(400).json({ error: FLEX_API_MESSAGES.vendorNameRequired });
+  if (!invoiceReference) return res.status(400).json({ error: "Outstanding bill is required" });
+  const [invoice] = await db.select().from(purchaseInvoicesTable).where(and(eq(purchaseInvoicesTable.organizationId, org), eq(purchaseInvoicesTable.invoiceNumber, invoiceReference))).limit(1);
+  if (!invoice || !isPurchaseInvoicePaymentEligible(invoice)) return res.status(400).json({ error: "Only matched, posted and unpaid purchase invoices can be paid" });
+  if (vendorName.toLowerCase() !== String(invoice.vendorName).toLowerCase()) return res.status(400).json({ error: "Payment vendor must match the invoice vendor" });
+  const [bill] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, org), eq(accountsPayableTable.billNumber, invoiceReference))).limit(1);
+  if (!bill) return res.status(404).json({ error: "Outstanding bill not found" });
+  const outstanding = Math.max(0, Number(bill.amount || 0) - Number(bill.paidAmount || 0) - Number(bill.adjustedAmount || 0));
+  const pendingAmount = (existingPayments as any[]).filter((payment) => payment.invoiceReference === invoiceReference && payment.status === "Pending Approval").reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const availableToRequest = Math.max(0, outstanding - pendingAmount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > availableToRequest) return res.status(400).json({ error: `Payment must be greater than zero and cannot exceed ₹${availableToRequest.toLocaleString("en-IN")}` });
+  const paymentDate = String(req.body.paymentDate ?? new Date().toISOString().split("T")[0]);
+  if (paymentDate < String(invoice.invoiceDate).slice(0, 10)) return res.status(400).json({ error: "Payment date cannot be earlier than the invoice date" });
+  const transactionReference = String(req.body.transactionReference ?? "").trim();
+  if (transactionReference && (existingPayments as any[]).some((payment) => String(payment.transactionReference || "").trim().toLowerCase() === transactionReference.toLowerCase())) return res.status(409).json({ error: "Transaction reference already exists" });
+  if ((existingPayments as any[]).some((payment) => payment.invoiceReference === invoiceReference && Number(payment.amount) === amount && payment.paymentDate === paymentDate && payment.status === "Pending Approval")) return res.status(409).json({ error: "Duplicate payment request detected" });
+  const [created] = await db.insert(vendorPaymentsTable).values({ organizationId: org, paymentNumber, vendorName, invoiceReference, amount, paymentMode: String(req.body.paymentMode ?? "Bank Transfer"), bankAccount: String(req.body.bankAccount ?? ""), transactionReference, notes: String(req.body.notes ?? ""), attachmentName: String(req.body.attachmentName ?? ""), documentPath: String(req.body.documentPath ?? ""), paymentDate, status: "Pending Approval", requiredApprovals: Math.max(1, Number(req.body.requiredApprovals ?? 1)), approvalLevel: 0, createdByUserId: userId }).returning();
+  await db.insert(notificationsTable).values({ organizationId: org, sourceModule: "Flex", targetModule: "Flex", eventType: "VENDOR_PAYMENT_APPROVAL_REQUESTED", title: "Vendor payment awaiting approval", message: `${paymentNumber} for ${vendorName} requires approval.`, metadata: { paymentId: created.id, invoiceNumber: invoiceReference, amount }, isRead: false });
   return res.status(201).json(created);
 });
 
-router.patch("/vendor-payments/:id", requireAuth, async (req, res) => {
-  const org = orgId(req);
-  const id = Number(req.params.id);
+router.post("/vendor-payments/:id/approve", requireAuth, async (req, res) => {
+  try { return res.json(await settleApprovedVendorPayment(orgId(req), Number(req.params.id), currentUserId(req), String(req.body.remarks ?? ""))); }
+  catch (error: any) { return res.status(400).json({ error: error.message || "Unable to approve payment" }); }
+});
 
-  const updates: Record<string, unknown> = {};
-  for (const key of [
-    "paymentNumber",
-    "vendorName",
-    "invoiceReference",
-    "amount",
-    "paymentMode",
-    "paymentDate",
-    "status",
-  ]) {
-    if (req.body[key] !== undefined) updates[key] = req.body[key];
-  }
-
-  const [updated] = await db
-    .update(vendorPaymentsTable)
-    .set(updates)
-    .where(
-      and(
-        eq(vendorPaymentsTable.id, id),
-        eq(vendorPaymentsTable.organizationId, org),
-      ),
-    )
-    .returning();
-
+router.post("/vendor-payments/:id/reject", requireAuth, async (req, res) => {
+  const org = orgId(req), id = Number(req.params.id), remarks = String(req.body.remarks ?? "").trim();
+  if (!remarks) return res.status(400).json({ error: "Rejection remarks are required" });
+  const [payment] = await db.select().from(vendorPaymentsTable).where(and(eq(vendorPaymentsTable.organizationId, org), eq(vendorPaymentsTable.id, id))).limit(1);
+  if (!payment) return res.status(404).json({ error: "Vendor payment not found" });
+  if (payment.status !== "Pending Approval") return res.status(409).json({ error: "Only pending payments can be rejected" });
+  const [updated] = await db.update(vendorPaymentsTable).set({ status: "Rejected", approvalRemarks: remarks, rejectedByUserId: currentUserId(req), rejectedAt: new Date() }).where(eq(vendorPaymentsTable.id, id)).returning();
   return res.json(updated);
 });
 
 router.delete("/vendor-payments/:id", requireAuth, async (req, res) => {
-  const org = orgId(req);
-  const id = Number(req.params.id);
-  await db
-    .delete(vendorPaymentsTable)
-    .where(
-      and(
-        eq(vendorPaymentsTable.id, id),
-        eq(vendorPaymentsTable.organizationId, org),
-      ),
-    );
+  const org = orgId(req), id = Number(req.params.id);
+  const [payment] = await db.select().from(vendorPaymentsTable).where(and(eq(vendorPaymentsTable.organizationId, org), eq(vendorPaymentsTable.id, id))).limit(1);
+  if (!payment) return res.status(404).json({ error: "Vendor payment not found" });
+  if (payment.status === "Approved" || payment.journalEntryId) return res.status(409).json({ error: "Approved payments cannot be deleted" });
+  await db.delete(vendorPaymentsTable).where(and(eq(vendorPaymentsTable.id, id), eq(vendorPaymentsTable.organizationId, org)));
   return res.json({ success: true });
 });
-
-// ── Purchase Returns ─────────────────────────────────────────────────────────
 router.get("/purchase-returns", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);

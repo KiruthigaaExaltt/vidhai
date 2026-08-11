@@ -226,6 +226,7 @@ export const purchaseInvoicesTable = mongoTable("purchase_invoices", {
   matchStatus: text("match_status").notNull().default("Mismatch"),
   lineItems: json("line_items").notNull().default([]),
   invoiceDate: text("invoice_date").notNull(),
+  paymentDueDays: integer("payment_due_days").notNull().default(30),
   dueDate: text("due_date").notNull(),
   status: text("status").notNull().default("Unpaid"), // Unpaid | Partially Paid | Paid | Overdue
   isPostedToLedger: boolean("is_posted_to_ledger").notNull().default(false),
@@ -266,8 +267,21 @@ export const vendorPaymentsTable = mongoTable("vendor_payments", {
   transactionReference: text("transaction_reference").default(""),
   notes: text("notes").default(""),
   attachmentName: text("attachment_name").default(""),
+  documentPath: text("document_path").default(""),
   paymentDate: text("payment_date").notNull(),
-  status: text("status").notNull().default("Completed"), // Completed | Pending | Failed
+  status: text("status").notNull().default("Pending Approval"),
+  requiredApprovals: integer("required_approvals").notNull().default(1),
+  approvalLevel: integer("approval_level").notNull().default(0),
+  approvalRemarks: text("approval_remarks").default(""),
+  approvedByUserId: integer("approved_by_user_id").references(
+    () => usersTable.id,
+  ),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  rejectedByUserId: integer("rejected_by_user_id").references(
+    () => usersTable.id,
+  ),
+  rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+  journalEntryId: integer("journal_entry_id"),
   createdByUserId: integer("created_by_user_id").references(
     () => usersTable.id,
   ),
