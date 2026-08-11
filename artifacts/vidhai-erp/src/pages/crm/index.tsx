@@ -8,6 +8,7 @@ import {
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,6 +85,7 @@ const EMPTY_FORM: Omit<Contact, "id"> = {
 
 export default function CRMPage() {
   const queryClient = useQueryClient();
+  const { can } = useAuth();
   const { data = [], isLoading, isError } = useListContacts();
   const contacts = data as unknown as Contact[];
   const [tab, setTab] = useState<ContactType | "all">("all");
@@ -158,12 +160,14 @@ export default function CRMPage() {
   };
 
   const openNew = () => {
+    if (!can("crm.contacts.create")) return;
     setEditContact(null);
     setForm({ ...EMPTY_FORM, type: tab === "all" ? "client" : tab });
     setDialogOpen(true);
   };
 
   const openEdit = (c: Contact) => {
+    if (!can("crm.contacts.update")) return;
     setEditContact(c);
     setForm({
       type: c.type,
@@ -194,6 +198,7 @@ export default function CRMPage() {
   };
 
   const handleDelete = () => {
+    if (!can("crm.contacts.delete")) return;
     if (deleteId == null) return;
     deleteContact.mutate({ id: deleteId });
   };

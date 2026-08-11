@@ -1,3 +1,4 @@
+import { normalizeOverrides } from "../lib/permissionCatalog";
 import { Router } from "express";
 import { and, db, employeesTable, eq, usersTable } from "@workspace/db";
 import {
@@ -259,7 +260,7 @@ router.put(
       updates.locationScope = JSON.stringify(req.body.locationScope);
     if (req.body.permissionOverrides !== undefined)
       updates.permissionOverrides = JSON.stringify(
-        req.body.permissionOverrides,
+        normalizeOverrides(req.body.permissionOverrides),
       );
     const [updated] = await db
       .update(usersTable)

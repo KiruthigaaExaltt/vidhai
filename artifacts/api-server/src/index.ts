@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { proformaInvoicesTable, syncTableIndexes } from "@workspace/db";
+import { migratePermissionData } from "./lib/migratePermissions";
 
 const rawPort = process.env["PORT"];
 
@@ -19,6 +20,8 @@ if (Number.isNaN(port) || port <= 0) {
 // Proforma revisions share their root PI number. Synchronize this collection
 // so deployments created with the former unique piNumber index can save V2+.
 await syncTableIndexes(proformaInvoicesTable);
+const permissionMigration = await migratePermissionData();
+logger.info(permissionMigration, "RBAC permission migration complete");
 
 app.listen(port, (err) => {
   if (err) {

@@ -4,6 +4,7 @@ import { rolesTable, usersTable } from "@workspace/db";
 import { and, eq } from "@workspace/db";
 import { requireAuth, requireAdmin } from "./auth";
 import { organizationId, requirePermission } from "../lib/access";
+import { normalizePermissions } from "../lib/permissionCatalog";
 
 const router = Router();
 
@@ -18,7 +19,7 @@ function parsePerms(raw: string): string[] {
   }
 }
 const responseRole = (role: any) => {
-  const permissionKeys = parsePerms(role.permissions);
+  const permissionKeys = normalizePermissions(parsePerms(role.permissions));
   const slug = String(role.slug || role.name || "")
     .trim()
     .toLowerCase()
@@ -135,8 +136,9 @@ router.post(
   requirePermission("settings.user_management.manage_settings"),
   async (req, res) => {
     const { name, description } = req.body as any;
-    const permissionKeys =
-      req.body.permissionKeys ?? req.body.permissions ?? [];
+    const permissionKeys = normalizePermissions(
+      req.body.permissionKeys ?? req.body.permissions ?? [],
+    );
     if (!name?.trim())
       return res.status(400).json({ error: "name is required" });
     const normalizedName = name.trim().toLowerCase();
@@ -187,7 +189,11 @@ router.patch(
   async (req, res) => {
     const id = Number(req.params.id);
     const { description, isActive } = req.body as any;
-    const permissionKeys = req.body.permissionKeys ?? req.body.permissions;
+    const permissionKeys =
+      req.body.permissionKeys === undefined &&
+      req.body.permissions === undefined
+        ? undefined
+        : normalizePermissions(req.body.permissionKeys ?? req.body.permissions);
     const updates: Record<string, unknown> = {};
     const [existing] = await db
       .select()

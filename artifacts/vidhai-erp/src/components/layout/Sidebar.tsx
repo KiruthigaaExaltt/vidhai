@@ -77,13 +77,21 @@ export function Sidebar({
     label,
     disabled = false,
     exact = false,
+    permission,
   }: {
     href: string;
     icon: any;
     label: string;
     disabled?: boolean;
     exact?: boolean;
+    permission?: string | string[];
   }) => {
+    if (
+      permission &&
+      !(Array.isArray(permission) ? permission.some(can) : can(permission))
+    )
+      return null;
+
     const isActive = exact
       ? location === href
       : location === href || location.startsWith(href + "/");
@@ -146,9 +154,25 @@ export function Sidebar({
 
         <div className="flex-1 overflow-y-auto pb-4">
           {/* ── Top-level items ── */}
-          <NavItem href="/" icon={Home} label="Dashboard" exact />
-          <NavItem href="/crm" icon={BookUser} label="CRM" />
-          <NavItem href="/tasks" icon={CheckSquare} label="Tasks" />
+          <NavItem
+            href="/"
+            icon={Home}
+            label="Dashboard"
+            permission="dashboard.view"
+            exact
+          />
+          <NavItem
+            href="/crm"
+            icon={BookUser}
+            label="CRM"
+            permission="crm.contacts.view"
+          />
+          <NavItem
+            href="/tasks"
+            icon={CheckSquare}
+            label="Tasks"
+            permission="task.task_board.view"
+          />
           <NavItem
             href="/scheduling"
             icon={CalendarDays}
@@ -159,16 +183,32 @@ export function Sidebar({
             href="/scheduling/suggest"
             icon={Sparkles}
             label="Plan Schedule"
+            permission="scheduling.plan_schedule.view"
           />
 
           {/* ── Location A — Annur ── */}
           <SectionTitle>ANNUR · LOCATION A</SectionTitle>
-          <NavItem href="/annur/batches" icon={Box} label="Batches" />
-          <NavItem href="/annur/chambers" icon={Thermometer} label="Chambers" />
+          <NavItem
+            href="/annur/batches"
+            icon={Box}
+            label="Batches"
+            permission="production.batches.view"
+          />
+          <NavItem
+            href="/annur/chambers"
+            icon={Thermometer}
+            label="Chambers"
+            permission="production.chambers.view"
+          />
 
           {/* ── Location B — Ooty ── */}
           <SectionTitle>OOTY · LOCATION B</SectionTitle>
-          <NavItem href="/ooty" icon={Thermometer} label="Growing Rooms" />
+          <NavItem
+            href="/ooty"
+            icon={Thermometer}
+            label="Growing Rooms"
+            permission="production.growing_rooms.view"
+          />
 
           {/* ── Location C — Coimbatore ── */}
           <SectionTitle>COIMBATORE · LOCATION C</SectionTitle>
@@ -176,6 +216,7 @@ export function Sidebar({
             href="/coimbatore/batches"
             icon={Layers}
             label="Casing Soil Batches"
+            permission="production.casing_soil.view"
           />
 
           {/* ── Location D — Lab ── */}
@@ -184,6 +225,7 @@ export function Sidebar({
             href="/lab/batches"
             icon={FlaskConical}
             label="Spawn Batches"
+            permission="production.spawn_batches.view"
           />
 
           {/* ── Cross-site operations ── */}
@@ -200,18 +242,69 @@ export function Sidebar({
           {can("crewpay.salary_slip.view") && (
             <NavItem href="/crewpay" icon={Banknote} label="CrewPay" />
           )}
-          <NavItem href="/sales" icon={ShoppingCart} label="Sales" />
+          <NavItem
+            href="/sales"
+            icon={ShoppingCart}
+            label="Sales"
+            permission={[
+              "sales.quotations.view",
+              "sales.proforma_invoices.view",
+              "sales.delivery_challans.view",
+              "sales.invoices.view",
+              "sales.payments.view",
+              "sales.returns.view",
+            ]}
+          />
           {can("accounts.finance_dashboard.view") && (
             <NavItem href="/accounts" icon={Landmark} label="Accounts" />
           )}
-          <NavItem href="/fleet" icon={Truck} label="Vehicle Fleet" />
-          <NavItem href="/reports" icon={BarChart2} label="Reports" />
-          <NavItem href="/traceability" icon={GitBranch} label="Traceability" />
-          <NavItem href="/flex" icon={Box} label="Flex" />
+          <NavItem
+            href="/fleet"
+            icon={Truck}
+            label="Vehicle Fleet"
+            permission="fleet.vehicles.view"
+          />
+          <NavItem
+            href="/reports"
+            icon={BarChart2}
+            label="Reports"
+            permission="reports.view"
+          />
+          <NavItem
+            href="/traceability"
+            icon={GitBranch}
+            label="Traceability"
+            permission="traceability.view"
+          />
+          <NavItem
+            href="/flex"
+            icon={Box}
+            label="Flex"
+            permission={[
+              "flex.dashboard.view",
+              "flex.purchase_requests.view",
+              "flex.purchase_orders.view",
+              "flex.goods_receipts.view",
+              "flex.purchase_invoices.view",
+              "flex.vendor_payments.view",
+              "flex.purchase_returns.view",
+            ]}
+          />
 
           {/* ── System ── */}
           <SectionTitle>SYSTEM</SectionTitle>
-          <NavItem href="/inventory" icon={Layers} label="Inventory" />
+          <NavItem
+            href="/inventory"
+            icon={Layers}
+            label="Inventory"
+            permission={[
+              "inventory.stock.view",
+              "inventory.materials.view",
+              "inventory.categories.view",
+              "inventory.warehouses.view",
+              "inventory.assets.view",
+            ]}
+          />
           {(can("settings.user_management.view") ||
             can("settings.templates.view")) && (
             <NavItem href="/settings" icon={SettingsIcon} label="Settings" />
