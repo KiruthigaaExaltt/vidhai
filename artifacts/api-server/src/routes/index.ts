@@ -35,6 +35,7 @@ import itemNamesRouter from "./itemNames";
 import assetsRouter from "./assets";
 import accountsRouter from "./accounts";
 import workOrdersRouter from "./workOrders";
+import organizationSettingsRouter from "./organizationSettings";
 import { requireModulePermission } from "../lib/access";
 
 const segment = (path: string, index = 0) =>
@@ -149,6 +150,7 @@ router.use(
   ),
   schedulingRouter,
 );
+router.use("/organization-settings", organizationSettingsRouter);
 router.use("/sales", requireModulePermission(salesScope), salesRouter);
 router.use("/fleet", requireModulePermission("fleet.vehicles"), fleetRouter);
 router.use("/reports", requireModulePermission("reports"), reportsRouter);

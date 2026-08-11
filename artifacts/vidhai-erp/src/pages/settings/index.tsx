@@ -39,9 +39,12 @@ const templates: [View, string][] = [
 ];
 export default function Settings() {
   const { can } = useAuth();
-  const userAccess = can("settings.user_management.view"),
+  const companyProfileAccess = can("settings.company_profile.view"),
+    userAccess = can("settings.user_management.view"),
     templateAccess = can("settings.templates.view");
-  const [view, setView] = useState<View>(userAccess ? "users" : "attendance"),
+  const [view, setView] = useState<View>(
+      companyProfileAccess ? "general" : userAccess ? "users" : "attendance",
+    ),
     [expanded, setExpanded] = useState(true),
     [mastersExpanded, setMastersExpanded] = useState(true);
   return (
@@ -147,7 +150,9 @@ export default function Settings() {
             )}
           </nav>
           <section className="min-w-0 rounded-xl border bg-card p-5 shadow-sm md:p-7">
-            {view === "general" && <OrganizationDetails />}
+            {view === "general" && companyProfileAccess && (
+              <OrganizationDetails />
+            )}
             {view === "users" && userAccess && <UserManagement />}
             {view === "departments" && userAccess && <Departments />}
             {templates.some(([k]) => k === view) && templateAccess && (

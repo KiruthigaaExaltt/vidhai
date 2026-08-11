@@ -3,12 +3,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Trash2, Plus, Upload } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 
 export default function OrganizationDetails() {
   const { toast } = useToast();
+  const { can } = useAuth();
   const [saving, setSaving] = useState(false);
   const [logoUrl, setLogoUrl] = useState("");
   const [watermarkUrl, setWatermarkUrl] = useState("");
@@ -24,7 +32,7 @@ export default function OrganizationDetails() {
   const [accountNumber, setAccountNumber] = useState("");
   const [ifscCode, setIfscCode] = useState("");
   const [branch, setBranch] = useState("");
-  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [bankQrUrl, setBankQrUrl] = useState("");
   const [termsAndConditions, setTermsAndConditions] = useState<string[]>([]);
   const [salesDocBody, setSalesDocBody] = useState("");
   const [flexDocBody, setFlexDocBody] = useState("");
@@ -32,9 +40,13 @@ export default function OrganizationDetails() {
   const [timezone, setTimezone] = useState("Asia/Kolkata");
 
   useEffect(() => {
-    fetch("/api/sales/organization", { credentials: "include" })
+    fetch("/api/organization-settings", { credentials: "include" })
       .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Unable to load organization details");
+        if (!res.ok)
+          throw new Error(
+            (await res.json().catch(() => ({}))).error ||
+              "Unable to load organization details",
+          );
         return res.json();
       })
       .then((data) => {
@@ -52,7 +64,7 @@ export default function OrganizationDetails() {
         setAccountNumber(data.accountNumber || "");
         setIfscCode(data.ifscCode || "");
         setBranch(data.branch || "");
-        setQrCodeUrl(data.qrCodeUrl || "");
+        setBankQrUrl(data.bankQrUrl || data.qrCodeUrl || "");
         setTermsAndConditions(data.termsAndConditions || []);
         setSalesDocBody(data.salesDocBody || "");
         setFlexDocBody(data.flexDocBody || "");
@@ -61,10 +73,45 @@ export default function OrganizationDetails() {
       })
       .catch((err) => {
         console.error("Error fetching organization details:", err);
-        toast({ title: "Unable to load organization details", description: err.message, variant: "destructive" });
+        toast({
+          title: "Unable to load organization details",
+          description: err.message,
+          variant: "destructive",
+        });
       });
   }, []);
 
+  const selectImage = (
+    file: File | undefined,
+    label: string,
+    setValue: (value: string) => void,
+  ) => {
+    if (!file) return;
+    if (
+      !file.type.startsWith("image/") ||
+      !["image/png", "image/jpeg", "image/webp"].includes(file.type)
+    ) {
+      toast({
+        title: `Invalid ${label}`,
+        description: "Choose a PNG, JPEG, or WEBP image.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: `${label} is too large`,
+        description: "Images must be 5 MB or smaller.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setValue(String(reader.result || ""));
+    reader.onerror = () =>
+      toast({ title: `Unable to read ${label}`, variant: "destructive" });
+    reader.readAsDataURL(file);
+  };
   const handleAddTerm = () => {
     setTermsAndConditions([...termsAndConditions, ""]);
   };
@@ -95,7 +142,7 @@ export default function OrganizationDetails() {
       accountNumber,
       ifscCode,
       branch,
-      qrCodeUrl,
+      bankQrUrl,
       termsAndConditions,
       salesDocBody,
       flexDocBody,
@@ -105,21 +152,31 @@ export default function OrganizationDetails() {
 
     setSaving(true);
     try {
-      const res = await fetch("/api/sales/organization", {
+      const res = await fetch("/api/organization-settings", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Failed to save: ${res.statusText} (${res.status})`);
-        }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          body.error || `Failed to save: ${res.statusText} (${res.status})`,
+        );
+      }
       const saved = await res.json();
       setCompanyName(saved.companyName || "");
-      toast({ title: "Organization details saved", description: "Sales documents will now use these company and bank details." });
+      toast({
+        title: "Organization details saved",
+        description:
+          "Sales documents will now use these company and bank details.",
+      });
     } catch (err: any) {
-      toast({ title: "Unable to save organization details", description: err.message, variant: "destructive" });
+      toast({
+        title: "Unable to save organization details",
+        description: err.message,
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
@@ -130,7 +187,10 @@ export default function OrganizationDetails() {
       {/* Title */}
       <div>
         <h2 className="text-xl font-bold">Organization Details</h2>
-        <p className="text-sm text-muted-foreground">Configure your company identity, tax information, and document templates.</p>
+        <p className="text-sm text-muted-foreground">
+          Configure your company identity, tax information, and document
+          templates.
+        </p>
       </div>
 
       {/* Logos Section */}
@@ -138,18 +198,42 @@ export default function OrganizationDetails() {
         <Card className="shadow-none border-border">
           <CardContent className="p-5 space-y-3">
             <Label className="text-sm font-bold block">Org Logo</Label>
-            <span className="text-xs text-muted-foreground block">If empty, bundled company logo will be used.</span>
+            <span className="text-xs text-muted-foreground block">
+              If empty, bundled company logo will be used.
+            </span>
             <div className="border border-dashed rounded-lg p-4 flex items-center justify-center bg-slate-50 min-h-[140px]">
               {logoUrl ? (
-                <img src={logoUrl} alt="Org Logo" className="max-h-[120px] object-contain" />
+                <img
+                  src={logoUrl}
+                  alt="Org Logo"
+                  className="max-h-[120px] object-contain"
+                />
               ) : (
-                <div className="text-xs text-muted-foreground">No image uploaded</div>
+                <div className="text-xs text-muted-foreground">
+                  No image uploaded
+                </div>
               )}
             </div>
             <div className="flex gap-2">
-              <Input type="text" placeholder="Enter Logo Image URL" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} className="h-9 text-xs" />
+              <label className="flex h-9 cursor-pointer items-center rounded-md border bg-background px-3 text-xs hover:bg-muted">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload logo
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) =>
+                    selectImage(e.target.files?.[0], "logo", setLogoUrl)
+                  }
+                />
+              </label>
               {logoUrl && (
-                <Button variant="outline" size="sm" onClick={() => setLogoUrl("")} className="text-rose-500 hover:text-rose-600">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLogoUrl("")}
+                  className="text-rose-500 hover:text-rose-600"
+                >
                   <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
                 </Button>
               )}
@@ -160,18 +244,46 @@ export default function OrganizationDetails() {
         <Card className="shadow-none border-border">
           <CardContent className="p-5 space-y-3">
             <Label className="text-sm font-bold block">Watermark</Label>
-            <span className="text-xs text-muted-foreground block">Used as centered background watermark in report PDFs.</span>
+            <span className="text-xs text-muted-foreground block">
+              Used as centered background watermark in report PDFs.
+            </span>
             <div className="border border-dashed rounded-lg p-4 flex items-center justify-center bg-slate-50 min-h-[140px]">
               {watermarkUrl ? (
-                <img src={watermarkUrl} alt="Watermark" className="max-h-[120px] object-contain" />
+                <img
+                  src={watermarkUrl}
+                  alt="Watermark"
+                  className="max-h-[120px] object-contain"
+                />
               ) : (
-                <div className="text-xs text-muted-foreground">No image uploaded</div>
+                <div className="text-xs text-muted-foreground">
+                  No image uploaded
+                </div>
               )}
             </div>
             <div className="flex gap-2">
-              <Input type="text" placeholder="Enter Watermark Image URL" value={watermarkUrl} onChange={(e) => setWatermarkUrl(e.target.value)} className="h-9 text-xs" />
+              <label className="flex h-9 cursor-pointer items-center rounded-md border bg-background px-3 text-xs hover:bg-muted">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload watermark
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) =>
+                    selectImage(
+                      e.target.files?.[0],
+                      "watermark",
+                      setWatermarkUrl,
+                    )
+                  }
+                />
+              </label>
               {watermarkUrl && (
-                <Button variant="outline" size="sm" onClick={() => setWatermarkUrl("")} className="text-rose-500 hover:text-rose-600">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setWatermarkUrl("")}
+                  className="text-rose-500 hover:text-rose-600"
+                >
                   <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
                 </Button>
               )}
@@ -183,37 +295,79 @@ export default function OrganizationDetails() {
       {/* General Information */}
       <Card className="shadow-none border-border">
         <CardContent className="p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-700 border-b pb-2 uppercase tracking-wide">General Information</h3>
+          <h3 className="text-sm font-bold text-slate-700 border-b pb-2 uppercase tracking-wide">
+            General Information
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label className="text-xs">Company Name</Label>
-              <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Enter Company Name" />
+              <Input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Enter Company Name"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Organization Email</Label>
-              <Input value={orgEmail} onChange={(e) => setOrgEmail(e.target.value)} placeholder="Enter Organization Email" />
+              <Input
+                value={orgEmail}
+                onChange={(e) => setOrgEmail(e.target.value)}
+                placeholder="Enter Organization Email"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Organization Domain</Label>
-              <Input value={orgDomain} onChange={(e) => setOrgDomain(e.target.value)} placeholder="Enter Organization Domain" />
+              <Input
+                value={orgDomain}
+                onChange={(e) => setOrgDomain(e.target.value)}
+                placeholder="Enter Organization Domain"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Registration / Tax ID (GSTIN)</Label>
-              <Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="Enter GSTIN" />
+              <Input
+                value={gstin}
+                onChange={(e) => setGstin(e.target.value)}
+                placeholder="Enter GSTIN"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Company State Code</Label>
-              <Input value={companyStateCode} onChange={(e) => setCompanyStateCode(e.target.value)} placeholder="Enter State Code" />
-              <span className="text-[10px] text-muted-foreground block">Used for Sales/Flex place-of-supply GST type (intra vs inter).</span>
+              <Input
+                value={companyStateCode}
+                onChange={(e) =>
+                  setCompanyStateCode(
+                    e.target.value.replace(/\D/g, "").slice(0, 2),
+                  )
+                }
+                placeholder="Enter State Code"
+              />
+              <span className="text-[10px] text-muted-foreground block">
+                Used for Sales/Flex place-of-supply GST type (intra vs inter).
+              </span>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Sales Executive</Label>
-              <Input value={salesExecutive} onChange={(e) => setSalesExecutive(e.target.value)} placeholder="Enter Sales Executive Name" />
+              <Input
+                value={salesExecutive}
+                onChange={(e) => setSalesExecutive(e.target.value)}
+                placeholder="Enter Sales Executive Name"
+              />
             </div>
             <div className="grid col-span-1 md:col-span-2 space-y-1">
               <Label className="text-xs">Sales Contact No.</Label>
-              <Input value={salesContactNo} onChange={(e) => setSalesContactNo(e.target.value)} placeholder="Enter Sales Contact Number" />
-              <span className="text-[10px] text-muted-foreground block">Shown on Sales documents when filled. Leave blank to hide.</span>
+              <Input
+                value={salesContactNo}
+                onChange={(e) =>
+                  setSalesContactNo(
+                    e.target.value.replace(/\D/g, "").slice(0, 10),
+                  )
+                }
+                placeholder="Enter Sales Contact Number"
+              />
+              <span className="text-[10px] text-muted-foreground block">
+                Shown on Sales documents when filled. Leave blank to hide.
+              </span>
             </div>
           </div>
         </CardContent>
@@ -222,7 +376,9 @@ export default function OrganizationDetails() {
       {/* Company Address */}
       <Card className="shadow-none border-border">
         <CardContent className="p-6 space-y-2">
-          <Label className="text-sm font-bold text-slate-700 block">Company Address</Label>
+          <Label className="text-sm font-bold text-slate-700 block">
+            Company Address
+          </Label>
           <textarea
             className="w-full min-h-[80px] text-sm p-3 border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary bg-white"
             value={companyAddress}
@@ -235,41 +391,88 @@ export default function OrganizationDetails() {
       {/* Bank Details */}
       <Card className="shadow-none border-border">
         <CardContent className="p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-700 border-b pb-2 uppercase tracking-wide">Bank Details</h3>
-          <span className="text-xs text-muted-foreground block">Shown on Sales quotations, proforma invoices, delivery challans, invoices, and sales returns.</span>
+          <h3 className="text-sm font-bold text-slate-700 border-b pb-2 uppercase tracking-wide">
+            Bank Details
+          </h3>
+          <span className="text-xs text-muted-foreground block">
+            Shown on Sales quotations, proforma invoices, delivery challans,
+            invoices, and sales returns.
+          </span>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label className="text-xs">Bank Name</Label>
-              <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Enter Bank Name" />
+              <Input
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                placeholder="Enter Bank Name"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Account Number</Label>
-              <Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Enter Account Number" />
+              <Input
+                value={accountNumber}
+                onChange={(e) => setAccountNumber(e.target.value)}
+                placeholder="Enter Account Number"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">IFSC Code</Label>
-              <Input value={ifscCode} onChange={(e) => setIfscCode(e.target.value)} placeholder="Enter IFSC Code" />
+              <Input
+                value={ifscCode}
+                onChange={(e) => setIfscCode(e.target.value)}
+                placeholder="Enter IFSC Code"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Branch</Label>
-              <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Enter Branch Name" />
+              <Input
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder="Enter Branch Name"
+              />
             </div>
           </div>
 
           <div className="space-y-3 pt-2">
-            <Label className="text-xs font-bold block">Payment QR / UPI Image</Label>
-            <span className="text-[10px] text-muted-foreground block">Attached image appears inside Bank Details on Sales PDF previews.</span>
+            <Label className="text-xs font-bold block">
+              Payment QR / UPI Image
+            </Label>
+            <span className="text-[10px] text-muted-foreground block">
+              Attached image appears inside Bank Details on Sales PDF previews.
+            </span>
             <div className="border border-dashed rounded-lg p-4 flex items-center justify-center bg-slate-50 min-h-[140px] max-w-[280px]">
-              {qrCodeUrl ? (
-                <img src={qrCodeUrl} alt="Payment QR" className="max-h-[120px] object-contain" />
+              {bankQrUrl ? (
+                <img
+                  src={bankQrUrl}
+                  alt="Payment QR"
+                  className="max-h-[120px] object-contain"
+                />
               ) : (
-                <div className="text-xs text-muted-foreground">No QR Code Image</div>
+                <div className="text-xs text-muted-foreground">
+                  No QR Code Image
+                </div>
               )}
             </div>
             <div className="flex gap-2 max-w-md">
-              <Input type="text" placeholder="Enter QR Code Image URL" value={qrCodeUrl} onChange={(e) => setQrCodeUrl(e.target.value)} className="h-9 text-xs" />
-              {qrCodeUrl && (
-                <Button variant="outline" size="sm" onClick={() => setQrCodeUrl("")} className="text-rose-500 hover:text-rose-600">
+              <label className="flex h-9 cursor-pointer items-center rounded-md border bg-background px-3 text-xs hover:bg-muted">
+                <Upload className="mr-2 h-4 w-4" />
+                Upload payment QR
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) =>
+                    selectImage(e.target.files?.[0], "payment QR", setBankQrUrl)
+                  }
+                />
+              </label>
+              {bankQrUrl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBankQrUrl("")}
+                  className="text-rose-500 hover:text-rose-600"
+                >
                   <Trash2 className="w-3.5 h-3.5 mr-1" /> Remove
                 </Button>
               )}
@@ -282,18 +485,40 @@ export default function OrganizationDetails() {
       <Card className="shadow-none border-border">
         <CardContent className="p-6 space-y-4">
           <div className="flex justify-between items-center border-b pb-2">
-            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Terms & Conditions</h3>
-            <Button variant="outline" size="sm" onClick={handleAddTerm} className="h-8 text-xs">
+            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">
+              Terms & Conditions
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAddTerm}
+              className="h-8 text-xs"
+            >
               <Plus className="w-3.5 h-3.5 mr-1" /> Add Line
             </Button>
           </div>
-          <span className="text-xs text-muted-foreground block">Line-by-line defaults prefilled into Sales documents (editable there).</span>
+          <span className="text-xs text-muted-foreground block">
+            Line-by-line defaults prefilled into Sales documents (editable
+            there).
+          </span>
           <div className="space-y-3">
             {termsAndConditions.map((term, index) => (
               <div key={index} className="flex gap-2 items-center">
-                <span className="text-xs text-muted-foreground w-6">{index + 1}.</span>
-                <Input value={term} onChange={(e) => handleUpdateTerm(index, e.target.value)} className="h-9 text-xs" placeholder="Enter term detail..." />
-                <Button variant="ghost" size="icon" onClick={() => handleRemoveTerm(index)} className="h-9 w-9 text-muted-foreground hover:text-rose-600">
+                <span className="text-xs text-muted-foreground w-6">
+                  {index + 1}.
+                </span>
+                <Input
+                  value={term}
+                  onChange={(e) => handleUpdateTerm(index, e.target.value)}
+                  className="h-9 text-xs"
+                  placeholder="Enter term detail..."
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleRemoveTerm(index)}
+                  className="h-9 w-9 text-muted-foreground hover:text-rose-600"
+                >
                   <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
@@ -306,7 +531,9 @@ export default function OrganizationDetails() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card className="shadow-none border-border">
           <CardContent className="p-5 space-y-2">
-            <Label className="text-sm font-bold text-slate-700 block">Sales Document Body</Label>
+            <Label className="text-sm font-bold text-slate-700 block">
+              Sales Document Body
+            </Label>
             <textarea
               className="w-full min-h-[120px] text-sm p-3 border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary bg-white"
               value={salesDocBody}
@@ -318,7 +545,9 @@ export default function OrganizationDetails() {
 
         <Card className="shadow-none border-border">
           <CardContent className="p-5 space-y-2">
-            <Label className="text-sm font-bold text-slate-700 block">Flex Document Body</Label>
+            <Label className="text-sm font-bold text-slate-700 block">
+              Flex Document Body
+            </Label>
             <textarea
               className="w-full min-h-[120px] text-sm p-3 border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary bg-white"
               value={flexDocBody}
@@ -332,12 +561,19 @@ export default function OrganizationDetails() {
       {/* Localization */}
       <Card className="shadow-none border-border">
         <CardContent className="p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-700 border-b pb-2 uppercase tracking-wide">Localization</h3>
+          <h3 className="text-sm font-bold text-slate-700 border-b pb-2 uppercase tracking-wide">
+            Localization
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label className="text-xs">Default Currency</Label>
-              <Select value={defaultCurrency} onValueChange={setDefaultCurrency}>
-                <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+              <Select
+                value={defaultCurrency}
+                onValueChange={setDefaultCurrency}
+              >
+                <SelectTrigger className="bg-white">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="INR">INR - Indian Rupee</SelectItem>
                   <SelectItem value="USD">USD - US Dollar</SelectItem>
@@ -347,10 +583,16 @@ export default function OrganizationDetails() {
             <div className="space-y-1">
               <Label className="text-xs">Timezone</Label>
               <Select value={timezone} onValueChange={setTimezone}>
-                <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="bg-white">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST, UTC+5:30)</SelectItem>
-                  <SelectItem value="UTC">UTC (Coordinated Universal Time)</SelectItem>
+                  <SelectItem value="Asia/Kolkata">
+                    Asia/Kolkata (IST, UTC+5:30)
+                  </SelectItem>
+                  <SelectItem value="UTC">
+                    UTC (Coordinated Universal Time)
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -360,7 +602,11 @@ export default function OrganizationDetails() {
 
       {/* Save Button */}
       <div className="flex justify-end">
-        <Button disabled={saving} onClick={() => void handleSave()} className="bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
+        <Button
+          disabled={saving || !can("settings.company_profile.update")}
+          onClick={() => void handleSave()}
+          className="bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"
+        >
           {saving ? "Saving..." : "Save Organization Details"}
         </Button>
       </div>

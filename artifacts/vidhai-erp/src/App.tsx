@@ -107,6 +107,7 @@ function Router() {
         <ProtectedRoute
           component={Settings}
           permission={[
+            "settings.company_profile.view",
             "settings.user_management.view",
             "settings.templates.view",
             "settings.master_settings.view",

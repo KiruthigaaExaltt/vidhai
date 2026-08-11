@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
@@ -25,6 +25,12 @@ import {
   crewAuditLogsTable,
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
+import {
+  crewUploadFolder,
+  resolveCrewUploadPath,
+  resolveUploadPath,
+  type CrewUploadFolder,
+} from "../lib/uploadStorage";
 
 const router = Router();
 const json = (v: any, f: any = []) => {
@@ -68,7 +74,7 @@ async function saveEmployeePhoto(file?: Express.Multer.File) {
         : file.mimetype === "image/webp"
           ? "webp"
           : "jpg",
-    dir = path.resolve(process.cwd(), "uploads", "crew", "employees");
+    dir = resolveCrewUploadPath("employees");
   await mkdir(dir, { recursive: true });
   const full = path.join(dir, `${Date.now()}-${randomUUID()}.${ext}`);
   await writeFile(full, file.buffer);
@@ -86,18 +92,25 @@ async function context(req: any, res: any, next: any) {
 }
 router.use(context);
 router.get("/files/:folder/:file", async (req: any, res: any): Promise<any> => {
+  const folder = req.params.folder as CrewUploadFolder;
   if (
-    !["employees", "attendance", "claims"].includes(req.params.folder) ||
+    !(folder in crewUploadFolder) ||
     !req.crew.permissions.some(
-      (p: string) => p === "*" || p.startsWith("crew."),
+      (permission: string) =>
+        permission === "*" || permission.startsWith("crew."),
     )
   )
     return res.status(403).json({ error: "Crew file access denied" });
   const file = path.basename(req.params.file);
-  return res.sendFile(
-    path.resolve(process.cwd(), "uploads", "crew", req.params.folder, file),
-    { dotfiles: "deny" },
-  );
+  let target = resolveCrewUploadPath(folder, file);
+  if (folder === "employees") {
+    try {
+      await access(target);
+    } catch {
+      target = resolveUploadPath("crew", "employees", file);
+    }
+  }
+  return res.sendFile(target, { dotfiles: "deny" });
 });
 const can = (req: any, key: string) =>
   req.crew.permissions.includes("*") || req.crew.permissions.includes(key);
@@ -172,7 +185,10 @@ async function audit(
     });
   } catch {}
 }
-async function saveAttendancePhoto(value: any) {
+async function saveAttendancePhoto(
+  value: any,
+  folder: "attendance-punch-in" | "attendance-punch-out",
+) {
   if (!value || typeof value !== "string" || !value.startsWith("data:"))
     return value || null;
   const m = value.match(
@@ -188,13 +204,13 @@ async function saveAttendancePhoto(value: any) {
     : m[1].includes("webp")
       ? "webp"
       : "jpg";
-  const dir = path.resolve(process.cwd(), "uploads", "crew", "attendance");
+  const dir = resolveCrewUploadPath(folder);
   await mkdir(dir, { recursive: true });
   const file = `${Date.now()}-${randomUUID()}.${ext}`;
   await writeFile(path.join(dir, file), buffer);
-  return `/api/crew/files/attendance/${file}`;
+  return `/api/crew/files/${folder}/${file}`;
 }
-async function saveDataUrl(value: any, folder: string) {
+async function saveDataUrl(value: any, folder: "employees" | "claims") {
   if (!value || typeof value !== "string" || !value.startsWith("data:"))
     return value || null;
   const m = value.match(/^data:([\w/+.-]+);base64,(.+)$/s);
@@ -206,7 +222,7 @@ async function saveDataUrl(value: any, folder: string) {
       : m[1].includes("webp")
         ? "webp"
         : "jpg";
-  const dir = path.resolve(process.cwd(), "uploads", "crew", folder);
+  const dir = resolveCrewUploadPath(folder);
   await mkdir(dir, { recursive: true });
   const file = `${Date.now()}-${randomUUID()}.${ext}`;
   await writeFile(path.join(dir, file), Buffer.from(m[2], "base64"));
@@ -822,7 +838,10 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         !Number.isFinite(Number(req.body.location.longitude)))
     )
       return res.status(400).json({ error: "Punch-in location is required" });
-    const photo = await saveAttendancePhoto(req.body.photoDataUrl);
+    const photo = await saveAttendancePhoto(
+      req.body.photoDataUrl,
+      "attendance-punch-in",
+    );
     if (isPunchIn && !photo)
       return res.status(400).json({ error: "Punch-in photograph is required" });
     const now = new Date(),
@@ -937,7 +956,10 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
         return res
           .status(400)
           .json({ error: "Punch-out location is required" });
-      const photo = await saveAttendancePhoto(b.photoDataUrl);
+      const photo = await saveAttendancePhoto(
+        b.photoDataUrl,
+        "attendance-punch-out",
+      );
       if (!photo)
         return res
           .status(400)

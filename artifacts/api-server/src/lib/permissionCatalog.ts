@@ -242,7 +242,7 @@ export const permissionCatalog: PermissionCatalogRow[] = [
   {
     module: "Settings � Company Profile",
     key: "settings.company_profile",
-    actions: ["view", "update"],
+    actions: ["view", "update", "manage_settings"],
   },
   {
     module: "Settings � User Management",
