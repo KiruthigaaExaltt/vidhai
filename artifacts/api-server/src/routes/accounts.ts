@@ -12,6 +12,7 @@ import {
   journalLinesTable,
   purchaseInvoicesTable,
 } from "@workspace/db";
+import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 const router = Router(),
   m = (v: any) => {
@@ -416,48 +417,7 @@ async function automate(org: number) {
         .where(eq(salesInvoicesTable.id, ar.sourceId));
   }
   for (const x of await db.select().from(purchaseInvoicesTable)) {
-    if (Number(x.amount) <= 0) continue;
-    const j = await post(org, {
-      entryDate: x.invoiceDate,
-      reference: `PURCH:${x.invoiceNumber}`,
-      description: `Purchase invoice ${x.invoiceNumber}`,
-      sourceType: "Purchase Invoice",
-      sourceId: x.id,
-      lines: [
-        { accountId: id("5100"), debit: m(x.amount) },
-        { accountId: id("2100"), credit: m(x.amount) },
-      ],
-    });
-    if (
-      !(
-        await db
-          .select()
-          .from(accountsPayableTable)
-          .where(
-            and(
-              eq(accountsPayableTable.organizationId, org),
-              eq(accountsPayableTable.billNumber, x.invoiceNumber),
-            ),
-          )
-      ).length
-    )
-      await db
-        .insert(accountsPayableTable)
-        .values({
-          organizationId: org,
-          vendorName: x.vendorName,
-          billNumber: x.invoiceNumber,
-          billDate: x.invoiceDate,
-          dueDate: x.dueDate,
-          amount: m(x.amount),
-          paidAmount: x.status === "Paid" ? m(x.amount) : 0,
-          adjustedAmount: 0,
-          status: x.status === "Paid" ? "Paid" : "Pending",
-          entryType: "Bill",
-          journalEntryId: j.id,
-          sourceType: "Purchase Invoice",
-          sourceId: x.id,
-        });
+    await postMatchedPurchaseInvoice(org, Number(x.id));
   }
   for (const x of await db.select().from(vendorPaymentsTable)) {
     if (x.status !== "Completed" || Number(x.amount) <= 0) continue;

@@ -144,6 +144,20 @@ async function createPurchaseInvoice(payload: any) {
   return res.json();
 }
 
+async function exportPurchaseInvoices() {
+  const response = await fetch(`${BASE}/api/flex/purchase-invoices/export`, {
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error("Failed to export purchase invoices");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `purchase-invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function PurchaseInvoices() {
   const queryClient = useQueryClient();
   const {
@@ -618,6 +632,19 @@ export default function PurchaseInvoices() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() =>
+                exportPurchaseInvoices().catch((error) =>
+                  toast.error(error.message),
+                )
+              }
+            >
+              <Download className="w-4 h-4" /> Export
+            </Button>
             <Button
               size="sm"
               className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-4 py-2 rounded-md gap-2 shadow-xs"

@@ -6,6 +6,7 @@ import {
   text,
   timestamp,
   json,
+  boolean,
   createInsertSchema,
 } from "./dsl";
 import { z } from "zod/v4";
@@ -195,6 +196,27 @@ export const purchaseInvoicesTable = mongoTable("purchase_invoices", {
   ),
   vendorId: text("vendor_id").notNull().default(""),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  taxableAmount: numeric("taxable_amount", { precision: 12, scale: 2 })
+    .notNull()
+    .default("0"),
+  cgstPercent: numeric("cgst_percent", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  sgstPercent: numeric("sgst_percent", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  igstPercent: numeric("igst_percent", { precision: 8, scale: 2 })
+    .notNull()
+    .default("0"),
+  cgstAmount: numeric("cgst_amount", { precision: 12, scale: 2 })
+    .notNull()
+    .default("0"),
+  sgstAmount: numeric("sgst_amount", { precision: 12, scale: 2 })
+    .notNull()
+    .default("0"),
+  igstAmount: numeric("igst_amount", { precision: 12, scale: 2 })
+    .notNull()
+    .default("0"),
   poAmount: numeric("po_amount", { precision: 12, scale: 2 })
     .notNull()
     .default("0"),
@@ -206,6 +228,10 @@ export const purchaseInvoicesTable = mongoTable("purchase_invoices", {
   invoiceDate: text("invoice_date").notNull(),
   dueDate: text("due_date").notNull(),
   status: text("status").notNull().default("Unpaid"), // Unpaid | Partially Paid | Paid | Overdue
+  isPostedToLedger: boolean("is_posted_to_ledger").notNull().default(false),
+  journalEntryId: integer("journal_entry_id"),
+  documentPath: text("document_path").default(""),
+  documentName: text("document_name").default(""),
   notes: text("notes").default(""),
   attachmentName: text("attachment_name").default(""),
   createdByUserId: integer("created_by_user_id").references(

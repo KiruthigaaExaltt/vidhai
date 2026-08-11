@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { db, eq, desc, and } from "@workspace/db";
 import {
   purchaseRequestsTable,
@@ -1648,14 +1649,21 @@ function calculatePurchaseInvoiceMatchStatus(
 ) {
   const poMatch = poAmount > 0 && Math.abs(invoiceAmount - poAmount) < 1;
   const grnMatch = grnAmount > 0 && Math.abs(invoiceAmount - grnAmount) < 1;
+  const isClose = (comparisonAmount: number) =>
+    comparisonAmount > 0 &&
+    Math.abs(invoiceAmount - comparisonAmount) /
+      Math.max(invoiceAmount, comparisonAmount) <=
+      0.05;
   if (poAmount > 0 && grnAmount > 0) {
     if (poMatch && grnMatch) return "3-Way Match";
-    if (poMatch || grnMatch) return "Partial Match";
+    if (poMatch || grnMatch) return "2-Way Match";
+    if (isClose(poAmount) || isClose(grnAmount)) return "Partial Match";
     return "Mismatch";
   }
   if ((poAmount > 0 && poMatch) || (grnAmount > 0 && grnMatch)) {
     return "2-Way Match";
   }
+  if (isClose(poAmount) || isClose(grnAmount)) return "Partial Match";
   return "Mismatch";
 }
 
@@ -1716,6 +1724,13 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
       purchaseOrderId: inv.purchaseOrderId,
       goodsReceiptId: inv.goodsReceiptId,
       amount: Number(inv.amount),
+      taxableAmount: Number(inv.taxableAmount || 0),
+      cgstPercent: Number(inv.cgstPercent || 0),
+      sgstPercent: Number(inv.sgstPercent || 0),
+      igstPercent: Number(inv.igstPercent || 0),
+      cgstAmount: Number(inv.cgstAmount || 0),
+      sgstAmount: Number(inv.sgstAmount || 0),
+      igstAmount: Number(inv.igstAmount || 0),
       poAmount: Number(inv.poAmount || 0),
       grnAmount: Number(inv.grnAmount || 0),
       matchStatus: inv.matchStatus || "Mismatch",
@@ -1723,6 +1738,11 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
       status: inv.status,
+      paymentStatus: inv.status,
+      isPostedToLedger: Boolean(inv.isPostedToLedger),
+      journalEntryId: inv.journalEntryId || null,
+      documentPath: inv.documentPath || "",
+      documentName: inv.documentName || inv.attachmentName || "",
       notes: inv.notes,
       attachmentName: inv.attachmentName || "",
       createdBy: userMap.get(inv.createdByUserId) || "",
@@ -1778,6 +1798,19 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   if (duplicateInvoice) {
     return res.status(409).json({
       error: `Invoice number "${invoiceNumber}" already exists for this vendor.`,
+    });
+  }
+  const conflictingGrns = grnReferences.filter((reference) =>
+    (existingInvoices as any[]).some((invoice) =>
+      String(invoice.grnReference || "")
+        .split(",")
+        .map((value) => value.trim())
+        .includes(reference),
+    ),
+  );
+  if (conflictingGrns.length) {
+    return res.status(409).json({
+      error: `Goods receipt already invoiced: ${conflictingGrns.join(", ")}`,
     });
   }
 
@@ -1862,15 +1895,28 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   const grnAmount = goodsReceipts.reduce(
     (receiptsTotal, receipt) =>
       receiptsTotal +
-      (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).reduce(
-        (sum: number, line: any) =>
-          sum +
-          Number(
-            line.lineTotal ??
-              Number(line.receivedQty || 0) * Number(line.unitPrice || 0),
-          ),
-        0,
-      ),
+      (Number((receipt as any).totalAmount || 0) ||
+        (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).reduce(
+          (sum: number, line: any) => {
+            const quantity = Number(
+              line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
+            );
+            const rate = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
+            const taxPercent =
+              Number(line.cgstPct ?? line.cgstPercent ?? 0) +
+              Number(line.sgstPct ?? line.sgstPercent ?? 0) +
+              Number(line.igstPct ?? line.igstPercent ?? 0);
+            return (
+              sum +
+              Number(
+                line.lineTotal ??
+                  line.total ??
+                  quantity * rate * (1 + taxPercent / 100),
+              )
+            );
+          },
+          0,
+        )),
     0,
   );
   const matchStatus = calculatePurchaseInvoiceMatchStatus(
@@ -1899,6 +1945,21 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
+  const taxableAmount = submittedLineItems.reduce(
+    (sum: number, line: any) =>
+      sum + Number(line.qty ?? line.quantity ?? 0) * Number(line.price ?? line.rate ?? 0),
+    0,
+  );
+  const taxAmount = (key: "cgst" | "sgst" | "igst") =>
+    submittedLineItems.reduce((sum: number, line: any) => {
+      const base = Number(line.qty ?? line.quantity ?? 0) * Number(line.price ?? line.rate ?? 0);
+      return sum + (base * Number(line[`${key}Pct`] ?? line[`${key}Percent`] ?? 0)) / 100;
+    }, 0);
+  const cgstAmount = taxAmount("cgst");
+  const sgstAmount = taxAmount("sgst");
+  const igstAmount = taxAmount("igst");
+  const effectivePercent = (tax: number) =>
+    taxableAmount > 0 ? (tax / taxableAmount) * 100 : 0;
 
   const [created] = await db
     .insert(purchaseInvoicesTable)
@@ -1919,6 +1980,13 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
           "",
       ),
       amount,
+      taxableAmount,
+      cgstPercent: effectivePercent(cgstAmount),
+      sgstPercent: effectivePercent(sgstAmount),
+      igstPercent: effectivePercent(igstAmount),
+      cgstAmount,
+      sgstAmount,
+      igstAmount,
       poAmount,
       grnAmount,
       matchStatus,
@@ -1932,16 +2000,43 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       status: String(req.body.status ?? "Unpaid"),
       notes: String(req.body.notes ?? ""),
       attachmentName: String(req.body.attachmentName ?? ""),
+      documentPath: String(req.body.documentPath ?? ""),
+      documentName: String(
+        req.body.documentName ?? req.body.attachmentName ?? "",
+      ),
       createdByUserId: creatingUser ? userId : null,
     })
     .returning();
 
-  return res.status(201).json(created);
+  const posted = await postMatchedPurchaseInvoice(org, created.id, userId);
+  return res.status(201).json(posted || created);
 });
 
 router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
   const org = orgId(req);
   const id = Number(req.params.id);
+
+  const [previous] = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(
+      and(
+        eq(purchaseInvoicesTable.id, id),
+        eq(purchaseInvoicesTable.organizationId, org),
+      ),
+    )
+    .limit(1);
+  if (!previous) return res.status(404).json({ error: "Purchase invoice not found" });
+  if (
+    previous.isPostedToLedger &&
+    ["amount", "lineItems", "invoiceNumber", "vendorName"].some(
+      (key) => req.body[key] !== undefined,
+    )
+  ) {
+    return res.status(409).json({
+      error: "Posted purchase invoice financial details cannot be changed",
+    });
+  }
 
   const updates: Record<string, unknown> = {};
   for (const key of [
@@ -1953,6 +2048,13 @@ router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
     "goodsReceiptId",
     "vendorId",
     "amount",
+    "taxableAmount",
+    "cgstPercent",
+    "sgstPercent",
+    "igstPercent",
+    "cgstAmount",
+    "sgstAmount",
+    "igstAmount",
     "poAmount",
     "grnAmount",
     "matchStatus",
@@ -1961,6 +2063,9 @@ router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
     "dueDate",
     "status",
     "notes",
+    "documentPath",
+    "documentName",
+    "attachmentName",
   ]) {
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
@@ -1976,12 +2081,39 @@ router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
     )
     .returning();
 
-  return res.json(updated);
+  const posted = await postMatchedPurchaseInvoice(org, updated.id, currentUserId(req));
+  return res.json(posted || updated);
+});
+
+router.get("/purchase-invoices/export", requireAuth, async (req, res) => {
+  const org = orgId(req);
+  const invoices = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(eq(purchaseInvoicesTable.organizationId, org))
+    .orderBy(desc(purchaseInvoicesTable.createdAt));
+  const escape = (value: unknown) =>
+    `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    ["Invoice Number", "Vendor", "Invoice Date", "Due Date", "PO Reference", "GRN Reference", "Taxable Amount", "CGST", "SGST", "IGST", "Invoice Amount", "Match Status", "Payment Status", "Posted To Ledger", "Journal Entry ID"],
+    ...invoices.map((invoice: any) => [invoice.invoiceNumber, invoice.vendorName, invoice.invoiceDate, invoice.dueDate, invoice.poReference, invoice.grnReference, invoice.taxableAmount, invoice.cgstAmount, invoice.sgstAmount, invoice.igstAmount, invoice.amount, invoice.matchStatus, invoice.status, invoice.isPostedToLedger ? "Yes" : "No", invoice.journalEntryId || ""]),
+  ];
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="purchase-invoices-${new Date().toISOString().slice(0, 10)}.csv"`);
+  return res.send(rows.map((row) => row.map(escape).join(",")).join("\n"));
 });
 
 router.delete("/purchase-invoices/:id", requireAuth, async (req, res) => {
   const org = orgId(req);
   const id = Number(req.params.id);
+  const [invoice] = await db
+    .select()
+    .from(purchaseInvoicesTable)
+    .where(and(eq(purchaseInvoicesTable.id, id), eq(purchaseInvoicesTable.organizationId, org)))
+    .limit(1);
+  if (!invoice) return res.status(404).json({ error: "Purchase invoice not found" });
+  if (invoice.isPostedToLedger)
+    return res.status(409).json({ error: "Posted purchase invoices cannot be deleted" });
   await db
     .delete(purchaseInvoicesTable)
     .where(
