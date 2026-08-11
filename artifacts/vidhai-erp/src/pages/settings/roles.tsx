@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 type Role = {
@@ -41,8 +42,13 @@ async function request(path: string, options?: RequestInit) {
   }
   return r.status === 204 ? null : r.json();
 }
-export default function RolesPage() {
+export default function RolesPage({
+  users = [],
+}: {
+  users?: { role: string }[];
+}) {
   const { toast } = useToast();
+  const { can } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]),
     [catalog, setCatalog] = useState<Catalog[]>([]),
     [moduleFilter, setModuleFilter] = useState(""),
@@ -121,9 +127,10 @@ export default function RolesPage() {
     "settings",
     "upload",
     "manage_settings",
-    "forOwn",
-    "forOthers",
-    "changeTime",
+    "download",
+    "for_own",
+    "for_others",
+    "change_time",
   ];
   const displayActions = actionOrder.filter(
     (action) =>
@@ -200,25 +207,42 @@ export default function RolesPage() {
     }
   };
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4">
       <div className="flex items-center justify-between gap-3">
         <Input
-          className="max-w-sm"
-          placeholder="Search roles…"
+          className="w-full"
+          placeholder="Search roles..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Button onClick={() => begin()}>
+        <Button
+          className="absolute -top-[116px] right-0"
+          size="sm"
+          onClick={() => begin()}
+        >
           <Plus className="mr-2 h-4 w-4" />
           New Role
         </Button>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="overflow-hidden rounded-xl border">
+        <div className="hidden grid-cols-[minmax(0,2fr)_120px_120px_100px_90px] gap-3 bg-muted/40 px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+          <span>Role</span>
+          <span>Modules</span>
+          <span>Permissions</span>
+          <span>Users</span>
+          <span className="text-right">Action</span>
+        </div>
         {shown.map((r) => {
           const p = Array.isArray(r.permissions) ? r.permissions : [];
+          const roleUsers = users.filter(
+            (user) => user.role.toLowerCase() === r.name.toLowerCase(),
+          ).length;
           return (
-            <div key={r.id} className="rounded-lg border p-4">
-              <div className="flex items-start justify-between">
+            <div
+              key={r.id}
+              className="grid gap-3 border-t p-4 first:border-t-0 md:grid-cols-[minmax(0,2fr)_120px_120px_100px_90px] md:items-center"
+            >
+              <div className="contents">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold">{r.name}</h3>
@@ -231,12 +255,15 @@ export default function RolesPage() {
                     {r.description || "No description"}
                   </p>
                 </div>
-                <div className="flex">
+                <div className="flex justify-end md:order-last">
                   <Button
                     size="icon"
                     variant="ghost"
                     disabled={Boolean(
-                      r.isSystem || r.isSuperAdmin || r.systemKey,
+                      r.isSystem ||
+                      r.isSuperAdmin ||
+                      r.systemKey ||
+                      !can("settings.user_management.manage_settings"),
                     )}
                     title={
                       r.isSystem || r.isSuperAdmin || r.systemKey
@@ -247,24 +274,25 @@ export default function RolesPage() {
                   >
                     <Edit2 className="h-4 w-4" />
                   </Button>
-                  {!r.isSystem && !r.systemKey && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => void remove(r)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                  {!r.isSystem &&
+                    !r.systemKey &&
+                    can("settings.user_management.manage_settings") && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive"
+                        onClick={() => void remove(r)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                 </div>
               </div>
-              <div className="mt-4 flex gap-5 text-xs text-muted-foreground">
-                <span>
-                  {new Set(p.map((k) => k.split(".")[0])).size} enabled modules
-                </span>
-                <span>{p.length} permissions</span>
-              </div>
+              <span className="text-sm">
+                {new Set(p.map((k) => k.split(".")[0])).size}
+              </span>
+              <span className="text-sm">{p.length}</span>
+              <span className="text-sm">{roleUsers}</span>
             </div>
           );
         })}

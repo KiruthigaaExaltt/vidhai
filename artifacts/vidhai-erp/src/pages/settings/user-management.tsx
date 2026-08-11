@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import RolesPage from "./roles";
 import { AddMemberDialog } from "@/pages/crew/AddMemberDialog";
 
@@ -55,6 +56,7 @@ type User = {
   isActive?: boolean;
   permissionOverrides?: string[];
   lastLogin?: string;
+  passwordUpdatedAt?: string;
   locationScope: string[];
 };
 const isAssignableRole = (role: any) => {
@@ -83,6 +85,7 @@ const empty = {
 };
 export default function UserManagement() {
   const { toast } = useToast();
+  const { can } = useAuth();
   const [users, setUsers] = useState<User[]>([]),
     [roles, setRoles] = useState<any[]>([]),
     [employees, setEmployees] = useState<any[]>([]),
@@ -322,7 +325,14 @@ export default function UserManagement() {
       setAccess({
         ...value,
         employeeId: value.employeeId ? String(value.employeeId) : "",
-        permissionOverrides: value.permissionOverrides || [],
+        permissionOverrides: (value.permissionOverrides || []).map(
+          (item: any) =>
+            typeof item === "string"
+              ? item
+              : item.allowed
+                ? item.permissionKey
+                : `!${item.permissionKey}`,
+        ),
       });
     } catch (e: any) {
       toast({
@@ -388,82 +398,102 @@ export default function UserManagement() {
     <div className="space-y-5">
       <Tabs value={tab} onValueChange={setTab}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList>
-            <TabsTrigger value="users">Users</TabsTrigger>
-            <TabsTrigger value="roles">Roles</TabsTrigger>
-          </TabsList>
+          <h2 className="text-lg font-semibold">User Management</h2>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void sync()}>
+            <Button size="sm" variant="outline" onClick={() => void sync()}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Sync users and roles
             </Button>
-            {tab === "users" && (
-              <Button onClick={() => begin()}>
+            {tab === "users" && can("settings.user_management.create") && (
+              <Button size="sm" onClick={() => begin()}>
                 <Plus className="mr-2 h-4 w-4" />
                 New User
               </Button>
             )}
           </div>
         </div>
-        <TabsContent value="users" className="space-y-4">
-          <div className="relative max-w-md">
+        <TabsList className="grid h-11 w-full grid-cols-2 p-0">
+          <TabsTrigger
+            className="h-11 gap-2 rounded-r-none border data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            value="users"
+          >
+            <UserCheck className="h-4 w-4" /> Users
+          </TabsTrigger>
+          <TabsTrigger
+            className="h-11 gap-2 rounded-l-none border data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+            value="roles"
+          >
+            <Shield className="h-4 w-4" /> Roles
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="users" className="mt-4 space-y-4">
+          <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-9"
-              placeholder="Search users…"
+              placeholder="Search users or roles..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div className="overflow-hidden rounded-lg border">
-            <div className="hidden grid-cols-[2fr,1.5fr,1fr,1fr,auto] gap-4 border-b bg-muted/40 px-4 py-2 text-xs font-medium uppercase text-muted-foreground md:grid">
-              <span>User</span>
-              <span>Email / Employee</span>
-              <span>Role</span>
-              <span>Last login</span>
-              <span>Actions</span>
-            </div>
+          <div className="space-y-3">
             {filtered.map((u) => (
               <div
                 key={u.id}
-                className="grid gap-3 border-b p-4 last:border-0 md:grid-cols-[2fr,1.5fr,1fr,1fr,auto] md:items-center"
+                className="grid min-h-[106px] gap-4 rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/20 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center"
               >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                     {u.displayName.charAt(0).toUpperCase()}
                   </span>
-                  <div>
-                    <div className="font-medium">{u.displayName}</div>
-                    <div className="text-xs text-muted-foreground">
-                      @{u.username}
+                  <div className="min-w-0 text-xs leading-[18px] text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">
+                        {u.displayName}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={
+                          u.isActive === false
+                            ? "h-5 border-border bg-muted px-2 text-[10px] text-muted-foreground"
+                            : "h-5 border-emerald-200 bg-emerald-50 px-2 text-[10px] text-emerald-700"
+                        }
+                      >
+                        {u.isActive === false ? "Inactive" : "Active"}
+                      </Badge>
+                    </div>
+                    <div>Username: {u.username}</div>
+                    <div className="truncate">{u.email || "No email"}</div>
+                    {u.employeeName && <div>Employee: {u.employeeName}</div>}
+                    {u.department && <div>Department: {u.department}</div>}
+                    {u.passwordUpdatedAt && (
+                      <div>
+                        Password updated {relative(u.passwordUpdatedAt)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-6 md:justify-end">
+                  <Badge
+                    variant="secondary"
+                    className={`h-5 px-3 text-[10px] capitalize ${u.role.toLowerCase() === "admin" ? "bg-red-50 text-red-600" : ""}`}
+                  >
+                    {u.role}
+                  </Badge>
+                  <div className="min-w-[76px] text-right">
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Last login
+                    </div>
+                    <div className="text-xs text-foreground">
+                      {u.lastLogin ? relative(u.lastLogin) : "Never"}
                     </div>
                   </div>
                 </div>
-                <div className="text-sm">
-                  <div>{u.email || "No email"}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {u.employeeName || "No linked employee"}
-                  </div>
-                </div>
-                <Badge variant="outline" className="w-fit capitalize">
-                  {u.role} · {u.isActive === false ? "Inactive" : "Active"}
-                </Badge>
-                <span className="text-sm text-muted-foreground">
-                  {u.lastLogin ? relative(u.lastLogin) : "Never"}
-                </span>
-                <div className="flex">
+                <div className="flex justify-end text-muted-foreground">
                   <Button
                     size="icon"
                     variant="ghost"
-                    title="Access and permissions"
-                    onClick={() => void beginAccess(u)}
-                  >
-                    <Shield className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    title="Edit"
+                    title="Edit user"
                     onClick={() => begin(u)}
                   >
                     <Edit2 className="h-4 w-4" />
@@ -495,18 +525,9 @@ export default function UserManagement() {
                       <UserX className="h-4 w-4" />
                     </Button>
                   )}
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    title="Delete"
-                    className="text-destructive"
-                    onClick={() => void remove(u)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </div>
               </div>
-            ))}
+            ))}{" "}
             {!filtered.length && (
               <div className="p-10 text-center text-sm text-muted-foreground">
                 No users found.
@@ -514,8 +535,8 @@ export default function UserManagement() {
             )}
           </div>
         </TabsContent>
-        <TabsContent value="roles">
-          <RolesPage />
+        <TabsContent value="roles" className="mt-4">
+          <RolesPage users={users} />
         </TabsContent>
       </Tabs>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -696,7 +717,7 @@ export default function UserManagement() {
                   </select>
                 </Field>
               </div>
-              <div className="overflow-hidden rounded-lg border">
+              <div className="space-y-3">
                 <div className="grid grid-cols-[1fr,140px] bg-muted/40 px-3 py-2 text-xs font-medium uppercase text-muted-foreground">
                   <span>Permission override</span>
                   <span>Rule</span>

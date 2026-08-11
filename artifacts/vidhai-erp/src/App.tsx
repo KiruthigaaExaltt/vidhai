@@ -1,4 +1,4 @@
-﻿import { useEffect } from "react";
+import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -81,7 +81,8 @@ function ProtectedRoute({
 
   if (
     (adminOnly && user.role !== "admin") ||
-    (permission && !can(permission))
+    (permission &&
+      !(Array.isArray(permission) ? permission.some(can) : can(permission)))
   ) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -99,107 +100,195 @@ function Router() {
       <Route path="/login" component={Login} />
 
       <Route path="/">
-        <ProtectedRoute component={Dashboard} />
+        <ProtectedRoute component={Dashboard} permission="dashboard.view" />
       </Route>
 
       <Route path="/settings">
         <ProtectedRoute
           component={Settings}
-          permission="settings.user_management.view"
+          permission={[
+            "settings.user_management.view",
+            "settings.templates.view",
+            "settings.master_settings.view",
+            "settings.alert_colors.view",
+            "settings.locations.view",
+          ]}
         />
       </Route>
 
       {/* Inventory Routes */}
       <Route path="/inventory">
-        <ProtectedRoute component={Inventory} />
+        <ProtectedRoute
+          component={Inventory}
+          permission="inventory.stock.view"
+        />
       </Route>
 
       {/* CRM */}
       <Route path="/crm">
-        <ProtectedRoute component={CRM} />
+        <ProtectedRoute component={CRM} permission="crm.contacts.view" />
       </Route>
 
       {/* Coimbatore Routes */}
       <Route path="/coimbatore/batches">
-        <ProtectedRoute component={CoimbatoreBatches} />
+        <ProtectedRoute
+          component={CoimbatoreBatches}
+          permission="production.casing_soil.view"
+        />
       </Route>
       <Route path="/coimbatore/batches/:id">
-        <ProtectedRoute component={CoimbatoreBatchDetail} />
+        <ProtectedRoute
+          component={CoimbatoreBatchDetail}
+          permission="production.casing_soil.view"
+        />
       </Route>
 
       {/* Ooty Routes */}
       <Route path="/ooty">
-        <ProtectedRoute component={OotyRooms} />
+        <ProtectedRoute
+          component={OotyRooms}
+          permission="production.growing_rooms.view"
+        />
       </Route>
       <Route path="/ooty/rooms/:id">
-        <ProtectedRoute component={OotyRoomDetail} />
+        <ProtectedRoute
+          component={OotyRoomDetail}
+          permission="production.growing_rooms.view"
+        />
       </Route>
       <Route path="/traceability">
-        <ProtectedRoute component={Traceability} />
+        <ProtectedRoute
+          component={Traceability}
+          permission="traceability.view"
+        />
       </Route>
       <Route path="/scheduling/suggest">
-        <ProtectedRoute component={ScheduleSuggest} />
+        <ProtectedRoute
+          component={ScheduleSuggest}
+          permission="scheduling.plan_schedule.view"
+        />
       </Route>
       <Route path="/scheduling">
-        <ProtectedRoute component={SchedulingCalendar} />
+        <ProtectedRoute
+          component={SchedulingCalendar}
+          permission="scheduling.calendar.view"
+        />
       </Route>
       <Route path="/sales">
-        <ProtectedRoute component={Sales} />
+        <ProtectedRoute
+          component={Sales}
+          permission={[
+            "sales.quotations.view",
+            "sales.proforma_invoices.view",
+            "sales.delivery_challans.view",
+            "sales.invoices.view",
+            "sales.payments.view",
+            "sales.returns.view",
+          ]}
+        />
       </Route>
       <Route path="/fleet/:id">
-        <ProtectedRoute component={FleetDetail} />
+        <ProtectedRoute
+          component={FleetDetail}
+          permission="fleet.vehicles.view"
+        />
       </Route>
       <Route path="/fleet">
-        <ProtectedRoute component={FleetList} />
+        <ProtectedRoute
+          component={FleetList}
+          permission="fleet.vehicles.view"
+        />
       </Route>
       <Route path="/reports/batch-summary">
-        <ProtectedRoute component={ReportBatchSummary} />
+        <ProtectedRoute
+          component={ReportBatchSummary}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports/monthly-production">
-        <ProtectedRoute component={ReportMonthlyProduction} />
+        <ProtectedRoute
+          component={ReportMonthlyProduction}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports/quality-trend">
-        <ProtectedRoute component={ReportQualityTrend} />
+        <ProtectedRoute
+          component={ReportQualityTrend}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports/vehicle-utilization">
-        <ProtectedRoute component={ReportVehicleUtilization} />
+        <ProtectedRoute
+          component={ReportVehicleUtilization}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports/fuel-consumption">
-        <ProtectedRoute component={ReportFuelConsumption} />
+        <ProtectedRoute
+          component={ReportFuelConsumption}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports/batch-costing">
-        <ProtectedRoute component={ReportBatchCosting} />
+        <ProtectedRoute
+          component={ReportBatchCosting}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports/annur-batch-yield">
-        <ProtectedRoute component={ReportAnnurBatchYield} />
+        <ProtectedRoute
+          component={ReportAnnurBatchYield}
+          permission="reports.view"
+        />
       </Route>
       <Route path="/reports">
-        <ProtectedRoute component={ReportsLanding} />
+        <ProtectedRoute component={ReportsLanding} permission="reports.view" />
       </Route>
       <Route path="/tasks">
-        <ProtectedRoute component={Tasks} />
+        <ProtectedRoute component={Tasks} permission="task.task_board.view" />
       </Route>
       {/* Flex Routes */}
       <Route path="/flex">
-        <ProtectedRoute component={FlexDashboard} />
+        <ProtectedRoute
+          component={FlexDashboard}
+          permission="flex.dashboard.view"
+        />
       </Route>
       <Route path="/flex/purchase-requests">
-        <ProtectedRoute component={PurchaseRequests} />
+        <ProtectedRoute
+          component={PurchaseRequests}
+          permission="flex.purchase_requests.view"
+        />
       </Route>
       <Route path="/flex/purchase-orders">
-        <ProtectedRoute component={PurchaseOrders} />
+        <ProtectedRoute
+          component={PurchaseOrders}
+          permission="flex.purchase_orders.view"
+        />
       </Route>
       <Route path="/flex/goods-receipts">
-        <ProtectedRoute component={GoodsReceipts} />
+        <ProtectedRoute
+          component={GoodsReceipts}
+          permission="flex.goods_receipts.view"
+        />
       </Route>
       <Route path="/flex/purchase-invoices">
-        <ProtectedRoute component={PurchaseInvoices} />
+        <ProtectedRoute
+          component={PurchaseInvoices}
+          permission="flex.purchase_invoices.view"
+        />
       </Route>
       <Route path="/flex/vendor-payments">
-        <ProtectedRoute component={VendorPayments} />
+        <ProtectedRoute
+          component={VendorPayments}
+          permission="flex.vendor_payments.view"
+        />
       </Route>
       <Route path="/flex/purchase-returns">
-        <ProtectedRoute component={PurchaseReturns} />
+        <ProtectedRoute
+          component={PurchaseReturns}
+          permission="flex.purchase_returns.view"
+        />
       </Route>
 
       <Route path="/accounts">
@@ -213,35 +302,70 @@ function Router() {
         <ProtectedRoute component={Profile} />
       </Route>
       <Route path="/crew">
-        <ProtectedRoute component={Crew} />
+        <ProtectedRoute
+          component={Crew}
+          permission={[
+            "crew.employees.view",
+            "crew.attendance.view",
+            "crew.leave.view",
+            "crew.claims.view",
+            "crew.overtime.view",
+            "crew.bonus.view",
+            "crew.deductions.view",
+          ]}
+        />
       </Route>
       <Route path="/crewpay">
-        <ProtectedRoute component={CrewPay} />
+        <ProtectedRoute
+          component={CrewPay}
+          permission={["crewpay.salary_slip.view", "crewpay.payroll.view"]}
+        />
       </Route>
 
       {/* Lab Routes */}
       <Route path="/lab/batches">
-        <ProtectedRoute component={LabBatches} />
+        <ProtectedRoute
+          component={LabBatches}
+          permission="production.spawn_batches.view"
+        />
       </Route>
       <Route path="/lab/batches/:id">
-        <ProtectedRoute component={LabBatchDetail} />
+        <ProtectedRoute
+          component={LabBatchDetail}
+          permission="production.spawn_batches.view"
+        />
       </Route>
       <Route path="/lab/spawn-stock">
-        <ProtectedRoute component={SpawnStockRedirect} />
+        <ProtectedRoute
+          component={SpawnStockRedirect}
+          permission="production.spawn_batches.view"
+        />
       </Route>
 
       {/* Annur Routes */}
       <Route path="/annur/batches">
-        <ProtectedRoute component={Batches} />
+        <ProtectedRoute
+          component={Batches}
+          permission="production.batches.view"
+        />
       </Route>
       <Route path="/annur/batches/new">
-        <ProtectedRoute component={NewBatch} />
+        <ProtectedRoute
+          component={NewBatch}
+          permission="production.batches.create"
+        />
       </Route>
       <Route path="/annur/batches/:id">
-        <ProtectedRoute component={BatchDetail} />
+        <ProtectedRoute
+          component={BatchDetail}
+          permission="production.batches.view"
+        />
       </Route>
       <Route path="/annur/chambers">
-        <ProtectedRoute component={Chambers} />
+        <ProtectedRoute
+          component={Chambers}
+          permission="production.chambers.view"
+        />
       </Route>
 
       <Route component={NotFound} />
