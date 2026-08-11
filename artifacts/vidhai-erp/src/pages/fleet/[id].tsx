@@ -154,7 +154,7 @@ export default function FleetDetail() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-6xl mx-auto w-full space-y-6">
+      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
         <Button variant="ghost" onClick={() => setLocation("/fleet")} className="px-0 hover:bg-transparent text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4 mr-2" /> Back to Fleet
         </Button>

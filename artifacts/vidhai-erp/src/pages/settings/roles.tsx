@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Edit2, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
+import { Edit2, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -42,11 +48,12 @@ async function request(path: string, options?: RequestInit) {
   }
   return r.status === 204 ? null : r.json();
 }
-export default function RolesPage({
-  users = [],
-}: {
+export type RolesPageHandle = {
+  beginCreate: () => void;
+};
+const RolesPage = forwardRef<RolesPageHandle, {
   users?: { role: string }[];
-}) {
+}>(function RolesPage({ users = [] }, ref) {
   const { toast } = useToast();
   const { can } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]),
@@ -98,6 +105,7 @@ export default function RolesPage({
     setIsActive(r?.isActive !== false);
     setOpen(true);
   };
+  useImperativeHandle(ref, () => ({ beginCreate: () => begin() }));
   const toggle = (key: string, checked: boolean) => {
     const [scope, action] = key.split(/\.(?=[^.]+$)/);
     setPermissions((current) => {
@@ -207,7 +215,7 @@ export default function RolesPage({
     }
   };
   return (
-    <div className="relative space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <Input
           className="w-full"
@@ -215,14 +223,6 @@ export default function RolesPage({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Button
-          className="absolute -top-[116px] right-0"
-          size="sm"
-          onClick={() => begin()}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          New Role
-        </Button>
       </div>
       <div className="overflow-hidden rounded-xl border">
         <div className="hidden grid-cols-[minmax(0,2fr)_120px_120px_100px_90px] gap-3 bg-muted/40 px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
@@ -474,4 +474,5 @@ export default function RolesPage({
       </Dialog>
     </div>
   );
-}
+});
+export default RolesPage;

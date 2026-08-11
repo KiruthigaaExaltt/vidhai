@@ -265,7 +265,7 @@ export default function ScheduleSuggest() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-6xl mx-auto w-full space-y-8">
+      <div className="min-w-0 w-full space-y-8 p-6 md:p-8">
 
         {/* ── Back ─────────────────────────────────────────────────────────── */}
         <Button

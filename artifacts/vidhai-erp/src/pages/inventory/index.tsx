@@ -667,7 +667,7 @@ export default function InventoryModule() {
             </TabsList>
           </div>
 
-          <div className="p-6 md:p-8 max-w-[1600px] mx-auto w-full flex-1">
+          <div className="min-w-0 w-full flex-1 p-6 md:p-8">
             {/* ── DASHBOARD ── */}
             <TabsContent
               value="dashboard"

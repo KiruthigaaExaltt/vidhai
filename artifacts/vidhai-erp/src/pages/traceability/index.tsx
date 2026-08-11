@@ -98,7 +98,7 @@ export default function Traceability() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-6xl mx-auto w-full space-y-6">
+      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <GitBranch className="w-6 h-6 text-primary" /> Batch Traceability

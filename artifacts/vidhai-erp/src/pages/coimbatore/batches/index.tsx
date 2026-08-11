@@ -183,7 +183,7 @@ export default function CoimbatoreBatches() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-5">
+      <div className="min-w-0 w-full space-y-5 p-6 md:p-8">
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
           <div>

@@ -68,7 +68,7 @@ export default function ReportsLanding() {
   const [, setLocation] = useLocation();
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-5xl mx-auto w-full space-y-6">
+      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <BarChart2 className="w-6 h-6 text-primary" /> Reports

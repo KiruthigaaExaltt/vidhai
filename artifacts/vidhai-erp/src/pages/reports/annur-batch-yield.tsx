@@ -43,7 +43,7 @@ export default function ReportAnnurBatchYield() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-5xl mx-auto w-full space-y-6">
+      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
         <Button
           variant="ghost"
           onClick={() => setLocation("/reports")}
