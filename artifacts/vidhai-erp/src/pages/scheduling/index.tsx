@@ -26,7 +26,7 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Sparkles,
+  CalendarCheck,
   ChevronLeft,
   ChevronRight,
   MapPin,
@@ -293,7 +293,7 @@ export default function SchedulingCalendar() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-[1600px] mx-auto w-full space-y-6 flex flex-col h-[calc(100vh-4rem)]">
+      <div className="flex h-[calc(100vh-4rem)] min-w-0 w-full flex-col space-y-6 p-6 md:p-8">
         {/* Header & Controls */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
           <div>
@@ -308,7 +308,7 @@ export default function SchedulingCalendar() {
               className="rounded-lg shadow-sm h-10 px-4 font-medium hover:shadow-md transition-all"
               onClick={() => setLocation("/scheduling/suggest")}
             >
-              <Sparkles className="w-4 h-4 mr-2 text-amber-500" /> Plan Schedule
+              <CalendarCheck className="w-4 h-4 mr-2 text-amber-500" /> Plan Schedule
             </Button>
             <Button
               className="rounded-lg shadow-sm h-10 px-4 font-medium hover:shadow-md transition-all"

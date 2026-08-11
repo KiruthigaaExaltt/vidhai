@@ -12,7 +12,7 @@ import {
   FlaskConical,
   GitBranch,
   CalendarDays,
-  Sparkles,
+  CalendarCheck,
   ShoppingCart,
   Truck,
   BarChart2,
@@ -181,7 +181,7 @@ export function Sidebar({
           />
           <NavItem
             href="/scheduling/suggest"
-            icon={Sparkles}
+            icon={CalendarCheck}
             label="Plan Schedule"
             permission="scheduling.plan_schedule.view"
           />

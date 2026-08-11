@@ -157,7 +157,7 @@ export default function BatchDetail() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
+      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
         {/* Back */}
         <Button variant="ghost" onClick={() => setLocation("/annur/batches")}
           className="px-0 hover:bg-transparent text-muted-foreground hover:text-foreground">

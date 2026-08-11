@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Edit2,
   KeyRound,
@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import RolesPage from "./roles";
+import RolesPage, { type RolesPageHandle } from "./roles";
 import { AddMemberDialog } from "@/pages/crew/AddMemberDialog";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
@@ -86,6 +86,7 @@ const empty = {
 export default function UserManagement() {
   const { toast } = useToast();
   const { can } = useAuth();
+  const rolesPageRef = useRef<RolesPageHandle>(null);
   const [users, setUsers] = useState<User[]>([]),
     [roles, setRoles] = useState<any[]>([]),
     [employees, setEmployees] = useState<any[]>([]),
@@ -397,9 +398,9 @@ export default function UserManagement() {
   return (
     <div className="space-y-5">
       <Tabs value={tab} onValueChange={setTab}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-5 space-y-4">
           <h2 className="text-lg font-semibold">User Management</h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button size="sm" variant="outline" onClick={() => void sync()}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Sync users and roles
@@ -408,6 +409,15 @@ export default function UserManagement() {
               <Button size="sm" onClick={() => begin()}>
                 <Plus className="mr-2 h-4 w-4" />
                 New User
+              </Button>
+            )}
+            {tab === "roles" && (
+              <Button
+                size="sm"
+                onClick={() => rolesPageRef.current?.beginCreate()}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Role
               </Button>
             )}
           </div>
@@ -536,7 +546,7 @@ export default function UserManagement() {
           </div>
         </TabsContent>
         <TabsContent value="roles" className="mt-4">
-          <RolesPage users={users} />
+          <RolesPage ref={rolesPageRef} users={users} />
         </TabsContent>
       </Tabs>
       <Dialog open={open} onOpenChange={setOpen}>

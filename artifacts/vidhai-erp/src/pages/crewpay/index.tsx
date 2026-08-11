@@ -6,19 +6,11 @@ import {
   Download,
   Eye,
   FileText,
-  Landmark,
-  Printer,
   Search,
   ShieldCheck,
 } from "lucide-react";
 import { Shell } from "@/components/layout/Shell";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -55,7 +47,6 @@ export default function CrewPay() {
   const now = new Date(),
     { can } = useAuth(),
     { toast } = useToast(),
-    [tab, setTab] = useState<"slips" | "payroll">("slips"),
     [period, setPeriod] = useState(now.toISOString().slice(0, 7)),
     [slips, setSlips] = useState<any[]>([]),
     [payroll, setPayroll] = useState<any[]>([]),
@@ -136,33 +127,6 @@ export default function CrewPay() {
       setBusy(false);
     }
   };
-  const sync = async (
-    targetStatus: "Processing" | "Processed" | "Paid",
-    employeeId?: number,
-  ) => {
-    setBusy(true);
-    try {
-      await api("payroll/sync-to-ledger", {
-        method: "POST",
-        body: JSON.stringify({
-          payrollMonth: period,
-          targetStatus,
-          employeeId,
-        }),
-      });
-      toast({ title: `Payroll ${targetStatus.toLowerCase()}` });
-      await load();
-      setSelected(null);
-    } catch (error: any) {
-      toast({
-        title: "Unable to update payroll",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
   const payrollByEmployee = new Map(
       payroll.map((row) => [Number(row.employeeId), row]),
     ),
@@ -199,29 +163,16 @@ export default function CrewPay() {
         <div className="border-b bg-background px-6">
           <nav className="flex gap-2 py-2">
             <Tab
-              active={tab === "slips"}
-              onClick={() => {
-                setTab("slips");
-                setSelected(null);
-              }}
+              active
+              onClick={() => setSelected(null)}
               icon={FileText}
             >
               Salary Slips
             </Tab>
-            <Tab
-              active={tab === "payroll"}
-              onClick={() => {
-                setTab("payroll");
-                setSelected(null);
-              }}
-              icon={Landmark}
-            >
-              Payroll
-            </Tab>
           </nav>
         </div>
         <main className="space-y-6 p-6">
-          {selected && tab === "slips" ? (
+          {selected ? (
             <SalaryDetail
               slip={selected}
               busy={busy}
@@ -246,7 +197,7 @@ export default function CrewPay() {
                     value={period}
                     onChange={(e) => setPeriod(e.target.value)}
                   />
-                  {tab === "slips" && can("crewpay.salary_slip.create") && (
+                  {can("crewpay.salary_slip.create") && (
                     <Button disabled={busy} onClick={() => void generate()}>
                       {busy ? "Generating..." : "Generate Slips"}
                     </Button>
@@ -303,7 +254,7 @@ export default function CrewPay() {
                   onChange={(e) => setDepartment(e.target.value)}
                 >
                   {departments.map((value) => (
-                    <option key={value}>
+                    <option key={value} value={value}>
                       {value === "All" ? "All Departments" : value}
                     </option>
                   ))}
@@ -315,95 +266,22 @@ export default function CrewPay() {
                 >
                   {["All", "Generated", "Processing", "Processed", "Paid"].map(
                     (value) => (
-                      <option key={value}>
+                      <option key={value} value={value}>
                         {value === "All" ? "All statuses" : value}
                       </option>
                     ),
                   )}
                 </select>
               </div>
-              {tab === "slips" ? (
-                <SlipTable
-                  loading={loading}
-                  rows={visible}
-                  payrollByEmployee={payrollByEmployee}
-                  open={setSelected}
-                />
-              ) : (
-                <PayrollTable
-                  loading={loading}
-                  rows={payroll}
-                  slips={slips}
-                  open={setSelected}
-                />
-              )}
+              <SlipTable
+                loading={loading}
+                rows={visible}
+                payrollByEmployee={payrollByEmployee}
+                open={setSelected}
+              />
             </>
           )}
         </main>
-        <Dialog
-          open={tab === "payroll" && !!selected}
-          onOpenChange={(open) => !open && setSelected(null)}
-        >
-          <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {tab === "slips" ? "Salary Slip" : "Payroll Details"}
-              </DialogTitle>
-            </DialogHeader>
-            {selected &&
-              (tab === "slips" ? (
-                <SalaryPreview slip={selected} />
-              ) : (
-                <PayrollPreview row={selected} />
-              ))}
-            <div className="flex flex-wrap justify-end gap-2 print:hidden">
-              {tab === "slips" && (
-                <>
-                  <Button variant="outline" onClick={() => window.print()}>
-                    <Printer className="mr-2 h-4 w-4" />
-                    Print / Save PDF
-                  </Button>
-                  {can("crewpay.salary_slip.create") && (
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => void generate(selected.employeeId)}
-                    >
-                      Regenerate
-                    </Button>
-                  )}
-                  {can("crewpay.payroll.create") && (
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void sync("Processing", selected.employeeId)
-                      }
-                    >
-                      Sync to Payroll
-                    </Button>
-                  )}
-                </>
-              )}
-              {tab === "payroll" &&
-                selected.status !== "Paid" &&
-                can("crewpay.payroll.update") && (
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void sync(
-                        selected.status === "Processing" ? "Processed" : "Paid",
-                        selected.employeeId,
-                      )
-                    }
-                  >
-                    {selected.status === "Processing"
-                      ? "Mark Processed"
-                      : "Mark Paid"}
-                  </Button>
-                )}
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </Shell>
   );
@@ -495,62 +373,6 @@ function SlipTable({ loading, rows, payrollByEmployee, open }: any) {
       <div className="border-t p-4 text-sm text-muted-foreground">
         {rows.length} salary slips
       </div>
-    </section>
-  );
-}
-function PayrollTable({ loading, rows, slips, open }: any) {
-  const names = new Map<number, any>(
-    slips.map((s: any) => [Number(s.employeeId), s]),
-  );
-  return (
-    <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-      <table className="w-full min-w-[780px] text-sm">
-        <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
-          <tr>
-            {[
-              "Employee",
-              "Gross pay",
-              "Deductions",
-              "Net pay",
-              "Status",
-              "Action",
-            ].map((v) => (
-              <th className="px-4 py-3" key={v}>
-                {v}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <Empty text="Loading payroll..." />
-          ) : rows.length ? (
-            rows.map((r: any) => (
-              <tr className="border-t" key={r.id}>
-                <td className="px-4 py-3 font-medium">
-                  {r.employeeName}
-                  <small className="block text-muted-foreground">
-                    {names.get(r.employeeId)?.employeeCode}
-                  </small>
-                </td>
-                <td className="px-4 py-3">{money(r.grossPay)}</td>
-                <td className="px-4 py-3">{money(r.deductions)}</td>
-                <td className="px-4 py-3 font-semibold">{money(r.netPay)}</td>
-                <td className="px-4 py-3">
-                  <Badge value={r.status} />
-                </td>
-                <td className="px-4 py-3">
-                  <Button size="icon" variant="ghost" onClick={() => open(r)}>
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                </td>
-              </tr>
-            ))
-          ) : (
-            <Empty text="Synchronize generated salary slips to payroll" />
-          )}
-        </tbody>
-      </table>
     </section>
   );
 }
@@ -752,18 +574,6 @@ function SalaryPreview({ slip }: any) {
       <p className="text-center text-xs text-muted-foreground">
         Computer-generated salary slip
       </p>
-    </div>
-  );
-}
-function PayrollPreview({ row }: any) {
-  return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Info label="Employee" value={row.employeeName} />
-      <Info label="Period" value={monthName(row.payPeriod)} />
-      <Info label="Gross pay" value={money(row.grossPay)} />
-      <Info label="Deductions" value={money(row.deductions)} />
-      <Info label="Net pay" value={money(row.netPay)} />
-      <Info label="Status" value={row.status} />
     </div>
   );
 }

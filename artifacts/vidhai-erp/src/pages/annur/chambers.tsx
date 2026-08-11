@@ -163,7 +163,7 @@ export default function Chambers() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full space-y-6">
+      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight font-display">Chamber Control</h1>
@@ -177,6 +177,10 @@ export default function Chambers() {
 
         {isLoading ? (
           <div className="p-12 text-center text-sm text-muted-foreground">Loading chamber data...</div>
+        ) : chambers?.length === 0 ? (
+          <div className="py-16 text-center text-sm text-muted-foreground">
+            No chambers yet. Create the first one.
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {chambers?.map((c) => {

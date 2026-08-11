@@ -41,7 +41,7 @@ export function TopHeader({
   const initial = user?.displayName?.trim().charAt(0).toUpperCase() || "U";
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b bg-background/95 px-3 backdrop-blur sm:px-6 lg:h-[72px] lg:justify-end">
+    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center justify-between border-b bg-card px-3 backdrop-blur sm:px-6 lg:h-[72px] lg:justify-end">
       <button
         type="button"
         onClick={onOpenNavigation}
