@@ -1,5 +1,5 @@
 import { FLEX_TEXT } from "./flexText";
-import { useFlexMasterData } from "./flexData";
+import { useFlexMasterData, useFlexPurchaseRequests } from "./flexData";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -147,6 +147,7 @@ export default function PurchaseOrdersPage() {
   });
 
   const { data: masterData } = useFlexMasterData();
+  const { data: purchaseRequests = [] } = useFlexPurchaseRequests();
   const vendorsList = masterData?.vendors ?? [];
   const itemOptions = masterData?.items ?? [];
   const warehouseOptions = masterData?.warehouses ?? [];
@@ -397,6 +398,86 @@ export default function PurchaseOrdersPage() {
         updated.total = sub + taxVal;
         return updated;
       }),
+    );
+  };
+
+  const populateVendorLineItems = (selectedVendorId: string) => {
+    const matchingRequests = purchaseRequests.filter((request: any) => {
+      const vendorIds = Array.isArray(request.vendorIds)
+        ? request.vendorIds.map(String)
+        : [String(request.vendorId || "")];
+      return (
+        vendorIds.includes(selectedVendorId) &&
+        request.status !== "Closed" &&
+        request.status !== "PO Created"
+      );
+    });
+
+    const populatedLines = matchingRequests.flatMap(
+      (request: any, requestIndex: number) => {
+        const requestLines =
+          Array.isArray(request.lineItems) && request.lineItems.length
+            ? request.lineItems
+            : [
+                {
+                  itemName: request.itemName,
+                  quantity: request.quantity,
+                  unit: request.unit,
+                },
+              ];
+
+        return requestLines
+          .filter((requestLine: any) => requestLine.itemName)
+          .map((requestLine: any, lineIndex: number) => {
+            const item = itemOptions.find(
+              (option) =>
+                option.id === Number(requestLine.itemId) ||
+                option.name.toLowerCase() ===
+                  String(requestLine.itemName).toLowerCase(),
+            );
+            const qty = Number(
+              requestLine.quantity ?? requestLine.qty ?? request.quantity ?? 1,
+            );
+            const rate = Number(item?.buyPricePerUnit || 0);
+            return {
+              id: `${request.id}-${requestIndex}-${lineIndex}`,
+              itemId: item?.id ?? requestLine.itemId,
+              description: item?.name || requestLine.itemName,
+              hsn: item?.hsnSac || "",
+              unit: item?.unit || requestLine.unit || "",
+              qty,
+              rate,
+              cgstPct: 9,
+              sgstPct: 9,
+              igstPct: 18,
+              total: qty * rate * 1.18,
+            } satisfies POLineItem;
+          });
+      },
+    );
+
+    setPrReference(
+      matchingRequests
+        .map((request: any) => request.prNumber)
+        .filter(Boolean)
+        .join(", "),
+    );
+    setLineItems(
+      populatedLines.length
+        ? populatedLines
+        : [
+            {
+              id: "1",
+              description: "",
+              hsn: "",
+              qty: 1,
+              rate: 0,
+              cgstPct: 9,
+              sgstPct: 9,
+              igstPct: 18,
+              total: 0,
+            },
+          ],
     );
   };
 
@@ -986,6 +1067,7 @@ export default function PurchaseOrdersPage() {
                       setContactPerson(vendor?.company || "");
                       setVendorAddress(vendor?.address || "");
                       setVendorPhone(vendor?.phone || "");
+                      if (!editingPo) populateVendorLineItems(id);
                     }}
                   >
                     <SelectTrigger className="h-9 text-xs bg-background">
