@@ -2527,6 +2527,15 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     Number(process.env.FLEX_VENDOR_PAYMENT_REQUIRED_APPROVALS ?? 1),
   );
   const [created] = await db.insert(vendorPaymentsTable).values({ organizationId: org, paymentNumber, vendorName, invoiceReference, amount, paymentMode: String(req.body.paymentMode ?? "Bank Transfer"), bankAccount: String(req.body.bankAccount ?? ""), transactionReference, notes: String(req.body.notes ?? ""), attachmentName: String(req.body.attachmentName ?? ""), documentPath: String(req.body.documentPath ?? ""), paymentDate, status: "Pending Approval", requiredApprovals, approvalLevel: 0, createdByUserId: userId }).returning();
+  if (requiredApprovals === 1) {
+    const settled = await settleApprovedVendorPayment(
+      org,
+      Number(created.id),
+      userId,
+      "Recorded and approved",
+    );
+    return res.status(201).json(settled);
+  }
   await db.insert(notificationsTable).values({ organizationId: org, sourceModule: "Flex", targetModule: "Flex", eventType: "VENDOR_PAYMENT_APPROVAL_REQUESTED", title: "Vendor payment awaiting approval", message: `${paymentNumber} for ${vendorName} requires approval.`, metadata: { paymentId: created.id, invoiceNumber: invoiceReference, amount }, isRead: false });
   return res.status(201).json(created);
 });
@@ -2791,8 +2800,14 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
         dueDate: created.returnDate,
         amount: debitNoteAmount,
         paidAmount: 0,
-        adjustedAmount: debitNoteAmount,
+        adjustedAmount: 0,
         status: "Paid",
+        approvalStatus: "Approved",
+        approvalLevel: 1,
+        requiredApprovals: 1,
+        approvedByUserIds: JSON.stringify([userId]),
+        appliedAmount: 0,
+        availableCredit: debitNoteAmount,
         entryType: "Debit Note",
         notes: `Purchase return ${created.returnNumber}: ${reason}`,
         sourceType: "Purchase Return",
@@ -2997,9 +3012,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
         const billAmount = Number(bill.amount || 0);
         const paidAmount = Number(bill.paidAmount || 0);
         const previousAdjustment = Number(bill.adjustedAmount || 0);
-        const isPaid =
-          String(bill.status).trim().toLowerCase() === "paid" ||
-          paidAmount >= billAmount - 0.005;
+        const isPaid = paidAmount >= billAmount - 0.005;
 
         if (isPaid) {
           const existingDebitNotes = await db
@@ -3022,8 +3035,14 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               dueDate: existingReturn.returnDate,
               amount: returnAmount,
               paidAmount: 0,
-              adjustedAmount: returnAmount,
+              adjustedAmount: 0,
               status: "Paid",
+              approvalStatus: "Approved",
+              approvalLevel: 1,
+              requiredApprovals: 1,
+              approvedByUserIds: JSON.stringify([userId]),
+              appliedAmount: 0,
+              availableCredit: returnAmount,
               entryType: "Debit Note",
               notes: `Purchase return ${existingReturn.returnNumber}: ${existingReturn.reason}`,
               sourceType: "Purchase Return",
@@ -3049,6 +3068,20 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
                     : "Pending",
             })
             .where(eq(accountsPayableTable.id, bill.id));
+          if (linkedInvoice) {
+            const covered = paidAmount + adjustedAmount;
+            await db
+              .update(purchaseInvoicesTable)
+              .set({
+                status:
+                  covered >= billAmount - 0.005
+                    ? "Paid"
+                    : covered > 0
+                      ? "Partially Paid"
+                      : "Unpaid",
+              })
+              .where(eq(purchaseInvoicesTable.id, linkedInvoice.id));
+          }
         }
       }
     }

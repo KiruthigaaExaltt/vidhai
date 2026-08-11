@@ -11,6 +11,7 @@ import {
   journalEntriesTable,
   journalLinesTable,
   purchaseInvoicesTable,
+  salesInvoicesTable,
 } from "@workspace/db";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { effectivePermissions, getAuthUser } from "../lib/access";
@@ -342,6 +343,10 @@ async function automate(org: number) {
               : m(x.amountPaid) > 0
                 ? "Partial"
                 : "Pending",
+          approvalStatus: "Approved",
+          approvalLevel: 1,
+          requiredApprovals: 1,
+          approvedByUserIds: "[]",
           entryType: "Invoice",
           journalEntryId: j.id,
           sourceType: "Sales Invoice",
@@ -647,8 +652,24 @@ for (const c of [
               const balance = Math.max(0, m(row.amount) - m(row.paidAmount) - m(row.adjustedAmount));
               if (row.entryType !== "Debit Note" && row.status !== "Rejected")
                 serialized.status = balance <= 0 ? "Paid" : String(row.dueDate).slice(0, 10) < day() ? "Overdue" : m(row.paidAmount) > 0 || m(row.adjustedAmount) > 0 ? "Partial" : "Pending";
+              if (row.entryType === "Debit Note" && row.sourceType === "Purchase Return") {
+                serialized.status = "Paid";
+                serialized.approvalStatus = "Approved";
+                serialized.appliedAmount = m(row.appliedAmount);
+                serialized.availableCredit = Math.max(
+                  m(row.availableCredit),
+                  m(row.amount) - m(row.appliedAmount),
+                );
+              }
               serialized.balance = balance;
-              serialized.approvalStatus = row.approvalStatus || (row.sourceType === "Purchase Invoice" ? "Approved" : "Pending Approval");
+              serialized.approvalStatus = serialized.approvalStatus || row.approvalStatus || (row.sourceType === "Purchase Invoice" ? "Approved" : "Pending Approval");
+            }
+            if (c.p === "ar") {
+              const balance = Math.max(0, m(row.amount) - m(row.receivedAmount) - m(row.adjustedAmount));
+              if (row.entryType !== "Credit Note" && row.status !== "Rejected")
+                serialized.status = balance <= 0 ? (m(row.adjustedAmount) > 0 ? "Settled" : "Received") : String(row.dueDate).slice(0, 10) < day() ? "Overdue" : m(row.receivedAmount) > 0 || m(row.adjustedAmount) > 0 ? "Partial" : "Pending";
+              serialized.balance = balance;
+              serialized.approvalStatus = row.sourceType === "Sales Invoice" || row.sourceType === "Sales Credit Note" ? "Approved" : row.approvalStatus || "Pending Approval";
             }
             return serialized;
           }),
@@ -679,14 +700,29 @@ for (const c of [
         if (amount > maximumDebitNote + 0.009) return s.status(400).json({ error: `Debit note cannot exceed ${maximumDebitNote}` });
       }
     }
+    if (c.p === "ar") {
+      const existing = await db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org));
+      const reference = String(r.body.entryType === "Credit Note" ? r.body.creditNoteNumber || r.body.invoiceNumber : r.body.invoiceNumber).trim().toLowerCase();
+      if (!reference) return s.status(400).json({ error: "Invoice or credit-note reference is required" });
+      if (existing.some((entry: any) => String(entry.entryType === "Credit Note" ? entry.creditNoteNumber || entry.invoiceNumber : entry.invoiceNumber).trim().toLowerCase() === reference)) return s.status(409).json({ error: "Invoice or credit-note reference already exists" });
+      if (r.body.entryType === "Credit Note") {
+        const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && String(entry.invoiceNumber).trim().toLowerCase() === String(r.body.linkedInvoiceNumber).trim().toLowerCase());
+        if (!linked) return s.status(400).json({ error: "Linked customer invoice was not found" });
+        if (String(linked.clientName).trim().toLowerCase() !== String(r.body.clientName).trim().toLowerCase()) return s.status(400).json({ error: "Credit-note customer must match the linked invoice" });
+        const eligible = Math.max(0, m(linked.amount) - m(linked.receivedAmount) - m(linked.adjustedAmount));
+        if (amount > eligible + 0.009) return s.status(400).json({ error: `Credit note cannot exceed ${eligible}` });
+      }
+      r.body.receivedAmount = 0;
+      r.body.adjustedAmount = 0;
+    }
     const [x] = await db
       .insert(c.t)
       .values({
         ...r.body,
         organizationId: r.acc.org,
         amount,
-        approvalStatus: c.p === "ap" ? "Pending Approval" : undefined,
-        requiredApprovals: c.p === "ap" ? Math.max(1, Number(process.env.LEDGER_AP_REQUIRED_APPROVALS ?? 1)) : undefined,
+        approvalStatus: "Pending Approval",
+        requiredApprovals: Math.max(1, Number(process.env[c.p === "ap" ? "LEDGER_AP_REQUIRED_APPROVALS" : "LEDGER_AR_REQUIRED_APPROVALS"] ?? 1)),
         status: c.p === "ap" && r.body.entryType === "Debit Note" ? "Pending" :
           covered >= amount ? c.done : covered > 0 ? "Partial" : "Pending",
       })
@@ -697,6 +733,8 @@ for (const c of [
     if (!need(r, s, `${c.k}.edit`)) return;
     if (c.p === "ap" && r.body.paidAmount !== undefined)
       return s.status(400).json({ error: "Use the approved Record Payment workflow" });
+    if (c.p === "ar" && (r.body.receivedAmount !== undefined || r.body.adjustedAmount !== undefined))
+      return s.status(400).json({ error: "Use Sales Payment or the approved credit-note workflow" });
     const [o] = await db
         .select()
         .from(c.t)
@@ -813,6 +851,63 @@ router.post("/ap/:id/reject", async (r: any, s): Promise<any> => {
   if (!remarks) return s.status(400).json({ error: "Rejection remarks are required" });
   const [updated] = await db.update(accountsPayableTable).set({ approvalStatus: "Rejected", approvalRemarks: remarks, status: "Rejected" }).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.id, Number(r.params.id)), eq(accountsPayableTable.approvalStatus, "Pending Approval"))).returning();
   if (!updated) return s.status(409).json({ error: "Only pending AP entries can be rejected" });
+  return s.json(updated);
+});
+router.post("/ar/:id/approve", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.edit")) return;
+  const id = Number(r.params.id);
+  const [entry] = await db.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.id, id))).limit(1);
+  if (!entry) return s.status(404).json({ error: "AR entry not found" });
+  if (entry.approvalStatus === "Rejected") return s.status(409).json({ error: "Rejected AR entry cannot be approved" });
+  if (entry.approvalStatus === "Approved") return s.json(entry);
+  let approvedBy: number[] = [];
+  try { approvedBy = JSON.parse(String(entry.approvedByUserIds || "[]")).map(Number); } catch { approvedBy = []; }
+  if (approvedBy.includes(Number(r.acc.user.id))) return s.status(409).json({ error: "This approver has already approved the entry" });
+  const nextApprovers = [...approvedBy, Number(r.acc.user.id)];
+  const nextLevel = Number(entry.approvalLevel || 0) + 1;
+  const final = nextLevel >= Number(entry.requiredApprovals || 1);
+  const finalUpdates: Record<string, any> = {};
+  if (final && entry.entryType === "Credit Note") {
+    const [linked] = (await db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org))).filter((row: any) => row.entryType !== "Credit Note" && String(row.invoiceNumber).trim().toLowerCase() === String(entry.linkedInvoiceNumber).trim().toLowerCase());
+    if (!linked) return s.status(400).json({ error: "Linked customer invoice was not found" });
+    const eligible = Math.max(0, m(linked.amount) - m(linked.receivedAmount) - m(linked.adjustedAmount));
+    if (m(entry.amount) > eligible + 0.009) return s.status(409).json({ error: `Credit note cannot exceed ${eligible}` });
+    const journal = await post(r.acc.org, {
+      entryDate: entry.invoiceDate,
+      reference: `AUTO:AR:CREDIT:${entry.creditNoteNumber || entry.invoiceNumber}`,
+      description: `Customer credit note ${entry.creditNoteNumber || entry.invoiceNumber}`,
+      sourceType: "AR Credit Note",
+      sourceId: entry.id,
+      lines: [
+        { accountId: (await coa(r.acc.org)).find((account: any) => account.accountCode === "4110")?.id, debit: m(entry.amount) },
+        { accountId: (await coa(r.acc.org)).find((account: any) => account.accountCode === "1100")?.id, credit: m(entry.amount) },
+      ],
+    }, r.acc.user.id);
+    const adjustedAmount = m(linked.adjustedAmount) + m(entry.amount);
+    const balance = Math.max(0, m(linked.amount) - m(linked.receivedAmount) - adjustedAmount);
+    const linkedStatus = balance <= 0 ? "Settled" : "Partial";
+    await db.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
+    if (linked.sourceType === "Sales Invoice" && linked.sourceId)
+      await db.update(salesInvoicesTable).set({ balanceDue: String(balance), paymentStatus: balance <= 0 ? "Settled" : "Partial" }).where(eq(salesInvoicesTable.id, linked.sourceId));
+    finalUpdates.adjustedAmount = m(entry.amount);
+    finalUpdates.status = "Credited";
+    finalUpdates.journalEntryId = journal.id;
+  }
+  const [updated] = await db.update(accountsReceivableTable).set({
+    approvalStatus: final ? "Approved" : "Pending Approval",
+    approvalLevel: nextLevel,
+    approvedByUserIds: JSON.stringify(nextApprovers),
+    approvalRemarks: String(r.body.remarks || ""),
+    ...finalUpdates,
+  }).where(eq(accountsReceivableTable.id, id)).returning();
+  return s.json(updated);
+});
+router.post("/ar/:id/reject", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.edit")) return;
+  const remarks = String(r.body.remarks || "").trim();
+  if (!remarks) return s.status(400).json({ error: "Rejection remarks are required" });
+  const [updated] = await db.update(accountsReceivableTable).set({ approvalStatus: "Rejected", approvalRemarks: remarks, status: "Rejected" }).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.id, Number(r.params.id)), eq(accountsReceivableTable.approvalStatus, "Pending Approval"))).returning();
+  if (!updated) return s.status(409).json({ error: "Only pending AR entries can be rejected" });
   return s.json(updated);
 });
 router.get("/dashboard-summary", async (r: any, s): Promise<any> => {

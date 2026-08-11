@@ -346,7 +346,7 @@ export default function PurchaseReturns() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full space-y-5">
+      <div className="w-full space-y-5 p-6">
         <FlexTabs />
 
         {/* Title Header Row */}

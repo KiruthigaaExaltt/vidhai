@@ -37,6 +37,13 @@ interface FlexDashboardData {
   recentActivities: FlexActivity[];
 }
 
+const formatInr = (value: number) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+
 async function fetchFlexDashboard(): Promise<FlexDashboardData> {
   const res = await fetch(`${BASE}/api/flex/dashboard`, {
     credentials: "include",
@@ -119,7 +126,7 @@ export default function FlexDashboard() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-7xl mx-auto w-full space-y-6">
+      <div className="w-full space-y-5 p-6">
         <FlexTabs />
 
         <div>
@@ -167,16 +174,17 @@ export default function FlexDashboard() {
                   <div className="w-11 h-11 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center shrink-0">
                     <ShoppingBag className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       {FLEX_TEXT.totalSpend}
                     </div>
-                    <div className="text-xl font-bold">
-                      â‚¹{data.totalSpend.toLocaleString("en-IN")}
+                    <div className="whitespace-nowrap text-xl font-bold tabular-nums">
+                      {formatInr(data.totalSpend)}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {data.totalSpendChangePercent ?? "—"}
-                      {FLEX_TEXT.vsLastMonth}
+                      {data.totalSpendChangePercent == null
+                        ? "No previous-month data"
+                        : `${data.totalSpendChangePercent > 0 ? "+" : ""}${data.totalSpendChangePercent.toFixed(1)}% vs last month`}
                     </div>
                   </div>
                 </CardContent>

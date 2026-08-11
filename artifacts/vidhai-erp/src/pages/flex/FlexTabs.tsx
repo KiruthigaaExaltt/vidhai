@@ -61,8 +61,8 @@ export function FlexTabs() {
   };
 
   return (
-    <div className="w-full overflow-x-auto border-b border-border/80 pb-2 mb-6 scrollbar-none">
-      <nav className="flex items-center gap-1.5 min-w-max">
+    <div className="mb-5 w-full overflow-x-auto border-b border-border bg-card scrollbar-none">
+      <nav className="flex min-w-max items-center">
         {FLEX_TABS.map((tab) => {
           const Icon = tab.icon;
           const active = isTabActive(tab.href);
@@ -70,10 +70,10 @@ export function FlexTabs() {
             <Link
               key={tab.href}
               href={tab.href}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`flex cursor-pointer items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-primary/15 text-primary border border-primary/40 font-semibold shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-transparent"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground"
               }`}
             >
               <Icon

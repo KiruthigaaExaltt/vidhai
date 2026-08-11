@@ -92,7 +92,7 @@ export async function recalculateInvoiceAccounting(
         ? "Paid"
         : overdue
           ? "Overdue"
-          : totalPaid > 0
+          : totalPaid > 0 || adjustedAmount > 0
             ? "Partial"
             : "Unpaid";
   const documentStatus =
@@ -121,7 +121,7 @@ export async function recalculateInvoiceAccounting(
           : "Received"
         : overdue
           ? "Overdue"
-          : totalPaid > 0
+          : totalPaid > 0 || adjustedAmount > 0
             ? "Partial"
             : "Pending";
     await db
@@ -191,6 +191,10 @@ export async function triggerInvoiceApproved(
         receivedAmount: "0",
         adjustedAmount: "0",
         status: "Pending",
+        approvalStatus: "Approved",
+        approvalLevel: 1,
+        requiredApprovals: 1,
+        approvedByUserIds: JSON.stringify(userId ? [userId] : []),
         entryType: "Invoice",
         journalEntryId: journal.id,
         sourceType: "Sales Invoice",
@@ -327,6 +331,10 @@ export async function triggerSalesReturnCredited(
       receivedAmount: "0",
       adjustedAmount: String(appliedToInvoice),
       status: "Credited",
+      approvalStatus: "Approved",
+      approvalLevel: 1,
+      requiredApprovals: 1,
+      approvedByUserIds: JSON.stringify(userId ? [userId] : []),
       entryType: "Credit Note",
       journalEntryId: journal.id,
       sourceType: "Sales Credit Note",

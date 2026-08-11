@@ -80,6 +80,9 @@ export default function Accounts() {
     [error, setError] = useState(""),
     [paymentAr, setPaymentAr] = useState<any | null>(null),
     [paymentAmount, setPaymentAmount] = useState(""),
+    [arFromDate, setArFromDate] = useState(""),
+    [arToDate, setArToDate] = useState(""),
+    [arCustomer, setArCustomer] = useState("All"),
     [submitting, setSubmitting] = useState(false),
     [manualType, setManualType] = useState<
       "account" | "journal" | "ap" | "ar" | null
@@ -98,6 +101,7 @@ export default function Accounts() {
     notes: "",
     attachmentName: "",
   });
+  const [arPayment, setArPayment] = useState({ paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "Bank Transfer", bankCharges: "0", tdsAmount: "0", reference: "", notes: "" });
   const today = new Date().toISOString().slice(0, 10);
   const openManual = (
     type: "account" | "journal" | "ap" | "ar",
@@ -373,6 +377,20 @@ export default function Accounts() {
     setPaymentAr(row);
     setPaymentAmount(String(outstanding(row)));
   };
+  const reviewAr = async (row: any, action: "approve" | "reject") => {
+    const remarks = window.prompt(`${action === "approve" ? "Approval" : "Rejection"} remarks`);
+    if (action === "reject" && !remarks) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await api(`/ar/${row.id}/${action}`, { method: "POST", body: JSON.stringify({ remarks: remarks || "Approved" }) });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const receivePayment = async () => {
     if (!paymentAr?.sourceId) return;
     const amount = numberValue(paymentAmount);
@@ -387,7 +405,7 @@ export default function Accounts() {
     try {
       await salesApi("/payments", {
         method: "POST",
-        body: JSON.stringify({ invoiceId: paymentAr.sourceId, amount }),
+        body: JSON.stringify({ invoiceId: paymentAr.sourceId, amount, ...arPayment, bankCharges: numberValue(arPayment.bankCharges), tdsAmount: numberValue(arPayment.tdsAmount) }),
       });
       setPaymentAr(null);
       setPaymentAmount("");
@@ -417,14 +435,41 @@ export default function Accounts() {
       setSubmitting(false);
     }
   };
+  const deletePayable = async (row: any) => {
+    if (row.sourceType !== "Manual") return;
+    if (!window.confirm(`Delete payable ${row.billNumber}?`)) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await api(`/ap/${row.id}`, { method: "DELETE" });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const statusBadge = (value: any) => {
+    const status = String(value || "Pending");
+    const settled = status === "Paid" || status === "Approved";
+    return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs ${settled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-600"}`}>{status}</span>;
+  };
+  const arStatusBadge = (value: any) => {
+    const status = String(value || "Pending");
+    const complete = status === "Received" || status === "Settled" || status === "Paid" || status === "Approved";
+    return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-600"}`}>{status === "Pending" ? "$ Pending" : status}</span>;
+  };
   const Table = ({
     rows,
     cols,
+    showFooter = true,
   }: {
     rows: any[];
     cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
+    showFooter?: boolean;
   }) => (
-    <div className="overflow-x-auto rounded-md border">
+    <div className="overflow-hidden rounded-md border bg-white">
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-muted/60">
           <tr>
@@ -447,6 +492,17 @@ export default function Accounts() {
           ))}
         </tbody>
       </table>
+      </div>
+      {showFooter && <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
+        <span>Showing {rows.length ? 1 : 0} to {Math.min(rows.length, 10)} of {rows.length} records</span>
+        <div className="flex items-center gap-3">
+        <span>Rows per page:</span>
+        <span className="rounded-md border bg-white px-4 py-2 text-foreground">10</span>
+        <Button size="icon" variant="outline" className="h-8 w-8" disabled aria-label="Previous page">‹</Button>
+        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-red-500 font-medium text-white">1</span>
+        <Button size="icon" variant="outline" className="h-8 w-8" disabled={rows.length <= 10} aria-label="Next page">›</Button>
+        </div>
+      </div>}
     </div>
   );
   const cards = [
@@ -472,6 +528,24 @@ export default function Accounts() {
     ["Debit Adjustments", apBills.reduce((sum, row) => sum + numberValue(row.adjustedAmount), 0)],
     ["Vendor Credits", apDebitNotes.reduce((sum, row) => sum + numberValue(row.availableCredit), 0)],
   ];
+  const arInvoices = ar.filter((row) => row.entryType !== "Credit Note");
+  const arCustomers = [...new Set(arInvoices.map((row) => String(row.clientName)).filter(Boolean))].sort();
+  const filteredArInvoices = f(arInvoices).filter((row) =>
+    (!arFromDate || row.invoiceDate >= arFromDate) &&
+    (!arToDate || row.invoiceDate <= arToDate) &&
+    (arCustomer === "All" || row.clientName === arCustomer),
+  );
+  const arOutstanding = filteredArInvoices.reduce((sum, row) => sum + outstanding(row), 0);
+  const exportAr = () => {
+    const fields = ["Customer", "Invoice", "Invoice Date", "Due Date", "Amount", "Received", "Adjustment", "Balance", "Status", "Approval"];
+    const lines = filteredArInvoices.map((row) => [row.clientName, row.invoiceNumber, row.invoiceDate, row.dueDate, numberValue(row.amount), numberValue(row.receivedAmount), numberValue(row.adjustedAmount), outstanding(row), row.status, row.approvalStatus]);
+    const csv = [fields, ...lines].map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    link.download = `accounts-receivable-${today}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
   const pageTitles: Record<string, [string, string]> = {
     dashboard: ["Finance Dashboard", "Accounting overview and financial position"],
     coa: ["Chart of Accounts", "Manage the organization ledger structure"],
@@ -482,29 +556,23 @@ export default function Accounts() {
     journals: ["Journal Entries", "Review posted double-entry transactions"],
     statements: ["Financial Statements", "Review profit, balance sheet and trial balance"],
   };
-  const [pageTitle, pageDescription] = pageTitles[activeTab] || pageTitles.dashboard;
   return (
     <Shell>
-      <div className="min-h-full space-y-5 bg-slate-50/70 p-6">
+      <div className="min-h-full space-y-5 p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <BookOpen />
-              {pageTitle}
+              Accounts
             </h1>
             <p className="text-sm text-muted-foreground">
-              {pageDescription}
+              Double-entry ledger, subledgers and financial reporting
             </p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => void reconcile()} disabled={loading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Sync
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Reconcile
             </Button>
-            {activeTab === "ap" && can("accounts.accounts_payable.create") && (
-              <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
-                <Plus className="mr-2 h-4 w-4" /> Add Entry
-              </Button>
-            )}
           </div>
         </div>
         {error && (
@@ -512,7 +580,7 @@ export default function Accounts() {
             {error}
           </div>
         )}
-        {activeTab === "dashboard" && <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-5">
           {cards.map(([x, v]) => (
             <Card key={x}>
               <CardHeader className="pb-2">
@@ -525,20 +593,20 @@ export default function Accounts() {
               </CardContent>
             </Card>
           ))}
-        </div>}
-        {activeTab !== "ap" && <Input
+        </div>
+        <Input
           placeholder="Search current view..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-        />}
+        />
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="flex h-auto w-full flex-wrap justify-start rounded-lg border bg-white p-1">
             <TabsTrigger value="dashboard">Finance Dashboard</TabsTrigger>
-            <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
             <TabsTrigger value="customers">Customer Ledger</TabsTrigger>
             <TabsTrigger value="vendors">Vendor Ledger</TabsTrigger>
-            <TabsTrigger value="ap">Accounts Payable (AP)</TabsTrigger>
-            <TabsTrigger value="ar">Accounts Receivable (AR)</TabsTrigger>
+            <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
+            <TabsTrigger value="ap">AP</TabsTrigger>
+            <TabsTrigger value="ar">AR</TabsTrigger>
             <TabsTrigger value="journals">Journal Entries</TabsTrigger>
             <TabsTrigger value="statements">Financial Statements</TabsTrigger>
           </TabsList>
@@ -596,18 +664,16 @@ export default function Accounts() {
             />
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:justify-end">
-              <label className="space-y-1 text-xs text-muted-foreground">From Date<Input type="date" value={apFromDate} onChange={(e) => setApFromDate(e.target.value)} /></label>
-              <label className="space-y-1 text-xs text-muted-foreground">To Date<Input type="date" value={apToDate} onChange={(e) => setApToDate(e.target.value)} /></label>
-              <select className="h-10 rounded-md border bg-background px-3 text-sm" value={apStatusFilter} onChange={(e) => setApStatusFilter(e.target.value)}>{["All", "Pending", "Partial", "Paid", "Overdue", "Rejected", "Approved"].map((value) => <option key={value}>{value}</option>)}</select>
-              <select className="h-10 rounded-md border bg-background px-3 text-sm" value={apApprovalFilter} onChange={(e) => setApApprovalFilter(e.target.value)}>{["All", "Pending Approval", "Approved", "Rejected"].map((value) => <option key={value}>{value}</option>)}</select>
-            </div>
-            <Card>
-              <CardContent className="pt-5">
-                <div className="text-xs text-muted-foreground">Outstanding Balance</div>
-                <div className="mt-1 text-2xl font-semibold text-rose-500">{inr(apSummary[0][1])}</div>
-              </CardContent>
-            </Card>
+            {can("accounts.accounts_payable.create") && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Bill
+                </Button>
+                <Button variant="outline" onClick={() => openManual("ap", { entryType: "Debit Note" })}>
+                  <Plus className="mr-2 h-4 w-4" /> Add Debit Note
+                </Button>
+              </div>
+            )}
             <Tabs defaultValue="bills">
               <TabsList className="mb-3 bg-slate-100">
                 <TabsTrigger value="bills">Pending Bills</TabsTrigger>
@@ -615,7 +681,7 @@ export default function Accounts() {
               </TabsList>
               <TabsContent value="bills">
                 <Table
-                  rows={filterAp(
+                  rows={f(
                     ap.filter((entry) => entry.entryType !== "Debit Note"),
                   )}
                   cols={[
@@ -624,23 +690,22 @@ export default function Accounts() {
                     ["Bill Date", "billDate"],
                     ["Due Date", "dueDate"],
                     ["Amount", "amount", inr],
-                    ["Paid", "paidAmount", inr],
-                    ["Adjustment", "adjustedAmount", inr],
+                    ["Paid", "paidAmount", (value) => <span className="font-medium text-emerald-600">{inr(value)}</span>],
+                    ["Adjustment", "adjustedAmount", (value) => <span className="font-medium text-sky-600">{inr(value)}</span>],
                     [
                       "Balance",
                       "balance",
                       (_value, row) =>
-                        inr(
+                        <span className="font-medium text-red-500">{inr(
                           Math.max(
                             0,
                             numberValue(row.amount) -
                               numberValue(row.paidAmount) -
                               numberValue(row.adjustedAmount),
                           ),
-                        ),
+                        )}</span>,
                     ],
-                    ["Status", "status"],
-                    ["Approval", "approvalStatus"],
+                    ["Status", "status", statusBadge],
                     [
                       "Actions",
                       "actions",
@@ -663,12 +728,11 @@ export default function Accounts() {
                             disabled={submitting}
                             onClick={() => openSettlement("ap", row)}
                           >
-                            <DollarSign className="h-4 w-4" />
+                            <span className="text-base leading-none">$</span>
                           </Button>}
-                          {row.approvalStatus === "Pending Approval" && <>
-                            <Button size="sm" onClick={() => void reviewAp(row, "approve")}>Approve</Button>
-                            <Button size="sm" variant="destructive" onClick={() => void reviewAp(row, "reject")}>Reject</Button>
-                          </>}
+                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-slate-300 hover:text-red-500" title={row.sourceType === "Manual" ? "Delete bill" : "Linked bills cannot be deleted"} aria-label={`Delete ${row.billNumber}`} disabled={submitting || row.sourceType !== "Manual"} onClick={() => void deletePayable(row)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                           </div>
                         );
                       },
@@ -678,7 +742,7 @@ export default function Accounts() {
               </TabsContent>
               <TabsContent value="debit-notes">
                 <Table
-                  rows={filterAp(
+                  rows={f(
                     ap.filter((entry) => entry.entryType === "Debit Note"),
                   )}
                   cols={[
@@ -687,21 +751,8 @@ export default function Accounts() {
                     ["Against Bill", "againstBillNumber"],
                     ["Date", "billDate"],
                     ["Amount", "amount", inr],
-                    ["Applied", "appliedAmount", inr],
-                    ["Available Credit", "availableCredit", inr],
-                    ["Status", "status"],
-                    ["Approval", "approvalStatus"],
+                    ["Status", "status", statusBadge],
                     ["Notes", "notes"],
-                    [
-                      "Actions",
-                      "actions",
-                      (_value, row) => row.approvalStatus === "Pending Approval" ? (
-                        <div className="flex gap-2">
-                          <Button size="sm" onClick={() => void reviewAp(row, "approve")}>Approve</Button>
-                          <Button size="sm" variant="destructive" onClick={() => void reviewAp(row, "reject")}>Reject</Button>
-                        </div>
-                      ) : null,
-                    ],
                   ]}
                 />
               </TabsContent>
@@ -710,19 +761,8 @@ export default function Accounts() {
           <TabsContent value="ar" className="space-y-3">
             {can("accounts.accounts_receivable.create") && (
               <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  onClick={() => openManual("ar", { entryType: "Invoice" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Invoice
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => openManual("ar", { entryType: "Credit Note" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Credit Note
-                </Button>
+                <Button onClick={() => openManual("ar", { entryType: "Invoice" })}><Plus className="mr-2 h-4 w-4" /> Add Invoice</Button>
+                <Button variant="outline" onClick={() => openManual("ar", { entryType: "Credit Note" })}><Plus className="mr-2 h-4 w-4" /> Add Credit Note</Button>
               </div>
             )}
             <Tabs defaultValue="invoices" className="space-y-3">
@@ -733,6 +773,7 @@ export default function Accounts() {
               <TabsContent value="invoices">
                 <Table
                   rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
+                  showFooter={false}
                   cols={[
                     ["Invoice", "invoiceNumber"],
                     ["Customer", "clientName"],
@@ -740,35 +781,16 @@ export default function Accounts() {
                     ["Amount", "amount", inr],
                     ["Received", "receivedAmount", inr],
                     ["Adjusted", "adjustedAmount", inr],
-                    [
-                      "Balance",
-                      "balance",
-                      (_value, row) => inr(outstanding(row)),
-                    ],
+                    ["Balance", "balance", (_value, row) => inr(outstanding(row))],
                     ["Status", "status"],
                     [
                       "Actions",
                       "actions",
                       (_value, row) => (
                         <div className="flex items-center gap-2">
-                          {row.sourceType === "Sales Invoice" &&
-                            outstanding(row) > 0 && (
-                              <Button
-                                size="sm"
-                                onClick={() => openPayment(row)}
-                                disabled={submitting}
-                              >
-                                <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
-                              </Button>
-                            )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void deleteReceivable(row)}
-                            disabled={submitting}
-                          >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
-                          </Button>
+                          {row.sourceType === "Sales Invoice" && row.approvalStatus === "Approved" && outstanding(row) > 0 && <Button size="sm" onClick={() => openPayment(row)} disabled={submitting}><CreditCard className="mr-1 h-3.5 w-3.5" /> Pay</Button>}
+                          {row.approvalStatus === "Pending Approval" && <><Button size="sm" onClick={() => void reviewAr(row, "approve")} disabled={submitting}>Approve</Button><Button size="sm" variant="destructive" onClick={() => void reviewAr(row, "reject")} disabled={submitting}>Reject</Button></>}
+                          <Button size="sm" variant="outline" onClick={() => void deleteReceivable(row)} disabled={submitting || row.sourceType !== "Manual"}><Trash2 className="mr-1 h-3.5 w-3.5" /> Delete</Button>
                         </div>
                       ),
                     ],
@@ -778,6 +800,7 @@ export default function Accounts() {
               <TabsContent value="credit-notes">
                 <Table
                   rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
+                  showFooter={false}
                   cols={[
                     ["Credit Note", "creditNoteNumber"],
                     ["Original Invoice", "linkedInvoiceNumber"],
@@ -1326,14 +1349,6 @@ export default function Accounts() {
                     onChange={(event) => setSettlementAmount(event.target.value)}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5"><Label>Payment Date</Label><Input type="date" value={apPayment.paymentDate} onChange={(e) => setApPayment((value) => ({ ...value, paymentDate: e.target.value }))} /></div>
-                  <div className="space-y-1.5"><Label>Payment Mode</Label><Input value={apPayment.paymentMode} onChange={(e) => setApPayment((value) => ({ ...value, paymentMode: e.target.value }))} /></div>
-                  <div className="space-y-1.5"><Label>Bank / Cash Account</Label><Input value={apPayment.bankAccount} onChange={(e) => setApPayment((value) => ({ ...value, bankAccount: e.target.value }))} /></div>
-                  <div className="space-y-1.5"><Label>Transaction / Cheque Reference</Label><Input value={apPayment.transactionReference} onChange={(e) => setApPayment((value) => ({ ...value, transactionReference: e.target.value }))} /></div>
-                </div>
-                <div className="space-y-1.5"><Label>Notes</Label><Input value={apPayment.notes} onChange={(e) => setApPayment((value) => ({ ...value, notes: e.target.value }))} /></div>
-                <div className="space-y-1.5"><Label>Supporting Document</Label><Input type="file" onChange={(e) => setApPayment((value) => ({ ...value, attachmentName: e.target.files?.[0]?.name || "" }))} /></div>
               </div>
             )}
             <DialogFooter>
@@ -1392,7 +1407,7 @@ export default function Accounts() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="payment-amount">Payment Amount (?)</Label>
+                  <Label htmlFor="payment-amount">Payment Amount (₹)</Label>
                   <Input
                     id="payment-amount"
                     type="number"
@@ -1402,6 +1417,14 @@ export default function Accounts() {
                     value={paymentAmount}
                     onChange={(event) => setPaymentAmount(event.target.value)}
                   />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1.5 text-sm"><Label>Payment Date</Label><Input type="date" value={arPayment.paymentDate} onChange={(e) => setArPayment((value) => ({ ...value, paymentDate: e.target.value }))} /></label>
+                  <label className="space-y-1.5 text-sm"><Label>Payment Method</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={arPayment.paymentMethod} onChange={(e) => setArPayment((value) => ({ ...value, paymentMethod: e.target.value }))}>{["Bank Transfer", "UPI", "Cheque", "Cash"].map((method) => <option key={method}>{method}</option>)}</select></label>
+                  <label className="space-y-1.5 text-sm"><Label>Bank Charges</Label><Input type="number" min="0" step="0.01" value={arPayment.bankCharges} onChange={(e) => setArPayment((value) => ({ ...value, bankCharges: e.target.value }))} /></label>
+                  <label className="space-y-1.5 text-sm"><Label>TDS Amount</Label><Input type="number" min="0" step="0.01" value={arPayment.tdsAmount} onChange={(e) => setArPayment((value) => ({ ...value, tdsAmount: e.target.value }))} /></label>
+                  <label className="space-y-1.5 text-sm sm:col-span-2"><Label>Transaction Reference</Label><Input value={arPayment.reference} onChange={(e) => setArPayment((value) => ({ ...value, reference: e.target.value }))} /></label>
+                  <label className="space-y-1.5 text-sm sm:col-span-2"><Label>Notes</Label><Input value={arPayment.notes} onChange={(e) => setArPayment((value) => ({ ...value, notes: e.target.value }))} /></label>
                 </div>
               </div>
             )}

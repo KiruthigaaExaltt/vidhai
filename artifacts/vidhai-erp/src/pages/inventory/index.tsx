@@ -76,19 +76,21 @@ function SummaryCard({
   value,
   sub,
   accent = false,
+  wide = false,
 }: {
   icon: any;
   label: string;
   value: string | number;
   sub?: string;
   accent?: boolean;
+  wide?: boolean;
 }) {
   return (
-    <Card className="rounded-sm border-border shadow-md overflow-hidden relative">
+    <Card className={`relative overflow-hidden rounded-sm border-border shadow-md ${wide ? "col-span-2 lg:col-span-1 xl:col-span-2" : ""}`}>
       <div
         className={`absolute top-0 left-0 w-full h-1 ${accent ? "bg-destructive" : "bg-primary"}`}
       />
-      <CardContent className="p-5 flex items-start gap-4">
+      <CardContent className="flex min-w-0 items-start gap-3 p-4">
         <div
           className={`p-2 rounded-sm ${accent ? "bg-destructive/10" : "bg-primary/10"}`}
         >
@@ -96,11 +98,11 @@ function SummaryCard({
             className={`w-5 h-5 ${accent ? "text-destructive" : "text-primary"}`}
           />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
             {label}
           </p>
-          <p className="text-2xl font-bold font-display text-foreground mt-0.5">
+          <p className="mt-0.5 whitespace-nowrap text-xl font-bold tabular-nums text-foreground">
             {value}
           </p>
           {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
@@ -676,12 +678,13 @@ export default function InventoryModule() {
                   Inventory Overview
                 </h1>
               </div>
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-7">
                 <SummaryCard
                   icon={IndianRupee}
                   label="Total Inventory Value"
                   value={`₹${totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
                   sub="based on buy price"
+                  wide
                 />
                 <SummaryCard
                   icon={Package}

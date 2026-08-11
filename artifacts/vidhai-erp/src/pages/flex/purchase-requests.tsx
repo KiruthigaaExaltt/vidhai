@@ -763,7 +763,7 @@ export default function PurchaseRequestsPage() {
 
   return (
     <Shell>
-      <div className="p-6 md:p-8 max-w-[1400px] mx-auto w-full space-y-5">
+      <div className="w-full space-y-5 p-6">
         <FlexTabs />
 
         {/* Sub-nav Sub-Module Tabs */}
@@ -1204,7 +1204,7 @@ export default function PurchaseRequestsPage() {
                                 Confirm
                               </Button>
                             ) : (
-                              <span className="text-muted-foreground">—</span>
+                              <span className="text-muted-foreground">â€”</span>
                             )}
                           </td>
                         </tr>

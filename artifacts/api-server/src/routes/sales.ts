@@ -23,7 +23,8 @@ import {
   inventoryTable,
   inventoryMovementsTable,
   salesWorkOrdersTable,
-  organizationDetailsTable
+  organizationDetailsTable,
+  accountsReceivableTable
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
 import {
@@ -1455,21 +1456,29 @@ router.post("/payments", requireAuth, async (req, res) => {
     const [invoice] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, invoiceId)).limit(1);
     if (!invoice) return res.status(404).json({ error: "Invoice not found" });
     if (!["Approved", "Paid"].includes(invoice.status)) return res.status(409).json({ error: "Payments can be recorded only against approved invoices" });
+    const [receivable] = await db.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.sourceType, "Sales Invoice"), eq(accountsReceivableTable.sourceId, invoiceId))).limit(1);
+    if (receivable?.sourceType === "Manual" && receivable.approvalStatus !== "Approved") return res.status(409).json({ error: "The Accounts Receivable entry requires final approval before payment" });
     if (!(amount > 0)) return res.status(400).json({ error: "Payment amount must be greater than zero" });
     if (tdsAmount < 0 || bankCharges < 0 || tdsAmount + bankCharges > amount) return res.status(400).json({ error: "TDS and bank charges must be non-negative and cannot exceed the payment amount" });
     if (amount > Number(invoice.balanceDue || invoice.grandTotal) + 0.009) return res.status(400).json({ error: "Payment amount cannot exceed the invoice balance due" });
-    const paymentNumber = String(req.body.paymentNumber || paymentCode((await db.select().from(salesPaymentsTable)).length + 1));
+    const paymentDate = String(req.body.paymentDate || new Date().toISOString().slice(0, 10));
+    if (paymentDate < String(invoice.invoiceDate).slice(0, 10)) return res.status(400).json({ error: "Payment date cannot be earlier than the invoice date" });
+    const existingPayments = await db.select().from(salesPaymentsTable);
+    const reference = String(req.body.reference || "").trim();
+    if (reference && existingPayments.some((row: any) => String(row.reference || "").trim().toLowerCase() === reference.toLowerCase())) return res.status(409).json({ error: "Payment reference already exists" });
+    if (existingPayments.some((row: any) => Number(row.invoiceId) === invoiceId && Number(row.amount) === amount && String(row.paymentDate) === paymentDate && String(row.reference || "") === reference)) return res.status(409).json({ error: "Duplicate payment submission detected" });
+    const paymentNumber = String(req.body.paymentNumber || paymentCode(existingPayments.length + 1));
     const context = await accountingContext(req);
     const [payment] = await db.insert(salesPaymentsTable).values({
       invoiceId,
       paymentNumber,
-      paymentDate: req.body.paymentDate || new Date().toISOString().slice(0, 10),
+      paymentDate,
       amount: String(amount),
       tdsAmount: String(tdsAmount),
       bankCharges: String(bankCharges),
       netReceived: String(amount - tdsAmount - bankCharges),
       paymentMethod: req.body.paymentMethod || "Bank Transfer",
-      reference: req.body.reference || "",
+      reference,
       notes: req.body.notes || "",
       createdByUserId: context.userId,
     }).returning();
