@@ -2057,18 +2057,25 @@ router.get("/vendor-payments/outstanding-bills", requireAuth, async (req, res) =
         : covered > 0
           ? "Partially Paid"
           : "Unpaid";
+    const billStatus =
+      covered >= amount - 0.005
+        ? "Paid"
+        : covered > 0
+          ? "Partial"
+          : "Pending";
     if (
       paidAmount !== Number(bill.paidAmount || 0) ||
-      (covered >= amount ? "Paid" : covered > 0 ? "Partial" : "Pending") !== bill.status
+      billStatus !== bill.status
     ) {
       await db
         .update(accountsPayableTable)
         .set({
           paidAmount,
-          status: covered >= amount ? "Paid" : covered > 0 ? "Partial" : "Pending",
+          status: billStatus,
         })
         .where(eq(accountsPayableTable.id, bill.id));
       bill.paidAmount = paidAmount;
+      bill.status = billStatus;
     }
     if (invoice.status !== invoiceStatus) {
       await db

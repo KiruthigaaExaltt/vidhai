@@ -195,7 +195,10 @@ async function updatePurchaseRequest({ id, ...payload }: any) {
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToUpdatePr);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || FLEX_TEXT.failedToUpdatePr);
+  }
   return res.json();
 }
 
@@ -405,6 +408,7 @@ export default function PurchaseRequestsPage() {
       });
       toast.success(FLEX_TEXT.purchaseRequestUpdatedSuccessfully);
       setSelectedPr(null);
+      setEditingPr(null);
     },
     onError: (err: any) => {
       toast.error(err.message || FLEX_TEXT.failedToUpdatePr);
@@ -2990,14 +2994,13 @@ export default function PurchaseRequestsPage() {
                           editLineItems[0]?.product || editingPr.itemName,
                         quantity: editLineItems[0]?.qty || editingPr.quantity,
                         unit: editLineItems[0]?.unit || editingPr.unit,
-                        departmentId: Number(editDepartmentId),
-                        department: editDepartment,
-                        requestedByUserId: Number(editRequestedBy),
-                        requestedByName: selectedUser?.name || "",
+                        departmentId: editDepartmentId ? Number(editDepartmentId) : undefined,
+                        department: editDepartmentId ? editDepartment : undefined,
+                        requestedByUserId: editRequestedBy ? Number(editRequestedBy) : undefined,
+                        requestedByName: editRequestedBy ? selectedUser?.name || editingPr.requestedBy : undefined,
                         notes: editNotes,
                         requiredDate: editRequiredDate,
                       });
-                      setEditingPr(null);
                     }}
                   >
                     {FLEX_TEXT.save}
