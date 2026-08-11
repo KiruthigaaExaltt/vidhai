@@ -38,6 +38,15 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
           (await r.json().catch(() => ({}))).error || "Request failed",
         );
       return r.status === 204 ? null : r.json();
+    }),
+  flexApi = (p: string, o?: RequestInit) =>
+    fetch(`${base}/api/flex${p}`, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      ...o,
+    }).then(async (r) => {
+      if (!r.ok) throw Error((await r.json().catch(() => ({}))).error || "Request failed");
+      return r.status === 204 ? null : r.json();
     });
 const numberValue = (value: any) => {
   const parsed = Number(
@@ -61,7 +70,12 @@ export default function Accounts() {
     [customers, setCustomers] = useState<any[]>([]),
     [vendors, setVendors] = useState<any[]>([]),
     [statements, setStatements] = useState<any>({}),
+    [activeTab, setActiveTab] = useState("ap"),
     [search, setSearch] = useState(""),
+    [apStatusFilter, setApStatusFilter] = useState("All"),
+    [apApprovalFilter, setApApprovalFilter] = useState("All"),
+    [apFromDate, setApFromDate] = useState(""),
+    [apToDate, setApToDate] = useState(""),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [paymentAr, setPaymentAr] = useState<any | null>(null),
@@ -76,6 +90,14 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
+  const [apPayment, setApPayment] = useState({
+    paymentDate: new Date().toISOString().slice(0, 10),
+    paymentMode: "Bank Transfer",
+    bankAccount: "Bank Account (1020)",
+    transactionReference: "",
+    notes: "",
+    attachmentName: "",
+  });
   const today = new Date().toISOString().slice(0, 10);
   const openManual = (
     type: "account" | "journal" | "ap" | "ar",
@@ -255,6 +277,17 @@ export default function Accounts() {
   useEffect(() => {
     void load();
   }, []);
+  const reconcile = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      await api("/reconcile", { method: "POST" });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+      setLoading(false);
+    }
+  };
   const match = (x: any) =>
       JSON.stringify(x).toLowerCase().includes(search.toLowerCase()),
     f = (xs: any[]) => xs.filter(match);
@@ -284,12 +317,21 @@ export default function Accounts() {
     setSubmitting(true);
     setError("");
     try {
-      await api(`/${settlement.kind}/${settlement.row.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          [field]: numberValue(settlement.row[field]) + amount,
-        }),
-      });
+      if (settlement.kind === "ap")
+        await flexApi("/vendor-payments", {
+          method: "POST",
+          body: JSON.stringify({
+            vendorName: settlement.row.vendorName,
+            invoiceReference: settlement.row.billNumber,
+            amount,
+            ...apPayment,
+          }),
+        });
+      else
+        await api(`/${settlement.kind}/${settlement.row.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ [field]: numberValue(settlement.row[field]) + amount }),
+        });
       setSettlement(null);
       setSettlementAmount("");
       await load();
@@ -310,6 +352,22 @@ export default function Accounts() {
     setSettlement({ kind, row });
     setSettlementAmount(balance.toFixed(2));
     setError("");
+  };
+  const reviewAp = async (row: any, action: "approve" | "reject") => {
+    const remarks = window.prompt(`${action === "approve" ? "Approval" : "Rejection"} remarks`);
+    if (action === "reject" && !remarks) return;
+    setSubmitting(true);
+    try {
+      await api(`/ap/${row.id}/${action}`, {
+        method: "POST",
+        body: JSON.stringify({ remarks: remarks || "Approved" }),
+      });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
   const openPayment = (row: any) => {
     setPaymentAr(row);
@@ -398,36 +456,63 @@ export default function Accounts() {
     ["Income", summary.income],
     ["Expenses", summary.expenses],
   ];
+  const apBills = ap.filter((entry) => entry.entryType !== "Debit Note");
+  const apDebitNotes = ap.filter((entry) => entry.entryType === "Debit Note");
+  const filterAp = (rows: any[]) => f(rows).filter((row) =>
+    (apStatusFilter === "All" || row.status === apStatusFilter) &&
+    (apApprovalFilter === "All" || row.approvalStatus === apApprovalFilter) &&
+    (!apFromDate || row.billDate >= apFromDate) &&
+    (!apToDate || row.billDate <= apToDate),
+  );
+  const apSummary = [
+    ["Total Outstanding", apBills.reduce((sum, row) => sum + Math.max(0, numberValue(row.amount) - numberValue(row.paidAmount) - numberValue(row.adjustedAmount)), 0)],
+    ["Due Today", apBills.filter((row) => row.dueDate === today).reduce((sum, row) => sum + Math.max(0, numberValue(row.amount) - numberValue(row.paidAmount) - numberValue(row.adjustedAmount)), 0)],
+    ["Overdue Amount", apBills.filter((row) => row.dueDate < today && row.status !== "Paid").reduce((sum, row) => sum + Math.max(0, numberValue(row.amount) - numberValue(row.paidAmount) - numberValue(row.adjustedAmount)), 0)],
+    ["Payments Made", apBills.reduce((sum, row) => sum + numberValue(row.paidAmount), 0)],
+    ["Debit Adjustments", apBills.reduce((sum, row) => sum + numberValue(row.adjustedAmount), 0)],
+    ["Vendor Credits", apDebitNotes.reduce((sum, row) => sum + numberValue(row.availableCredit), 0)],
+  ];
+  const pageTitles: Record<string, [string, string]> = {
+    dashboard: ["Finance Dashboard", "Accounting overview and financial position"],
+    coa: ["Chart of Accounts", "Manage the organization ledger structure"],
+    customers: ["Customer Ledger", "Track customer invoices, receipts and balances"],
+    vendors: ["Vendor Ledger", "Track vendor bills, payments and balances"],
+    ap: ["Accounts Payable (AP)", "Manage pending vendor bills, debit notes and payments"],
+    ar: ["Accounts Receivable (AR)", "Manage customer invoices and receipts"],
+    journals: ["Journal Entries", "Review posted double-entry transactions"],
+    statements: ["Financial Statements", "Review profit, balance sheet and trial balance"],
+  };
+  const [pageTitle, pageDescription] = pageTitles[activeTab] || pageTitles.dashboard;
   return (
     <Shell>
-      <div className="p-6 space-y-5">
+      <div className="min-h-full space-y-5 bg-slate-50/70 p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <BookOpen />
-              Accounts
+              {pageTitle}
             </h1>
             <p className="text-sm text-muted-foreground">
-              Double-entry ledger, subledgers and financial reporting
+              {pageDescription}
             </p>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
-            Reconcile
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void reconcile()} disabled={loading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Sync
+            </Button>
+            {activeTab === "ap" && can("accounts.accounts_payable.create") && (
+              <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
+                <Plus className="mr-2 h-4 w-4" /> Add Entry
+              </Button>
+            )}
+          </div>
         </div>
         {error && (
           <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm">
             {error}
           </div>
         )}
-        <div className="grid gap-3 md:grid-cols-5">
+        {activeTab === "dashboard" && <div className="grid gap-3 md:grid-cols-5">
           {cards.map(([x, v]) => (
             <Card key={x}>
               <CardHeader className="pb-2">
@@ -440,20 +525,20 @@ export default function Accounts() {
               </CardContent>
             </Card>
           ))}
-        </div>
-        <Input
+        </div>}
+        {activeTab !== "ap" && <Input
           placeholder="Search current view..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-        />
-        <Tabs defaultValue="dashboard">
-          <TabsList className="flex h-auto flex-wrap justify-start">
+        />}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start rounded-lg border bg-white p-1">
             <TabsTrigger value="dashboard">Finance Dashboard</TabsTrigger>
+            <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
             <TabsTrigger value="customers">Customer Ledger</TabsTrigger>
             <TabsTrigger value="vendors">Vendor Ledger</TabsTrigger>
-            <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
-            <TabsTrigger value="ap">AP</TabsTrigger>
-            <TabsTrigger value="ar">AR</TabsTrigger>
+            <TabsTrigger value="ap">Accounts Payable (AP)</TabsTrigger>
+            <TabsTrigger value="ar">Accounts Receivable (AR)</TabsTrigger>
             <TabsTrigger value="journals">Journal Entries</TabsTrigger>
             <TabsTrigger value="statements">Financial Statements</TabsTrigger>
           </TabsList>
@@ -511,29 +596,26 @@ export default function Accounts() {
             />
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
-            {can("accounts.accounts_payable.create") && (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Bill
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => openManual("ap", { entryType: "Debit Note" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Debit Note
-                </Button>
-              </div>
-            )}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:justify-end">
+              <label className="space-y-1 text-xs text-muted-foreground">From Date<Input type="date" value={apFromDate} onChange={(e) => setApFromDate(e.target.value)} /></label>
+              <label className="space-y-1 text-xs text-muted-foreground">To Date<Input type="date" value={apToDate} onChange={(e) => setApToDate(e.target.value)} /></label>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm" value={apStatusFilter} onChange={(e) => setApStatusFilter(e.target.value)}>{["All", "Pending", "Partial", "Paid", "Overdue", "Rejected", "Approved"].map((value) => <option key={value}>{value}</option>)}</select>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm" value={apApprovalFilter} onChange={(e) => setApApprovalFilter(e.target.value)}>{["All", "Pending Approval", "Approved", "Rejected"].map((value) => <option key={value}>{value}</option>)}</select>
+            </div>
+            <Card>
+              <CardContent className="pt-5">
+                <div className="text-xs text-muted-foreground">Outstanding Balance</div>
+                <div className="mt-1 text-2xl font-semibold text-rose-500">{inr(apSummary[0][1])}</div>
+              </CardContent>
+            </Card>
             <Tabs defaultValue="bills">
-              <TabsList>
+              <TabsList className="mb-3 bg-slate-100">
                 <TabsTrigger value="bills">Pending Bills</TabsTrigger>
                 <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
               </TabsList>
               <TabsContent value="bills">
                 <Table
-                  rows={f(
+                  rows={filterAp(
                     ap.filter((entry) => entry.entryType !== "Debit Note"),
                   )}
                   cols={[
@@ -558,6 +640,7 @@ export default function Accounts() {
                         ),
                     ],
                     ["Status", "status"],
+                    ["Approval", "approvalStatus"],
                     [
                       "Actions",
                       "actions",
@@ -568,8 +651,9 @@ export default function Accounts() {
                             numberValue(row.paidAmount) -
                             numberValue(row.adjustedAmount),
                         );
-                        return balance > 0 ? (
-                          <Button
+                        return (
+                          <div className="flex items-center gap-2">
+                          {balance > 0 && row.approvalStatus === "Approved" && <Button
                             type="button"
                             size="icon"
                             variant="ghost"
@@ -580,8 +664,13 @@ export default function Accounts() {
                             onClick={() => openSettlement("ap", row)}
                           >
                             <DollarSign className="h-4 w-4" />
-                          </Button>
-                        ) : null;
+                          </Button>}
+                          {row.approvalStatus === "Pending Approval" && <>
+                            <Button size="sm" onClick={() => void reviewAp(row, "approve")}>Approve</Button>
+                            <Button size="sm" variant="destructive" onClick={() => void reviewAp(row, "reject")}>Reject</Button>
+                          </>}
+                          </div>
+                        );
                       },
                     ],
                   ]}
@@ -589,7 +678,7 @@ export default function Accounts() {
               </TabsContent>
               <TabsContent value="debit-notes">
                 <Table
-                  rows={f(
+                  rows={filterAp(
                     ap.filter((entry) => entry.entryType === "Debit Note"),
                   )}
                   cols={[
@@ -598,8 +687,21 @@ export default function Accounts() {
                     ["Against Bill", "againstBillNumber"],
                     ["Date", "billDate"],
                     ["Amount", "amount", inr],
+                    ["Applied", "appliedAmount", inr],
+                    ["Available Credit", "availableCredit", inr],
                     ["Status", "status"],
+                    ["Approval", "approvalStatus"],
                     ["Notes", "notes"],
+                    [
+                      "Actions",
+                      "actions",
+                      (_value, row) => row.approvalStatus === "Pending Approval" ? (
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => void reviewAp(row, "approve")}>Approve</Button>
+                          <Button size="sm" variant="destructive" onClick={() => void reviewAp(row, "reject")}>Reject</Button>
+                        </div>
+                      ) : null,
+                    ],
                   ]}
                 />
               </TabsContent>
@@ -1224,6 +1326,14 @@ export default function Accounts() {
                     onChange={(event) => setSettlementAmount(event.target.value)}
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5"><Label>Payment Date</Label><Input type="date" value={apPayment.paymentDate} onChange={(e) => setApPayment((value) => ({ ...value, paymentDate: e.target.value }))} /></div>
+                  <div className="space-y-1.5"><Label>Payment Mode</Label><Input value={apPayment.paymentMode} onChange={(e) => setApPayment((value) => ({ ...value, paymentMode: e.target.value }))} /></div>
+                  <div className="space-y-1.5"><Label>Bank / Cash Account</Label><Input value={apPayment.bankAccount} onChange={(e) => setApPayment((value) => ({ ...value, bankAccount: e.target.value }))} /></div>
+                  <div className="space-y-1.5"><Label>Transaction / Cheque Reference</Label><Input value={apPayment.transactionReference} onChange={(e) => setApPayment((value) => ({ ...value, transactionReference: e.target.value }))} /></div>
+                </div>
+                <div className="space-y-1.5"><Label>Notes</Label><Input value={apPayment.notes} onChange={(e) => setApPayment((value) => ({ ...value, notes: e.target.value }))} /></div>
+                <div className="space-y-1.5"><Label>Supporting Document</Label><Input type="file" onChange={(e) => setApPayment((value) => ({ ...value, attachmentName: e.target.files?.[0]?.name || "" }))} /></div>
               </div>
             )}
             <DialogFooter>

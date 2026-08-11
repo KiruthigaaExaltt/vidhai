@@ -88,33 +88,11 @@ async function createVendorPayment(payload: any) {
   return res.json();
 }
 
-async function fetchVendorPayments(): Promise<any[]> {
-  const response = await fetch(`${BASE}/api/flex/vendor-payments`, { credentials: "include" });
-  if (!response.ok) throw new Error("Failed to load payment requests");
-  return response.json();
-}
-
-async function reviewVendorPayment({ id, action, remarks }: any) {
-  const response = await fetch(`${BASE}/api/flex/vendor-payments/${id}/${action}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ remarks }),
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Failed to ${action} payment`);
-  return body;
-}
-
 export default function VendorPayments() {
   const queryClient = useQueryClient();
   const { data: bills = [] } = useQuery({
     queryKey: ["get", "/api/flex/vendor-payments/outstanding-bills"],
     queryFn: fetchOutstandingBills,
-  });
-  const { data: paymentRequests = [] } = useQuery({
-    queryKey: ["get", "/api/flex/vendor-payments"],
-    queryFn: fetchVendorPayments,
   });
 
   const { data: masterData } = useFlexMasterData();
@@ -161,15 +139,6 @@ export default function VendorPayments() {
     onError: (err: any) => {
       toast.error(err.message || FLEX_TEXT.failedToRecordPayment);
     },
-  });
-  const reviewMutation = useMutation({
-    mutationFn: reviewVendorPayment,
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/vendor-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["get", "/api/flex/vendor-payments/outstanding-bills"] });
-      toast.success(`Payment ${variables.action}d successfully`);
-    },
-    onError: (error: any) => toast.error(error.message),
   });
 
   const resetForm = () => {
@@ -389,34 +358,6 @@ export default function VendorPayments() {
                 </tbody>
               </table>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border border-border">
-          <div className="border-b p-4"><h2 className="text-sm font-bold">Payment Approval Requests</h2></div>
-          <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className="border-b bg-muted/40 text-left"><th className="p-3">Payment</th><th className="p-3">Vendor / Invoice</th><th className="p-3">Date</th><th className="p-3">Amount</th><th className="p-3">Mode / Account</th><th className="p-3">Reference</th><th className="p-3">Status</th><th className="p-3 text-right">Approval</th></tr></thead>
-              <tbody className="divide-y">
-                {paymentRequests.map((payment: any) => (
-                  <tr key={payment.id}>
-                    <td className="p-3 font-mono">{payment.paymentNumber}</td>
-                    <td className="p-3"><div className="font-semibold">{payment.vendor}</div><div>{payment.invoiceReference}</div></td>
-                    <td className="p-3">{payment.paymentDate}</td>
-                    <td className="p-3 font-semibold">₹ {Number(payment.amount).toLocaleString("en-IN")}</td>
-                    <td className="p-3"><div>{payment.paymentMode}</div><div>{payment.bankAccount}</div></td>
-                    <td className="p-3">{payment.transactionReference || "-"}</td>
-                    <td className="p-3">{payment.status}</td>
-                    <td className="p-3 text-right space-x-2">
-                      {payment.status === "Pending Approval" && <>
-                        <Button size="sm" onClick={() => reviewMutation.mutate({ id: payment.id, action: "approve", remarks: window.prompt("Approval remarks") || "Approved" })}>Approve</Button>
-                        <Button size="sm" variant="destructive" onClick={() => { const remarks = window.prompt("Rejection remarks"); if (remarks) reviewMutation.mutate({ id: payment.id, action: "reject", remarks }); }}>Reject</Button>
-                      </>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </CardContent>
         </Card>
 

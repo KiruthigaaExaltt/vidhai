@@ -418,6 +418,11 @@ async function automate(org: number) {
   }
   for (const x of await db.select().from(purchaseInvoicesTable)) {
     await postMatchedPurchaseInvoice(org, Number(x.id));
+    if (["2-Way Match", "3-Way Match", "Matched"].includes(String(x.matchStatus))) {
+      const linkedBills = await db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org));
+      for (const bill of linkedBills.filter((entry: any) => entry.sourceType === "Purchase Invoice" && Number(entry.sourceId) === Number(x.id) && entry.approvalStatus !== "Approved"))
+        await db.update(accountsPayableTable).set({ approvalStatus: "Approved", approvalLevel: 1, requiredApprovals: 1 }).where(eq(accountsPayableTable.id, bill.id));
+    }
   }
   for (const x of await db.select().from(vendorPaymentsTable)) {
     if (x.status !== "Completed" || Number(x.amount) <= 0) continue;
@@ -636,7 +641,17 @@ for (const c of [
               .from(c.t)
               .where(eq(c.t.organizationId, r.acc.org))
               .orderBy(desc(c.t.createdAt))
-          ).map(serializeMoneyFields),
+          ).map((row: any) => {
+            const serialized = serializeMoneyFields(row);
+            if (c.p === "ap") {
+              const balance = Math.max(0, m(row.amount) - m(row.paidAmount) - m(row.adjustedAmount));
+              if (row.entryType !== "Debit Note" && row.status !== "Rejected")
+                serialized.status = balance <= 0 ? "Paid" : String(row.dueDate).slice(0, 10) < day() ? "Overdue" : m(row.paidAmount) > 0 || m(row.adjustedAmount) > 0 ? "Partial" : "Pending";
+              serialized.balance = balance;
+              serialized.approvalStatus = row.approvalStatus || (row.sourceType === "Purchase Invoice" ? "Approved" : "Pending Approval");
+            }
+            return serialized;
+          }),
           r,
         ),
       );
@@ -647,13 +662,32 @@ for (const c of [
       covered = m(r.body[c.paid]) + m(r.body.adjustedAmount);
     if (amount <= 0)
       return s.status(400).json({ error: "Amount must be positive" });
+    if (c.p === "ap") {
+      const existing = await db
+        .select()
+        .from(accountsPayableTable)
+        .where(eq(accountsPayableTable.organizationId, r.acc.org));
+      if (existing.some((entry: any) =>
+        String(entry.billNumber).trim().toLowerCase() === String(r.body.billNumber).trim().toLowerCase()))
+        return s.status(409).json({ error: "Bill or debit-note number already exists" });
+      if (r.body.entryType === "Debit Note") {
+        const linkedBill = existing.find((entry: any) =>
+          entry.entryType !== "Debit Note" && entry.billNumber === r.body.againstBillNumber && entry.vendorName === r.body.vendorName);
+        if (!linkedBill) return s.status(400).json({ error: "Linked vendor bill was not found" });
+        const eligible = Math.max(0, m(linkedBill.amount) - m(linkedBill.paidAmount) - m(linkedBill.adjustedAmount));
+        const maximumDebitNote = m(linkedBill.paidAmount) >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : eligible;
+        if (amount > maximumDebitNote + 0.009) return s.status(400).json({ error: `Debit note cannot exceed ${maximumDebitNote}` });
+      }
+    }
     const [x] = await db
       .insert(c.t)
       .values({
         ...r.body,
         organizationId: r.acc.org,
         amount,
-        status:
+        approvalStatus: c.p === "ap" ? "Pending Approval" : undefined,
+        requiredApprovals: c.p === "ap" ? Math.max(1, Number(process.env.LEDGER_AP_REQUIRED_APPROVALS ?? 1)) : undefined,
+        status: c.p === "ap" && r.body.entryType === "Debit Note" ? "Pending" :
           covered >= amount ? c.done : covered > 0 ? "Partial" : "Pending",
       })
       .returning();
@@ -661,6 +695,8 @@ for (const c of [
   });
   router.patch(`/${c.p}/:id`, async (r: any, s): Promise<any> => {
     if (!need(r, s, `${c.k}.edit`)) return;
+    if (c.p === "ap" && r.body.paidAmount !== undefined)
+      return s.status(400).json({ error: "Use the approved Record Payment workflow" });
     const [o] = await db
         .select()
         .from(c.t)
@@ -718,9 +754,69 @@ for (const c of [
     }
   });
 }
+router.post("/ap/:id/approve", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.edit")) return;
+  const id = Number(r.params.id);
+  const [entry] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.id, id))).limit(1);
+  if (!entry) return s.status(404).json({ error: "AP entry not found" });
+  if (entry.approvalStatus === "Rejected") return s.status(409).json({ error: "Rejected AP entry cannot be approved" });
+  if (entry.approvalStatus === "Approved") return s.json(entry);
+  const approvers = JSON.parse(String(entry.approvedByUserIds || "[]")) as number[];
+  if (approvers.includes(Number(r.acc.user.id))) return s.status(409).json({ error: "You already approved this entry" });
+  const nextApprovers = [...approvers, Number(r.acc.user.id)];
+  const nextLevel = Number(entry.approvalLevel || 0) + 1;
+  if (nextLevel < Number(entry.requiredApprovals || 1)) {
+    const [updated] = await db.update(accountsPayableTable).set({ approvalLevel: nextLevel, approvedByUserIds: JSON.stringify(nextApprovers), approvalRemarks: String(r.body.remarks || "") }).where(eq(accountsPayableTable.id, id)).returning();
+    return s.json(updated);
+  }
+  if (entry.entryType === "Debit Note") {
+    const [bill] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.billNumber, entry.againstBillNumber), eq(accountsPayableTable.vendorName, entry.vendorName))).limit(1);
+    if (!bill) return s.status(400).json({ error: "Linked bill not found" });
+    const eligible = Math.max(0, m(bill.amount) - m(bill.paidAmount) - m(bill.adjustedAmount));
+    const billIsPaid = m(bill.paidAmount) >= m(bill.amount) - 0.009;
+    const maximumDebitNote = billIsPaid ? m(bill.amount) : eligible;
+    if (m(entry.amount) > maximumDebitNote + 0.009) return s.status(400).json({ error: "Debit note exceeds the eligible bill balance" });
+    const accounts = await coa(r.acc.org);
+    const payable = accounts.find((account: any) => account.accountCode === "2100");
+    const vendorReceivable = accounts.find((account: any) => account.accountCode === "1140");
+    const returns = accounts.find((account: any) => account.accountCode === "1200") || accounts.find((account: any) => account.accountCode === "5100");
+    const [linkedInvoice] = bill.sourceType === "Purchase Invoice" && bill.sourceId
+      ? await db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.id, Number(bill.sourceId))).limit(1)
+      : [];
+    const ratio = linkedInvoice && m(linkedInvoice.amount) > 0 ? m(entry.amount) / m(linkedInvoice.amount) : 0;
+    const taxCredits = [
+      ["1410", "1130", m(linkedInvoice?.cgstAmount) * ratio],
+      ["1420", "1131", m(linkedInvoice?.sgstAmount) * ratio],
+      ["1430", "1132", m(linkedInvoice?.igstAmount) * ratio],
+    ].map(([primary, fallback, credit]) => ({ account: accounts.find((account: any) => account.accountCode === primary) || accounts.find((account: any) => account.accountCode === fallback), credit: m(credit) })).filter((line) => line.account && line.credit > 0);
+    const totalTaxCredit = m(taxCredits.reduce((sum, line) => sum + line.credit, 0));
+    const journal = await post(r.acc.org, { entryDate: entry.billDate, reference: `AP:DN:${entry.billNumber}`, description: `Debit note ${entry.billNumber}`, sourceType: "AP Debit Note", sourceId: entry.id, lines: [{ accountId: billIsPaid ? vendorReceivable?.id : payable?.id, debit: m(entry.amount) }, { accountId: returns?.id, credit: m(entry.amount) - totalTaxCredit }, ...taxCredits.map((line) => ({ accountId: line.account!.id, credit: line.credit }))] }, r.acc.user.id);
+    if (billIsPaid) {
+      await db.update(accountsPayableTable).set({ appliedAmount: 0, availableCredit: m(entry.amount), journalEntryId: journal.id }).where(eq(accountsPayableTable.id, entry.id));
+    } else {
+      const adjustedAmount = m(bill.adjustedAmount) + m(entry.amount);
+      const covered = m(bill.paidAmount) + adjustedAmount;
+      const billStatus = covered >= m(bill.amount) - 0.009 ? "Paid" : covered > 0 ? "Partial" : "Pending";
+      await db.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, bill.id));
+      await db.update(accountsPayableTable).set({ appliedAmount: m(entry.amount), availableCredit: 0, journalEntryId: journal.id }).where(eq(accountsPayableTable.id, entry.id));
+      if (bill.sourceType === "Purchase Invoice" && bill.sourceId)
+        await db.update(purchaseInvoicesTable).set({ status: billStatus === "Paid" ? "Paid" : "Partially Paid" }).where(eq(purchaseInvoicesTable.id, bill.sourceId));
+    }
+  }
+  const [updated] = await db.update(accountsPayableTable).set({ approvalStatus: "Approved", status: entry.entryType === "Debit Note" ? "Approved" : entry.status, approvalLevel: nextLevel, approvedByUserIds: JSON.stringify(nextApprovers), approvalRemarks: String(r.body.remarks || "") }).where(eq(accountsPayableTable.id, id)).returning();
+  return s.json(updated);
+});
+
+router.post("/ap/:id/reject", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.edit")) return;
+  const remarks = String(r.body.remarks || "").trim();
+  if (!remarks) return s.status(400).json({ error: "Rejection remarks are required" });
+  const [updated] = await db.update(accountsPayableTable).set({ approvalStatus: "Rejected", approvalRemarks: remarks, status: "Rejected" }).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.id, Number(r.params.id)), eq(accountsPayableTable.approvalStatus, "Pending Approval"))).returning();
+  if (!updated) return s.status(409).json({ error: "Only pending AP entries can be rejected" });
+  return s.json(updated);
+});
 router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.finance_dashboard.view")) return;
-  await automate(r.acc.org);
   const [a, ap, ar] = await Promise.all([
       coa(r.acc.org),
       db
@@ -760,6 +856,11 @@ router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
         .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
     ),
   });
+});
+router.post("/reconcile", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.finance_dashboard.view")) return;
+  await automate(r.acc.org);
+  return s.json({ success: true, reconciledAt: new Date().toISOString() });
 });
 router.get("/financial-statements", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.financial_statements.view")) return;

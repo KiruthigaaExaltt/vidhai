@@ -273,6 +273,7 @@ export const vendorPaymentsTable = mongoTable("vendor_payments", {
   requiredApprovals: integer("required_approvals").notNull().default(1),
   approvalLevel: integer("approval_level").notNull().default(0),
   approvalRemarks: text("approval_remarks").default(""),
+  approvedByUserIds: json("approved_by_user_ids").notNull().default([]),
   approvedByUserId: integer("approved_by_user_id").references(
     () => usersTable.id,
   ),
