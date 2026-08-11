@@ -305,7 +305,8 @@ export function Sidebar({
               "inventory.assets.view",
             ]}
           />
-          {(can("settings.user_management.view") ||
+          {(can("settings.company_profile.view") ||
+            can("settings.user_management.view") ||
             can("settings.templates.view")) && (
             <NavItem href="/settings" icon={SettingsIcon} label="Settings" />
           )}
