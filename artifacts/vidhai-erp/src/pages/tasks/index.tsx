@@ -1,29 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  useListTasks,
   useCreateTask,
-  useUpdateTask,
   useDeleteTask,
   useListBatches,
-  useListUsers,
-  Task,
-  TaskStatus,
+  useListTasks,
+  useUpdateTask,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -36,9 +33,22 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreVertical, Trash2, Pencil, CheckSquare } from "lucide-react";
+import {
+  CheckSquare,
+  ClipboardList,
+  Clock3,
+  MoreVertical,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  SquareCheckBig,
+  Trash2,
+  UserRoundPlus,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS_OPTIONS = [
@@ -49,12 +59,17 @@ const STATUS_OPTIONS = [
   },
   {
     value: "in_progress",
-    label: "In Progress",
+    label: "Start",
     color: "bg-blue-50 text-blue-700 border-blue-200",
   },
   {
+    value: "paused",
+    label: "Pause",
+    color: "bg-amber-50 text-amber-700 border-amber-200",
+  },
+  {
     value: "done",
-    label: "Done",
+    label: "Complete",
     color: "bg-green-50 text-green-700 border-green-200",
   },
   {
@@ -63,324 +78,395 @@ const STATUS_OPTIONS = [
     color: "bg-red-50 text-red-700 border-red-200",
   },
 ];
-
-const PRIORITY_OPTIONS = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
+const FILTER_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "start", label: "Start" },
+  { value: "pause", label: "Pause" },
+  { value: "complete", label: "Complete" },
 ];
-
-function StatusBadge({ status }: { status: string }) {
-  const opt = STATUS_OPTIONS.find((s) => s.value === status);
-  return (
-    <span
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${opt?.color ?? "bg-muted text-muted-foreground"}`}
-    >
-      {opt?.label ?? status}
-    </span>
-  );
-}
-
-function PriorityBadge({ priority }: { priority: string }) {
-  const colors: Record<string, string> = {
-    low: "text-slate-500",
-    medium: "text-blue-600",
-    high: "text-orange-600",
-    urgent: "text-red-600 font-bold",
-  };
-  return (
-    <span className={`text-xs ${colors[priority] ?? "text-muted-foreground"}`}>
-      {priority.charAt(0).toUpperCase() + priority.slice(1)}
-    </span>
-  );
-}
-
-const EMPTY_FORM = {
+const PRIORITIES = ["low", "medium", "high", "urgent"];
+const emptyForm = {
   title: "",
   description: "",
-  assigneeId: "",
   batchRef: "",
-  status: "todo",
   priority: "medium",
-  startTime: "",
   estimatedMinutes: "",
   notes: "",
 };
 
+type Crew = {
+  id: number;
+  name: string;
+  employeeCode: string;
+  designation?: string;
+  userId?: number | null;
+};
+type Assignment = {
+  employeeId: number;
+  employeeName: string;
+  employeeCode?: string;
+  userId?: number | null;
+};
+type TaskRow = Record<string, any> & {
+  assignments?: Assignment[];
+  activeTimers?: any[];
+  actualMinutes?: number;
+};
+type Timesheet = {
+  entries: any[];
+  totals: {
+    employeeMinutes: number;
+    daily: Record<string, number>;
+    tasks: Record<string, number>;
+  };
+};
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    credentials: "include",
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+  });
+  const data = response.status === 204 ? null : await response.json();
+  if (!response.ok) throw new Error(data?.error || "Request failed");
+  return data as T;
+}
+const formatMinutes = (value: number) => {
+  const total = Math.max(0, Math.round(Number(value || 0)));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
+function StatusBadge({ status }: { status: string }) {
+  const option = STATUS_OPTIONS.find((item) => item.value === status);
+  return (
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${option?.color || "bg-muted"}`}
+    >
+      {option?.label || status}
+    </span>
+  );
+}
+function Assignees({
+  assignments,
+  fallback,
+}: {
+  assignments?: Assignment[];
+  fallback?: string | null;
+}) {
+  const names = assignments?.map((item) => item.employeeName) || [];
+  if (!names.length && fallback) names.push(fallback);
+  if (!names.length)
+    return (
+      <span className="text-xs italic text-muted-foreground">Unassigned</span>
+    );
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+        {names[0].charAt(0)}
+      </span>
+      <div>
+        <div className="text-sm">{names[0]}</div>
+        {names.length > 1 && (
+          <div className="text-[11px] text-muted-foreground">
+            +{names.length - 1} more
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Tasks() {
   const queryClient = useQueryClient();
-  const { can } = useAuth();
-  const { data: tasks, isLoading } = useListTasks();
-  const { data: users } = useListUsers();
-  const { data: batches } = useListBatches();
+  const { user, can } = useAuth();
+  const { data: rawTasks, isLoading } = useListTasks();
+  const { data: batches = [] } = useListBatches();
+  const tasks = (rawTasks || []) as TaskRow[];
+  const { data: crew = [] } = useQuery({
+    queryKey: ["task-crew"],
+    queryFn: () => api<Crew[]>("/tasks/crew"),
+  });
+  const { data: timesheet, refetch: refetchTimesheet } = useQuery({
+    queryKey: ["task-timesheet"],
+    queryFn: () => api<Timesheet>("/tasks/timesheet"),
+  });
+  const [tab, setTab] = useState<"tasks" | "timesheet">("tasks");
+  const [filter, setFilter] = useState("all");
+  const [form, setForm] = useState(emptyForm);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTask, setEditTask] = useState<TaskRow | null>(null);
+  const [assignTask, setAssignTask] = useState<TaskRow | null>(null);
+  const [selectedCrew, setSelectedCrew] = useState<number[]>([]);
+  const [assignBatchRef, setAssignBatchRef] = useState("");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manual, setManual] = useState({
+    taskId: "",
+    date: new Date().toISOString().slice(0, 10),
+    hours: "",
+    minutes: "",
+    notes: "",
+  });
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [, setClockTick] = useState(0);
 
+  useEffect(() => {
+    const interval = window.setInterval(
+      () => setClockTick((value) => value + 1),
+      1000,
+    );
+    return () => window.clearInterval(interval);
+  }, []);
+  const refresh = async () => {
+    await queryClient.invalidateQueries({
+      predicate: (query) => JSON.stringify(query.queryKey).includes("tasks"),
+    });
+    await refetchTimesheet();
+  };
   const createTask = useCreateTask({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["tasks"] });
-        setOpen(false);
-        setForm(EMPTY_FORM);
+      onSuccess: async () => {
+        setCreateOpen(false);
+        setForm(emptyForm);
         toast.success("Task created");
+        await refresh();
       },
+      onError: (error: any) => toast.error(error.message),
     },
   });
-
   const updateTask = useUpdateTask({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      onSuccess: async () => {
         setEditTask(null);
+        setForm(emptyForm);
         toast.success("Task updated");
+        await refresh();
       },
+      onError: (error: any) => toast.error(error.message),
     },
   });
-
   const deleteTask = useDeleteTask({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      onSuccess: async () => {
         toast.success("Task deleted");
+        await refresh();
       },
+      onError: (error: any) => toast.error(error.message),
     },
   });
 
-  const [open, setOpen] = useState(false);
-  const [editTask, setEditTask] = useState<Task | null>(null);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [filterStatus, setFilterStatus] = useState("all");
-
-  const filtered = (tasks ?? []).filter((t) =>
-    filterStatus === "all" ? true : t.status === filterStatus,
+  const filtered = tasks.filter(
+    (task) =>
+      filter === "all" ||
+      (filter === "start" && task.status === "in_progress") ||
+      (filter === "pause" && task.status === "paused") ||
+      (filter === "complete" && task.status === "done"),
   );
+  const myTasks = tasks.filter(
+    (task) =>
+      task.assignments?.some(
+        (item) => Number(item.userId) === Number(user?.id),
+      ) && task.status !== "cancelled",
+  );
+  const elapsedMinutes = (task: TaskRow) =>
+    Number(task.actualMinutes || 0) +
+    (task.activeTimers || []).reduce(
+      (sum: number, timer: any) =>
+        sum +
+        Math.max(0, (Date.now() - new Date(timer.startedAt).getTime()) / 60000),
+      0,
+    );
+  const isMine = (task: TaskRow) =>
+    task.assignments?.some((item) => Number(item.userId) === Number(user?.id));
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.assigneeId) {
-      toast.error("Assignee is required");
-      return;
-    }
-    if (!form.batchRef) {
-      toast.error("Batch Mapping is required");
-      return;
-    }
-    createTask.mutate({
-      data: {
-        title: form.title,
-        description: form.description || null,
-        assigneeId: form.assigneeId ? Number(form.assigneeId) : null,
-        batchRef: form.batchRef || null,
-        status: form.status,
-        priority: form.priority,
-        startTime: form.startTime || null,
-        estimatedMinutes: form.estimatedMinutes
-          ? Number(form.estimatedMinutes)
-          : null,
-        notes: form.notes || null,
-      },
-    });
-  };
+  const isRunning = (task: TaskRow) =>
+    task.activeTimers?.some(
+      (timer: any) => Number(timer.userId) === Number(user?.id),
+    );
 
-  const handleEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editTask) return;
-    if (!form.assigneeId) {
-      toast.error("Assignee is required");
-      return;
+  async function operate(
+    task: TaskRow,
+    action: "start" | "pause" | "complete",
+  ) {
+    setBusyAction(`${task.id}:${action}`);
+    try {
+      await api(`/tasks/${task.id}/time-logs/${action}`, { method: "POST" });
+      toast.success(
+        action === "start"
+          ? "Task started"
+          : action === "pause"
+            ? "Task paused"
+            : "Task completed",
+      );
+      await refresh();
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setBusyAction(null);
     }
-    if (!form.batchRef) {
-      toast.error("Batch Mapping is required");
-      return;
-    }
-    updateTask.mutate({
-      id: editTask.id,
-      data: {
-        title: form.title,
-        description: form.description || null,
-        assigneeId: form.assigneeId ? Number(form.assigneeId) : null,
-        batchRef: form.batchRef || null,
-        status: form.status,
-        priority: form.priority,
-        startTime: form.startTime || null,
-        estimatedMinutes: form.estimatedMinutes
-          ? Number(form.estimatedMinutes)
-          : null,
-        notes: form.notes || null,
-      },
-    });
-  };
+  }
 
-  const openEdit = (t: Task) => {
-    setEditTask(t);
+  async function saveAssignments() {
+    if (!assignTask) return;
+    setBusyAction(`assign:${assignTask.id}`);
+    try {
+      await api(`/tasks/${assignTask.id}/assignments`, {
+        method: "PATCH",
+        body: JSON.stringify({ employeeIds: selectedCrew }),
+      });
+      toast.success("Crew assignment updated");
+      setAssignTask(null);
+      await refresh();
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+  async function saveManual(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    const durationMinutes =
+      Number(manual.hours || 0) * 60 + Number(manual.minutes || 0);
+    if (!manual.taskId || durationMinutes <= 0) {
+      toast.error("Select a task and enter time");
+      return;
+    }
+    setBusyAction("manual");
+    try {
+      await api(`/tasks/${manual.taskId}/time-logs`, {
+        method: "POST",
+        body: JSON.stringify({
+          workDate: manual.date,
+          durationMinutes,
+          notes: manual.notes,
+        }),
+      });
+      toast.success("Manual time saved");
+      setManualOpen(false);
+      setManual({
+        taskId: "",
+        date: new Date().toISOString().slice(0, 10),
+        hours: "",
+        minutes: "",
+        notes: "",
+      });
+      await refresh();
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setBusyAction(null);
+    }
+  }
+  function submitTask(event: React.FormEvent, editing = false) {
+    event.preventDefault();
+    const data = {
+      title: form.title,
+      description: form.description || null,
+      batchRef: form.batchRef || null,
+      priority: form.priority,
+      estimatedMinutes: form.estimatedMinutes
+        ? Number(form.estimatedMinutes)
+        : null,
+      notes: form.notes || null,
+    };
+    if (editing && editTask) updateTask.mutate({ id: editTask.id, data });
+    else createTask.mutate({ data });
+  }
+  function openEdit(task: TaskRow) {
+    setEditTask(task);
     setForm({
-      title: t.title,
-      description: t.description ?? "",
-      assigneeId: t.assigneeId ? String(t.assigneeId) : "",
-      batchRef: (t as any).batchRef ?? "",
-      status: t.status,
-      priority: t.priority,
-      startTime: t.startTime ? t.startTime.slice(0, 16) : "",
-      estimatedMinutes: t.estimatedMinutes ? String(t.estimatedMinutes) : "",
-      notes: t.notes ?? "",
+      title: task.title,
+      description: task.description || "",
+      batchRef: task.batchRef || "",
+      priority: task.priority,
+      estimatedMinutes: task.estimatedMinutes
+        ? String(task.estimatedMinutes)
+        : "",
+      notes: task.notes || "",
     });
-  };
+  }
+  function openAssign(task: TaskRow) {
+    setAssignTask(task);
+    setSelectedCrew(
+      task.assignments?.map((item) => Number(item.employeeId)) || [],
+    );
+  }
 
-  const TaskForm = ({
-    onSubmit,
-    submitting,
-    isCreate = false,
-  }: {
-    onSubmit: (e: React.FormEvent) => void;
-    submitting: boolean;
-    isCreate?: boolean;
-  }) => (
-    <form onSubmit={onSubmit} className="space-y-4 pt-2">
+  const TaskForm = ({ editing = false }: { editing?: boolean }) => (
+    <form
+      onSubmit={(event) => submitTask(event, editing)}
+      className="space-y-4 pt-2"
+    >
       <div className="space-y-2">
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-          Task Name <span className="text-destructive">*</span>
-        </Label>
+        <Label>Task name</Label>
         <Input
           required
           value={form.title}
-          onChange={(e) => setForm({ ...form, title: e.target.value })}
-          placeholder="e.g. Apply gypsum in Chamber 3"
-          className="rounded-lg h-10 shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10"
+          onChange={(event) => setForm({ ...form, title: event.target.value })}
         />
       </div>
       <div className="space-y-2">
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-          Description
-        </Label>
+        <Label>Description</Label>
         <Textarea
           value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          placeholder="Task details..."
-          className="rounded-lg min-h-[72px] shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10"
+          onChange={(event) =>
+            setForm({ ...form, description: event.target.value })
+          }
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Assignee <span className="text-destructive">*</span>
-          </Label>
-          <Select
-            value={form.assigneeId}
-            onValueChange={(v) => setForm({ ...form, assigneeId: v })}
-          >
-            <SelectTrigger className="rounded-lg h-10 shadow-sm">
-              <SelectValue placeholder="Select person" />
-            </SelectTrigger>
-            <SelectContent className="rounded-lg">
-              {(users ?? []).map((u: any) => (
-                <SelectItem key={u.id} value={String(u.id)}>
-                  {u.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Batch Mapping <span className="text-destructive">*</span>
-          </Label>
+          <Label>Work order / batch</Label>
           <Select
             value={form.batchRef}
-            onValueChange={(v) => setForm({ ...form, batchRef: v })}
+            onValueChange={(batchRef) => setForm({ ...form, batchRef })}
           >
-            <SelectTrigger className="rounded-lg h-10 shadow-sm">
+            <SelectTrigger>
               <SelectValue placeholder="Link to batch" />
             </SelectTrigger>
-            <SelectContent className="rounded-lg">
-              {(batches ?? []).map((b: any) => (
-                <SelectItem key={b.id} value={b.batchCode}>
-                  {b.batchCode}
+            <SelectContent>
+              {(batches as any[]).map((batch: any) => (
+                <SelectItem key={batch.id} value={batch.batchCode}>
+                  {batch.batchCode}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        {!isCreate && (
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Status
-            </Label>
-            <Select
-              value={form.status}
-              onValueChange={(v) => setForm({ ...form, status: v })}
-            >
-              <SelectTrigger className="rounded-lg h-10 shadow-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-lg">
-                {STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
         <div className="space-y-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Priority
-          </Label>
+          <Label>Priority</Label>
           <Select
             value={form.priority}
-            onValueChange={(v) => setForm({ ...form, priority: v })}
+            onValueChange={(priority) => setForm({ ...form, priority })}
           >
-            <SelectTrigger className="rounded-lg h-10 shadow-sm">
+            <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="rounded-lg">
-              {PRIORITY_OPTIONS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
+            <SelectContent>
+              {PRIORITIES.map((priority) => (
+                <SelectItem key={priority} value={priority}>
+                  {priority[0].toUpperCase() + priority.slice(1)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
       </div>
-      {!isCreate && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Start Time
-            </Label>
-            <Input
-              type="datetime-local"
-              value={form.startTime}
-              onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-              className="rounded-lg h-10 shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Duration (minutes)
-            </Label>
-            <Input
-              type="number"
-              min="0"
-              value={form.estimatedMinutes}
-              onChange={(e) =>
-                setForm({ ...form, estimatedMinutes: e.target.value })
-              }
-              className="rounded-lg h-10 font-mono shadow-sm focus-visible:ring-4 focus-visible:ring-primary/10"
-              placeholder="e.g. 60"
-            />
-          </div>
-        </div>
-      )}
-      <DialogFooter className="pt-2">
+      <div className="space-y-2">
+        <Label>Estimated minutes</Label>
+        <Input
+          type="number"
+          min="0"
+          value={form.estimatedMinutes}
+          onChange={(event) =>
+            setForm({ ...form, estimatedMinutes: event.target.value })
+          }
+        />
+      </div>
+      <DialogFooter>
         <Button
           type="submit"
-          disabled={submitting}
-          className="w-full rounded-lg h-10 shadow-sm hover:shadow-md transition-all"
+          disabled={createTask.isPending || updateTask.isPending}
         >
-          {submitting ? "Saving..." : editTask ? "Update Task" : "Create Task"}
+          {editing ? "Save changes" : "Create task"}
         </Button>
       </DialogFooter>
     </form>
@@ -389,221 +475,491 @@ export default function Tasks() {
   return (
     <Shell>
       <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <CheckSquare className="w-6 h-6 text-primary" />
+            <CheckSquare className="h-6 w-6 text-primary" />
             <div>
-              <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">
-                Tasks
+              <h1 className="font-display text-2xl font-bold tracking-tight">
+                Task management
               </h1>
+              <p className="text-sm text-muted-foreground">
+                Assign work, start tasks, and review manual timesheets
+              </p>
             </div>
           </div>
+          <div className="flex gap-2">
+            {tab === "tasks" ? (
+              <Button
+                disabled={!can("task.task_board.create")}
+                onClick={() => {
+                  setForm(emptyForm);
+                  setCreateOpen(true);
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New task
+              </Button>
+            ) : (
+              <Button
+                onClick={() => setManualOpen(true)}
+                disabled={!myTasks.length}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Log time
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="inline-flex rounded-lg border bg-muted/40 p-1">
           <Button
-            disabled={!can("task.task_board.create")}
-            onClick={() => {
-              setForm(EMPTY_FORM);
-              setOpen(true);
-            }}
-            className="rounded-lg h-10 px-4 shadow-sm hover:shadow-md transition-all"
+            size="sm"
+            variant={tab === "tasks" ? "default" : "ghost"}
+            onClick={() => setTab("tasks")}
           >
-            <Plus className="w-4 h-4 mr-2" /> New Task
+            <CheckSquare className="mr-2 h-4 w-4" />
+            Tasks
+          </Button>
+          <Button
+            size="sm"
+            variant={tab === "timesheet" ? "default" : "ghost"}
+            onClick={() => setTab("timesheet")}
+          >
+            <ClipboardList className="mr-2 h-4 w-4" />
+            Timesheet
           </Button>
         </div>
 
-        {/* Filter bar */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mr-2">
-            Filter:
-          </span>
-          {[{ value: "all", label: "All" }, ...STATUS_OPTIONS].map((s) => (
-            <button
-              key={s.value}
-              onClick={() => setFilterStatus(s.value)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                filterStatus === s.value
-                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                  : "bg-white border-border text-muted-foreground hover:border-primary/50 hover:shadow-sm"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-          <span className="ml-auto text-xs text-muted-foreground font-mono">
-            {filtered.length} task{filtered.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-
-        {/* Table */}
-        <Card className="rounded-xl border-border/60 shadow-sm ring-1 ring-black/[0.03] overflow-hidden">
-          <CardContent className="p-0">
-            {isLoading ? (
-              <div className="py-20 text-center text-sm text-muted-foreground">
-                Loading tasks...
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider border-b border-border/60">
-                    <tr>
-                      <th className="px-4 py-3.5 font-semibold">Task</th>
-                      <th className="px-4 py-3.5 font-semibold">Assignee</th>
-                      <th className="px-4 py-3.5 font-semibold">Batch</th>
-                      <th className="px-4 py-3.5 font-semibold">Status</th>
-                      <th className="px-4 py-3.5 font-semibold">Priority</th>
-                      <th className="px-4 py-3.5 font-semibold">Start Time</th>
-                      <th className="px-4 py-3.5 font-semibold">Duration</th>
-                      <th className="px-4 py-3.5 font-semibold w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {filtered.map((t) => (
-                      <tr
-                        key={t.id}
-                        className="hover:bg-muted/30 transition-colors"
-                      >
-                        <td className="px-4 py-3.5 max-w-[260px]">
-                          <div className="font-medium text-foreground truncate">
-                            {t.title}
-                          </div>
-                          {t.description && (
-                            <div className="text-xs text-muted-foreground truncate mt-0.5">
-                              {t.description}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {t.assigneeName ? (
-                            <span className="inline-flex items-center gap-2 text-sm">
-                              <span className="w-6 h-6 rounded-full bg-primary/10 text-primary font-semibold text-[10px] flex items-center justify-center uppercase ring-1 ring-primary/15">
-                                {t.assigneeName.charAt(0)}
+        {tab === "tasks" ? (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="mr-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Filter
+              </span>
+              {FILTER_OPTIONS.map((item) => (
+                <button
+                  key={item.value}
+                  onClick={() => setFilter(item.value)}
+                  className={`rounded-full border px-3.5 py-1.5 text-xs font-medium ${filter === item.value ? "border-primary bg-primary text-primary-foreground" : "bg-white text-muted-foreground hover:border-primary/50"}`}
+                >
+                  {item.label}
+                </button>
+              ))}
+              <span className="ml-auto font-mono text-xs text-muted-foreground">
+                {filtered.length} task{filtered.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <Card className="overflow-hidden rounded-xl border-border/60 shadow-sm">
+              <CardContent className="p-0">
+                {isLoading ? (
+                  <div className="py-20 text-center text-sm text-muted-foreground">
+                    Loading tasks�
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3.5">Task</th>
+                          <th className="px-4 py-3.5">Assigned crew</th>
+                          <th className="px-4 py-3.5">Work order</th>
+                          <th className="px-4 py-3.5">Status</th>
+                          <th className="px-4 py-3.5">Priority</th>
+                          <th className="w-10 px-4 py-3.5" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filtered.map((task) => (
+                          <tr key={task.id} className="hover:bg-muted/30">
+                            <td className="max-w-[280px] px-4 py-3.5">
+                              <div className="truncate font-medium">
+                                {task.title}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                {task.description || "No description"}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <Assignees
+                                assignments={task.assignments}
+                                fallback={task.assigneeName}
+                              />
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <span className="rounded-md border bg-muted px-2 py-0.5 font-mono text-xs">
+                                {task.batchRef || "�"}
                               </span>
-                              {t.assigneeName}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground italic text-xs">
-                              Unassigned
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {(t as any).batchRef ? (
-                            <span className="font-mono text-xs bg-muted border border-border/60 px-2 py-0.5 rounded-md">
-                              {(t as any).batchRef}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">
-                              —
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <StatusBadge status={t.status} />
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <PriorityBadge priority={t.priority} />
-                        </td>
-                        <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
-                          {t.startTime
-                            ? new Date(t.startTime).toLocaleString([], {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              })
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3.5 font-mono text-xs text-muted-foreground">
-                          {t.estimatedMinutes
-                            ? `${t.estimatedMinutes} min`
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-lg"
-                              >
-                                <MoreVertical className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              align="end"
-                              className="rounded-lg"
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <StatusBadge status={task.status} />
+                            </td>
+                            <td className="px-4 py-3.5 capitalize text-muted-foreground">
+                              {task.priority}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3.5 font-mono text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-2">
+                                <Clock3 className="h-3.5 w-3.5" />
+                                {formatMinutes(elapsedMinutes(task))}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    disabled={!can("task.task_board.update")}
+                                    onClick={() => openEdit(task)}
+                                  >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Edit details
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={!can("task.task_board.update")}
+                                    onClick={() => openAssign(task)}
+                                  >
+                                    <UserRoundPlus className="mr-2 h-4 w-4" />
+                                    Assign crew
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  {isMine(task) &&
+                                    !isRunning(task) &&
+                                    ["todo", "paused"].includes(
+                                      task.status,
+                                    ) && (
+                                      <DropdownMenuItem
+                                        disabled={!!busyAction}
+                                        onClick={() => operate(task, "start")}
+                                      >
+                                        <Play className="mr-2 h-4 w-4" /> Start
+                                      </DropdownMenuItem>
+                                    )}
+                                  {isMine(task) && isRunning(task) && (
+                                    <DropdownMenuItem
+                                      disabled={!!busyAction}
+                                      onClick={() => operate(task, "pause")}
+                                    >
+                                      <Pause className="mr-2 h-4 w-4" /> Pause
+                                    </DropdownMenuItem>
+                                  )}
+                                  {isMine(task) &&
+                                    !["done", "cancelled"].includes(
+                                      task.status,
+                                    ) && (
+                                      <DropdownMenuItem
+                                        disabled={!!busyAction}
+                                        onClick={() =>
+                                          operate(task, "complete")
+                                        }
+                                      >
+                                        <SquareCheckBig className="mr-2 h-4 w-4" />
+                                        Complete
+                                      </DropdownMenuItem>
+                                    )}
+                                  <DropdownMenuItem
+                                    onClick={() => setTab("timesheet")}
+                                  >
+                                    <ClipboardList className="mr-2 h-4 w-4" />
+                                    View timesheet
+                                  </DropdownMenuItem>
+                                  {can("task.task_board.delete") && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        className="text-destructive"
+                                        onClick={() => {
+                                          if (confirm("Delete this task?"))
+                                            deleteTask.mutate({ id: task.id });
+                                        }}
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </td>
+                          </tr>
+                        ))}
+                        {!filtered.length && (
+                          <tr>
+                            <td
+                              colSpan={7}
+                              className="py-16 text-center text-sm text-muted-foreground"
                             >
-                              <DropdownMenuItem
-                                disabled={!can("task.task_board.update")}
-                                onClick={() => openEdit(t)}
-                                className="rounded-md"
-                              >
-                                <Pencil className="w-3.5 h-3.5 mr-2" /> Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive rounded-md"
-                                onClick={() => deleteTask.mutate({ id: t.id })}
-                              >
-                                <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </td>
-                      </tr>
-                    ))}
-                    {filtered.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-16 text-center">
-                          <CheckSquare className="w-10 h-10 mx-auto mb-3 text-muted-foreground/20" />
-                          <p className="text-sm text-muted-foreground">
-                            No tasks found.
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Create a task using the button above.
-                          </p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                              No tasks found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <TimesheetPanel data={timesheet} />
+        )}
 
-        {/* Create Dialog */}
-        <Dialog
-          open={open}
-          onOpenChange={(v) => {
-            setOpen(v);
-            if (!v) setForm(EMPTY_FORM);
-          }}
-        >
-          <DialogContent className="rounded-xl shadow-xl max-w-lg">
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>New Task</DialogTitle>
+              <DialogTitle>New task</DialogTitle>
             </DialogHeader>
-            <TaskForm
-              onSubmit={handleCreate}
-              submitting={createTask.isPending}
-              isCreate={true}
-            />
+            <TaskForm />
           </DialogContent>
         </Dialog>
-
-        {/* Edit Dialog */}
         <Dialog
           open={!!editTask}
-          onOpenChange={(v) => {
-            if (!v) setEditTask(null);
-          }}
+          onOpenChange={(open) => !open && setEditTask(null)}
         >
-          <DialogContent className="rounded-xl shadow-xl max-w-lg">
+          <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Edit Task</DialogTitle>
+              <DialogTitle>Edit task</DialogTitle>
             </DialogHeader>
-            <TaskForm onSubmit={handleEdit} submitting={updateTask.isPending} />
+            <TaskForm editing />
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={!!assignTask}
+          onOpenChange={(open) => !open && setAssignTask(null)}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign crew & batch</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <Label>Batch mapping</Label>
+              <Select value={assignBatchRef} onValueChange={setAssignBatchRef}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Link to batch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(batches as any[]).map((batch: any) => (
+                    <SelectItem key={batch.id} value={batch.batchCode}>
+                      {batch.batchCode}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Crew members</Label>
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {crew.map((member) => (
+                  <label
+                    key={member.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      checked={selectedCrew.includes(member.id)}
+                      onCheckedChange={(checked) =>
+                        setSelectedCrew(
+                          checked
+                            ? [...selectedCrew, member.id]
+                            : selectedCrew.filter((id) => id !== member.id),
+                        )
+                      }
+                    />
+                    <div>
+                      <div className="font-medium">{member.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {member.employeeCode}
+                        {member.designation ? ` � ${member.designation}` : ""}
+                        {!member.userId ? " � No app login" : ""}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+                {!crew.length && (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No active crew members found.
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={saveAssignments}
+                disabled={busyAction?.startsWith("assign")}
+              >
+                Save assignment
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Log time</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={saveManual} className="space-y-4">
+              <div className="space-y-2">
+                <Label>Assigned task</Label>
+                <Select
+                  value={manual.taskId}
+                  onValueChange={(taskId) => setManual({ ...manual, taskId })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a task" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {myTasks.map((task) => (
+                      <SelectItem key={task.id} value={String(task.id)}>
+                        {task.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  required
+                  value={manual.date}
+                  onChange={(event) =>
+                    setManual({ ...manual, date: event.target.value })
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Hours</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="24"
+                    value={manual.hours}
+                    onChange={(event) =>
+                      setManual({ ...manual, hours: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Minutes</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={manual.minutes}
+                    onChange={(event) =>
+                      setManual({ ...manual, minutes: event.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes (optional)</Label>
+                <Textarea
+                  value={manual.notes}
+                  onChange={(event) =>
+                    setManual({ ...manual, notes: event.target.value })
+                  }
+                  placeholder="What did you work on?"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Manual entries are stored separately from automatic timer
+                sessions to prevent hidden double-counting.
+              </p>
+              <DialogFooter>
+                <Button type="submit" disabled={busyAction === "manual"}>
+                  Save time
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
       </div>
     </Shell>
+  );
+}
+
+function TimesheetPanel({ data }: { data?: Timesheet }) {
+  const entries = data?.entries || [];
+  const today = new Date().toISOString().slice(0, 10);
+  const taskCount = Object.keys(data?.totals.tasks || {}).length;
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Summary
+          label="Today"
+          value={formatMinutes(data?.totals.daily?.[today] || 0)}
+        />
+        <Summary
+          label="Employee total"
+          value={formatMinutes(data?.totals.employeeMinutes || 0)}
+        />
+        <Summary label="Tasks logged" value={String(taskCount)} />
+      </div>
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Task</th>
+                  <th className="px-4 py-3">Work order</th>
+                  <th className="px-4 py-3">Time</th>
+                  <th className="px-4 py-3">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {entries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {entry.workDate ||
+                        new Date(entry.startTime).toISOString().slice(0, 10)}
+                    </td>
+                    <td className="px-4 py-3 font-medium">{entry.taskTitle}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {entry.workOrder || "�"}
+                    </td>
+                    <td className="px-4 py-3 font-mono">
+                      {formatMinutes(entry.durationMinutes)}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {entry.notes || "�"}
+                    </td>
+                  </tr>
+                ))}
+                {!entries.length && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="py-16 text-center text-muted-foreground"
+                    >
+                      No time has been logged yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </div>
+        <div className="mt-1 font-mono text-2xl font-semibold">{value}</div>
+      </CardContent>
+    </Card>
   );
 }
