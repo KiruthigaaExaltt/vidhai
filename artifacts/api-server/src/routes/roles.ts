@@ -36,7 +36,7 @@ const responseRole = (role: any) => {
   };
 };
 
-/** Ensure every organization has the canonical roles without deleting custom roles. */
+/** Seed canonical roles only for an organization that has no roles yet. */
 export async function seedSystemRoles(org = 1) {
   const definitions = [
     {
@@ -87,16 +87,8 @@ export async function seedSystemRoles(org = 1) {
     .select()
     .from(rolesTable)
     .where(eq(rolesTable.organizationId, org));
+  if (existing.length) return;
   for (const role of definitions) {
-    if (
-      existing.some(
-        (item: any) =>
-          String(item.slug || item.name)
-            .trim()
-            .toLowerCase() === role.slug,
-      )
-    )
-      continue;
     try {
       await db.insert(rolesTable).values({
         ...role,
@@ -112,7 +104,7 @@ export async function seedSystemRoles(org = 1) {
   }
 }
 
-// Seed the default organization at startup; GET also repairs the active organization.
+// Seed the default organization at startup; an existing role set is never recreated.
 seedSystemRoles().catch(() => {});
 
 // GET /api/roles
@@ -234,8 +226,19 @@ router.delete(
       .where(eq(rolesTable.id, id));
     if (!existing || existing.organizationId !== organizationId(req))
       return res.status(404).json({ error: "Role not found" });
-    if (existing.isSystem)
-      return res.status(403).json({ error: "Cannot delete a system role" });
+    const existingSlug = String(existing.slug || existing.name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_");
+    if (
+      existing.isSuperAdmin ||
+      existing.systemKey === "SUPER_ADMIN" ||
+      existingSlug === "admin" ||
+      existingSlug === "super_admin"
+    )
+      return res
+        .status(403)
+        .json({ error: "The administrator role is protected" });
     const assigned = (
       await db
         .select({ id: usersTable.id })

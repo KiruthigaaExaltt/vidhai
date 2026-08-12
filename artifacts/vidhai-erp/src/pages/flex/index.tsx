@@ -5,9 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ShoppingBag, RotateCcw, FileCheck2 } from "lucide-react";
 import { FlexTabs } from "./FlexTabs";
-
+ 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
+ 
 interface FlexVendorSummary {
   id: number;
   name: string;
@@ -15,14 +15,14 @@ interface FlexVendorSummary {
   onTimePercent: number | null;
   returns: number;
 }
-
+ 
 interface FlexActivity {
   id: number;
   title: string;
   timestamp: string;
   status: string;
 }
-
+ 
 interface FlexDashboardData {
   pendingPurchaseRequests: number;
   openVendorResponses: number | null;
@@ -36,14 +36,14 @@ interface FlexDashboardData {
   topVendors: FlexVendorSummary[];
   recentActivities: FlexActivity[];
 }
-
+ 
 const formatInr = (value: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
-
+ 
 async function fetchFlexDashboard(): Promise<FlexDashboardData> {
   const res = await fetch(`${BASE}/api/flex/dashboard`, {
     credentials: "include",
@@ -51,7 +51,7 @@ async function fetchFlexDashboard(): Promise<FlexDashboardData> {
   if (!res.ok) throw new Error(FLEX_TEXT.failedToLoadFlexDashboard);
   return res.json();
 }
-
+ 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
     <Card className="rounded-md border-border shadow-sm">
@@ -64,7 +64,7 @@ function StatCard({ label, value }: { label: string; value: number | string }) {
     </Card>
   );
 }
-
+ 
 function VendorRow({ vendor }: { vendor: FlexVendorSummary }) {
   return (
     <div className="py-3 border-b last:border-b-0 border-border">
@@ -72,8 +72,8 @@ function VendorRow({ vendor }: { vendor: FlexVendorSummary }) {
       <div className="mt-1.5 space-y-1 text-sm">
         <div className="flex justify-between text-muted-foreground">
           <span>{FLEX_TEXT.spend}</span>
-          <span className="text-foreground">
-            â‚¹{vendor.spend.toLocaleString("en-IN")}
+          <span className="text-foreground tabular-nums">
+            {formatInr(vendor.spend)}
           </span>
         </div>
         <div className="flex justify-between text-muted-foreground">
@@ -90,7 +90,7 @@ function VendorRow({ vendor }: { vendor: FlexVendorSummary }) {
     </div>
   );
 }
-
+ 
 const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline"> = {
   Submitted: "outline",
   Issued: "secondary",
@@ -99,7 +99,7 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline"> = {
   Completed: "secondary",
   Closed: "outline",
 };
-
+ 
 function ActivityRow({ activity }: { activity: FlexActivity }) {
   return (
     <div className="flex items-center justify-between py-3 border-b last:border-b-0 border-border">
@@ -123,18 +123,18 @@ export default function FlexDashboard() {
     queryKey: ["get", "/api/flex/dashboard"],
     queryFn: fetchFlexDashboard,
   });
-
+ 
   return (
     <Shell>
       <div className="w-full space-y-5 p-6">
         <FlexTabs />
-
+ 
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">
             {FLEX_TEXT.procurementControlTower}
           </h1>
         </div>
-
+ 
         {isLoading && (
           <div className="text-sm text-muted-foreground">
             {FLEX_TEXT.loading}
@@ -145,7 +145,7 @@ export default function FlexDashboard() {
             {FLEX_TEXT.couldnTLoadTheDashboardTryAgain}
           </div>
         )}
-
+ 
         {data && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -167,7 +167,7 @@ export default function FlexDashboard() {
                 value={data.unpaidInvoices}
               />
             </div>
-
+ 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5 flex items-center gap-4">
@@ -189,7 +189,7 @@ export default function FlexDashboard() {
                   </div>
                 </CardContent>
               </Card>
-
+ 
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5 flex items-center gap-4">
                   <div className="w-11 h-11 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center shrink-0">
@@ -210,7 +210,7 @@ export default function FlexDashboard() {
                   </div>
                 </CardContent>
               </Card>
-
+ 
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5 flex items-center gap-4">
                   <div className="w-11 h-11 rounded-full bg-purple-100 dark:bg-purple-950 flex items-center justify-center shrink-0">
@@ -230,7 +230,7 @@ export default function FlexDashboard() {
                 </CardContent>
               </Card>
             </div>
-
+ 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5">
@@ -248,7 +248,7 @@ export default function FlexDashboard() {
                   )}
                 </CardContent>
               </Card>
-
+ 
               <Card className="rounded-md border-border shadow-sm">
                 <CardContent className="p-5">
                   <div className="font-semibold mb-1">
@@ -272,3 +272,5 @@ export default function FlexDashboard() {
     </Shell>
   );
 }
+ 
+ 

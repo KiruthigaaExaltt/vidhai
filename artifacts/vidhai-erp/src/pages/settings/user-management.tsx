@@ -411,15 +411,16 @@ export default function UserManagement() {
                 New User
               </Button>
             )}
-            {tab === "roles" && (
-              <Button
-                size="sm"
-                onClick={() => rolesPageRef.current?.beginCreate()}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                New Role
-              </Button>
-            )}
+            {tab === "roles" &&
+              can("settings.user_management.manage_settings") && (
+                <Button
+                  size="sm"
+                  onClick={() => rolesPageRef.current?.beginCreate()}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Role
+                </Button>
+              )}
           </div>
         </div>
         <TabsList className="grid h-11 w-full grid-cols-2 p-0">

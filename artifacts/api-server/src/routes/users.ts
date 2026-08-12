@@ -451,14 +451,18 @@ router.post("/me/password", async (req, res) => {
       .json({ error: "Password must contain at least 8 characters" });
   if (next !== req.body.confirmPassword)
     return res.status(400).json({ error: "Passwords do not match" });
+  const nextSessionVersion = Number(u.sessionVersion ?? 0) + 1;
+  const passwordUpdatedAt = new Date();
   await db
     .update(usersTable)
     .set({
       passwordHash: hashPassword(next),
-      sessionVersion: Number(u.sessionVersion ?? 0) + 1,
+      passwordUpdatedAt,
+      sessionVersion: nextSessionVersion,
     })
     .where(eq(usersTable.id, u.id));
-  return res.json({ success: true });
+  (req.session as any).sessionVersion = nextSessionVersion;
+  return res.json({ success: true, passwordUpdatedAt });
 });
 router.post(
   "/sync-roles",

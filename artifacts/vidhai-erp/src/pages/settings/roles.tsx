@@ -51,9 +51,12 @@ async function request(path: string, options?: RequestInit) {
 export type RolesPageHandle = {
   beginCreate: () => void;
 };
-const RolesPage = forwardRef<RolesPageHandle, {
-  users?: { role: string }[];
-}>(function RolesPage({ users = [] }, ref) {
+const RolesPage = forwardRef<
+  RolesPageHandle,
+  {
+    users?: { role: string }[];
+  }
+>(function RolesPage({ users = [] }, ref) {
   const { toast } = useToast();
   const { can } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]),
@@ -234,6 +237,15 @@ const RolesPage = forwardRef<RolesPageHandle, {
         </div>
         {shown.map((r) => {
           const p = Array.isArray(r.permissions) ? r.permissions : [];
+          const roleSlug = String(r.name || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_");
+          const isProtected =
+            Boolean(r.isSuperAdmin) ||
+            r.systemKey === "SUPER_ADMIN" ||
+            roleSlug === "admin" ||
+            roleSlug === "super_admin";
           const roleUsers = users.filter(
             (user) => user.role.toLowerCase() === r.name.toLowerCase(),
           ).length;
@@ -245,7 +257,7 @@ const RolesPage = forwardRef<RolesPageHandle, {
               <div className="contents">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">{r.name}</h3>
+                    <h3 className="text-sm font-semibold">{r.name}</h3>
                     {r.isSystem && <Badge variant="secondary">System</Badge>}
                     {r.isActive === false && (
                       <Badge variant="outline">Inactive</Badge>
@@ -260,22 +272,19 @@ const RolesPage = forwardRef<RolesPageHandle, {
                     size="icon"
                     variant="ghost"
                     disabled={Boolean(
-                      r.isSystem ||
-                      r.isSuperAdmin ||
-                      r.systemKey ||
+                      isProtected ||
                       !can("settings.user_management.manage_settings"),
                     )}
                     title={
-                      r.isSystem || r.isSuperAdmin || r.systemKey
-                        ? "System role is protected"
+                      isProtected
+                        ? "Administrator role is protected"
                         : "Edit role"
                     }
                     onClick={() => begin(r)}
                   >
                     <Edit2 className="h-4 w-4" />
                   </Button>
-                  {!r.isSystem &&
-                    !r.systemKey &&
+                  {!isProtected &&
                     can("settings.user_management.manage_settings") && (
                       <Button
                         size="icon"

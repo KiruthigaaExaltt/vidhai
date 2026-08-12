@@ -7,6 +7,7 @@ import { logger } from "./lib/logger";
 import { configuredCorsOrigins, corsOriginHandler } from "./lib/cors";
 
 const app: Express = express();
+app.disable("etag");
 const corsOrigins = configuredCorsOrigins();
 
 app.use(
@@ -53,7 +54,18 @@ app.use(
   }),
 );
 
-app.use("/api", router);
+app.use(
+  "/api",
+  (_req, res, next) => {
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    });
+    next();
+  },
+  router,
+);
 
 // Express 5 forwards rejected async handlers here. Always send a response
 // instead of letting an upstream request end with a reset connection.

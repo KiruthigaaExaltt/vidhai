@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Banknote,
@@ -55,32 +55,11 @@ export default function CrewPay() {
     [search, setSearch] = useState(""),
     [department, setDepartment] = useState("All"),
     [status, setStatus] = useState("All"),
-    [selected, setSelected] = useState<any>(null),
-    autoAttempted = useRef("");
+    [selected, setSelected] = useState<any>(null);
   const load = async () => {
     setLoading(true);
     try {
       let salaryRows = await api(`salary-slips?payrollMonth=${period}`);
-      if (
-        !salaryRows.length &&
-        can("crewpay.salary_slip.create") &&
-        autoAttempted.current !== period
-      ) {
-        autoAttempted.current = period;
-        const [year, month] = period.split("-").map(Number);
-        const generated = await api("salary-slips/generate", {
-          method: "POST",
-          body: JSON.stringify({ year, month }),
-        });
-        const failed =
-          generated.results?.filter((item: any) => !item.success) || [];
-        if (failed.length)
-          toast({
-            title: `${failed.length} salary slip(s) need attention`,
-            description: failed[0]?.error,
-          });
-        salaryRows = await api(`salary-slips?payrollMonth=${period}`);
-      }
       const payrollRows = await api(`payroll?payrollMonth=${period}`).catch(
         () => [],
       );
@@ -109,12 +88,16 @@ export default function CrewPay() {
         }),
         failed = result.results?.filter((item: any) => !item.success) || [];
       toast({
-        title: employeeId
-          ? "Salary slip regenerated"
-          : "Salary slips generated",
-        description: failed.length
-          ? `${failed.length} employee(s) could not be generated.`
-          : monthName(period),
+        title: !result.results?.length
+          ? "No salary slips generated"
+          : employeeId
+            ? "Salary slip regenerated"
+            : "Salary slips generated",
+        description:
+          result.message ||
+          (failed.length
+            ? String(failed.length) + " employee(s) could not be generated."
+            : monthName(period)),
       });
       await load();
     } catch (error: any) {
@@ -162,11 +145,7 @@ export default function CrewPay() {
       <div className="min-w-0 flex-1 bg-muted/20">
         <div className="border-b bg-background px-6">
           <nav className="flex gap-2 py-2">
-            <Tab
-              active
-              onClick={() => setSelected(null)}
-              icon={FileText}
-            >
+            <Tab active onClick={() => setSelected(null)} icon={FileText}>
               Salary Slips
             </Tab>
           </nav>

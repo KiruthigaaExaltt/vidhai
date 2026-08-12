@@ -17,7 +17,10 @@ import {
   Lock,
 } from "lucide-react";
 
-const ROLE_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
+const ROLE_LABELS: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "outline" }
+> = {
   admin: { label: "Admin", variant: "default" },
   manager: { label: "Manager", variant: "secondary" },
   operator: { label: "Operator", variant: "outline" },
@@ -26,6 +29,21 @@ const ROLE_LABELS: Record<string, { label: string; variant: "default" | "seconda
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+async function changeOwnPassword(body: {
+  oldPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  const res = await fetch(BASE + "/api/users/me/password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const result = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(result.error ?? "Failed to change password");
+  return result;
+}
 async function patchUser(id: number, body: Record<string, unknown>) {
   const res = await fetch(`${BASE}/api/users/${id}`, {
     method: "PATCH",
@@ -52,9 +70,15 @@ export default function Profile() {
 
   // ── Phase 2: Employee details state (UI only for now — wired to backend later) ──
   const [department, setDepartment] = useState((user as any)?.department ?? "");
-  const [designation, setDesignation] = useState((user as any)?.designation ?? "");
-  const [phoneNumber, setPhoneNumber] = useState((user as any)?.phoneNumber ?? "");
-  const [workLocation, setWorkLocation] = useState((user as any)?.workLocation ?? "");
+  const [designation, setDesignation] = useState(
+    (user as any)?.designation ?? "",
+  );
+  const [phoneNumber, setPhoneNumber] = useState(
+    (user as any)?.phoneNumber ?? "",
+  );
+  const [workLocation, setWorkLocation] = useState(
+    (user as any)?.workLocation ?? "",
+  );
   const [dob, setDob] = useState((user as any)?.dob ?? "");
   const [savingEmployee, setSavingEmployee] = useState(false);
 
@@ -66,7 +90,10 @@ export default function Profile() {
 
   if (!user) return null;
 
-  const roleInfo = ROLE_LABELS[user.role] ?? { label: user.role, variant: "outline" as const };
+  const roleInfo = ROLE_LABELS[user.role] ?? {
+    label: user.role,
+    variant: "outline" as const,
+  };
   const initial = user.displayName?.charAt(0)?.toUpperCase() ?? "U";
 
   // ── Phase 1 handler ──
@@ -77,62 +104,78 @@ export default function Profile() {
     }
     setSavingDetails(true);
     try {
-      const updated = await patchUser(user.id, { displayName: displayName.trim() });
+      const updated = await patchUser(user.id, {
+        displayName: displayName.trim(),
+      });
       login({ ...user, displayName: updated.displayName });
       queryClient.invalidateQueries({ queryKey: ["get", "/api/auth/me"] });
-      toast({ title: "Profile updated", description: "Your details have been saved." });
+      toast({
+        title: "Profile updated",
+        description: "Your details have been saved.",
+      });
     } catch (e: any) {
-      toast({ title: "Update failed", description: e.message, variant: "destructive" });
+      toast({
+        title: "Update failed",
+        description: e.message,
+        variant: "destructive",
+      });
     } finally {
       setSavingDetails(false);
     }
   };
 
   // ── Phase 2 handler (UI only — backend wiring comes later) ──
-const handleSaveEmployee = async () => {
-  setSavingEmployee(true);
+  const handleSaveEmployee = async () => {
+    setSavingEmployee(true);
 
-  try {
-    console.log("Current user:", user);
-    console.log("User ID:", user.id);
+    try {
+      console.log("Current user:", user);
+      console.log("User ID:", user.id);
 
-    const updated = await patchUser(user.id, {
-      department,
-      designation,
-      phoneNumber,
-      workLocation,
-      dob,
-    });
+      const updated = await patchUser(user.id, {
+        department,
+        designation,
+        phoneNumber,
+        workLocation,
+        dob,
+      });
 
-    login({ ...user, ...updated });
+      login({ ...user, ...updated });
 
-    queryClient.invalidateQueries({
-      queryKey: ["get", "/api/auth/me"],
-    });
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/auth/me"],
+      });
 
-    toast({
-      title: "Employee details saved",
-      description: "Your profile has been updated successfully.",
-    });
-  } catch (e: any) {
-    toast({
-      title: "Update failed",
-      description: e.message,
-      variant: "destructive",
-    });
-  } finally {
-    setSavingEmployee(false);
-  }
-};
+      toast({
+        title: "Employee details saved",
+        description: "Your profile has been updated successfully.",
+      });
+    } catch (e: any) {
+      toast({
+        title: "Update failed",
+        description: e.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingEmployee(false);
+    }
+  };
 
   // ── Phase 3 handler ──
   const handleChangePassword = async () => {
+    if (!currentPassword) {
+      toast({ title: "Current password is required", variant: "destructive" });
+      return;
+    }
     if (!newPassword) {
       toast({ title: "New password is required", variant: "destructive" });
       return;
     }
-    if (newPassword.length < 6) {
-      toast({ title: "Password must be at least 6 characters", variant: "destructive" });
+    if (newPassword.length < 8) {
+      toast({
+        title: "Password must be at least 8 characters",
+        variant: "destructive",
+      });
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -141,13 +184,24 @@ const handleSaveEmployee = async () => {
     }
     setSavingPassword(true);
     try {
-      await patchUser(user.id, { password: newPassword });
+      await changeOwnPassword({
+        oldPassword: currentPassword,
+        newPassword,
+        confirmPassword,
+      });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      toast({ title: "Password changed", description: "Your password has been updated successfully." });
+      toast({
+        title: "Password changed",
+        description: "Your password has been updated successfully.",
+      });
     } catch (e: any) {
-      toast({ title: "Password change failed", description: e.message, variant: "destructive" });
+      toast({
+        title: "Password change failed",
+        description: e.message,
+        variant: "destructive",
+      });
     } finally {
       setSavingPassword(false);
     }
@@ -158,7 +212,9 @@ const handleSaveEmployee = async () => {
       <div className="p-6 md:p-8 max-w-6xl mx-auto w-full space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">My Profile</h1>
+          <h1 className="text-2xl font-bold tracking-tight font-display text-foreground">
+            My Profile
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Manage your account details, profile picture, and password.
           </p>
@@ -170,16 +226,30 @@ const handleSaveEmployee = async () => {
           <Card className="rounded-md border-border shadow-md">
             <CardContent className="p-6 flex flex-col items-center text-center">
               <div className="w-24 h-24 rounded-full bg-primary/15 flex items-center justify-center mb-4">
-                <span className="text-3xl font-bold text-primary">{initial}</span>
+                <span className="text-3xl font-bold text-primary">
+                  {initial}
+                </span>
               </div>
-              <div className="text-lg font-bold tracking-tight">{user.displayName}</div>
-              <div className="text-xs text-muted-foreground font-mono mt-0.5">@{user.username}</div>
-              <Badge variant={roleInfo.variant} className="mt-2 rounded-md">{roleInfo.label}</Badge>
+              <div className="text-lg font-bold tracking-tight">
+                {user.displayName}
+              </div>
+              <div className="text-xs text-muted-foreground font-mono mt-0.5">
+                @{user.username}
+              </div>
+              <Badge variant={roleInfo.variant} className="mt-2 rounded-md">
+                {roleInfo.label}
+              </Badge>
 
-              <Button variant="outline" size="sm" className="mt-5 rounded-md gap-2 w-full">
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-5 rounded-md gap-2 w-full"
+              >
                 <Camera className="w-3.5 h-3.5" /> Change Picture
               </Button>
-              <p className="text-[11px] text-muted-foreground mt-2">JPEG, PNG, or WebP. Maximum 5 MB.</p>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                JPEG, PNG, or WebP. Maximum 5 MB.
+              </p>
             </CardContent>
           </Card>
 
@@ -192,7 +262,9 @@ const handleSaveEmployee = async () => {
                 </div>
                 <div>
                   <div className="text-base font-semibold">Profile Details</div>
-                  <div className="text-xs text-muted-foreground">Your account information</div>
+                  <div className="text-xs text-muted-foreground">
+                    Your account information
+                  </div>
                 </div>
               </div>
             </CardHeader>
@@ -232,7 +304,9 @@ const handleSaveEmployee = async () => {
                   <Label htmlFor="role">Role</Label>
                   <Input
                     id="role"
-                    value={user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                    value={
+                      user.role.charAt(0).toUpperCase() + user.role.slice(1)
+                    }
                     disabled
                     className="rounded-md bg-muted/50"
                   />
@@ -242,7 +316,9 @@ const handleSaveEmployee = async () => {
               <div className="flex justify-end pt-2">
                 <Button
                   onClick={handleSaveDetails}
-                  disabled={savingDetails || displayName.trim() === user.displayName}
+                  disabled={
+                    savingDetails || displayName.trim() === user.displayName
+                  }
                   size="sm"
                   className="rounded-md gap-2"
                 >
@@ -263,7 +339,9 @@ const handleSaveEmployee = async () => {
               </div>
               <div>
                 <div className="text-base font-semibold">Employee Details</div>
-                <div className="text-xs text-muted-foreground">Editable work and crew information</div>
+                <div className="text-xs text-muted-foreground">
+                  Editable work and crew information
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -271,7 +349,11 @@ const handleSaveEmployee = async () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Employee Code</Label>
-                <Input value={(user as any)?.employeeCode ?? "—"} disabled className="rounded-md bg-muted/50 font-mono text-sm" />
+                <Input
+                  value={(user as any)?.employeeCode ?? "—"}
+                  disabled
+                  className="rounded-md bg-muted/50 font-mono text-sm"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="department">Department</Label>
@@ -285,7 +367,11 @@ const handleSaveEmployee = async () => {
               </div>
               <div className="space-y-1.5">
                 <Label>Reporting Manager</Label>
-                <Input value={(user as any)?.reportingManager ?? "—"} disabled className="rounded-md bg-muted/50" />
+                <Input
+                  value={(user as any)?.reportingManager ?? "—"}
+                  disabled
+                  className="rounded-md bg-muted/50"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="designation">Designation</Label>
@@ -299,11 +385,19 @@ const handleSaveEmployee = async () => {
               </div>
               <div className="space-y-1.5">
                 <Label>Joining Date</Label>
-                <Input value={(user as any)?.joiningDate ?? "—"} disabled className="rounded-md bg-muted/50 font-mono text-sm" />
+                <Input
+                  value={(user as any)?.joiningDate ?? "—"}
+                  disabled
+                  className="rounded-md bg-muted/50 font-mono text-sm"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Employment Type</Label>
-                <Input value={(user as any)?.employmentType ?? "Full-time"} disabled className="rounded-md bg-muted/50" />
+                <Input
+                  value={(user as any)?.employmentType ?? "Full-time"}
+                  disabled
+                  className="rounded-md bg-muted/50"
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="workLocation">Work Location</Label>
@@ -369,7 +463,9 @@ const handleSaveEmployee = async () => {
               </div>
               <div>
                 <div className="text-base font-semibold">Change Password</div>
-                <div className="text-xs text-muted-foreground">Verify your current password before choosing a new one</div>
+                <div className="text-xs text-muted-foreground">
+                  Verify your current password before choosing a new one
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -394,7 +490,7 @@ const handleSaveEmployee = async () => {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                   autoComplete="new-password"
                   className="rounded-md"
                 />
@@ -411,18 +507,30 @@ const handleSaveEmployee = async () => {
                   className="rounded-md"
                 />
                 {confirmPassword && newPassword !== confirmPassword && (
-                  <p className="text-xs text-destructive">Passwords do not match</p>
+                  <p className="text-xs text-destructive">
+                    Passwords do not match
+                  </p>
                 )}
-                {confirmPassword && newPassword === confirmPassword && confirmPassword.length >= 6 && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Passwords match ✓</p>
-                )}
+                {confirmPassword &&
+                  newPassword === confirmPassword &&
+                  confirmPassword.length >= 8 && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                      Passwords match ✓
+                    </p>
+                  )}
               </div>
             </div>
 
             <div className="flex justify-end pt-2">
               <Button
                 onClick={handleChangePassword}
-                disabled={savingPassword || !newPassword || newPassword !== confirmPassword}
+                disabled={
+                  savingPassword ||
+                  !currentPassword ||
+                  !newPassword ||
+                  newPassword.length < 8 ||
+                  newPassword !== confirmPassword
+                }
                 size="sm"
                 className="rounded-md gap-2"
               >

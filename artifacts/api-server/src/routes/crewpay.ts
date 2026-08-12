@@ -79,12 +79,12 @@ async function allowedEmployees(req: any, sub: string, requested?: number) {
       .from(employeesTable)
       .where(eq(employeesTable.organizationId, req.pay.org))
   ).filter((e: any) => !e.isDeleted);
-  if (can(req, `crewpay.${sub}.forOthers`))
+  if (can(req, `crewpay.${sub}.for_others`))
     return requested
       ? rows.filter((e: any) => Number(e.id) === requested)
       : rows;
   const own = await ownEmployee(req);
-  if (!can(req, `crewpay.${sub}.forOwn`) || !own) return [];
+  if (!can(req, `crewpay.${sub}.for_own`) || !own) return [];
   return requested && Number(own.id) !== requested ? [] : [own];
 }
 async function buildSlip(req: any, employee: any, payrollMonth: string) {
@@ -309,8 +309,7 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       monthly = Number.isFinite(employeeValue)
         ? employeeValue
         : Number(c.value || 0);
-    }
-    else if (c.calculationType === "percentage_of_ctc")
+    } else if (c.calculationType === "percentage_of_ctc")
       monthly = (monthlyCtc * Number(c.value || 0)) / 100;
     else if (c.calculationType === "percentage_of_component")
       monthly =
@@ -618,13 +617,16 @@ router.post(
         });
       }
     }
+    if (!employees.length)
+      return res.json({
+        results: [],
+        message: "No eligible Crew employees are available for this period",
+      });
     if (!results.some((r) => r.success))
-      return res
-        .status(400)
-        .json({
-          error: results[0]?.error || "No permitted employees found",
-          results,
-        });
+      return res.status(400).json({
+        error: results[0]?.error || "Unable to generate salary slips",
+        results,
+      });
     return res.json({ results });
   },
 );
