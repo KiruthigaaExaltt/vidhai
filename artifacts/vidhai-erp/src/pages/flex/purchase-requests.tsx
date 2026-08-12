@@ -307,6 +307,9 @@ export default function PurchaseRequestsPage() {
     useState<VendorAvailabilityItem | null>(null);
   const [vendorToConfirm, setVendorToConfirm] =
     useState<VendorAvailabilityItem | null>(null);
+  const [expandedAvailability, setExpandedAvailability] = useState<
+    Record<number, boolean>
+  >({});
 
   // Edit PR State Fields
   const [editVendorName, setEditVendorName] = useState("");
@@ -699,6 +702,26 @@ export default function PurchaseRequestsPage() {
     printWindow.print();
   };
 
+  const handleEditPR = (pr: PurchaseRequestItem) => {
+    setEditingPr(pr);
+    setEditVendorName(pr.vendor || "");
+    const vendor = vendorsList.find((option) => option.id === pr.vendorId);
+    setEditVendorsTable(
+      vendor
+        ? [{ name: vendor.name, whatsapp: "", phone: vendor.phone || "", email: vendor.email || "" }]
+        : [],
+    );
+    setEditLineItems([{ id: "1", itemId: itemOptions.find((item) => item.name === pr.itemName)?.id, product: pr.itemName || "", description: pr.itemName || "", qty: pr.quantity || 1, unit: pr.unit || "" }]);
+    setEditReqDate(pr.reqDate || "");
+    setEditRequiredDate(pr.requiredDate || "");
+    setEditPriority(pr.priority || "Normal");
+    setEditDepartmentId(String(pr.departmentId ?? departmentOptions.find((option) => option.name === pr.department)?.id ?? ""));
+    setEditDepartment(pr.department || "");
+    setEditRequestedBy(String(pr.requestedByUserId || ""));
+    setEditProject(pr.project || "");
+    setEditNotes(pr.notes || "");
+  };
+
   const filtered = useMemo(() => {
     return prs.filter((pr) => {
       const matchesVendor =
@@ -721,6 +744,21 @@ export default function PurchaseRequestsPage() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [prs, search, selectedVendor, fromDate, toDate]);
+
+  const availabilityGroups = useMemo(() => {
+    const grouped = new Map<number, VendorAvailabilityItem[]>();
+    vendorAvailability.forEach((item) => {
+      grouped.set(item.purchaseRequestId, [
+        ...(grouped.get(item.purchaseRequestId) || []),
+        item,
+      ]);
+    });
+    return Array.from(grouped.entries()).map(([purchaseRequestId, vendors]) => ({
+      purchaseRequestId,
+      vendors,
+      purchaseRequest: prs.find((pr) => pr.id === purchaseRequestId),
+    }));
+  }, [vendorAvailability, prs]);
 
   const handleSubmitPR = (status: "Submitted" | "Draft") => {
     const firstItem = lineItems[0];
@@ -1121,6 +1159,31 @@ export default function PurchaseRequestsPage() {
             </Card>
           </>
         ) : (
+          <div className="space-y-0">
+            <Card className="rounded-xl border-border shadow-2xs">
+              <CardContent className="p-0">
+                <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_auto] border-b border-border bg-muted/30 px-4 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span>PR Number</span><span>Version</span><span>Date</span><span>Status</span><span className="text-right">Actions</span>
+                </div>
+                {isAvailabilityLoading ? <div className="px-4 py-10 text-center text-xs text-muted-foreground">Loading vendor availability...</div> : availabilityGroups.length === 0 ? <div className="px-4 py-10 text-center text-xs text-muted-foreground">No vendor availability records found</div> : availabilityGroups.map(({ purchaseRequestId, vendors, purchaseRequest }) => {
+                  const isExpanded = !!expandedAvailability[purchaseRequestId];
+                  return <div key={purchaseRequestId} className="border-b border-border last:border-b-0">
+                    <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_auto] items-center px-4 py-3 text-sm">
+                      <span className="font-bold">{vendors[0].prNumber}</span><span>{vendors[0].version}</span>
+                      <span>{purchaseRequest?.reqDate ? new Date(purchaseRequest.reqDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</span>
+                      <span><span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-600">{purchaseRequest?.status || "Submitted"}</span></span>
+                      <div className="flex items-center justify-end gap-2">
+                        {purchaseRequest && <button className="p-1 text-muted-foreground hover:text-primary" title={FLEX_TEXT.editPurchaseRequest} onClick={() => handleEditPR(purchaseRequest)}><Pencil className="h-3.5 w-3.5" /></button>}
+                        {purchaseRequest && <button className="p-1 text-muted-foreground hover:text-primary" title={FLEX_TEXT.printPr} onClick={() => handlePrintPR(purchaseRequest)}><Download className="h-3.5 w-3.5" /></button>}
+                        <Button variant="outline" size="sm" className="h-7 rounded-md px-3 text-xs" onClick={() => setExpandedAvailability((current) => ({ ...current, [purchaseRequestId]: !isExpanded }))}>{isExpanded ? "Hide Vendors" : `Vendors (${vendors.length})`}</Button>
+                      </div>
+                    </div>
+                    {isExpanded && <div className="mx-4 mb-4 overflow-hidden rounded-xl border border-border"><table className="w-full text-xs"><thead><tr className="border-b border-border bg-muted/30 text-left text-[11px] text-muted-foreground"><th className="px-3 py-2.5">S.No</th><th className="px-3 py-2.5">Vendor Name</th><th className="px-3 py-2.5">Phone</th><th className="px-3 py-2.5">WhatsApp</th><th className="px-3 py-2.5">Status</th><th className="px-3 py-2.5 text-right">Action</th></tr></thead><tbody className="divide-y divide-border">{vendors.map((item, index) => <tr key={item.id}><td className="px-3 py-2.5 text-muted-foreground">{index + 1}</td><td className="px-3 py-2.5 font-medium">{item.vendorName}</td><td className="px-3 py-2.5 text-muted-foreground">{item.phone || FLEX_TEXT.notAvailable}</td><td className="px-3 py-2.5 text-muted-foreground">{item.whatsapp || FLEX_TEXT.notAvailable}</td><td className="px-3 py-2.5"><span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold">{item.status}</span></td><td className="px-3 py-2 text-right">{item.status === "Pending" ? <Button size="sm" className="h-7 gap-1 rounded-md bg-red-500 px-3 text-xs text-white hover:bg-red-600" onClick={() => setSelectedVendorAvailability(item)}><Send className="h-3 w-3" /> Send PR</Button> : item.status === "Sent" ? <Button size="sm" className="h-7 text-xs" onClick={() => setVendorToConfirm(item)}>Confirm</Button> : <span className="text-muted-foreground">—</span>}</td></tr>)}</tbody></table></div>}
+                  </div>;
+                })}
+              </CardContent>
+            </Card>
+            <div className="hidden">
           /* ── VENDOR AVAILABILITY MODULE TAB ────────────────────────────── */
           <Card className="rounded-md border-border shadow-2xs">
             <CardContent className="p-0">
@@ -1215,6 +1278,8 @@ export default function PurchaseRequestsPage() {
               </div>
             </CardContent>
           </Card>
+            </div>
+          </div>
         )}
 
         {/* ── CREATE PURCHASE REQUEST MODAL DIALOG ──────────────────────────── */}

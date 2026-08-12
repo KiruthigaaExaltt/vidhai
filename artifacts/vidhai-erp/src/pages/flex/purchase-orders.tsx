@@ -32,7 +32,6 @@ import {
   ChevronRight,
   RefreshCw,
   Download,
-  Copy,
   Trash2,
   Send,
   CheckCircle2,
@@ -934,13 +933,6 @@ export default function PurchaseOrdersPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right space-x-1">
-                          <button
-                            onClick={() => handleDuplicatePO(po)}
-                            className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
-                            title={FLEX_TEXT.duplicatePo}
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
                           <button
                             onClick={() => handlePrintPO(po)}
                             className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
