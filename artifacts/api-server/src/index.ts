@@ -4,6 +4,7 @@ import { logger } from "./lib/logger";
 import {
   ootyHarvestInventoryPostingsTable,
   ootyCookoutInventoryPostingsTable,
+  annurDispatchInventoryPostingsTable,
   proformaInvoicesTable,
   syncTableIndexes,
 } from "@workspace/db";
@@ -30,6 +31,7 @@ if (Number.isNaN(port) || port <= 0) {
 await syncTableIndexes(proformaInvoicesTable);
 await syncTableIndexes(ootyHarvestInventoryPostingsTable);
 await syncTableIndexes(ootyCookoutInventoryPostingsTable);
+await syncTableIndexes(annurDispatchInventoryPostingsTable);
 const uploadRoot = getUploadRoot();
 await mkdir(uploadRoot, { recursive: true });
 logger.info({ uploadRoot }, "Upload storage ready");

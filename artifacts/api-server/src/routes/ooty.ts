@@ -229,6 +229,16 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
   const existing = await db.select().from(ootyGrowingBatchesTable);
   const code = `B-${yy}${mm}${dd}-${String(existing.length + 1).padStart(3, "0")}`;
 
+  const requestedSources: Array<{ annurBatchId: number; bagCount?: number }> = Array.isArray(batchSources) && batchSources.length > 0
+    ? batchSources
+    : annurBatchId ? [{ annurBatchId: Number(annurBatchId), bagCount: bagCount ?? null }] : [];
+  for (const source of requestedSources) {
+    const [annurBatch] = await db.select().from(batchesTable).where(eq(batchesTable.id, Number(source.annurBatchId))).limit(1);
+    if (!annurBatch || annurBatch.status !== "dispatched" || !annurBatch.actualBags) return res.status(400).json({ error: "Select a dispatched Annur batch with produced bags" });
+    const allocated = (await db.select().from(ootyBatchSourcesTable).where(eq(ootyBatchSourcesTable.annurBatchId, annurBatch.id))).reduce((sum, row) => sum + Number(row.bagCount || 0), 0);
+    const requested = Number(source.bagCount || 0);
+    if (!Number.isInteger(requested) || requested <= 0 || allocated + requested > annurBatch.actualBags) return res.status(400).json({ error: `Only ${annurBatch.actualBags - allocated} produced bags remain available from ${annurBatch.batchCode}` });
+  }
   const result = await db.transaction(async (tx) => {
     const [batch] = await tx.insert(ootyGrowingBatchesTable).values({
       batchCode: code, roomId,
@@ -252,13 +262,7 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     });
 
     // Handle batch sources (many-to-many Annur batch linkage)
-    const sources: Array<{ annurBatchId: number; bagCount?: number }> = [];
-    if (Array.isArray(batchSources) && batchSources.length > 0) {
-      sources.push(...batchSources);
-    } else if (annurBatchId) {
-      // Backward compat: single annurBatchId field
-      sources.push({ annurBatchId: Number(annurBatchId), bagCount: bagCount ?? null });
-    }
+    const sources = requestedSources;
     for (const src of sources) {
       if (src.annurBatchId) {
         await tx.insert(ootyBatchSourcesTable).values({

@@ -546,10 +546,10 @@ export default function OotyRooms() {
               >
                 <option value="">— Select Annur batch —</option>
                 {(annurBatches as any[])
-                  ?.filter((b: any) => b.currentStage === "DISPATCH" || b.status === "dispatched")
+                  ?.filter((b: any) => b.status === "dispatched" && Number(b.actualBags) > 0)
                   .map((b: any) => (
                     <option key={b.id} value={b.id}>
-                      {b.batchCode} — {b.targetBags ? `${b.targetBags} bags` : b.status}
+                      {b.batchCode} — {b.actualBags ? `${b.actualBags} produced bags` : b.status}
                     </option>
                   ))}
                 {(annurBatches as any[])?.filter((b: any) => b.currentStage !== "DISPATCH" && b.status !== "dispatched").length === (annurBatches as any[])?.length && (

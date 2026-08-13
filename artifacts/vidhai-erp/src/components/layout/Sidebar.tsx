@@ -276,10 +276,11 @@ export function Sidebar({
             label="Traceability"
             permission="traceability.view"
           />
+          {/* User-facing name: Procurement. Internal routes, APIs, and permissions remain `flex`. */}
           <NavItem
             href="/flex"
             icon={Box}
-            label="Flex"
+            label="Procurement"
             permission={[
               "flex.dashboard.view",
               "flex.purchase_requests.view",
