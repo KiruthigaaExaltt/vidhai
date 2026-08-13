@@ -965,7 +965,7 @@ export default function InventoryModule() {
                     Item & Product Master
                   </h1>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Manage all inventory items, categories, and services
+                    Manage all inventory items and categories
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -1007,7 +1007,8 @@ export default function InventoryModule() {
                       <Plus className="w-3.5 h-3.5" /> New Category
                     </Button>
                   )}
-                  {productsSubTab === "services" && (
+                  {/* Services are temporarily hidden from Item & Product Master. */}
+                  {false && productsSubTab === "services" && (
                     <Button
                       onClick={() => setAddServiceOpen(true)}
                       className="rounded-sm h-9 px-3 text-sm gap-2"
@@ -1024,7 +1025,8 @@ export default function InventoryModule() {
                 className="w-full"
               >
                 <TabsList className="w-full justify-start rounded-sm border-b border-border bg-transparent p-0 mb-6">
-                  {["inventory", "items", "category", "services"].map((t) => (
+                  {/* Add "services" back here when the Services submodule is needed. */}
+                  {["inventory", "items", "category"].map((t) => (
                     <TabsTrigger
                       key={t}
                       value={t}
