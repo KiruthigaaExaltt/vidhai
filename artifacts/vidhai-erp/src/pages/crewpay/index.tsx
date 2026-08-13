@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import {
   ArrowLeft,
   Banknote,
@@ -140,6 +142,11 @@ export default function CrewPay() {
       ),
       net: visible.reduce((n, r) => n + Number(r.netPay || 0), 0),
     };
+  const slipPagination = useClientPagination(
+    visible,
+    `${period}|${department}|${status}|${search}`,
+    10,
+  );
   return (
     <Shell>
       <div className="min-w-0 flex-1 bg-muted/20">
@@ -254,9 +261,19 @@ export default function CrewPay() {
               </div>
               <SlipTable
                 loading={loading}
-                rows={visible}
+                rows={slipPagination.paginatedRows}
                 payrollByEmployee={payrollByEmployee}
                 open={setSelected}
+                pagination={
+                  <DataPagination
+                    currentPage={slipPagination.currentPage}
+                    pageSize={slipPagination.pageSize}
+                    totalCount={slipPagination.totalCount}
+                    onPageChange={slipPagination.setCurrentPage}
+                    onPageSizeChange={slipPagination.setPageSize}
+                    loading={loading}
+                  />
+                }
               />
             </>
           )}
@@ -295,7 +312,13 @@ function Amount({ label, value }: any) {
     </div>
   );
 }
-function SlipTable({ loading, rows, payrollByEmployee, open }: any) {
+function SlipTable({
+  loading,
+  rows,
+  payrollByEmployee,
+  open,
+  pagination,
+}: any) {
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
       <div className="overflow-x-auto">
@@ -349,9 +372,7 @@ function SlipTable({ loading, rows, payrollByEmployee, open }: any) {
           </tbody>
         </table>
       </div>
-      <div className="border-t p-4 text-sm text-muted-foreground">
-        {rows.length} salary slips
-      </div>
+      {pagination}
     </section>
   );
 }

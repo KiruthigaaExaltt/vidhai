@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import {
   useCreateTask,
   useDeleteTask,
@@ -266,6 +268,7 @@ export default function Tasks() {
         (item) => Number(item.userId) === Number(user?.id),
       ) && task.status !== "cancelled",
   );
+  const taskPagination = useClientPagination(filtered, filter);
   const elapsedMinutes = (task: TaskRow) =>
     Number(task.actualMinutes || 0) +
     (task.activeTimers || []).reduce(
@@ -550,7 +553,7 @@ export default function Tasks() {
             </div>
             <Card className="overflow-hidden rounded-xl border-border/60 shadow-sm">
               <CardContent className="p-0">
-                {isLoading ? (
+                {false ? (
                   <div className="py-20 text-center text-sm text-muted-foreground">
                     Loading tasks�
                   </div>
@@ -564,137 +567,151 @@ export default function Tasks() {
                           <th className="px-4 py-3.5">Work order</th>
                           <th className="px-4 py-3.5">Status</th>
                           <th className="px-4 py-3.5">Priority</th>
-                          <th className="w-10 px-4 py-3.5" />
+                          <th className="px-4 py-3.5">Time</th>
+                          <th className="w-10 px-4 py-3.5">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {filtered.map((task) => (
-                          <tr key={task.id} className="hover:bg-muted/30">
-                            <td className="max-w-[280px] px-4 py-3.5">
-                              <div className="truncate font-medium">
-                                {task.title}
-                              </div>
-                              <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                                {task.description || "No description"}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <Assignees
-                                assignments={task.assignments}
-                                fallback={task.assigneeName}
-                              />
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className="rounded-md border bg-muted px-2 py-0.5 font-mono text-xs">
-                                {task.batchRef || "�"}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <StatusBadge status={task.status} />
-                            </td>
-                            <td className="px-4 py-3.5 capitalize text-muted-foreground">
-                              {task.priority}
-                            </td>
-                            <td className="whitespace-nowrap px-4 py-3.5 font-mono text-xs text-muted-foreground">
-                              <span className="inline-flex items-center gap-2">
-                                <Clock3 className="h-3.5 w-3.5" />
-                                {formatMinutes(elapsedMinutes(task))}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                  >
-                                    <MoreVertical className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    disabled={!can("task.task_board.update")}
-                                    onClick={() => openEdit(task)}
-                                  >
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    Edit details
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    disabled={!can("task.task_board.update")}
-                                    onClick={() => openAssign(task)}
-                                  >
-                                    <UserRoundPlus className="mr-2 h-4 w-4" />
-                                    Assign crew
-                                  </DropdownMenuItem>
-                                  <DropdownMenuSeparator />
-                                  {isMine(task) &&
-                                    !isRunning(task) &&
-                                    ["todo", "paused"].includes(
-                                      task.status,
-                                    ) && (
-                                      <DropdownMenuItem
-                                        disabled={!!busyAction}
-                                        onClick={() => operate(task, "start")}
-                                      >
-                                        <Play className="mr-2 h-4 w-4" /> Start
-                                      </DropdownMenuItem>
-                                    )}
-                                  {isMine(task) && isRunning(task) && (
-                                    <DropdownMenuItem
-                                      disabled={!!busyAction}
-                                      onClick={() => operate(task, "pause")}
-                                    >
-                                      <Pause className="mr-2 h-4 w-4" /> Pause
-                                    </DropdownMenuItem>
-                                  )}
-                                  {isMine(task) &&
-                                    !["done", "cancelled"].includes(
-                                      task.status,
-                                    ) && (
-                                      <DropdownMenuItem
-                                        disabled={!!busyAction}
-                                        onClick={() =>
-                                          operate(task, "complete")
-                                        }
-                                      >
-                                        <SquareCheckBig className="mr-2 h-4 w-4" />
-                                        Complete
-                                      </DropdownMenuItem>
-                                    )}
-                                  <DropdownMenuItem
-                                    onClick={() => setTab("timesheet")}
-                                  >
-                                    <ClipboardList className="mr-2 h-4 w-4" />
-                                    View timesheet
-                                  </DropdownMenuItem>
-                                  {can("task.task_board.delete") && (
-                                    <>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        className="text-destructive"
-                                        onClick={() => {
-                                          if (confirm("Delete this task?"))
-                                            deleteTask.mutate({ id: task.id });
-                                        }}
-                                      >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </td>
-                          </tr>
-                        ))}
-                        {!filtered.length && (
+                        {isLoading ? (
                           <tr>
                             <td
                               colSpan={7}
-                              className="py-16 text-center text-sm text-muted-foreground"
+                              className="py-16 text-center text-muted-foreground"
                             >
-                              No tasks found.
+                              Loading tasks...
+                            </td>
+                          </tr>
+                        ) : taskPagination.paginatedRows.length ? (
+                          taskPagination.paginatedRows.map((task) => (
+                            <tr key={task.id} className="hover:bg-muted/30">
+                              <td className="max-w-[280px] px-4 py-3.5">
+                                <div className="truncate font-medium">
+                                  {task.title}
+                                </div>
+                                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                  {task.description || "No description"}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <Assignees
+                                  assignments={task.assignments}
+                                  fallback={task.assigneeName}
+                                />
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <span className="rounded-md border bg-muted px-2 py-0.5 font-mono text-xs">
+                                  {task.batchRef || "�"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <StatusBadge status={task.status} />
+                              </td>
+                              <td className="px-4 py-3.5 capitalize text-muted-foreground">
+                                {task.priority}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3.5 font-mono text-xs text-muted-foreground">
+                                <span className="inline-flex items-center gap-2">
+                                  <Clock3 className="h-3.5 w-3.5" />
+                                  {formatMinutes(elapsedMinutes(task))}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                    >
+                                      <MoreVertical className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      disabled={!can("task.task_board.update")}
+                                      onClick={() => openEdit(task)}
+                                    >
+                                      <Pencil className="mr-2 h-4 w-4" />
+                                      Edit details
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={!can("task.task_board.update")}
+                                      onClick={() => openAssign(task)}
+                                    >
+                                      <UserRoundPlus className="mr-2 h-4 w-4" />
+                                      Assign crew
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    {isMine(task) &&
+                                      !isRunning(task) &&
+                                      ["todo", "paused"].includes(
+                                        task.status,
+                                      ) && (
+                                        <DropdownMenuItem
+                                          disabled={!!busyAction}
+                                          onClick={() => operate(task, "start")}
+                                        >
+                                          <Play className="mr-2 h-4 w-4" />{" "}
+                                          Start
+                                        </DropdownMenuItem>
+                                      )}
+                                    {isMine(task) && isRunning(task) && (
+                                      <DropdownMenuItem
+                                        disabled={!!busyAction}
+                                        onClick={() => operate(task, "pause")}
+                                      >
+                                        <Pause className="mr-2 h-4 w-4" /> Pause
+                                      </DropdownMenuItem>
+                                    )}
+                                    {isMine(task) &&
+                                      !["done", "cancelled"].includes(
+                                        task.status,
+                                      ) && (
+                                        <DropdownMenuItem
+                                          disabled={!!busyAction}
+                                          onClick={() =>
+                                            operate(task, "complete")
+                                          }
+                                        >
+                                          <SquareCheckBig className="mr-2 h-4 w-4" />
+                                          Complete
+                                        </DropdownMenuItem>
+                                      )}
+                                    <DropdownMenuItem
+                                      onClick={() => setTab("timesheet")}
+                                    >
+                                      <ClipboardList className="mr-2 h-4 w-4" />
+                                      View timesheet
+                                    </DropdownMenuItem>
+                                    {can("task.task_board.delete") && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          className="text-destructive"
+                                          onClick={() => {
+                                            if (confirm("Delete this task?"))
+                                              deleteTask.mutate({
+                                                id: task.id,
+                                              });
+                                          }}
+                                        >
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td
+                              colSpan={7}
+                              className="py-16 text-center text-muted-foreground"
+                            >
+                              No tasks match the current filter.
                             </td>
                           </tr>
                         )}
@@ -703,6 +720,14 @@ export default function Tasks() {
                   </div>
                 )}
               </CardContent>
+              <DataPagination
+                currentPage={taskPagination.currentPage}
+                pageSize={taskPagination.pageSize}
+                totalCount={taskPagination.totalCount}
+                onPageChange={taskPagination.setCurrentPage}
+                onPageSizeChange={taskPagination.setPageSize}
+                loading={isLoading}
+              />
             </Card>
           </>
         ) : (
@@ -886,6 +911,7 @@ export default function Tasks() {
 
 function TimesheetPanel({ data }: { data?: Timesheet }) {
   const entries = data?.entries || [];
+  const pagination = useClientPagination(entries);
   const today = new Date().toISOString().slice(0, 10);
   const taskCount = Object.keys(data?.totals.tasks || {}).length;
   return (
@@ -915,7 +941,7 @@ function TimesheetPanel({ data }: { data?: Timesheet }) {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {entries.map((entry) => (
+                {pagination.paginatedRows.map((entry) => (
                   <tr key={entry.id}>
                     <td className="px-4 py-3 font-mono text-xs">
                       {entry.workDate ||
@@ -947,6 +973,13 @@ function TimesheetPanel({ data }: { data?: Timesheet }) {
             </table>
           </div>
         </CardContent>
+        <DataPagination
+          currentPage={pagination.currentPage}
+          pageSize={pagination.pageSize}
+          totalCount={pagination.totalCount}
+          onPageChange={pagination.setCurrentPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </Card>
     </div>
   );

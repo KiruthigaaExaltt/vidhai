@@ -1,6 +1,8 @@
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData } from "./flexData";
 import { useMemo, useState } from "react";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
@@ -47,9 +49,12 @@ export interface OutstandingBillItem {
 
 async function fetchOutstandingBills(): Promise<OutstandingBillItem[]> {
   try {
-    const res = await fetch(`${BASE}/api/flex/vendor-payments/outstanding-bills`, {
-      credentials: "include",
-    });
+    const res = await fetch(
+      `${BASE}/api/flex/vendor-payments/outstanding-bills`,
+      {
+        credentials: "include",
+      },
+    );
     if (res.ok) {
       const data = await res.json();
       return (data || []).map((p: any) => ({
@@ -157,13 +162,29 @@ export default function VendorPayments() {
       return (
         (selectedVendor === "All" || b.vendor === selectedVendor) &&
         (statusFilter === "All" || b.status === statusFilter) &&
-        (dueFilter === "All" || (dueFilter === "Overdue" ? isOverdue : !isOverdue)) &&
-        (!invoiceSearch.trim() || b.billNumber.toLowerCase().includes(invoiceSearch.trim().toLowerCase())) &&
+        (dueFilter === "All" ||
+          (dueFilter === "Overdue" ? isOverdue : !isOverdue)) &&
+        (!invoiceSearch.trim() ||
+          b.billNumber
+            .toLowerCase()
+            .includes(invoiceSearch.trim().toLowerCase())) &&
         (!fromDate || b.date >= fromDate) &&
         (!toDate || b.date <= toDate)
       );
     });
-  }, [bills, selectedVendor, statusFilter, dueFilter, invoiceSearch, fromDate, toDate]);
+  }, [
+    bills,
+    selectedVendor,
+    statusFilter,
+    dueFilter,
+    invoiceSearch,
+    fromDate,
+    toDate,
+  ]);
+  const billPagination = useClientPagination(
+    filtered,
+    `${selectedVendor}|${statusFilter}|${dueFilter}|${invoiceSearch}|${fromDate}|${toDate}`,
+  );
 
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,16 +286,45 @@ export default function VendorPayments() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Input placeholder="Invoice number" value={invoiceSearch} onChange={(event) => setInvoiceSearch(event.target.value)} className="h-10 text-xs" />
-          <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 text-xs" />
-          <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-10 text-xs" />
+          <Input
+            placeholder="Invoice number"
+            value={invoiceSearch}
+            onChange={(event) => setInvoiceSearch(event.target.value)}
+            className="h-10 text-xs"
+          />
+          <Input
+            type="date"
+            value={fromDate}
+            onChange={(event) => setFromDate(event.target.value)}
+            className="h-10 text-xs"
+          />
+          <Input
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+            className="h-10 text-xs"
+          />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-10 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>{["All", "Pending", "Partial", "Paid", "Overdue"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+            <SelectTrigger className="h-10 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {["All", "Pending", "Partial", "Paid", "Overdue"].map((value) => (
+                <SelectItem key={value} value={value}>
+                  {value}
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           <Select value={dueFilter} onValueChange={setDueFilter}>
-            <SelectTrigger className="h-10 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="All">All due dates</SelectItem><SelectItem value="Due">Due</SelectItem><SelectItem value="Overdue">Overdue</SelectItem></SelectContent>
+            <SelectTrigger className="h-10 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All due dates</SelectItem>
+              <SelectItem value="Due">Due</SelectItem>
+              <SelectItem value="Overdue">Overdue</SelectItem>
+            </SelectContent>
           </Select>
         </div>
 
@@ -314,7 +364,7 @@ export default function VendorPayments() {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((b) => (
+                    billPagination.paginatedRows.map((b) => (
                       <tr
                         key={b.id}
                         className="hover:bg-muted/40 transition-colors"
@@ -345,11 +395,24 @@ export default function VendorPayments() {
                         <td className="px-6 py-4 font-bold text-amber-600 dark:text-amber-400">
                           ₹ {b.outstanding.toLocaleString("en-IN")}
                         </td>
-                        <td className="px-4 py-4 text-muted-foreground">{b.adjusted.toLocaleString("en-IN")}</td>
+                        <td className="px-4 py-4 text-muted-foreground">
+                          {b.adjusted.toLocaleString("en-IN")}
+                        </td>
                         <td className="px-4 py-4">{b.status}</td>
                         <td className="px-4 py-4 text-right">
                           {b.outstanding > 0 && b.status !== "Paid" && (
-                            <Button size="sm" variant="outline" onClick={() => { setVendor(b.vendor); setOutstandingBill(b.billNumber); setAmount(String(b.outstanding)); setIsAddOpen(true); }}>Record Payment</Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setVendor(b.vendor);
+                                setOutstandingBill(b.billNumber);
+                                setAmount(String(b.outstanding));
+                                setIsAddOpen(true);
+                              }}
+                            >
+                              Record Payment
+                            </Button>
                           )}
                         </td>
                       </tr>
@@ -357,6 +420,13 @@ export default function VendorPayments() {
                   )}
                 </tbody>
               </table>
+              <DataPagination
+                currentPage={billPagination.currentPage}
+                pageSize={billPagination.pageSize}
+                totalCount={billPagination.totalCount}
+                onPageChange={billPagination.setCurrentPage}
+                onPageSizeChange={billPagination.setPageSize}
+              />
             </div>
           </CardContent>
         </Card>
@@ -410,7 +480,9 @@ export default function VendorPayments() {
                     value={outstandingBill}
                     onValueChange={(value) => {
                       setOutstandingBill(value);
-                      const bill = bills.find((item) => item.billNumber === value);
+                      const bill = bills.find(
+                        (item) => item.billNumber === value,
+                      );
                       if (bill) {
                         setVendor(bill.vendor || "");
                         setAmount(String(bill.outstanding));
@@ -422,17 +494,11 @@ export default function VendorPayments() {
                     </SelectTrigger>
                     <SelectContent>
                       {vendorBills.map((bill) => (
-                          <SelectItem
-                            key={bill.id}
-                            value={bill.billNumber}
-                          >
-                            {bill.billNumber} ({bill.vendor} - ₹
-                            {bill.outstanding.toLocaleString(
-                              "en-IN",
-                            )}
-                            )
-                          </SelectItem>
-                        ))}
+                        <SelectItem key={bill.id} value={bill.billNumber}>
+                          {bill.billNumber} ({bill.vendor} - ₹
+                          {bill.outstanding.toLocaleString("en-IN")})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -510,8 +576,12 @@ export default function VendorPayments() {
                       <SelectValue placeholder={FLEX_TEXT.bankAccount10201} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Bank Account (1020)">Bank Account (1020)</SelectItem>
-                      <SelectItem value="Cash Account (1010)">Cash Account (1010)</SelectItem>
+                      <SelectItem value="Bank Account (1020)">
+                        Bank Account (1020)
+                      </SelectItem>
+                      <SelectItem value="Cash Account (1010)">
+                        Cash Account (1010)
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

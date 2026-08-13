@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
-import { Plus, Pencil, Trash2, CirclePlay, AlertTriangle, Eye } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  CirclePlay,
+  AlertTriangle,
+  Eye,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,7 +57,13 @@ export default function Sales() {
   const [workOrderTarget, setWorkOrderTarget] = useState<any | null>(null);
   const [rejectTarget, setRejectTarget] = useState<any | null>(null);
   const [workOrderSaving, setWorkOrderSaving] = useState(false);
-  const [workOrderForm, setWorkOrderForm] = useState({ templateId: "", quantity: "", uom: "Nos", expectedCompletionDate: "", convertToMm: false });
+  const [workOrderForm, setWorkOrderForm] = useState({
+    templateId: "",
+    quantity: "",
+    uom: "Nos",
+    expectedCompletionDate: "",
+    convertToMm: false,
+  });
   const [rejectionReason, setRejectionReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -75,98 +90,203 @@ export default function Sales() {
   };
 
   const loadProformas = async () => {
-    setLoading(true); setLoadError("");
+    setLoading(true);
+    setLoadError("");
     try {
-      const response = await fetch("/api/sales/proforma-invoices", { credentials: "include" });
-      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Unable to load Proforma invoices");
+      const response = await fetch("/api/sales/proforma-invoices", {
+        credentials: "include",
+      });
+      if (!response.ok)
+        throw new Error(
+          (await response.json().catch(() => ({}))).error ||
+            "Unable to load Proforma invoices",
+        );
       setProformas(await response.json());
-    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Proforma invoices"); }
-    finally { setLoading(false); }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load Proforma invoices",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadApprovedDocuments = async () => {
-    setLoading(true); setLoadError("");
+    setLoading(true);
+    setLoadError("");
     try {
-      const response = await fetch("/api/sales/approved-quotations", { credentials: "include" });
+      const response = await fetch("/api/sales/approved-quotations", {
+        credentials: "include",
+      });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "Unable to load confirmed sales documents");
+      if (!response.ok)
+        throw new Error(
+          body.error || "Unable to load confirmed sales documents",
+        );
       setApprovedDocuments(body.data || []);
-    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load confirmed sales documents"); }
-    finally { setLoading(false); }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load confirmed sales documents",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openWorkOrderForm = (row: any) => {
-    const quantity = (row.items || []).reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
-    setWorkOrderForm({ templateId: "", quantity: String(quantity || 1), uom: row.items?.[0]?.uom || "Nos", expectedCompletionDate: "", convertToMm: false });
+    const quantity = (row.items || []).reduce(
+      (sum: number, item: any) => sum + Number(item.quantity || 0),
+      0,
+    );
+    setWorkOrderForm({
+      templateId: "",
+      quantity: String(quantity || 1),
+      uom: row.items?.[0]?.uom || "Nos",
+      expectedCompletionDate: "",
+      convertToMm: false,
+    });
     setWorkOrderTarget(row);
     setStartTarget(null);
   };
 
   const createWorkOrder = async () => {
     if (!workOrderTarget) return;
-    setWorkOrderSaving(true); setLoadError("");
+    setWorkOrderSaving(true);
+    setLoadError("");
     try {
-      const response = await fetch("/api/work-orders", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        sourceDocumentType: workOrderTarget.source,
-        sourceDocumentId: workOrderTarget.id,
-        sourceDocumentNumber: workOrderTarget.documentNumber,
-        clientId: workOrderTarget.clientId,
-        clientName: workOrderTarget.clientName,
-        productId: workOrderTarget.items?.[0]?.productId || workOrderTarget.items?.[0]?.itemId,
-        variantId: workOrderTarget.items?.[0]?.variantId,
-        productionQuantity: workOrderForm.convertToMm ? Number(workOrderForm.quantity) * 304.8 : Number(workOrderForm.quantity),
-        productionUom: workOrderForm.convertToMm ? "mm" : workOrderForm.uom,
-        workOrderTemplateId: workOrderForm.templateId ? Number(workOrderForm.templateId) : undefined,
-        expectedCompletionDate: workOrderForm.expectedCompletionDate || undefined,
-      }) });
+      const response = await fetch("/api/work-orders", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceDocumentType: workOrderTarget.source,
+          sourceDocumentId: workOrderTarget.id,
+          sourceDocumentNumber: workOrderTarget.documentNumber,
+          clientId: workOrderTarget.clientId,
+          clientName: workOrderTarget.clientName,
+          productId:
+            workOrderTarget.items?.[0]?.productId ||
+            workOrderTarget.items?.[0]?.itemId,
+          variantId: workOrderTarget.items?.[0]?.variantId,
+          productionQuantity: workOrderForm.convertToMm
+            ? Number(workOrderForm.quantity) * 304.8
+            : Number(workOrderForm.quantity),
+          productionUom: workOrderForm.convertToMm ? "mm" : workOrderForm.uom,
+          workOrderTemplateId: workOrderForm.templateId
+            ? Number(workOrderForm.templateId)
+            : undefined,
+          expectedCompletionDate:
+            workOrderForm.expectedCompletionDate || undefined,
+        }),
+      });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "Unable to create Work Order");
+      if (!response.ok)
+        throw new Error(body.error || "Unable to create Work Order");
       setWorkOrderTarget(null);
       await loadApprovedDocuments();
-    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to create Work Order"); }
-    finally { setWorkOrderSaving(false); }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Unable to create Work Order",
+      );
+    } finally {
+      setWorkOrderSaving(false);
+    }
   };
 
   const rejectApprovedDocument = async () => {
     if (!rejectTarget) return;
-    setWorkOrderSaving(true); setLoadError("");
+    setWorkOrderSaving(true);
+    setLoadError("");
     try {
-      const response = await fetch("/api/sales/approved-quotations/reject", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: rejectTarget.source, documentId: rejectTarget.id, rejectionReason }) });
+      const response = await fetch("/api/sales/approved-quotations/reject", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: rejectTarget.source,
+          documentId: rejectTarget.id,
+          rejectionReason,
+        }),
+      });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "Unable to reject document");
-      setRejectTarget(null); setRejectionReason("");
+      if (!response.ok)
+        throw new Error(body.error || "Unable to reject document");
+      setRejectTarget(null);
+      setRejectionReason("");
       await loadApprovedDocuments();
-    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to reject document"); }
-    finally { setWorkOrderSaving(false); }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Unable to reject document",
+      );
+    } finally {
+      setWorkOrderSaving(false);
+    }
   };
 
   const loadChallans = async () => {
-    setLoading(true); setLoadError("");
+    setLoading(true);
+    setLoadError("");
     try {
-      const response = await fetch("/api/sales/challans", { credentials: "include" });
-      const body = await response.json().catch(() => ([]));
-      if (!response.ok) throw new Error(body.error || "Unable to load Delivery Challans");
+      const response = await fetch("/api/sales/challans", {
+        credentials: "include",
+      });
+      const body = await response.json().catch(() => []);
+      if (!response.ok)
+        throw new Error(body.error || "Unable to load Delivery Challans");
       setChallans(body);
-    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Delivery Challans"); }
-    finally { setLoading(false); }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load Delivery Challans",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadInvoices = async () => {
-    setLoading(true); setLoadError("");
+    setLoading(true);
+    setLoadError("");
     try {
-      const response = await fetch("/api/sales/invoices", { credentials: "include" });
-      const body = await response.json().catch(() => ([]));
-      if (!response.ok) throw new Error(body.error || "Unable to load Invoices");
+      const response = await fetch("/api/sales/invoices", {
+        credentials: "include",
+      });
+      const body = await response.json().catch(() => []);
+      if (!response.ok)
+        throw new Error(body.error || "Unable to load Invoices");
       setInvoices(body);
-    } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Invoices"); }
-    finally { setLoading(false); }
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Unable to load Invoices",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadReturns = async () => {
-    setLoading(true); setLoadError("");
-    try { const response = await fetch("/api/sales/returns", { credentials: "include" }); const body = await response.json().catch(() => ([])); if (!response.ok) throw new Error(body.error || "Unable to load Sales Returns"); setReturns(body); }
-    catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load Sales Returns"); }
-    finally { setLoading(false); }
+    setLoading(true);
+    setLoadError("");
+    try {
+      const response = await fetch("/api/sales/returns", {
+        credentials: "include",
+      });
+      const body = await response.json().catch(() => []);
+      if (!response.ok)
+        throw new Error(body.error || "Unable to load Sales Returns");
+      setReturns(body);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Unable to load Sales Returns",
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -174,12 +294,32 @@ export default function Sales() {
     if (activeTab === "Proforma Invoice") void loadProformas();
     if (activeTab === "Sales Order") {
       void loadApprovedDocuments();
-      void fetch("/api/work-orders/templates", { credentials: "include" }).then(response => response.ok ? response.json() : []).then(setWorkOrderTemplates).catch(() => setWorkOrderTemplates([]));
+      void fetch("/api/work-orders/templates", { credentials: "include" })
+        .then((response) => (response.ok ? response.json() : []))
+        .then(setWorkOrderTemplates)
+        .catch(() => setWorkOrderTemplates([]));
     }
     if (activeTab === "Delivery Challan") void loadChallans();
     if (activeTab === "Invoices") void loadInvoices();
     if (activeTab === "Sales Return") void loadReturns();
   }, [activeTab]);
+
+  const listedDocuments =
+    activeTab === "Quotation"
+      ? quotations
+      : activeTab === "Proforma Invoice"
+        ? proformas
+        : activeTab === "Invoices"
+          ? invoices
+          : activeTab === "Sales Return"
+            ? returns
+            : challans;
+  const documentPagination = useClientPagination(
+    listedDocuments,
+    activeTab,
+    10,
+    activeTab,
+  );
 
   if (creatingType) {
     return (
@@ -192,7 +332,17 @@ export default function Sales() {
               setCreatingType(null);
               setEditingId(null);
             }}
-            onSaved={() => void (creatingType === "Proforma Invoice" ? loadProformas() : creatingType === "Delivery Challan" ? loadChallans() : creatingType === "Invoices" ? loadInvoices() : creatingType === "Sales Return" ? loadReturns() : loadQuotations())}
+            onSaved={() =>
+              void (creatingType === "Proforma Invoice"
+                ? loadProformas()
+                : creatingType === "Delivery Challan"
+                  ? loadChallans()
+                  : creatingType === "Invoices"
+                    ? loadInvoices()
+                    : creatingType === "Sales Return"
+                      ? loadReturns()
+                      : loadQuotations())
+            }
           />
         </div>
       </Shell>
@@ -206,39 +356,97 @@ export default function Sales() {
     "Invoices",
     "Sales Return",
   ].includes(activeTab);
-  const listedDocuments = activeTab === "Quotation" ? quotations : activeTab === "Proforma Invoice" ? proformas : activeTab === "Invoices" ? invoices : activeTab === "Sales Return" ? returns : challans;
 
   const salesOrderQueue = loading ? (
-    <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">Loading confirmed documents...</div>
+    <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">
+      Loading confirmed documents...
+    </div>
   ) : loadError ? (
-    <div className="rounded-xl border bg-card p-12 text-center text-destructive">{loadError}</div>
+    <div className="rounded-xl border bg-card p-12 text-center text-destructive">
+      {loadError}
+    </div>
   ) : approvedDocuments.length === 0 ? (
-    <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">No confirmed Quotations or Proforma Invoices are ready.</div>
+    <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">
+      No confirmed Quotations or Proforma Invoices are ready.
+    </div>
   ) : (
     <div className="space-y-4">
-      {approvedDocuments.map(row => {
+      {approvedDocuments.map((row) => {
         const total = Number(row.grandTotal || 0);
         const hasStockIssue = Boolean(row.insufficientItems?.length);
         return (
-          <Card key={`${row.source}-${row.id}`} className="rounded-xl border shadow-sm">
+          <Card
+            key={`${row.source}-${row.id}`}
+            className="rounded-xl border shadow-sm"
+          >
             <CardContent className="p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-bold">{row.documentNumber} · {row.customerCompany || row.clientName}</h3>
+                  <h3 className="font-bold">
+                    {row.documentNumber} ·{" "}
+                    {row.customerCompany || row.clientName}
+                  </h3>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span className="rounded border bg-muted px-2 py-0.5 font-semibold uppercase">{row.source}</span>
+                    <span className="rounded border bg-muted px-2 py-0.5 font-semibold uppercase">
+                      {row.source}
+                    </span>
                     <span>{row.versionLabel}</span>
                     <span>·</span>
-                    <span>Confirmed {row.customerApprovedAt ? new Date(row.customerApprovedAt).toLocaleDateString("en-IN") : ""}</span>
+                    <span>
+                      Confirmed{" "}
+                      {row.customerApprovedAt
+                        ? new Date(row.customerApprovedAt).toLocaleDateString(
+                            "en-IN",
+                          )
+                        : ""}
+                    </span>
                   </div>
                 </div>
-                <div className="text-right"><div className="font-bold">Rs {Number.isFinite(total) ? total.toFixed(2) : "0.00"}</div><div className="text-xs font-medium text-emerald-700">Approved</div></div>
+                <div className="text-right">
+                  <div className="font-bold">
+                    Rs {Number.isFinite(total) ? total.toFixed(2) : "0.00"}
+                  </div>
+                  <div className="text-xs font-medium text-emerald-700">
+                    Approved
+                  </div>
+                </div>
               </div>
               <div className="mt-4 rounded-lg bg-muted/40 px-3 py-2 text-sm">
-                {(row.items || []).map((item: any) => <div key={item.id || `${item.description}-${item.quantity}`}>{item.description || item.productName} — {Number(item.quantity || 0)} {item.uom || "Nos"}</div>)}
+                {(row.items || []).map((item: any) => (
+                  <div key={item.id || `${item.description}-${item.quantity}`}>
+                    {item.description || item.productName} —{" "}
+                    {Number(item.quantity || 0)} {item.uom || "Nos"}
+                  </div>
+                ))}
               </div>
-              {hasStockIssue && <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{row.insufficientItems.map((item: any) => `${item.description}: requires ${item.required}, available ${item.available}`).join("; ")}</span></div>}
-              <div className="mt-4 flex gap-2"><Button onClick={() => setStartTarget(row)}><CirclePlay className="mr-2 h-4 w-4" />Start Work Order</Button><Button variant="outline" onClick={() => { setRejectTarget(row); setRejectionReason(""); }}>Reject</Button></div>
+              {hasStockIssue && (
+                <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {row.insufficientItems
+                      .map(
+                        (item: any) =>
+                          `${item.description}: requires ${item.required}, available ${item.available}`,
+                      )
+                      .join("; ")}
+                  </span>
+                </div>
+              )}
+              <div className="mt-4 flex gap-2">
+                <Button onClick={() => setStartTarget(row)}>
+                  <CirclePlay className="mr-2 h-4 w-4" />
+                  Start Work Order
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRejectTarget(row);
+                    setRejectionReason("");
+                  }}
+                >
+                  Reject
+                </Button>
+              </div>
             </CardContent>
           </Card>
         );
@@ -294,7 +502,13 @@ export default function Sales() {
           </div>
 
           {/* Content Area */}
-          {activeTab === "Sales Order" ? salesOrderQueue : (activeTab === "Quotation" || activeTab === "Proforma Invoice" || activeTab === "Delivery Challan" || activeTab === "Invoices" || activeTab === "Sales Return") ? (
+          {activeTab === "Sales Order" ? (
+            salesOrderQueue
+          ) : activeTab === "Quotation" ||
+            activeTab === "Proforma Invoice" ||
+            activeTab === "Delivery Challan" ||
+            activeTab === "Invoices" ||
+            activeTab === "Sales Return" ? (
             <Card className="rounded-xl border border-border shadow-sm bg-card">
               <CardContent className="p-0">
                 {loading ? (
@@ -314,36 +528,82 @@ export default function Sales() {
                     <table className="w-full text-sm">
                       <thead className="border-b bg-muted/50 text-left text-xs uppercase text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-3">{activeTab === "Quotation" ? "Quotation" : activeTab === "Proforma Invoice" ? "Proforma" : activeTab === "Invoices" ? "Invoice" : activeTab === "Sales Return" ? "Sales Return" : "Delivery Challan"}</th>
+                          <th className="px-4 py-3">
+                            {activeTab === "Quotation"
+                              ? "Quotation"
+                              : activeTab === "Proforma Invoice"
+                                ? "Proforma"
+                                : activeTab === "Invoices"
+                                  ? "Invoice"
+                                  : activeTab === "Sales Return"
+                                    ? "Sales Return"
+                                    : "Delivery Challan"}
+                          </th>
                           <th className="px-4 py-3">Client</th>
                           <th className="px-4 py-3">Date</th>
                           <th className="px-4 py-3">Revision</th>
                           <th className="px-4 py-3">Status</th>
                           <th className="px-4 py-3">Customer Response</th>
                           <th className="px-4 py-3 text-right">Total</th>
-                          {activeTab === "Invoices" && <th className="px-4 py-3 text-right">Paid</th>}
-                          {activeTab === "Invoices" && <th className="px-4 py-3 text-right">Balance</th>}
-                          {activeTab === "Invoices" && <th className="px-4 py-3">Payment</th>}
+                          {activeTab === "Invoices" && (
+                            <th className="px-4 py-3 text-right">Paid</th>
+                          )}
+                          {activeTab === "Invoices" && (
+                            <th className="px-4 py-3 text-right">Balance</th>
+                          )}
+                          {activeTab === "Invoices" && (
+                            <th className="px-4 py-3">Payment</th>
+                          )}
                           <th className="px-4 py-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {listedDocuments.map((row) => {
-                          const numeric = (value: any) => { const parsed = Number(value?.$numberDecimal ?? value?.toString?.() ?? value ?? 0); return Number.isFinite(parsed) ? parsed : 0; };
+                        {documentPagination.paginatedRows.map((row) => {
+                          const numeric = (value: any) => {
+                            const parsed = Number(
+                              value?.$numberDecimal ??
+                                value?.toString?.() ??
+                                value ??
+                                0,
+                            );
+                            return Number.isFinite(parsed) ? parsed : 0;
+                          };
                           const total = numeric(row.grandTotal);
-                          const isViewOnly = ["Approved", "Rejected", "Dispatched", "Received", "Credit Issued", "Paid", "Cancelled"].includes(row.status);
+                          const isViewOnly = [
+                            "Approved",
+                            "Rejected",
+                            "Dispatched",
+                            "Received",
+                            "Credit Issued",
+                            "Paid",
+                            "Cancelled",
+                          ].includes(row.status);
                           return (
                             <tr key={row.id} className="hover:bg-muted/30">
                               <td className="px-4 py-3 font-semibold">
-                                {row.returnNumber || row.invoiceNumber || row.dcNumber || row.piNumber || row.quotationNumber || row.quoteNumber}
+                                {row.returnNumber ||
+                                  row.invoiceNumber ||
+                                  row.dcNumber ||
+                                  row.piNumber ||
+                                  row.quotationNumber ||
+                                  row.quoteNumber}
                               </td>
                               <td className="px-4 py-3">
                                 {row.customerCompany || row.clientName}
                               </td>
                               <td className="px-4 py-3">
-                                {String(row.returnDate || row.invoiceDate || row.dcDate || row.piDate || row.quotationDate || "").slice(0, 10)}
+                                {String(
+                                  row.returnDate ||
+                                    row.invoiceDate ||
+                                    row.dcDate ||
+                                    row.piDate ||
+                                    row.quotationDate ||
+                                    "",
+                                ).slice(0, 10)}
                               </td>
-                              <td className="px-4 py-3">{row.versionLabel || "—"}</td>
+                              <td className="px-4 py-3">
+                                {row.versionLabel || "—"}
+                              </td>
                               <td className="px-4 py-3">
                                 <span
                                   className={`rounded-full px-2 py-1 text-xs font-medium ${row.status === "Sent" ? "bg-blue-100 text-blue-700" : row.status === "Approved" ? "bg-green-100 text-green-700" : row.status === "Rejected" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
@@ -352,7 +612,19 @@ export default function Sales() {
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-xs font-medium">
-                                {row.status === "Dispatched" ? <span className="text-emerald-700">Stock dispatched</span> : row.status === "Received" ? <span className="text-emerald-700">Goods received and restocked</span> : row.status === "Confirmed" ? <span className="text-blue-700">Awaiting receipt confirmation</span> : row.status === "Approved" ? (
+                                {row.status === "Dispatched" ? (
+                                  <span className="text-emerald-700">
+                                    Stock dispatched
+                                  </span>
+                                ) : row.status === "Received" ? (
+                                  <span className="text-emerald-700">
+                                    Goods received and restocked
+                                  </span>
+                                ) : row.status === "Confirmed" ? (
+                                  <span className="text-blue-700">
+                                    Awaiting receipt confirmation
+                                  </span>
+                                ) : row.status === "Approved" ? (
                                   <span className="text-green-700">
                                     Confirmed
                                   </span>
@@ -374,9 +646,23 @@ export default function Sales() {
                                   ? total.toFixed(2)
                                   : "0.00"}
                               </td>
-                              {activeTab === "Invoices" && <td className="px-4 py-3 text-right">Rs {numeric(row.amountPaid).toFixed(2)}</td>}
-                              {activeTab === "Invoices" && <td className="px-4 py-3 text-right">Rs {numeric(row.balanceDue).toFixed(2)}</td>}
-                              {activeTab === "Invoices" && <td className="px-4 py-3"><span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">{row.paymentStatus || "Unpaid"}</span></td>}
+                              {activeTab === "Invoices" && (
+                                <td className="px-4 py-3 text-right">
+                                  Rs {numeric(row.amountPaid).toFixed(2)}
+                                </td>
+                              )}
+                              {activeTab === "Invoices" && (
+                                <td className="px-4 py-3 text-right">
+                                  Rs {numeric(row.balanceDue).toFixed(2)}
+                                </td>
+                              )}
+                              {activeTab === "Invoices" && (
+                                <td className="px-4 py-3">
+                                  <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                                    {row.paymentStatus || "Unpaid"}
+                                  </span>
+                                </td>
+                              )}
                               <td className="px-4 py-3">
                                 <div className="flex justify-end gap-1">
                                   <Button
@@ -388,18 +674,35 @@ export default function Sales() {
                                       setCreatingType(activeTab);
                                     }}
                                   >
-                                    {isViewOnly ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+                                    {isViewOnly ? (
+                                      <Eye className="h-4 w-4" />
+                                    ) : (
+                                      <Pencil className="h-4 w-4" />
+                                    )}
                                   </Button>
-                                  {!isViewOnly && <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    disabled={row.status === "Dispatched" || row.status === "Approved" || row.status === "Rejected" || row.status === "Paid" || row.status === "Cancelled"}
-                                    title={`Delete ${activeTab.toLowerCase()}`}
-                                    className="text-destructive"
-                                    onClick={() => setDeleteTarget({ ...row, documentType: activeTab })}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>}
+                                  {!isViewOnly && (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      disabled={
+                                        row.status === "Dispatched" ||
+                                        row.status === "Approved" ||
+                                        row.status === "Rejected" ||
+                                        row.status === "Paid" ||
+                                        row.status === "Cancelled"
+                                      }
+                                      title={`Delete ${activeTab.toLowerCase()}`}
+                                      className="text-destructive"
+                                      onClick={() =>
+                                        setDeleteTarget({
+                                          ...row,
+                                          documentType: activeTab,
+                                        })
+                                      }
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -410,6 +713,14 @@ export default function Sales() {
                   </div>
                 )}
               </CardContent>
+              <DataPagination
+                currentPage={documentPagination.currentPage}
+                pageSize={documentPagination.pageSize}
+                totalCount={documentPagination.totalCount}
+                onPageChange={documentPagination.setCurrentPage}
+                onPageSizeChange={documentPagination.setPageSize}
+                loading={loading}
+              />
             </Card>
           ) : (
             <Card className="rounded-xl border border-border shadow-sm min-h-[400px] flex items-center justify-center bg-card">
@@ -421,33 +732,176 @@ export default function Sales() {
             </Card>
           )}
 
-          <Dialog open={Boolean(startTarget)} onOpenChange={open => { if (!open) setStartTarget(null); }}>
+          <Dialog
+            open={Boolean(startTarget)}
+            onOpenChange={(open) => {
+              if (!open) setStartTarget(null);
+            }}
+          >
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Start Work Order?</DialogTitle></DialogHeader>
-              <p className="text-sm text-muted-foreground">Start a Work Order for {startTarget?.documentNumber}? Stock will be validated before tasks and material reservations are created.</p>
-              <DialogFooter><Button variant="outline" onClick={() => setStartTarget(null)}>Cancel</Button><Button onClick={() => openWorkOrderForm(startTarget)}>Continue</Button></DialogFooter>
+              <DialogHeader>
+                <DialogTitle>Start Work Order?</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Start a Work Order for {startTarget?.documentNumber}? Stock will
+                be validated before tasks and material reservations are created.
+              </p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setStartTarget(null)}>
+                  Cancel
+                </Button>
+                <Button onClick={() => openWorkOrderForm(startTarget)}>
+                  Continue
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
-          <Dialog open={Boolean(workOrderTarget)} onOpenChange={open => { if (!open && !workOrderSaving) setWorkOrderTarget(null); }}>
+          <Dialog
+            open={Boolean(workOrderTarget)}
+            onOpenChange={(open) => {
+              if (!open && !workOrderSaving) setWorkOrderTarget(null);
+            }}
+          >
             <DialogContent className="max-w-lg">
-              <DialogHeader><DialogTitle>Create Work Order — {workOrderTarget?.documentNumber}</DialogTitle></DialogHeader>
+              <DialogHeader>
+                <DialogTitle>
+                  Create Work Order — {workOrderTarget?.documentNumber}
+                </DialogTitle>
+              </DialogHeader>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5 sm:col-span-2"><Label>Workflow Template</Label><select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={workOrderForm.templateId} onChange={event => setWorkOrderForm({ ...workOrderForm, templateId: event.target.value })}><option value="">Default Production Workflow</option>{workOrderTemplates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}</select></div>
-                <div className="space-y-1.5"><Label>Production Quantity</Label><Input type="number" min="0.0001" step="any" value={workOrderForm.quantity} onChange={event => setWorkOrderForm({ ...workOrderForm, quantity: event.target.value })} /></div>
-                <div className="space-y-1.5"><Label>Production UOM</Label><Input value={workOrderForm.uom} onChange={event => setWorkOrderForm({ ...workOrderForm, uom: event.target.value })} /></div>
-                {/^(ft|feet|foot)$/i.test(workOrderForm.uom.trim()) && <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={workOrderForm.convertToMm} onChange={event => setWorkOrderForm({ ...workOrderForm, convertToMm: event.target.checked })} />Convert feet to millimetres before production</label>}
-                <div className="space-y-1.5 sm:col-span-2"><Label>Expected Completion Date</Label><Input type="date" value={workOrderForm.expectedCompletionDate} onChange={event => setWorkOrderForm({ ...workOrderForm, expectedCompletionDate: event.target.value })} /></div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Workflow Template</Label>
+                  <select
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                    value={workOrderForm.templateId}
+                    onChange={(event) =>
+                      setWorkOrderForm({
+                        ...workOrderForm,
+                        templateId: event.target.value,
+                      })
+                    }
+                  >
+                    <option value="">Default Production Workflow</option>
+                    {workOrderTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Production Quantity</Label>
+                  <Input
+                    type="number"
+                    min="0.0001"
+                    step="any"
+                    value={workOrderForm.quantity}
+                    onChange={(event) =>
+                      setWorkOrderForm({
+                        ...workOrderForm,
+                        quantity: event.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Production UOM</Label>
+                  <Input
+                    value={workOrderForm.uom}
+                    onChange={(event) =>
+                      setWorkOrderForm({
+                        ...workOrderForm,
+                        uom: event.target.value,
+                      })
+                    }
+                  />
+                </div>
+                {/^(ft|feet|foot)$/i.test(workOrderForm.uom.trim()) && (
+                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={workOrderForm.convertToMm}
+                      onChange={(event) =>
+                        setWorkOrderForm({
+                          ...workOrderForm,
+                          convertToMm: event.target.checked,
+                        })
+                      }
+                    />
+                    Convert feet to millimetres before production
+                  </label>
+                )}
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Expected Completion Date</Label>
+                  <Input
+                    type="date"
+                    value={workOrderForm.expectedCompletionDate}
+                    onChange={(event) =>
+                      setWorkOrderForm({
+                        ...workOrderForm,
+                        expectedCompletionDate: event.target.value,
+                      })
+                    }
+                  />
+                </div>
               </div>
-              <DialogFooter><Button variant="outline" disabled={workOrderSaving} onClick={() => setWorkOrderTarget(null)}>Cancel</Button><Button disabled={workOrderSaving || Number(workOrderForm.quantity) <= 0} onClick={() => void createWorkOrder()}>{workOrderSaving ? "Creating..." : "Create & Activate"}</Button></DialogFooter>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={workOrderSaving}
+                  onClick={() => setWorkOrderTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={
+                    workOrderSaving || Number(workOrderForm.quantity) <= 0
+                  }
+                  onClick={() => void createWorkOrder()}
+                >
+                  {workOrderSaving ? "Creating..." : "Create & Activate"}
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
-          <Dialog open={Boolean(rejectTarget)} onOpenChange={open => { if (!open && !workOrderSaving) setRejectTarget(null); }}>
+          <Dialog
+            open={Boolean(rejectTarget)}
+            onOpenChange={(open) => {
+              if (!open && !workOrderSaving) setRejectTarget(null);
+            }}
+          >
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Reject {rejectTarget?.documentNumber}?</DialogTitle></DialogHeader>
-              <div className="space-y-1.5"><Label>Rejection Reason</Label><Input value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} placeholder="Enter the reason" /></div>
-              <DialogFooter><Button variant="outline" disabled={workOrderSaving} onClick={() => setRejectTarget(null)}>Cancel</Button><Button variant="destructive" disabled={workOrderSaving || !rejectionReason.trim()} onClick={() => void rejectApprovedDocument()}>{workOrderSaving ? "Rejecting..." : "Reject"}</Button></DialogFooter>
+              <DialogHeader>
+                <DialogTitle>
+                  Reject {rejectTarget?.documentNumber}?
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-1.5">
+                <Label>Rejection Reason</Label>
+                <Input
+                  value={rejectionReason}
+                  onChange={(event) => setRejectionReason(event.target.value)}
+                  placeholder="Enter the reason"
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={workOrderSaving}
+                  onClick={() => setRejectTarget(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={workOrderSaving || !rejectionReason.trim()}
+                  onClick={() => void rejectApprovedDocument()}
+                >
+                  {workOrderSaving ? "Rejecting..." : "Reject"}
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -459,11 +913,19 @@ export default function Sales() {
           >
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Delete {deleteTarget?.documentType?.toLowerCase() || "quotation"}?</DialogTitle>
+                <DialogTitle>
+                  Delete{" "}
+                  {deleteTarget?.documentType?.toLowerCase() || "quotation"}?
+                </DialogTitle>
               </DialogHeader>
               <p className="text-sm text-muted-foreground">
-                This removes {deleteTarget?.returnNumber || deleteTarget?.invoiceNumber || deleteTarget?.dcNumber || deleteTarget?.piNumber || deleteTarget?.quotationNumber} and its complete
-                revision history.
+                This removes{" "}
+                {deleteTarget?.returnNumber ||
+                  deleteTarget?.invoiceNumber ||
+                  deleteTarget?.dcNumber ||
+                  deleteTarget?.piNumber ||
+                  deleteTarget?.quotationNumber}{" "}
+                and its complete revision history.
               </p>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDeleteTarget(null)}>
@@ -478,7 +940,15 @@ export default function Sales() {
                     );
                     if (response.ok) {
                       setDeleteTarget(null);
-                      if (deleteTarget.documentType === "Proforma Invoice") await loadProformas(); else if (deleteTarget.documentType === "Delivery Challan") await loadChallans(); else if (deleteTarget.documentType === "Invoices") await loadInvoices(); else if (deleteTarget.documentType === "Sales Return") await loadReturns(); else await loadQuotations();
+                      if (deleteTarget.documentType === "Proforma Invoice")
+                        await loadProformas();
+                      else if (deleteTarget.documentType === "Delivery Challan")
+                        await loadChallans();
+                      else if (deleteTarget.documentType === "Invoices")
+                        await loadInvoices();
+                      else if (deleteTarget.documentType === "Sales Return")
+                        await loadReturns();
+                      else await loadQuotations();
                     }
                   }}
                 >

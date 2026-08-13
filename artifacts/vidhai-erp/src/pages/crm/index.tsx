@@ -7,6 +7,8 @@ import {
   useUpdateContact,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -151,6 +153,7 @@ export default function CRMPage() {
       c.email.toLowerCase().includes(q);
     return matchesTab && matchesSearch;
   });
+  const contactPagination = useClientPagination(filtered, `${tab}|${search}`);
 
   const counts: Record<string, number> = {
     all: contacts.length,
@@ -310,7 +313,7 @@ export default function CRMPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {filtered.map((c) => (
+                    {contactPagination.paginatedRows.map((c) => (
                       <tr
                         key={c.id}
                         className="hover:bg-muted/30 transition-colors"
@@ -423,6 +426,13 @@ export default function CRMPage() {
               </div>
             )}
           </CardContent>
+          <DataPagination
+            currentPage={contactPagination.currentPage}
+            pageSize={contactPagination.pageSize}
+            totalCount={contactPagination.totalCount}
+            onPageChange={contactPagination.setCurrentPage}
+            onPageSizeChange={contactPagination.setPageSize}
+          />
         </Card>
       </div>
 

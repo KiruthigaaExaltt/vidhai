@@ -13,7 +13,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { BookOpen, CreditCard, DollarSign, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  CreditCard,
+  DollarSign,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -45,7 +54,10 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
       headers: { "Content-Type": "application/json" },
       ...o,
     }).then(async (r) => {
-      if (!r.ok) throw Error((await r.json().catch(() => ({}))).error || "Request failed");
+      if (!r.ok)
+        throw Error(
+          (await r.json().catch(() => ({}))).error || "Request failed",
+        );
       return r.status === 204 ? null : r.json();
     });
 const numberValue = (value: any) => {
@@ -101,7 +113,14 @@ export default function Accounts() {
     notes: "",
     attachmentName: "",
   });
-  const [arPayment, setArPayment] = useState({ paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "Bank Transfer", bankCharges: "0", tdsAmount: "0", reference: "", notes: "" });
+  const [arPayment, setArPayment] = useState({
+    paymentDate: new Date().toISOString().slice(0, 10),
+    paymentMethod: "Bank Transfer",
+    bankCharges: "0",
+    tdsAmount: "0",
+    reference: "",
+    notes: "",
+  });
   const today = new Date().toISOString().slice(0, 10);
   const openManual = (
     type: "account" | "journal" | "ap" | "ar",
@@ -334,7 +353,9 @@ export default function Accounts() {
       else
         await api(`/${settlement.kind}/${settlement.row.id}`, {
           method: "PATCH",
-          body: JSON.stringify({ [field]: numberValue(settlement.row[field]) + amount }),
+          body: JSON.stringify({
+            [field]: numberValue(settlement.row[field]) + amount,
+          }),
         });
       setSettlement(null);
       setSettlementAmount("");
@@ -358,7 +379,9 @@ export default function Accounts() {
     setError("");
   };
   const reviewAp = async (row: any, action: "approve" | "reject") => {
-    const remarks = window.prompt(`${action === "approve" ? "Approval" : "Rejection"} remarks`);
+    const remarks = window.prompt(
+      `${action === "approve" ? "Approval" : "Rejection"} remarks`,
+    );
     if (action === "reject" && !remarks) return;
     setSubmitting(true);
     try {
@@ -378,12 +401,17 @@ export default function Accounts() {
     setPaymentAmount(String(outstanding(row)));
   };
   const reviewAr = async (row: any, action: "approve" | "reject") => {
-    const remarks = window.prompt(`${action === "approve" ? "Approval" : "Rejection"} remarks`);
+    const remarks = window.prompt(
+      `${action === "approve" ? "Approval" : "Rejection"} remarks`,
+    );
     if (action === "reject" && !remarks) return;
     setSubmitting(true);
     setError("");
     try {
-      await api(`/ar/${row.id}/${action}`, { method: "POST", body: JSON.stringify({ remarks: remarks || "Approved" }) });
+      await api(`/ar/${row.id}/${action}`, {
+        method: "POST",
+        body: JSON.stringify({ remarks: remarks || "Approved" }),
+      });
       await load();
     } catch (e: any) {
       setError(e.message);
@@ -405,7 +433,13 @@ export default function Accounts() {
     try {
       await salesApi("/payments", {
         method: "POST",
-        body: JSON.stringify({ invoiceId: paymentAr.sourceId, amount, ...arPayment, bankCharges: numberValue(arPayment.bankCharges), tdsAmount: numberValue(arPayment.tdsAmount) }),
+        body: JSON.stringify({
+          invoiceId: paymentAr.sourceId,
+          amount,
+          ...arPayment,
+          bankCharges: numberValue(arPayment.bankCharges),
+          tdsAmount: numberValue(arPayment.tdsAmount),
+        }),
       });
       setPaymentAr(null);
       setPaymentAmount("");
@@ -452,12 +486,28 @@ export default function Accounts() {
   const statusBadge = (value: any) => {
     const status = String(value || "Pending");
     const settled = status === "Paid" || status === "Approved";
-    return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs ${settled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-600"}`}>{status}</span>;
+    return (
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs ${settled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-600"}`}
+      >
+        {status}
+      </span>
+    );
   };
   const arStatusBadge = (value: any) => {
     const status = String(value || "Pending");
-    const complete = status === "Received" || status === "Settled" || status === "Paid" || status === "Approved";
-    return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-600"}`}>{status === "Pending" ? "$ Pending" : status}</span>;
+    const complete =
+      status === "Received" ||
+      status === "Settled" ||
+      status === "Paid" ||
+      status === "Approved";
+    return (
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-orange-200 bg-orange-50 text-orange-600"}`}
+      >
+        {status === "Pending" ? "$ Pending" : status}
+      </span>
+    );
   };
   const Table = ({
     rows,
@@ -467,44 +517,91 @@ export default function Accounts() {
     rows: any[];
     cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
     showFooter?: boolean;
-  }) => (
-    <div className="overflow-hidden rounded-md border bg-white">
-      <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/60">
-          <tr>
-            {cols.map((c) => (
-              <th key={c[0]} className="px-3 py-2 text-left">
-                {c[0]}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.id ?? i} className="border-t">
-              {cols.map((c) => (
-                <td key={c[1]} className="px-3 py-2">
-                  {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "�")}
-                </td>
+  }) => {
+    const pagination = useClientPagination(rows);
+    return (
+      <div className="overflow-hidden rounded-md border bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/60">
+              <tr>
+                {cols.map((c) => (
+                  <th key={c[0]} className="px-3 py-2 text-left">
+                    {c[0]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pagination.paginatedRows.map((r, i) => (
+                <tr key={r.id ?? i} className="border-t">
+                  {cols.map((c) => (
+                    <td key={c[1]} className="px-3 py-2">
+                      {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "�")}
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      {showFooter && <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
-        <span>Showing {rows.length ? 1 : 0} to {Math.min(rows.length, 10)} of {rows.length} records</span>
-        <div className="flex items-center gap-3">
-        <span>Rows per page:</span>
-        <span className="rounded-md border bg-white px-4 py-2 text-foreground">10</span>
-        <Button size="icon" variant="outline" className="h-8 w-8" disabled aria-label="Previous page">‹</Button>
-        <span className="flex h-8 w-8 items-center justify-center rounded-md bg-red-500 font-medium text-white">1</span>
-        <Button size="icon" variant="outline" className="h-8 w-8" disabled={rows.length <= 10} aria-label="Next page">›</Button>
+              {!pagination.paginatedRows.length && (
+                <tr className="border-t">
+                  <td
+                    colSpan={cols.length}
+                    className="px-4 py-14 text-center text-muted-foreground"
+                  >
+                    No records found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>}
-    </div>
-  );
+        {false && (
+          <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
+            <span>
+              Showing {rows.length ? 1 : 0} to {Math.min(rows.length, 10)} of{" "}
+              {rows.length} records
+            </span>
+            <div className="flex items-center gap-3">
+              <span>Rows per page:</span>
+              <span className="rounded-md border bg-white px-4 py-2 text-foreground">
+                10
+              </span>
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-8 w-8"
+                disabled
+                aria-label="Previous page"
+              >
+                ‹
+              </Button>
+              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-red-500 font-medium text-white">
+                1
+              </span>
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-8 w-8"
+                disabled={rows.length <= 10}
+                aria-label="Next page"
+              >
+                ›
+              </Button>
+            </div>
+          </div>
+        )}
+        {showFooter && (
+          <DataPagination
+            currentPage={pagination.currentPage}
+            pageSize={pagination.pageSize}
+            totalCount={pagination.totalCount}
+            onPageChange={pagination.setCurrentPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
+        )}
+      </div>
+    );
+  };
   const cards = [
     ["Cash & Bank", summary.cash],
     ["Receivables", summary.receivables],
@@ -514,32 +611,124 @@ export default function Accounts() {
   ];
   const apBills = ap.filter((entry) => entry.entryType !== "Debit Note");
   const apDebitNotes = ap.filter((entry) => entry.entryType === "Debit Note");
-  const filterAp = (rows: any[]) => f(rows).filter((row) =>
-    (apStatusFilter === "All" || row.status === apStatusFilter) &&
-    (apApprovalFilter === "All" || row.approvalStatus === apApprovalFilter) &&
-    (!apFromDate || row.billDate >= apFromDate) &&
-    (!apToDate || row.billDate <= apToDate),
-  );
+  const filterAp = (rows: any[]) =>
+    f(rows).filter(
+      (row) =>
+        (apStatusFilter === "All" || row.status === apStatusFilter) &&
+        (apApprovalFilter === "All" ||
+          row.approvalStatus === apApprovalFilter) &&
+        (!apFromDate || row.billDate >= apFromDate) &&
+        (!apToDate || row.billDate <= apToDate),
+    );
   const apSummary = [
-    ["Total Outstanding", apBills.reduce((sum, row) => sum + Math.max(0, numberValue(row.amount) - numberValue(row.paidAmount) - numberValue(row.adjustedAmount)), 0)],
-    ["Due Today", apBills.filter((row) => row.dueDate === today).reduce((sum, row) => sum + Math.max(0, numberValue(row.amount) - numberValue(row.paidAmount) - numberValue(row.adjustedAmount)), 0)],
-    ["Overdue Amount", apBills.filter((row) => row.dueDate < today && row.status !== "Paid").reduce((sum, row) => sum + Math.max(0, numberValue(row.amount) - numberValue(row.paidAmount) - numberValue(row.adjustedAmount)), 0)],
-    ["Payments Made", apBills.reduce((sum, row) => sum + numberValue(row.paidAmount), 0)],
-    ["Debit Adjustments", apBills.reduce((sum, row) => sum + numberValue(row.adjustedAmount), 0)],
-    ["Vendor Credits", apDebitNotes.reduce((sum, row) => sum + numberValue(row.availableCredit), 0)],
+    [
+      "Total Outstanding",
+      apBills.reduce(
+        (sum, row) =>
+          sum +
+          Math.max(
+            0,
+            numberValue(row.amount) -
+              numberValue(row.paidAmount) -
+              numberValue(row.adjustedAmount),
+          ),
+        0,
+      ),
+    ],
+    [
+      "Due Today",
+      apBills
+        .filter((row) => row.dueDate === today)
+        .reduce(
+          (sum, row) =>
+            sum +
+            Math.max(
+              0,
+              numberValue(row.amount) -
+                numberValue(row.paidAmount) -
+                numberValue(row.adjustedAmount),
+            ),
+          0,
+        ),
+    ],
+    [
+      "Overdue Amount",
+      apBills
+        .filter((row) => row.dueDate < today && row.status !== "Paid")
+        .reduce(
+          (sum, row) =>
+            sum +
+            Math.max(
+              0,
+              numberValue(row.amount) -
+                numberValue(row.paidAmount) -
+                numberValue(row.adjustedAmount),
+            ),
+          0,
+        ),
+    ],
+    [
+      "Payments Made",
+      apBills.reduce((sum, row) => sum + numberValue(row.paidAmount), 0),
+    ],
+    [
+      "Debit Adjustments",
+      apBills.reduce((sum, row) => sum + numberValue(row.adjustedAmount), 0),
+    ],
+    [
+      "Vendor Credits",
+      apDebitNotes.reduce(
+        (sum, row) => sum + numberValue(row.availableCredit),
+        0,
+      ),
+    ],
   ];
   const arInvoices = ar.filter((row) => row.entryType !== "Credit Note");
-  const arCustomers = [...new Set(arInvoices.map((row) => String(row.clientName)).filter(Boolean))].sort();
-  const filteredArInvoices = f(arInvoices).filter((row) =>
-    (!arFromDate || row.invoiceDate >= arFromDate) &&
-    (!arToDate || row.invoiceDate <= arToDate) &&
-    (arCustomer === "All" || row.clientName === arCustomer),
+  const arCustomers = [
+    ...new Set(arInvoices.map((row) => String(row.clientName)).filter(Boolean)),
+  ].sort();
+  const filteredArInvoices = f(arInvoices).filter(
+    (row) =>
+      (!arFromDate || row.invoiceDate >= arFromDate) &&
+      (!arToDate || row.invoiceDate <= arToDate) &&
+      (arCustomer === "All" || row.clientName === arCustomer),
   );
-  const arOutstanding = filteredArInvoices.reduce((sum, row) => sum + outstanding(row), 0);
+  const arOutstanding = filteredArInvoices.reduce(
+    (sum, row) => sum + outstanding(row),
+    0,
+  );
   const exportAr = () => {
-    const fields = ["Customer", "Invoice", "Invoice Date", "Due Date", "Amount", "Received", "Adjustment", "Balance", "Status", "Approval"];
-    const lines = filteredArInvoices.map((row) => [row.clientName, row.invoiceNumber, row.invoiceDate, row.dueDate, numberValue(row.amount), numberValue(row.receivedAmount), numberValue(row.adjustedAmount), outstanding(row), row.status, row.approvalStatus]);
-    const csv = [fields, ...lines].map((line) => line.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const fields = [
+      "Customer",
+      "Invoice",
+      "Invoice Date",
+      "Due Date",
+      "Amount",
+      "Received",
+      "Adjustment",
+      "Balance",
+      "Status",
+      "Approval",
+    ];
+    const lines = filteredArInvoices.map((row) => [
+      row.clientName,
+      row.invoiceNumber,
+      row.invoiceDate,
+      row.dueDate,
+      numberValue(row.amount),
+      numberValue(row.receivedAmount),
+      numberValue(row.adjustedAmount),
+      outstanding(row),
+      row.status,
+      row.approvalStatus,
+    ]);
+    const csv = [fields, ...lines]
+      .map((line) =>
+        line
+          .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
+          .join(","),
+      )
+      .join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     link.download = `accounts-receivable-${today}.csv`;
@@ -547,14 +736,26 @@ export default function Accounts() {
     URL.revokeObjectURL(link.href);
   };
   const pageTitles: Record<string, [string, string]> = {
-    dashboard: ["Finance Dashboard", "Accounting overview and financial position"],
+    dashboard: [
+      "Finance Dashboard",
+      "Accounting overview and financial position",
+    ],
     coa: ["Chart of Accounts", "Manage the organization ledger structure"],
-    customers: ["Customer Ledger", "Track customer invoices, receipts and balances"],
+    customers: [
+      "Customer Ledger",
+      "Track customer invoices, receipts and balances",
+    ],
     vendors: ["Vendor Ledger", "Track vendor bills, payments and balances"],
-    ap: ["Accounts Payable (AP)", "Manage pending vendor bills, debit notes and payments"],
+    ap: [
+      "Accounts Payable (AP)",
+      "Manage pending vendor bills, debit notes and payments",
+    ],
     ar: ["Accounts Receivable (AR)", "Manage customer invoices and receipts"],
     journals: ["Journal Entries", "Review posted double-entry transactions"],
-    statements: ["Financial Statements", "Review profit, balance sheet and trial balance"],
+    statements: [
+      "Financial Statements",
+      "Review profit, balance sheet and trial balance",
+    ],
   };
   return (
     <Shell>
@@ -570,8 +771,15 @@ export default function Accounts() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void reconcile()} disabled={loading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Reconcile
+            <Button
+              variant="outline"
+              onClick={() => void reconcile()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              />{" "}
+              Reconcile
             </Button>
           </div>
         </div>
@@ -669,7 +877,10 @@ export default function Accounts() {
                 <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
                   <Plus className="mr-2 h-4 w-4" /> Add Bill
                 </Button>
-                <Button variant="outline" onClick={() => openManual("ap", { entryType: "Debit Note" })}>
+                <Button
+                  variant="outline"
+                  onClick={() => openManual("ap", { entryType: "Debit Note" })}
+                >
                   <Plus className="mr-2 h-4 w-4" /> Add Debit Note
                 </Button>
               </div>
@@ -690,20 +901,39 @@ export default function Accounts() {
                     ["Bill Date", "billDate"],
                     ["Due Date", "dueDate"],
                     ["Amount", "amount", inr],
-                    ["Paid", "paidAmount", (value) => <span className="font-medium text-emerald-600">{inr(value)}</span>],
-                    ["Adjustment", "adjustedAmount", (value) => <span className="font-medium text-sky-600">{inr(value)}</span>],
+                    [
+                      "Paid",
+                      "paidAmount",
+                      (value) => (
+                        <span className="font-medium text-emerald-600">
+                          {inr(value)}
+                        </span>
+                      ),
+                    ],
+                    [
+                      "Adjustment",
+                      "adjustedAmount",
+                      (value) => (
+                        <span className="font-medium text-sky-600">
+                          {inr(value)}
+                        </span>
+                      ),
+                    ],
                     [
                       "Balance",
                       "balance",
-                      (_value, row) =>
-                        <span className="font-medium text-red-500">{inr(
-                          Math.max(
-                            0,
-                            numberValue(row.amount) -
-                              numberValue(row.paidAmount) -
-                              numberValue(row.adjustedAmount),
-                          ),
-                        )}</span>,
+                      (_value, row) => (
+                        <span className="font-medium text-red-500">
+                          {inr(
+                            Math.max(
+                              0,
+                              numberValue(row.amount) -
+                                numberValue(row.paidAmount) -
+                                numberValue(row.adjustedAmount),
+                            ),
+                          )}
+                        </span>
+                      ),
                     ],
                     ["Status", "status", statusBadge],
                     [
@@ -718,21 +948,41 @@ export default function Accounts() {
                         );
                         return (
                           <div className="flex items-center gap-2">
-                          {balance > 0 && row.approvalStatus === "Approved" && <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 text-muted-foreground hover:text-primary"
-                            title="Record payment"
-                            aria-label={`Record payment for ${row.billNumber}`}
-                            disabled={submitting}
-                            onClick={() => openSettlement("ap", row)}
-                          >
-                            <span className="text-base leading-none">$</span>
-                          </Button>}
-                          <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-slate-300 hover:text-red-500" title={row.sourceType === "Manual" ? "Delete bill" : "Linked bills cannot be deleted"} aria-label={`Delete ${row.billNumber}`} disabled={submitting || row.sourceType !== "Manual"} onClick={() => void deletePayable(row)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            {balance > 0 &&
+                              row.approvalStatus === "Approved" && (
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                  title="Record payment"
+                                  aria-label={`Record payment for ${row.billNumber}`}
+                                  disabled={submitting}
+                                  onClick={() => openSettlement("ap", row)}
+                                >
+                                  <span className="text-base leading-none">
+                                    $
+                                  </span>
+                                </Button>
+                              )}
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-slate-300 hover:text-red-500"
+                              title={
+                                row.sourceType === "Manual"
+                                  ? "Delete bill"
+                                  : "Linked bills cannot be deleted"
+                              }
+                              aria-label={`Delete ${row.billNumber}`}
+                              disabled={
+                                submitting || row.sourceType !== "Manual"
+                              }
+                              onClick={() => void deletePayable(row)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         );
                       },
@@ -761,8 +1011,17 @@ export default function Accounts() {
           <TabsContent value="ar" className="space-y-3">
             {can("accounts.accounts_receivable.create") && (
               <div className="flex flex-wrap justify-end gap-2">
-                <Button onClick={() => openManual("ar", { entryType: "Invoice" })}><Plus className="mr-2 h-4 w-4" /> Add Invoice</Button>
-                <Button variant="outline" onClick={() => openManual("ar", { entryType: "Credit Note" })}><Plus className="mr-2 h-4 w-4" /> Add Credit Note</Button>
+                <Button
+                  onClick={() => openManual("ar", { entryType: "Invoice" })}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Add Invoice
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => openManual("ar", { entryType: "Credit Note" })}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Add Credit Note
+                </Button>
               </div>
             )}
             <Tabs defaultValue="invoices" className="space-y-3">
@@ -773,7 +1032,6 @@ export default function Accounts() {
               <TabsContent value="invoices">
                 <Table
                   rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
-                  showFooter={false}
                   cols={[
                     ["Invoice", "invoiceNumber"],
                     ["Customer", "clientName"],
@@ -781,16 +1039,55 @@ export default function Accounts() {
                     ["Amount", "amount", inr],
                     ["Received", "receivedAmount", inr],
                     ["Adjusted", "adjustedAmount", inr],
-                    ["Balance", "balance", (_value, row) => inr(outstanding(row))],
+                    [
+                      "Balance",
+                      "balance",
+                      (_value, row) => inr(outstanding(row)),
+                    ],
                     ["Status", "status"],
                     [
                       "Actions",
                       "actions",
                       (_value, row) => (
                         <div className="flex items-center gap-2">
-                          {row.sourceType === "Sales Invoice" && row.approvalStatus === "Approved" && outstanding(row) > 0 && <Button size="sm" onClick={() => openPayment(row)} disabled={submitting}><CreditCard className="mr-1 h-3.5 w-3.5" /> Pay</Button>}
-                          {row.approvalStatus === "Pending Approval" && <><Button size="sm" onClick={() => void reviewAr(row, "approve")} disabled={submitting}>Approve</Button><Button size="sm" variant="destructive" onClick={() => void reviewAr(row, "reject")} disabled={submitting}>Reject</Button></>}
-                          <Button size="sm" variant="outline" onClick={() => void deleteReceivable(row)} disabled={submitting || row.sourceType !== "Manual"}><Trash2 className="mr-1 h-3.5 w-3.5" /> Delete</Button>
+                          {row.sourceType === "Sales Invoice" &&
+                            row.approvalStatus === "Approved" &&
+                            outstanding(row) > 0 && (
+                              <Button
+                                size="sm"
+                                onClick={() => openPayment(row)}
+                                disabled={submitting}
+                              >
+                                <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                              </Button>
+                            )}
+                          {row.approvalStatus === "Pending Approval" && (
+                            <>
+                              <Button
+                                size="sm"
+                                onClick={() => void reviewAr(row, "approve")}
+                                disabled={submitting}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => void reviewAr(row, "reject")}
+                                disabled={submitting}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void deleteReceivable(row)}
+                            disabled={submitting || row.sourceType !== "Manual"}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                          </Button>
                         </div>
                       ),
                     ],
@@ -800,7 +1097,6 @@ export default function Accounts() {
               <TabsContent value="credit-notes">
                 <Table
                   rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
-                  showFooter={false}
                   cols={[
                     ["Credit Note", "creditNoteNumber"],
                     ["Original Invoice", "linkedInvoiceNumber"],
@@ -1317,15 +1613,25 @@ export default function Accounts() {
               <div className="space-y-5 py-2">
                 <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Total Amount</p>
-                    <p className="font-semibold">{inr(settlement.row.amount)}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground">
+                      Total Amount
+                    </p>
+                    <p className="font-semibold">
+                      {inr(settlement.row.amount)}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Already Paid</p>
-                    <p className="font-semibold text-emerald-600">{inr(settlement.row.paidAmount)}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground">
+                      Already Paid
+                    </p>
+                    <p className="font-semibold text-emerald-600">
+                      {inr(settlement.row.paidAmount)}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Balance</p>
+                    <p className="text-[10px] uppercase text-muted-foreground">
+                      Balance
+                    </p>
                     <p className="font-semibold text-red-500">
                       {inr(
                         Math.max(
@@ -1346,7 +1652,9 @@ export default function Accounts() {
                     min="0.01"
                     step="0.01"
                     value={settlementAmount}
-                    onChange={(event) => setSettlementAmount(event.target.value)}
+                    onChange={(event) =>
+                      setSettlementAmount(event.target.value)
+                    }
                   />
                 </div>
               </div>
@@ -1419,12 +1727,92 @@ export default function Accounts() {
                   />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1.5 text-sm"><Label>Payment Date</Label><Input type="date" value={arPayment.paymentDate} onChange={(e) => setArPayment((value) => ({ ...value, paymentDate: e.target.value }))} /></label>
-                  <label className="space-y-1.5 text-sm"><Label>Payment Method</Label><select className="h-10 w-full rounded-md border bg-background px-3" value={arPayment.paymentMethod} onChange={(e) => setArPayment((value) => ({ ...value, paymentMethod: e.target.value }))}>{["Bank Transfer", "UPI", "Cheque", "Cash"].map((method) => <option key={method}>{method}</option>)}</select></label>
-                  <label className="space-y-1.5 text-sm"><Label>Bank Charges</Label><Input type="number" min="0" step="0.01" value={arPayment.bankCharges} onChange={(e) => setArPayment((value) => ({ ...value, bankCharges: e.target.value }))} /></label>
-                  <label className="space-y-1.5 text-sm"><Label>TDS Amount</Label><Input type="number" min="0" step="0.01" value={arPayment.tdsAmount} onChange={(e) => setArPayment((value) => ({ ...value, tdsAmount: e.target.value }))} /></label>
-                  <label className="space-y-1.5 text-sm sm:col-span-2"><Label>Transaction Reference</Label><Input value={arPayment.reference} onChange={(e) => setArPayment((value) => ({ ...value, reference: e.target.value }))} /></label>
-                  <label className="space-y-1.5 text-sm sm:col-span-2"><Label>Notes</Label><Input value={arPayment.notes} onChange={(e) => setArPayment((value) => ({ ...value, notes: e.target.value }))} /></label>
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Payment Date</Label>
+                    <Input
+                      type="date"
+                      value={arPayment.paymentDate}
+                      onChange={(e) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          paymentDate: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Payment Method</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={arPayment.paymentMethod}
+                      onChange={(e) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          paymentMethod: e.target.value,
+                        }))
+                      }
+                    >
+                      {["Bank Transfer", "UPI", "Cheque", "Cash"].map(
+                        (method) => (
+                          <option key={method}>{method}</option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Bank Charges</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={arPayment.bankCharges}
+                      onChange={(e) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          bankCharges: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <Label>TDS Amount</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={arPayment.tdsAmount}
+                      onChange={(e) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          tdsAmount: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm sm:col-span-2">
+                    <Label>Transaction Reference</Label>
+                    <Input
+                      value={arPayment.reference}
+                      onChange={(e) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          reference: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm sm:col-span-2">
+                    <Label>Notes</Label>
+                    <Input
+                      value={arPayment.notes}
+                      onChange={(e) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          notes: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
                 </div>
               </div>
             )}

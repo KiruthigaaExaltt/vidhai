@@ -4,12 +4,13 @@ import {
   useFlexMasterData,
   useFlexPurchaseInvoices,
 } from "./flexData";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DataPagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,7 +115,8 @@ async function updatePurchaseReturnStatus(id: number, status: string) {
     body: JSON.stringify({ status }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || "Failed to update purchase return");
+  if (!res.ok)
+    throw new Error(body.error || "Failed to update purchase return");
   return body;
 }
 
@@ -136,6 +138,7 @@ export default function PurchaseReturns() {
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Form
   const [vendor, setVendor] = useState("");
@@ -156,9 +159,7 @@ export default function PurchaseReturns() {
       lineItems.reduce((sum, line) => {
         const base = line.returnQty * line.rate;
         return (
-          sum +
-          base *
-            (1 + (line.cgstPct + line.sgstPct + line.igstPct) / 100)
+          sum + base * (1 + (line.cgstPct + line.sgstPct + line.igstPct) / 100)
         );
       }, 0),
     [lineItems],
@@ -238,6 +239,19 @@ export default function PurchaseReturns() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [returnsList, search, selectedVendor, fromDate, toDate]);
+  const pageSize = Number(rowsPerPage);
+  const paginatedReturns = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  useEffect(
+    () => setCurrentPage(1),
+    [search, selectedVendor, fromDate, toDate, rowsPerPage],
+  );
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (currentPage > lastPage) setCurrentPage(lastPage);
+  }, [currentPage, filtered.length, pageSize]);
 
   const handleInitiateReturn = (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,8 +263,7 @@ export default function PurchaseReturns() {
       !reason.trim() ||
       !validLines.length ||
       validLines.some(
-        (line) =>
-          !line.warehouse || line.returnQty > Number(line.receivedQty),
+        (line) => !line.warehouse || line.returnQty > Number(line.receivedQty),
       )
     ) {
       toast.error(
@@ -288,7 +301,10 @@ export default function PurchaseReturns() {
   };
 
   const mapReceiptLines = (receipt: any, invoiceRef = "") => {
-    populateVendor(receipt.vendor || receipt.vendorName || "", receipt.vendorId);
+    populateVendor(
+      receipt.vendor || receipt.vendorName || "",
+      receipt.vendorId,
+    );
     setGrnReference(receipt.grnNumber || "");
     const invoice = purchaseInvoices.find(
       (item: any) => item.invoiceNumber === invoiceRef,
@@ -299,15 +315,22 @@ export default function PurchaseReturns() {
     setLineItems(
       (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).map(
         (line: any, index: number) => {
-          const description = String(line.description || line.itemName || "Item");
+          const description = String(
+            line.description || line.itemName || "Item",
+          );
           const invoiceLine = invoiceLines.find((candidate: any) => {
             const sameItemId =
               Number(line.itemId) > 0 &&
               Number(candidate.itemId) === Number(line.itemId);
             const candidateDescription = String(
               candidate.item || candidate.description || "",
-            ).trim().toLowerCase();
-            return sameItemId || candidateDescription === description.trim().toLowerCase();
+            )
+              .trim()
+              .toLowerCase();
+            return (
+              sameItemId ||
+              candidateDescription === description.trim().toLowerCase()
+            );
           });
           return {
             id: `${receipt.id}-${line.id ?? index}`,
@@ -319,10 +342,34 @@ export default function PurchaseReturns() {
             warehouse: String(line.warehouse || ""),
             receivedQty: Number(line.acceptedQty ?? line.receivedQty ?? 0),
             returnQty: 0,
-            rate: Number(invoiceLine?.price ?? invoiceLine?.rate ?? line.rate ?? line.unitPrice ?? 0),
-            cgstPct: Number(invoiceLine?.cgstPct ?? invoiceLine?.cgstPercent ?? line.cgstPct ?? line.cgstPercent ?? 0),
-            sgstPct: Number(invoiceLine?.sgstPct ?? invoiceLine?.sgstPercent ?? line.sgstPct ?? line.sgstPercent ?? 0),
-            igstPct: Number(invoiceLine?.igstPct ?? invoiceLine?.igstPercent ?? line.igstPct ?? line.igstPercent ?? 0),
+            rate: Number(
+              invoiceLine?.price ??
+                invoiceLine?.rate ??
+                line.rate ??
+                line.unitPrice ??
+                0,
+            ),
+            cgstPct: Number(
+              invoiceLine?.cgstPct ??
+                invoiceLine?.cgstPercent ??
+                line.cgstPct ??
+                line.cgstPercent ??
+                0,
+            ),
+            sgstPct: Number(
+              invoiceLine?.sgstPct ??
+                invoiceLine?.sgstPercent ??
+                line.sgstPct ??
+                line.sgstPercent ??
+                0,
+            ),
+            igstPct: Number(
+              invoiceLine?.igstPct ??
+                invoiceLine?.igstPercent ??
+                line.igstPct ??
+                line.igstPercent ??
+                0,
+            ),
           };
         },
       ),
@@ -337,10 +384,13 @@ export default function PurchaseReturns() {
     }
     const rows = ret.lineItems
       .map(
-        (line) => `<tr><td>${line.item}</td><td>${line.returnQty}</td><td>${line.warehouse || "-"}</td><td>₹ ${(line.returnQty * line.rate).toLocaleString("en-IN")}</td></tr>`,
+        (line) =>
+          `<tr><td>${line.item}</td><td>${line.returnQty}</td><td>${line.warehouse || "-"}</td><td>₹ ${(line.returnQty * line.rate).toLocaleString("en-IN")}</td></tr>`,
       )
       .join("");
-    printWindow.document.write(`<!doctype html><html><head><title>${ret.returnNumber}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#17211f}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ddd;padding:10px;text-align:left}.summary{margin-top:18px;font-weight:700}</style></head><body><h1>Purchase Return ${ret.returnNumber}</h1><p><strong>Vendor:</strong> ${ret.vendor}</p><p><strong>Date:</strong> ${ret.date}</p><p><strong>Reason:</strong> ${ret.reason}</p><table><thead><tr><th>Item</th><th>Returned Qty</th><th>Warehouse</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table><p class="summary">Return Amount: ₹ ${ret.refundAmount.toLocaleString("en-IN")}</p><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
+    printWindow.document.write(
+      `<!doctype html><html><head><title>${ret.returnNumber}</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#17211f}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:24px}th,td{border:1px solid #ddd;padding:10px;text-align:left}.summary{margin-top:18px;font-weight:700}</style></head><body><h1>Purchase Return ${ret.returnNumber}</h1><p><strong>Vendor:</strong> ${ret.vendor}</p><p><strong>Date:</strong> ${ret.date}</p><p><strong>Reason:</strong> ${ret.reason}</p><table><thead><tr><th>Item</th><th>Returned Qty</th><th>Warehouse</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table><p class="summary">Return Amount: ₹ ${ret.refundAmount.toLocaleString("en-IN")}</p><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`,
+    );
     printWindow.document.close();
   };
 
@@ -438,9 +488,7 @@ export default function PurchaseReturns() {
                     </th>
                     <th className="px-4 py-3 font-semibold">Item</th>
                     <th className="px-4 py-3 font-semibold">Returned Qty</th>
-                    <th className="px-4 py-3 font-semibold">
-                      PO/GRN Ref
-                    </th>
+                    <th className="px-4 py-3 font-semibold">PO/GRN Ref</th>
                     <th className="px-4 py-3 font-semibold">
                       {FLEX_TEXT.reason}
                     </th>
@@ -470,7 +518,7 @@ export default function PurchaseReturns() {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((ret) => (
+                    paginatedReturns.map((ret) => (
                       <tr
                         key={ret.id}
                         className="hover:bg-muted/40 transition-colors"
@@ -485,13 +533,23 @@ export default function PurchaseReturns() {
                           {ret.returnNumber}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          {ret.lineItems.map((line) => line.item).filter(Boolean).join(", ") || "-"}
+                          {ret.lineItems
+                            .map((line) => line.item)
+                            .filter(Boolean)
+                            .join(", ") || "-"}
                         </td>
                         <td className="px-4 py-3 font-semibold">
-                          {ret.lineItems.reduce((sum, line) => sum + Number(line.returnQty || 0), 0)}
+                          {ret.lineItems.reduce(
+                            (sum, line) => sum + Number(line.returnQty || 0),
+                            0,
+                          )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono text-[11px]">
-                          {ret.lineItems[0]?.poReference || ""}{ret.lineItems[0]?.poReference && ret.grnNumber ? " / " : ""}{ret.grnNumber || "-"}
+                          {ret.lineItems[0]?.poReference || ""}
+                          {ret.lineItems[0]?.poReference && ret.grnNumber
+                            ? " / "
+                            : ""}
+                          {ret.grnNumber || "-"}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {ret.reason}
@@ -508,7 +566,8 @@ export default function PurchaseReturns() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {(ret.status === "Draft" || ret.status === "Requested") && (
+                          {(ret.status === "Draft" ||
+                            ret.status === "Requested") && (
                             <div className="inline-flex items-center gap-1 mr-1">
                               <Button
                                 type="button"
@@ -531,7 +590,10 @@ export default function PurchaseReturns() {
                                 className="h-7 gap-1 border-red-300 text-red-600 hover:bg-red-50"
                                 disabled={statusMutation.isPending}
                                 onClick={() =>
-                                  statusMutation.mutate({ id: ret.id, status: "Rejected" })
+                                  statusMutation.mutate({
+                                    id: ret.id,
+                                    status: "Rejected",
+                                  })
                                 }
                               >
                                 <XCircle className="w-3.5 h-3.5" /> Reject
@@ -555,50 +617,16 @@ export default function PurchaseReturns() {
               </table>
             </div>
 
-            {/* Pagination Footer */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
-              <div>
-                {FLEX_TEXT.showing}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length > 0 ? 1 : 0}
-                </span>{" "}
-                {FLEX_TEXT.to}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.of}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.records}
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span>{FLEX_TEXT.rowsPerPage}</span>
-                  <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
-                    <SelectTrigger className="h-7 w-16 text-xs bg-background">
-                      <SelectValue placeholder="10" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center">
-                    1
-                  </button>
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DataPagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={filtered.length}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(size) => {
+                setRowsPerPage(String(size));
+                setCurrentPage(1);
+              }}
+            />
           </CardContent>
         </Card>
 
@@ -627,10 +655,20 @@ export default function PurchaseReturns() {
                   <div className="space-y-2">
                     <Label>Reason *</Label>
                     <Select value={reason} onValueChange={setReason}>
-                      <SelectTrigger><SelectValue placeholder="Select reason" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select reason" />
+                      </SelectTrigger>
                       <SelectContent>
-                        {["Damage", "Quality Issue", "Wrong Item", "Excess Quantity", "Other"].map((value) => (
-                          <SelectItem key={value} value={value}>{value}</SelectItem>
+                        {[
+                          "Damage",
+                          "Quality Issue",
+                          "Wrong Item",
+                          "Excess Quantity",
+                          "Other",
+                        ].map((value) => (
+                          <SelectItem key={value} value={value}>
+                            {value}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -644,35 +682,63 @@ export default function PurchaseReturns() {
                       value={invoiceReference}
                       onValueChange={(value) => {
                         setInvoiceReference(value);
-                        const invoice = purchaseInvoices.find((item: any) => item.invoiceNumber === value);
+                        const invoice = purchaseInvoices.find(
+                          (item: any) => item.invoiceNumber === value,
+                        );
                         if (!invoice) return;
-                        populateVendor(invoice.vendor || invoice.vendorName || "", invoice.vendorId);
-                        const receipt = goodsReceipts.find((item: any) => item.grnNumber === invoice.grnReference);
+                        populateVendor(
+                          invoice.vendor || invoice.vendorName || "",
+                          invoice.vendorId,
+                        );
+                        const receipt = goodsReceipts.find(
+                          (item: any) =>
+                            item.grnNumber === invoice.grnReference,
+                        );
                         if (receipt) mapReceiptLines(receipt, value);
                         else {
                           setGrnReference("");
-                          setLineItems((Array.isArray(invoice.lineItems) ? invoice.lineItems : []).map((line: any, index: number) => ({
-                            id: `invoice-${invoice.id}-${index}`,
-                            item: String(line.item || line.description || "Item"),
-                            itemId: Number(line.itemId) || undefined,
-                            invoiceReference: value,
-                            poReference: String(invoice.poReference || ""),
-                            grnReference: String(invoice.grnReference || ""),
-                            warehouse: "",
-                            receivedQty: Number(line.qty ?? line.quantity ?? 0),
-                            returnQty: 0,
-                            rate: Number(line.price ?? line.rate ?? 0),
-                            cgstPct: Number(line.cgstPct ?? line.cgstPercent ?? 0),
-                            sgstPct: Number(line.sgstPct ?? line.sgstPercent ?? 0),
-                            igstPct: Number(line.igstPct ?? line.igstPercent ?? 0),
-                          })));
+                          setLineItems(
+                            (Array.isArray(invoice.lineItems)
+                              ? invoice.lineItems
+                              : []
+                            ).map((line: any, index: number) => ({
+                              id: `invoice-${invoice.id}-${index}`,
+                              item: String(
+                                line.item || line.description || "Item",
+                              ),
+                              itemId: Number(line.itemId) || undefined,
+                              invoiceReference: value,
+                              poReference: String(invoice.poReference || ""),
+                              grnReference: String(invoice.grnReference || ""),
+                              warehouse: "",
+                              receivedQty: Number(
+                                line.qty ?? line.quantity ?? 0,
+                              ),
+                              returnQty: 0,
+                              rate: Number(line.price ?? line.rate ?? 0),
+                              cgstPct: Number(
+                                line.cgstPct ?? line.cgstPercent ?? 0,
+                              ),
+                              sgstPct: Number(
+                                line.sgstPct ?? line.sgstPercent ?? 0,
+                              ),
+                              igstPct: Number(
+                                line.igstPct ?? line.igstPercent ?? 0,
+                              ),
+                            })),
+                          );
                         }
                       }}
                     >
-                      <SelectTrigger><SelectValue placeholder="Select purchase invoice" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select purchase invoice" />
+                      </SelectTrigger>
                       <SelectContent>
                         {purchaseInvoices.map((invoice: any) => (
-                          <SelectItem key={invoice.id} value={invoice.invoiceNumber}>
+                          <SelectItem
+                            key={invoice.id}
+                            value={invoice.invoiceNumber}
+                          >
                             {invoice.invoiceNumber} ({invoice.vendor})
                           </SelectItem>
                         ))}
@@ -684,61 +750,238 @@ export default function PurchaseReturns() {
                     <Select
                       value={grnReference}
                       onValueChange={(value) => {
-                        const receipt = goodsReceipts.find((item: any) => item.grnNumber === value);
+                        const receipt = goodsReceipts.find(
+                          (item: any) => item.grnNumber === value,
+                        );
                         if (receipt) mapReceiptLines(receipt, invoiceReference);
                       }}
                     >
-                      <SelectTrigger><SelectValue placeholder="Select goods receipt" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select goods receipt" />
+                      </SelectTrigger>
                       <SelectContent>
                         {goodsReceipts.map((receipt: any) => (
-                          <SelectItem key={receipt.id} value={receipt.grnNumber}>
+                          <SelectItem
+                            key={receipt.id}
+                            value={receipt.grnNumber}
+                          >
                             {receipt.grnNumber} ({receipt.vendor})
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">Map an invoice or GRN to load returnable received lines automatically.</p>
+                    <p className="text-xs text-muted-foreground">
+                      Map an invoice or GRN to load returnable received lines
+                      automatically.
+                    </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="space-y-2">
                     <Label>Vendor Name *</Label>
-                    <Select value={vendor} onValueChange={(value) => populateVendor(value)}>
-                      <SelectTrigger><SelectValue placeholder="Select vendor" /></SelectTrigger>
-                      <SelectContent>{vendorsList.map((option) => <SelectItem key={option.id} value={option.name}>{option.id} - {option.name}</SelectItem>)}</SelectContent>
+                    <Select
+                      value={vendor}
+                      onValueChange={(value) => populateVendor(value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select vendor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {vendorsList.map((option) => (
+                          <SelectItem key={option.id} value={option.name}>
+                            {option.id} - {option.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2"><Label>Vendor Address *</Label><Input value={vendorAddress} onChange={(e) => setVendorAddress(e.target.value)} /></div>
-                  <div className="space-y-2"><Label>Vendor Phone *</Label><Input value={vendorPhone} onChange={(e) => setVendorPhone(e.target.value)} /></div>
+                  <div className="space-y-2">
+                    <Label>Vendor Address *</Label>
+                    <Input
+                      value={vendorAddress}
+                      onChange={(e) => setVendorAddress(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Vendor Phone *</Label>
+                    <Input
+                      value={vendorPhone}
+                      onChange={(e) => setVendorPhone(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
-                  <div><span className="text-blue-600">Selected Vendor</span><strong className="float-right">{vendor || "-"}</strong></div>
-                  <div><span className="text-blue-600">Total Return Qty</span><strong className="float-right">{totalReturnQty}</strong></div>
-                  <div><span className="text-blue-600">Invoice Amount</span><strong className="float-right">₹ {selectedInvoiceAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></div>
-                  <div><span className="text-blue-600">Non-returned Amount</span><strong className="float-right">₹ {nonReturnedAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></div>
-                  <div><span className="text-blue-600">Refund Amount</span><strong className="float-right">₹ {refundAmount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></div>
+                  <div>
+                    <span className="text-blue-600">Selected Vendor</span>
+                    <strong className="float-right">{vendor || "-"}</strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-600">Total Return Qty</span>
+                    <strong className="float-right">{totalReturnQty}</strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-600">Invoice Amount</span>
+                    <strong className="float-right">
+                      ₹{" "}
+                      {selectedInvoiceAmount.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-600">Non-returned Amount</span>
+                    <strong className="float-right">
+                      ₹{" "}
+                      {nonReturnedAmount.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-blue-600">Refund Amount</span>
+                    <strong className="float-right">
+                      ₹{" "}
+                      {refundAmount.toLocaleString("en-IN", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </strong>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border">
                   <table className="w-full min-w-[900px] text-xs">
-                    <thead className="bg-muted/40 text-muted-foreground"><tr><th className="p-3 text-left">INVOICE</th><th className="p-3 text-left">PO</th><th className="p-3 text-left">GRN</th><th className="p-3 text-left">ITEM</th><th className="p-3 text-left">WAREHOUSE</th><th className="p-3 text-right">RECEIVED</th><th className="p-3 text-right">RETURN QTY</th><th className="p-3 text-right">AMOUNT</th></tr></thead>
-                    <tbody>{lineItems.map((line) => (
-                      <tr key={line.id} className="border-t">
-                        <td className="p-3">{line.invoiceReference || "-"}</td><td className="p-3">{line.poReference || "-"}</td><td className="p-3">{line.grnReference || "-"}</td><td className="p-3 font-medium">{line.item}</td>
-                        <td className="p-2"><Select value={line.warehouse} onValueChange={(value) => setLineItems((current) => current.map((item) => item.id === line.id ? { ...item, warehouse: value } : item))}><SelectTrigger className="h-9"><SelectValue placeholder="Select warehouse" /></SelectTrigger><SelectContent>{warehouseOptions.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.name}>{warehouse.name}</SelectItem>)}</SelectContent></Select></td>
-                        <td className="p-3 text-right">{line.receivedQty}</td>
-                        <td className="p-2"><Input className="h-9 text-right" type="number" min="0" max={line.receivedQty} step="any" value={line.returnQty || ""} onChange={(event) => setLineItems((current) => current.map((item) => item.id === line.id ? { ...item, returnQty: Math.min(line.receivedQty, Math.max(0, Number(event.target.value))) } : item))} /></td>
-                        <td className="p-3 text-right font-semibold">₹ {(line.returnQty * line.rate * (1 + (line.cgstPct + line.sgstPct + line.igstPct) / 100)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td>
+                    <thead className="bg-muted/40 text-muted-foreground">
+                      <tr>
+                        <th className="p-3 text-left">INVOICE</th>
+                        <th className="p-3 text-left">PO</th>
+                        <th className="p-3 text-left">GRN</th>
+                        <th className="p-3 text-left">ITEM</th>
+                        <th className="p-3 text-left">WAREHOUSE</th>
+                        <th className="p-3 text-right">RECEIVED</th>
+                        <th className="p-3 text-right">RETURN QTY</th>
+                        <th className="p-3 text-right">AMOUNT</th>
                       </tr>
-                    ))}</tbody>
+                    </thead>
+                    <tbody>
+                      {lineItems.map((line) => (
+                        <tr key={line.id} className="border-t">
+                          <td className="p-3">
+                            {line.invoiceReference || "-"}
+                          </td>
+                          <td className="p-3">{line.poReference || "-"}</td>
+                          <td className="p-3">{line.grnReference || "-"}</td>
+                          <td className="p-3 font-medium">{line.item}</td>
+                          <td className="p-2">
+                            <Select
+                              value={line.warehouse}
+                              onValueChange={(value) =>
+                                setLineItems((current) =>
+                                  current.map((item) =>
+                                    item.id === line.id
+                                      ? { ...item, warehouse: value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Select warehouse" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {warehouseOptions.map((warehouse) => (
+                                  <SelectItem
+                                    key={warehouse.id}
+                                    value={warehouse.name}
+                                  >
+                                    {warehouse.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="p-3 text-right">{line.receivedQty}</td>
+                          <td className="p-2">
+                            <Input
+                              className="h-9 text-right"
+                              type="number"
+                              min="0"
+                              max={line.receivedQty}
+                              step="any"
+                              value={line.returnQty || ""}
+                              onChange={(event) =>
+                                setLineItems((current) =>
+                                  current.map((item) =>
+                                    item.id === line.id
+                                      ? {
+                                          ...item,
+                                          returnQty: Math.min(
+                                            line.receivedQty,
+                                            Math.max(
+                                              0,
+                                              Number(event.target.value),
+                                            ),
+                                          ),
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            />
+                          </td>
+                          <td className="p-3 text-right font-semibold">
+                            ₹{" "}
+                            {(
+                              line.returnQty *
+                              line.rate *
+                              (1 +
+                                (line.cgstPct + line.sgstPct + line.igstPct) /
+                                  100)
+                            ).toLocaleString("en-IN", {
+                              minimumFractionDigits: 2,
+                            })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
-                  {!lineItems.length && <div className="p-8 text-center text-sm text-muted-foreground">Select an invoice or GRN to load returnable lines.</div>}
+                  {!lineItems.length && (
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                      Select an invoice or GRN to load returnable lines.
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-2"><Label>Notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} /></div>
-                <div className="space-y-2"><Label>Supporting Document (optional)</Label><label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4"><Paperclip className="h-4 w-4" /><span>{attachmentName || "Click to attach file"}</span><Input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 250 * 1024) { toast.error("File must be 250 KB or smaller"); return; } setAttachmentName(file.name); }} /></label></div>
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <Textarea
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Supporting Document (optional)</Label>
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border p-4">
+                    <Paperclip className="h-4 w-4" />
+                    <span>{attachmentName || "Click to attach file"}</span>
+                    <Input
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.jpg,.jpeg,.png,.webp"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 250 * 1024) {
+                          toast.error("File must be 250 KB or smaller");
+                          return;
+                        }
+                        setAttachmentName(file.name);
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
               <DialogFooter className="border-t pt-4">
                 <Button

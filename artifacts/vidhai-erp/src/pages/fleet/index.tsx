@@ -7,6 +7,8 @@ import {
   useUpdateVehicle,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,7 +74,8 @@ export default function FleetList() {
   });
   const list: any[] = (vehicles as any) ?? [];
 
-  const refetch = () => queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
+  const refetch = () =>
+    queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
   const createMut = useCreateVehicle({ mutation: { onSuccess: refetch } });
   const updateMut = useUpdateVehicle({ mutation: { onSuccess: refetch } });
 
@@ -113,18 +116,46 @@ export default function FleetList() {
     }
     if (editVehicle) {
       updateMut.mutate(
-        { id: editVehicle.id, data: { name: form.name, regNo: form.regNo, vehicleType: form.vehicleType, homeLocationId: form.homeLocationId, notes: form.notes || null, status: editStatus } as any },
-        { onSuccess: () => setDialogOpen(false), onError: (e: any) => setFormError(e?.message ?? "Update failed.") }
+        {
+          id: editVehicle.id,
+          data: {
+            name: form.name,
+            regNo: form.regNo,
+            vehicleType: form.vehicleType,
+            homeLocationId: form.homeLocationId,
+            notes: form.notes || null,
+            status: editStatus,
+          } as any,
+        },
+        {
+          onSuccess: () => setDialogOpen(false),
+          onError: (e: any) => setFormError(e?.message ?? "Update failed."),
+        },
       );
     } else {
       createMut.mutate(
-        { data: { name: form.name, regNo: form.regNo, vehicleType: form.vehicleType, homeLocationId: form.homeLocationId, notes: form.notes || null } as any },
-        { onSuccess: () => setDialogOpen(false), onError: (e: any) => setFormError(e?.message ?? "Create failed.") }
+        {
+          data: {
+            name: form.name,
+            regNo: form.regNo,
+            vehicleType: form.vehicleType,
+            homeLocationId: form.homeLocationId,
+            notes: form.notes || null,
+          } as any,
+        },
+        {
+          onSuccess: () => setDialogOpen(false),
+          onError: (e: any) => setFormError(e?.message ?? "Create failed."),
+        },
       );
     }
   };
 
-  const filtered = filterStatus === "ALL" ? list : list.filter((v: any) => v.status === filterStatus);
+  const filtered =
+    filterStatus === "ALL"
+      ? list
+      : list.filter((v: any) => v.status === filterStatus);
+  const vehiclePagination = useClientPagination(filtered, filterStatus);
 
   return (
     <Shell>
@@ -134,7 +165,6 @@ export default function FleetList() {
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Truck className="w-6 h-6 text-primary" /> Vehicle Fleet
             </h1>
-            
           </div>
           <Button size="sm" className="rounded-sm h-8" onClick={openNew}>
             <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Vehicle
@@ -162,11 +192,18 @@ export default function FleetList() {
         <Card className="rounded-sm border-border shadow-none">
           <CardContent className="p-0 overflow-x-auto">
             {isLoading ? (
-              <div className="p-8 text-sm text-muted-foreground">Loading vehicles…</div>
+              <div className="p-8 text-sm text-muted-foreground">
+                Loading vehicles…
+              </div>
             ) : filtered.length === 0 ? (
               <div className="p-10 text-center text-sm text-muted-foreground">
                 No vehicles.{" "}
-                <button className="text-primary underline underline-offset-2" onClick={openNew}>Add the first one.</button>
+                <button
+                  className="text-primary underline underline-offset-2"
+                  onClick={openNew}
+                >
+                  Add the first one.
+                </button>
               </div>
             ) : (
               <table className="w-full text-sm text-left whitespace-nowrap">
@@ -182,28 +219,51 @@ export default function FleetList() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filtered.map((v: any) => (
+                  {vehiclePagination.paginatedRows.map((v: any) => (
                     <tr
                       key={v.id}
                       className="h-[36px] hover:bg-muted/20 cursor-pointer"
                       onClick={() => setLocation(`/fleet/${v.id}`)}
                     >
                       <td className="px-4 font-semibold">{v.name}</td>
-                      <td className="px-4 font-mono text-muted-foreground">{v.regNo}</td>
-                      <td className="px-4">{TYPE_LABELS[v.vehicleType as VehicleType] ?? v.vehicleType}</td>
-                      <td className="px-4 text-muted-foreground">{v.homeLocationName ?? v.homeLocationCode ?? "Cross-site"}</td>
+                      <td className="px-4 font-mono text-muted-foreground">
+                        {v.regNo}
+                      </td>
                       <td className="px-4">
-                        <Badge variant="outline" className={`rounded-sm text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 ${STATUS_COLORS[v.status as VehicleStatus] ?? ""}`}>
+                        {TYPE_LABELS[v.vehicleType as VehicleType] ??
+                          v.vehicleType}
+                      </td>
+                      <td className="px-4 text-muted-foreground">
+                        {v.homeLocationName ??
+                          v.homeLocationCode ??
+                          "Cross-site"}
+                      </td>
+                      <td className="px-4">
+                        <Badge
+                          variant="outline"
+                          className={`rounded-sm text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 ${STATUS_COLORS[v.status as VehicleStatus] ?? ""}`}
+                        >
                           {STATUS_LABELS[v.status as VehicleStatus] ?? v.status}
                         </Badge>
                       </td>
-                      <td className="px-4 text-xs text-muted-foreground max-w-[180px] truncate">{v.notes ?? "—"}</td>
+                      <td className="px-4 text-xs text-muted-foreground max-w-[180px] truncate">
+                        {v.notes ?? "—"}
+                      </td>
                       <td className="px-4">
-                        <div className="flex gap-1 items-center" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => openEdit(v)} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground">
+                        <div
+                          className="flex gap-1 items-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => openEdit(v)}
+                            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                          >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => setLocation(`/fleet/${v.id}`)} className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground">
+                          <button
+                            onClick={() => setLocation(`/fleet/${v.id}`)}
+                            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                          >
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -214,69 +274,151 @@ export default function FleetList() {
               </table>
             )}
           </CardContent>
+          <DataPagination
+            currentPage={vehiclePagination.currentPage}
+            pageSize={vehiclePagination.pageSize}
+            totalCount={vehiclePagination.totalCount}
+            onPageChange={vehiclePagination.setCurrentPage}
+            onPageSizeChange={vehiclePagination.setPageSize}
+          />
         </Card>
 
         {/* Add / Edit dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="rounded-sm border-border shadow-none max-w-md">
             <DialogHeader>
-              <DialogTitle>{editVehicle ? `Edit — ${editVehicle.name}` : "Add Vehicle"}</DialogTitle>
+              <DialogTitle>
+                {editVehicle ? `Edit — ${editVehicle.name}` : "Add Vehicle"}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-2">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Vehicle Name</Label>
-                  <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-sm h-9" placeholder="e.g. KA-01 Tempo" />
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Vehicle Name
+                  </Label>
+                  <Input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="rounded-sm h-9"
+                    placeholder="e.g. KA-01 Tempo"
+                  />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Registration No.</Label>
-                  <Input value={form.regNo} onChange={(e) => setForm({ ...form, regNo: e.target.value })} className="rounded-sm font-mono h-9" placeholder="TN-XX-XXXX" />
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Registration No.
+                  </Label>
+                  <Input
+                    value={form.regNo}
+                    onChange={(e) =>
+                      setForm({ ...form, regNo: e.target.value })
+                    }
+                    className="rounded-sm font-mono h-9"
+                    placeholder="TN-XX-XXXX"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Type</Label>
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Type
+                  </Label>
                   <select
                     className="w-full h-9 rounded-sm border border-border bg-background px-3 text-sm"
                     value={form.vehicleType}
-                    onChange={(e) => setForm({ ...form, vehicleType: e.target.value as VehicleType })}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        vehicleType: e.target.value as VehicleType,
+                      })
+                    }
                   >
-                    {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    {Object.entries(TYPE_LABELS).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Home Location</Label>
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Home Location
+                  </Label>
                   <select
                     className="w-full h-9 rounded-sm border border-border bg-background px-3 text-sm"
                     value={form.homeLocationId ?? ""}
-                    onChange={(e) => setForm({ ...form, homeLocationId: e.target.value ? Number(e.target.value) : null })}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        homeLocationId: e.target.value
+                          ? Number(e.target.value)
+                          : null,
+                      })
+                    }
                   >
-                    {HOME_LOCS.map((l) => <option key={l.id ?? "none"} value={l.id ?? ""}>{l.label}</option>)}
+                    {HOME_LOCS.map((l) => (
+                      <option key={l.id ?? "none"} value={l.id ?? ""}>
+                        {l.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
               {editVehicle && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Status</Label>
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Status
+                  </Label>
                   <select
                     className="w-full h-9 rounded-sm border border-border bg-background px-3 text-sm"
                     value={editStatus}
-                    onChange={(e) => setEditStatus(e.target.value as VehicleStatus)}
+                    onChange={(e) =>
+                      setEditStatus(e.target.value as VehicleStatus)
+                    }
                   >
-                    {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
               <div className="space-y-1.5">
-                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
-                <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="rounded-sm h-9" placeholder="Optional" />
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Notes
+                </Label>
+                <Input
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  className="rounded-sm h-9"
+                  placeholder="Optional"
+                />
               </div>
-              {formError && <p className="text-xs text-destructive font-medium">{formError}</p>}
+              {formError && (
+                <p className="text-xs text-destructive font-medium">
+                  {formError}
+                </p>
+              )}
             </div>
             <DialogFooter className="pt-2">
-              <Button variant="outline" className="rounded-sm" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button className="rounded-sm" disabled={createMut.isPending || updateMut.isPending} onClick={handleSave}>
-                {createMut.isPending || updateMut.isPending ? "Saving…" : editVehicle ? "Update" : "Add Vehicle"}
+              <Button
+                variant="outline"
+                className="rounded-sm"
+                onClick={() => setDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="rounded-sm"
+                disabled={createMut.isPending || updateMut.isPending}
+                onClick={handleSave}
+              >
+                {createMut.isPending || updateMut.isPending
+                  ? "Saving…"
+                  : editVehicle
+                    ? "Update"
+                    : "Add Vehicle"}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -3,6 +3,7 @@ import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
+import { paginateQuery, paginationMetadata } from "../lib/pagination";
 import {
   and,
   asc,
@@ -262,8 +263,8 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
         : x.status === status,
     );
   const total = rows.length,
-    skip = Math.max(0, Number(req.query.skip || 0)),
-    limit = Math.min(100, Math.max(1, Number(req.query.limit || 20)));
+    pagination = paginateQuery(req.query, 20),
+    { skip, limit } = pagination;
   res.json({
     data: rows.slice(skip, skip + limit).map((x: any) => ({
       ...x,
@@ -274,6 +275,7 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
     total,
     skip,
     limit,
+    ...paginationMetadata(total, pagination),
   });
 });
 router.get("/employees/next-code", async (req: any, res: any): Promise<any> => {

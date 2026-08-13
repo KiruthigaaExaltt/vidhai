@@ -20,6 +20,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { useToast } from "@/hooks/use-toast";
 
 const base = String(
@@ -319,6 +321,9 @@ export function AttendanceModule({
   const days = register
     ? Array.from({ length: register.daysInMonth }, (_, index) => index + 1)
     : [];
+  const logPagination = useClientPagination(filtered, `${from}|${to}|${query}`);
+  const registerRows = register?.rows || [];
+  const registerPagination = useClientPagination(registerRows, month);
   return (
     <div className="space-y-6">
       <section className="rounded-xl border bg-card p-5 shadow-sm">
@@ -418,7 +423,7 @@ export function AttendanceModule({
             </thead>
             <tbody>
               {filtered.length ? (
-                filtered.map((log) => (
+                logPagination.paginatedRows.map((log) => (
                   <tr key={log.id} className="border-t">
                     <td className="px-4 py-3 font-medium">
                       {log.employeeName}
@@ -461,9 +466,13 @@ export function AttendanceModule({
             </tbody>
           </table>
         </div>
-        <div className="border-t px-4 py-3 text-sm text-muted-foreground">
-          Showing {filtered.length} records
-        </div>
+        <DataPagination
+          currentPage={logPagination.currentPage}
+          pageSize={logPagination.pageSize}
+          totalCount={logPagination.totalCount}
+          onPageChange={logPagination.setCurrentPage}
+          onPageSizeChange={logPagination.setPageSize}
+        />
       </section>
       <section className="rounded-xl border bg-card p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -494,11 +503,7 @@ export function AttendanceModule({
               </span>
             ))}
         </div>
-        {registerLoading ? (
-          <div className="p-12 text-center text-muted-foreground">
-            Loading register...
-          </div>
-        ) : (
+        <div className="overflow-hidden rounded-lg border">
           <div className="overflow-x-auto">
             <table className="min-w-max border-separate border-spacing-1 text-xs">
               <thead>
@@ -522,30 +527,58 @@ export function AttendanceModule({
                 </tr>
               </thead>
               <tbody>
-                {(register?.rows || []).map((row: any) => (
-                  <tr key={row.employeeId}>
-                    <td className="sticky left-0 z-10 rounded-md border bg-card p-3">
-                      <b>{row.employeeName}</b>
-                      <small className="block text-muted-foreground">
-                        {row.employeeCode} · {row.department}
-                      </small>
+                {registerLoading ? (
+                  <tr>
+                    <td
+                      colSpan={days.length + 1}
+                      className="p-12 text-center text-muted-foreground"
+                    >
+                      Loading register...
                     </td>
-                    {row.days.map((cell: any) => (
-                      <td key={cell.date} className="p-0.5">
-                        <span
-                          title={`${cell.date}: ${cell.status}`}
-                          className={`flex h-10 w-10 items-center justify-center rounded-md border font-semibold ${statusTone[cell.status] || "border-muted bg-muted/20"}`}
-                        >
-                          {statusCode[cell.status] || cell.status.slice(0, 2)}
-                        </span>
-                      </td>
-                    ))}
                   </tr>
-                ))}
+                ) : registerPagination.paginatedRows.length ? (
+                  registerPagination.paginatedRows.map((row: any) => (
+                    <tr key={row.employeeId}>
+                      <td className="sticky left-0 z-10 rounded-md border bg-card p-3">
+                        <b>{row.employeeName}</b>
+                        <small className="block text-muted-foreground">
+                          {row.employeeCode} · {row.department}
+                        </small>
+                      </td>
+                      {row.days.map((cell: any) => (
+                        <td key={cell.date} className="p-0.5">
+                          <span
+                            title={`${cell.date}: ${cell.status}`}
+                            className={`flex h-10 w-10 items-center justify-center rounded-md border font-semibold ${statusTone[cell.status] || "border-muted bg-muted/20"}`}
+                          >
+                            {statusCode[cell.status] || cell.status.slice(0, 2)}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={days.length + 1}
+                      className="p-12 text-center text-muted-foreground"
+                    >
+                      No attendance registry records found.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-        )}
+          <DataPagination
+            currentPage={registerPagination.currentPage}
+            pageSize={registerPagination.pageSize}
+            totalCount={registerPagination.totalCount}
+            onPageChange={registerPagination.setCurrentPage}
+            onPageSizeChange={registerPagination.setPageSize}
+            loading={registerLoading}
+          />
+        </div>
       </section>
       <Dialog
         open={dialog}

@@ -1,5 +1,7 @@
 ﻿import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +87,7 @@ export default function Departments() {
   const [editing, setEditing] = useState<Department | null>(null);
   const [form, setForm] = useState<DepartmentForm>({ ...EMPTY_FORM });
   const [deleteTarget, setDeleteTarget] = useState<Department | null>(null);
+  const departmentPagination = useClientPagination(departments);
 
   const refresh = async () => {
     await Promise.all([
@@ -199,7 +202,7 @@ export default function Departments() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {departments.map((department) => (
+                {departmentPagination.paginatedRows.map((department) => (
                   <tr key={department.id} className="hover:bg-muted/30">
                     <td className="px-4 py-3 font-mono text-muted-foreground">
                       {department.id}
@@ -247,6 +250,13 @@ export default function Departments() {
                 ))}
               </tbody>
             </table>
+            <DataPagination
+              currentPage={departmentPagination.currentPage}
+              pageSize={departmentPagination.pageSize}
+              totalCount={departmentPagination.totalCount}
+              onPageChange={departmentPagination.setCurrentPage}
+              onPageSizeChange={departmentPagination.setPageSize}
+            />
           </div>
         )}
       </div>

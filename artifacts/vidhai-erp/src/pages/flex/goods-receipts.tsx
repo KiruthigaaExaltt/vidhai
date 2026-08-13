@@ -1,11 +1,12 @@
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData, useFlexPurchaseOrders } from "./flexData";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DataPagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -171,6 +172,7 @@ export default function GoodsReceipts() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewReceipt, setViewReceipt] = useState<GoodsReceiptItem | null>(null);
   const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Form fields for Log Goods Receipt
   const [mappedPoIds, setMappedPoIds] = useState<string[]>([]);
@@ -484,6 +486,19 @@ export default function GoodsReceipts() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [synchronizedGrns, search, selectedVendor, fromDate, toDate]);
+  const pageSize = Number(rowsPerPage);
+  const paginatedReceipts = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  useEffect(
+    () => setCurrentPage(1),
+    [search, selectedVendor, fromDate, toDate, rowsPerPage],
+  );
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (currentPage > lastPage) setCurrentPage(lastPage);
+  }, [currentPage, filtered.length, pageSize]);
 
   const handlePrintGRN = (g: GoodsReceiptItem) => {
     const printWindow = window.open("", "_blank");
@@ -711,7 +726,7 @@ export default function GoodsReceipts() {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((receipt, index) => (
+                    paginatedReceipts.map((receipt, index) => (
                       <tr
                         key={receipt.id}
                         className="hover:bg-muted/40 transition-colors"
@@ -793,50 +808,16 @@ export default function GoodsReceipts() {
               </table>
             </div>
 
-            {/* Pagination Footer */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
-              <div>
-                {FLEX_TEXT.showing}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length > 0 ? 1 : 0}
-                </span>{" "}
-                {FLEX_TEXT.to}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.of}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.records}
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span>{FLEX_TEXT.rowsPerPage}</span>
-                  <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
-                    <SelectTrigger className="h-7 w-16 text-xs bg-background">
-                      <SelectValue placeholder="10" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center">
-                    1
-                  </button>
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DataPagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={filtered.length}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(size) => {
+                setRowsPerPage(String(size));
+                setCurrentPage(1);
+              }}
+            />
           </CardContent>
         </Card>
 

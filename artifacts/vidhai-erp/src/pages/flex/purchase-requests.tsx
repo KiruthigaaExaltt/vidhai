@@ -1,6 +1,6 @@
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData } from "./flexData";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getListContactsQueryKey,
@@ -10,6 +10,7 @@ import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DataPagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -293,7 +294,8 @@ export default function PurchaseRequestsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
-  const [rowsPerPage, setRowsPerPage] = useState("25");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal Dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -708,14 +710,37 @@ export default function PurchaseRequestsPage() {
     const vendor = vendorsList.find((option) => option.id === pr.vendorId);
     setEditVendorsTable(
       vendor
-        ? [{ name: vendor.name, whatsapp: "", phone: vendor.phone || "", email: vendor.email || "" }]
+        ? [
+            {
+              name: vendor.name,
+              whatsapp: "",
+              phone: vendor.phone || "",
+              email: vendor.email || "",
+            },
+          ]
         : [],
     );
-    setEditLineItems([{ id: "1", itemId: itemOptions.find((item) => item.name === pr.itemName)?.id, product: pr.itemName || "", description: pr.itemName || "", qty: pr.quantity || 1, unit: pr.unit || "" }]);
+    setEditLineItems([
+      {
+        id: "1",
+        itemId: itemOptions.find((item) => item.name === pr.itemName)?.id,
+        product: pr.itemName || "",
+        description: pr.itemName || "",
+        qty: pr.quantity || 1,
+        unit: pr.unit || "",
+      },
+    ]);
     setEditReqDate(pr.reqDate || "");
     setEditRequiredDate(pr.requiredDate || "");
     setEditPriority(pr.priority || "Normal");
-    setEditDepartmentId(String(pr.departmentId ?? departmentOptions.find((option) => option.name === pr.department)?.id ?? ""));
+    setEditDepartmentId(
+      String(
+        pr.departmentId ??
+          departmentOptions.find((option) => option.name === pr.department)
+            ?.id ??
+          "",
+      ),
+    );
     setEditDepartment(pr.department || "");
     setEditRequestedBy(String(pr.requestedByUserId || ""));
     setEditProject(pr.project || "");
@@ -744,6 +769,19 @@ export default function PurchaseRequestsPage() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [prs, search, selectedVendor, fromDate, toDate]);
+  const pageSize = Number(rowsPerPage);
+  const paginatedRequests = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  useEffect(
+    () => setCurrentPage(1),
+    [search, selectedVendor, fromDate, toDate, rowsPerPage],
+  );
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (currentPage > lastPage) setCurrentPage(lastPage);
+  }, [currentPage, filtered.length, pageSize]);
 
   const availabilityGroups = useMemo(() => {
     const grouped = new Map<number, VendorAvailabilityItem[]>();
@@ -753,11 +791,13 @@ export default function PurchaseRequestsPage() {
         item,
       ]);
     });
-    return Array.from(grouped.entries()).map(([purchaseRequestId, vendors]) => ({
-      purchaseRequestId,
-      vendors,
-      purchaseRequest: prs.find((pr) => pr.id === purchaseRequestId),
-    }));
+    return Array.from(grouped.entries()).map(
+      ([purchaseRequestId, vendors]) => ({
+        purchaseRequestId,
+        vendors,
+        purchaseRequest: prs.find((pr) => pr.id === purchaseRequestId),
+      }),
+    );
   }, [vendorAvailability, prs]);
 
   const handleSubmitPR = (status: "Submitted" | "Draft") => {
@@ -976,7 +1016,7 @@ export default function PurchaseRequestsPage() {
                           </td>
                         </tr>
                       ) : (
-                        filtered.map((pr) => (
+                        paginatedRequests.map((pr) => (
                           <tr
                             key={pr.id}
                             className="hover:bg-muted/40 transition-colors"
@@ -1110,51 +1150,16 @@ export default function PurchaseRequestsPage() {
                   </table>
                 </div>
 
-                {/* Pagination Footer */}
-                <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
-                  <div>
-                    {FLEX_TEXT.showing}{" "}
-                    <span className="font-semibold text-foreground">1</span>{" "}
-                    {FLEX_TEXT.to}{" "}
-                    <span className="font-semibold text-foreground">
-                      {filtered.length}
-                    </span>{" "}
-                    {FLEX_TEXT.of}{" "}
-                    <span className="font-semibold text-foreground">
-                      {filtered.length}
-                    </span>{" "}
-                    {FLEX_TEXT.records}
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span>{FLEX_TEXT.rowsPerPage}</span>
-                      <Select
-                        value={rowsPerPage}
-                        onValueChange={setRowsPerPage}
-                      >
-                        <SelectTrigger className="h-7 w-16 text-xs bg-background">
-                          <SelectValue placeholder="25" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="10">10</SelectItem>
-                          <SelectItem value="25">25</SelectItem>
-                          <SelectItem value="50">50</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                      </button>
-                      <button className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center">
-                        1
-                      </button>
-                      <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <DataPagination
+                  currentPage={currentPage}
+                  pageSize={pageSize}
+                  totalCount={filtered.length}
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={(size) => {
+                    setRowsPerPage(String(size));
+                    setCurrentPage(1);
+                  }}
+                />
               </CardContent>
             </Card>
           </>
@@ -1163,121 +1168,267 @@ export default function PurchaseRequestsPage() {
             <Card className="rounded-xl border-border shadow-2xs">
               <CardContent className="p-0">
                 <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_auto] border-b border-border bg-muted/30 px-4 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  <span>PR Number</span><span>Version</span><span>Date</span><span>Status</span><span className="text-right">Actions</span>
+                  <span>PR Number</span>
+                  <span>Version</span>
+                  <span>Date</span>
+                  <span>Status</span>
+                  <span className="text-right">Actions</span>
                 </div>
-                {isAvailabilityLoading ? <div className="px-4 py-10 text-center text-xs text-muted-foreground">Loading vendor availability...</div> : availabilityGroups.length === 0 ? <div className="px-4 py-10 text-center text-xs text-muted-foreground">No vendor availability records found</div> : availabilityGroups.map(({ purchaseRequestId, vendors, purchaseRequest }) => {
-                  const isExpanded = !!expandedAvailability[purchaseRequestId];
-                  return <div key={purchaseRequestId} className="border-b border-border last:border-b-0">
-                    <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_auto] items-center px-4 py-3 text-sm">
-                      <span className="font-bold">{vendors[0].prNumber}</span><span>{vendors[0].version}</span>
-                      <span>{purchaseRequest?.reqDate ? new Date(purchaseRequest.reqDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</span>
-                      <span><span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-600">{purchaseRequest?.status || "Submitted"}</span></span>
-                      <div className="flex items-center justify-end gap-2">
-                        {purchaseRequest && <button className="p-1 text-muted-foreground hover:text-primary" title={FLEX_TEXT.editPurchaseRequest} onClick={() => handleEditPR(purchaseRequest)}><Pencil className="h-3.5 w-3.5" /></button>}
-                        {purchaseRequest && <button className="p-1 text-muted-foreground hover:text-primary" title={FLEX_TEXT.printPr} onClick={() => handlePrintPR(purchaseRequest)}><Download className="h-3.5 w-3.5" /></button>}
-                        <Button variant="outline" size="sm" className="h-7 rounded-md px-3 text-xs" onClick={() => setExpandedAvailability((current) => ({ ...current, [purchaseRequestId]: !isExpanded }))}>{isExpanded ? "Hide Vendors" : `Vendors (${vendors.length})`}</Button>
-                      </div>
-                    </div>
-                    {isExpanded && <div className="mx-4 mb-4 overflow-hidden rounded-xl border border-border"><table className="w-full text-xs"><thead><tr className="border-b border-border bg-muted/30 text-left text-[11px] text-muted-foreground"><th className="px-3 py-2.5">S.No</th><th className="px-3 py-2.5">Vendor Name</th><th className="px-3 py-2.5">Phone</th><th className="px-3 py-2.5">WhatsApp</th><th className="px-3 py-2.5">Status</th><th className="px-3 py-2.5 text-right">Action</th></tr></thead><tbody className="divide-y divide-border">{vendors.map((item, index) => <tr key={item.id}><td className="px-3 py-2.5 text-muted-foreground">{index + 1}</td><td className="px-3 py-2.5 font-medium">{item.vendorName}</td><td className="px-3 py-2.5 text-muted-foreground">{item.phone || FLEX_TEXT.notAvailable}</td><td className="px-3 py-2.5 text-muted-foreground">{item.whatsapp || FLEX_TEXT.notAvailable}</td><td className="px-3 py-2.5"><span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold">{item.status}</span></td><td className="px-3 py-2 text-right">{item.status === "Pending" ? <Button size="sm" className="h-7 gap-1 rounded-md bg-red-500 px-3 text-xs text-white hover:bg-red-600" onClick={() => setSelectedVendorAvailability(item)}><Send className="h-3 w-3" /> Send PR</Button> : item.status === "Sent" ? <Button size="sm" className="h-7 text-xs" onClick={() => setVendorToConfirm(item)}>Confirm</Button> : <span className="text-muted-foreground">—</span>}</td></tr>)}</tbody></table></div>}
-                  </div>;
-                })}
-              </CardContent>
-            </Card>
-            <div className="hidden">
-          /* ── VENDOR AVAILABILITY MODULE TAB ────────────────────────────── */
-          <Card className="rounded-md border-border shadow-2xs">
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-3.5 font-semibold">S.No</th>
-                      <th className="px-4 py-3.5 font-semibold">Vendor Name</th>
-                      <th className="px-4 py-3.5 font-semibold">Phone</th>
-                      <th className="px-4 py-3.5 font-semibold">WhatsApp</th>
-                      <th className="px-4 py-3.5 font-semibold">Status</th>
-                      <th className="px-4 py-3.5 text-right font-semibold">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {isAvailabilityLoading ? (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-4 py-10 text-center text-muted-foreground"
+                {isAvailabilityLoading ? (
+                  <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                    Loading vendor availability...
+                  </div>
+                ) : availabilityGroups.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                    No vendor availability records found
+                  </div>
+                ) : (
+                  availabilityGroups.map(
+                    ({ purchaseRequestId, vendors, purchaseRequest }) => {
+                      const isExpanded =
+                        !!expandedAvailability[purchaseRequestId];
+                      return (
+                        <div
+                          key={purchaseRequestId}
+                          className="border-b border-border last:border-b-0"
                         >
-                          Loading vendor availability...
-                        </td>
-                      </tr>
-                    ) : vendorAvailability.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-4 py-10 text-center text-muted-foreground"
-                        >
-                          No vendor availability records found
-                        </td>
-                      </tr>
-                    ) : (
-                      vendorAvailability.map((item, index) => (
-                        <tr
-                          key={item.id}
-                          className="transition-colors hover:bg-muted/40"
-                        >
-                          <td className="px-4 py-3.5 text-muted-foreground">
-                            {index + 1}
-                          </td>
-                          <td className="px-4 py-3.5 font-bold text-foreground">
-                            <div>{item.vendorName}</div>
-                            <div className="text-[10px] font-normal text-muted-foreground">
-                              {item.prNumber}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3.5 text-muted-foreground">
-                            {item.phone || FLEX_TEXT.notAvailable}
-                          </td>
-                          <td className="px-4 py-3.5 text-muted-foreground">
-                            {item.whatsapp || FLEX_TEXT.notAvailable}
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary">
-                              {item.status}
+                          <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_auto] items-center px-4 py-3 text-sm">
+                            <span className="font-bold">
+                              {vendors[0].prNumber}
                             </span>
-                          </td>
-                          <td className="px-4 py-3.5 text-right">
-                            {item.status === "Pending" ? (
+                            <span>{vendors[0].version}</span>
+                            <span>
+                              {purchaseRequest?.reqDate
+                                ? new Date(
+                                    purchaseRequest.reqDate,
+                                  ).toLocaleDateString("en-GB", {
+                                    day: "2-digit",
+                                    month: "short",
+                                    year: "numeric",
+                                  })
+                                : "—"}
+                            </span>
+                            <span>
+                              <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-600">
+                                {purchaseRequest?.status || "Submitted"}
+                              </span>
+                            </span>
+                            <div className="flex items-center justify-end gap-2">
+                              {purchaseRequest && (
+                                <button
+                                  className="p-1 text-muted-foreground hover:text-primary"
+                                  title={FLEX_TEXT.editPurchaseRequest}
+                                  onClick={() => handleEditPR(purchaseRequest)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                              {purchaseRequest && (
+                                <button
+                                  className="p-1 text-muted-foreground hover:text-primary"
+                                  title={FLEX_TEXT.printPr}
+                                  onClick={() => handlePrintPR(purchaseRequest)}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-7 text-xs font-semibold border-primary/30 text-primary hover:bg-primary/10 rounded-md"
+                                className="h-7 rounded-md px-3 text-xs"
                                 onClick={() =>
-                                  setSelectedVendorAvailability(item)
+                                  setExpandedAvailability((current) => ({
+                                    ...current,
+                                    [purchaseRequestId]: !isExpanded,
+                                  }))
                                 }
                               >
-                                Send PR
+                                {isExpanded
+                                  ? "Hide Vendors"
+                                  : `Vendors (${vendors.length})`}
                               </Button>
-                            ) : item.status === "Sent" ? (
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs font-semibold"
-                                onClick={() => setVendorToConfirm(item)}
-                              >
-                                Confirm
-                              </Button>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </td>
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="mx-4 mb-4 overflow-hidden rounded-xl border border-border">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-border bg-muted/30 text-left text-[11px] text-muted-foreground">
+                                    <th className="px-3 py-2.5">S.No</th>
+                                    <th className="px-3 py-2.5">Vendor Name</th>
+                                    <th className="px-3 py-2.5">Phone</th>
+                                    <th className="px-3 py-2.5">WhatsApp</th>
+                                    <th className="px-3 py-2.5">Status</th>
+                                    <th className="px-3 py-2.5 text-right">
+                                      Action
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border">
+                                  {vendors.map((item, index) => (
+                                    <tr key={item.id}>
+                                      <td className="px-3 py-2.5 text-muted-foreground">
+                                        {index + 1}
+                                      </td>
+                                      <td className="px-3 py-2.5 font-medium">
+                                        {item.vendorName}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-muted-foreground">
+                                        {item.phone || FLEX_TEXT.notAvailable}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-muted-foreground">
+                                        {item.whatsapp ||
+                                          FLEX_TEXT.notAvailable}
+                                      </td>
+                                      <td className="px-3 py-2.5">
+                                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold">
+                                          {item.status}
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2 text-right">
+                                        {item.status === "Pending" ? (
+                                          <Button
+                                            size="sm"
+                                            className="h-7 gap-1 rounded-md bg-red-500 px-3 text-xs text-white hover:bg-red-600"
+                                            onClick={() =>
+                                              setSelectedVendorAvailability(
+                                                item,
+                                              )
+                                            }
+                                          >
+                                            <Send className="h-3 w-3" /> Send PR
+                                          </Button>
+                                        ) : item.status === "Sent" ? (
+                                          <Button
+                                            size="sm"
+                                            className="h-7 text-xs"
+                                            onClick={() =>
+                                              setVendorToConfirm(item)
+                                            }
+                                          >
+                                            Confirm
+                                          </Button>
+                                        ) : (
+                                          <span className="text-muted-foreground">
+                                            —
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    },
+                  )
+                )}
+              </CardContent>
+            </Card>
+            <div className="hidden">
+              /* ── VENDOR AVAILABILITY MODULE TAB
+              ────────────────────────────── */
+              <Card className="rounded-md border-border shadow-2xs">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                          <th className="px-4 py-3.5 font-semibold">S.No</th>
+                          <th className="px-4 py-3.5 font-semibold">
+                            Vendor Name
+                          </th>
+                          <th className="px-4 py-3.5 font-semibold">Phone</th>
+                          <th className="px-4 py-3.5 font-semibold">
+                            WhatsApp
+                          </th>
+                          <th className="px-4 py-3.5 font-semibold">Status</th>
+                          <th className="px-4 py-3.5 text-right font-semibold">
+                            Action
+                          </th>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {isAvailabilityLoading ? (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="px-4 py-10 text-center text-muted-foreground"
+                            >
+                              Loading vendor availability...
+                            </td>
+                          </tr>
+                        ) : vendorAvailability.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="px-4 py-10 text-center text-muted-foreground"
+                            >
+                              No vendor availability records found
+                            </td>
+                          </tr>
+                        ) : (
+                          vendorAvailability.map((item, index) => (
+                            <tr
+                              key={item.id}
+                              className="transition-colors hover:bg-muted/40"
+                            >
+                              <td className="px-4 py-3.5 text-muted-foreground">
+                                {index + 1}
+                              </td>
+                              <td className="px-4 py-3.5 font-bold text-foreground">
+                                <div>{item.vendorName}</div>
+                                <div className="text-[10px] font-normal text-muted-foreground">
+                                  {item.prNumber}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3.5 text-muted-foreground">
+                                {item.phone || FLEX_TEXT.notAvailable}
+                              </td>
+                              <td className="px-4 py-3.5 text-muted-foreground">
+                                {item.whatsapp || FLEX_TEXT.notAvailable}
+                              </td>
+                              <td className="px-4 py-3.5">
+                                <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[10px] font-semibold text-primary">
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3.5 text-right">
+                                {item.status === "Pending" ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs font-semibold border-primary/30 text-primary hover:bg-primary/10 rounded-md"
+                                    onClick={() =>
+                                      setSelectedVendorAvailability(item)
+                                    }
+                                  >
+                                    Send PR
+                                  </Button>
+                                ) : item.status === "Sent" ? (
+                                  <Button
+                                    size="sm"
+                                    className="h-7 text-xs font-semibold"
+                                    onClick={() => setVendorToConfirm(item)}
+                                  >
+                                    Confirm
+                                  </Button>
+                                ) : (
+                                  <span className="text-muted-foreground">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         )}
@@ -3059,10 +3210,18 @@ export default function PurchaseRequestsPage() {
                           editLineItems[0]?.product || editingPr.itemName,
                         quantity: editLineItems[0]?.qty || editingPr.quantity,
                         unit: editLineItems[0]?.unit || editingPr.unit,
-                        departmentId: editDepartmentId ? Number(editDepartmentId) : undefined,
-                        department: editDepartmentId ? editDepartment : undefined,
-                        requestedByUserId: editRequestedBy ? Number(editRequestedBy) : undefined,
-                        requestedByName: editRequestedBy ? selectedUser?.name || editingPr.requestedBy : undefined,
+                        departmentId: editDepartmentId
+                          ? Number(editDepartmentId)
+                          : undefined,
+                        department: editDepartmentId
+                          ? editDepartment
+                          : undefined,
+                        requestedByUserId: editRequestedBy
+                          ? Number(editRequestedBy)
+                          : undefined,
+                        requestedByName: editRequestedBy
+                          ? selectedUser?.name || editingPr.requestedBy
+                          : undefined,
                         notes: editNotes,
                         requiredDate: editRequiredDate,
                       });

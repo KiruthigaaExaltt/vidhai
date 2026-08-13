@@ -10,6 +10,7 @@ import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DataPagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,7 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -181,6 +186,7 @@ export default function PurchaseInvoices() {
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Form State
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -260,6 +266,19 @@ export default function PurchaseInvoices() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [invoices, search, selectedVendor, fromDate, toDate]);
+  const pageSize = Number(rowsPerPage);
+  const paginatedInvoices = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  useEffect(
+    () => setCurrentPage(1),
+    [search, selectedVendor, fromDate, toDate, rowsPerPage],
+  );
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (currentPage > lastPage) setCurrentPage(lastPage);
+  }, [currentPage, filtered.length, pageSize]);
 
   const handleAddItem = () => {
     setLineItems((prev) => [
@@ -352,22 +371,22 @@ export default function PurchaseInvoices() {
     const receiptAmount = (receipt: any) => {
       const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
       const lineAmount = lines.reduce((sum: number, line: any) => {
-      const quantity = Number(
-        line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
-      );
-      const rate = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
-      const taxPercent =
-        Number(line.cgstPct ?? line.cgstPercent ?? 0) +
-        Number(line.sgstPct ?? line.sgstPercent ?? 0) +
-        Number(line.igstPct ?? line.igstPercent ?? 0);
-      return (
-        sum +
-        Number(
-          line.lineTotal ??
-            line.total ??
-            quantity * rate * (1 + taxPercent / 100),
-        )
-      );
+        const quantity = Number(
+          line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
+        );
+        const rate = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
+        const taxPercent =
+          Number(line.cgstPct ?? line.cgstPercent ?? 0) +
+          Number(line.sgstPct ?? line.sgstPercent ?? 0) +
+          Number(line.igstPct ?? line.igstPercent ?? 0);
+        return (
+          sum +
+          Number(
+            line.lineTotal ??
+              line.total ??
+              quantity * rate * (1 + taxPercent / 100),
+          )
+        );
       }, 0);
       const storedAmount = Number(receipt.totalAmount || 0);
       return storedAmount > 0 ? storedAmount : lineAmount;
@@ -392,7 +411,11 @@ export default function PurchaseInvoices() {
     );
     const vendorNames = new Set(
       selectedOrders
-        .map((order: any) => String(order.vendor || "").trim().toLowerCase())
+        .map((order: any) =>
+          String(order.vendor || "")
+            .trim()
+            .toLowerCase(),
+        )
         .filter(Boolean),
     );
     if (vendorNames.size > 1) {
@@ -435,8 +458,7 @@ export default function PurchaseInvoices() {
               sgstPct,
               igstPct,
               total: Number(
-                line.total ??
-                  base * (1 + (cgstPct + sgstPct + igstPct) / 100),
+                line.total ?? base * (1 + (cgstPct + sgstPct + igstPct) / 100),
               ),
               source: order.poNumber,
             };
@@ -456,7 +478,11 @@ export default function PurchaseInvoices() {
     );
     const vendorNames = new Set(
       selectedReceipts
-        .map((receipt: any) => String(receipt.vendor || "").trim().toLowerCase())
+        .map((receipt: any) =>
+          String(receipt.vendor || "")
+            .trim()
+            .toLowerCase(),
+        )
         .filter(Boolean),
     );
     if (vendorNames.size > 1) {
@@ -483,7 +509,9 @@ export default function PurchaseInvoices() {
       selectedReceipts.flatMap((receipt: any) => {
         const lines = Array.isArray(receipt.lineItems) ? receipt.lineItems : [];
         return lines.map((line: any, index: number) => {
-          const qty = Number(line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0);
+          const qty = Number(
+            line.acceptedQty ?? line.receivedQty ?? line.qty ?? 0,
+          );
           const price = Number(line.rate ?? line.unitPrice ?? line.price ?? 0);
           const cgstPct = Number(line.cgstPct ?? line.cgstPercent ?? 0);
           const sgstPct = Number(line.sgstPct ?? line.sgstPercent ?? 0);
@@ -764,7 +792,7 @@ export default function PurchaseInvoices() {
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((inv) => (
+                    paginatedInvoices.map((inv) => (
                       <tr
                         key={inv.id}
                         className="hover:bg-muted/40 transition-colors"
@@ -805,24 +833,24 @@ export default function PurchaseInvoices() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           {inv.match !== "Matched" && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  markMatchedMutation.mutate({
-                                    id: inv.id,
-                                    matchStatus: "Matched",
-                                  })
-                                }
-                                disabled={markMatchedMutation.isPending}
-                                className="h-7 px-2.5 text-[10px] font-semibold text-primary border-primary/30 hover:bg-primary/10 mr-1.5"
-                                title={FLEX_TEXT.markMatched}
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                                {FLEX_TEXT.match}
-                              </Button>
-                            )}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                markMatchedMutation.mutate({
+                                  id: inv.id,
+                                  matchStatus: "Matched",
+                                })
+                              }
+                              disabled={markMatchedMutation.isPending}
+                              className="h-7 px-2.5 text-[10px] font-semibold text-primary border-primary/30 hover:bg-primary/10 mr-1.5"
+                              title={FLEX_TEXT.markMatched}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                              {FLEX_TEXT.match}
+                            </Button>
+                          )}
                           <button
                             onClick={() => handlePrintInvoice(inv)}
                             className="text-muted-foreground hover:text-primary p-1 rounded-md transition-colors"
@@ -838,50 +866,16 @@ export default function PurchaseInvoices() {
               </table>
             </div>
 
-            {/* Pagination Footer */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
-              <div>
-                {FLEX_TEXT.showing}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length > 0 ? 1 : 0}
-                </span>{" "}
-                {FLEX_TEXT.to}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.of}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.records}
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span>{FLEX_TEXT.rowsPerPage}</span>
-                  <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
-                    <SelectTrigger className="h-7 w-16 text-xs bg-background">
-                      <SelectValue placeholder="10" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center">
-                    1
-                  </button>
-                  <button className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40">
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DataPagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={filtered.length}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(size) => {
+                setRowsPerPage(String(size));
+                setCurrentPage(1);
+              }}
+            />
           </CardContent>
         </Card>
 
@@ -914,8 +908,8 @@ export default function PurchaseInvoices() {
                     />
                     {duplicateInvoice && (
                       <p className="mt-1 text-[11px] text-red-600">
-                        Invoice number &quot;{invoiceNumber.trim()}&quot; already
-                        exists for this vendor.
+                        Invoice number &quot;{invoiceNumber.trim()}&quot;
+                        already exists for this vendor.
                       </p>
                     )}
                   </div>
@@ -942,7 +936,9 @@ export default function PurchaseInvoices() {
                       min="0"
                       value={paymentDueDays}
                       onChange={(event) =>
-                        setPaymentDueDays(Math.max(0, Number(event.target.value)))
+                        setPaymentDueDays(
+                          Math.max(0, Number(event.target.value)),
+                        )
                       }
                       className="h-10 text-xs border-slate-200 rounded-lg"
                     />
@@ -986,7 +982,9 @@ export default function PurchaseInvoices() {
                         <Command>
                           <CommandInput placeholder={FLEX_TEXT.typeToFilter} />
                           <CommandList>
-                            <CommandEmpty>No purchase orders found.</CommandEmpty>
+                            <CommandEmpty>
+                              No purchase orders found.
+                            </CommandEmpty>
                             <CommandGroup>
                               {purchaseOrders.map((po: any) => {
                                 const reference = String(po.poNumber);
@@ -994,13 +992,17 @@ export default function PurchaseInvoices() {
                                   <CommandItem
                                     key={po.id}
                                     value={`${reference} ${po.vendor}`}
-                                    onSelect={() => togglePurchaseOrder(reference)}
+                                    onSelect={() =>
+                                      togglePurchaseOrder(reference)
+                                    }
                                   >
                                     <Checkbox
                                       checked={mappedPos.includes(reference)}
                                       tabIndex={-1}
                                     />
-                                    <span>{reference} ({po.vendor})</span>
+                                    <span>
+                                      {reference} ({po.vendor})
+                                    </span>
                                   </CommandItem>
                                 );
                               })}
@@ -1019,7 +1021,10 @@ export default function PurchaseInvoices() {
                     <Label className="text-xs font-bold text-slate-700 mb-1 block">
                       {FLEX_TEXT.mapGoodsReceiptS}
                     </Label>
-                    <Popover open={grnPickerOpen} onOpenChange={setGrnPickerOpen}>
+                    <Popover
+                      open={grnPickerOpen}
+                      onOpenChange={setGrnPickerOpen}
+                    >
                       <PopoverTrigger asChild>
                         <Button
                           type="button"
@@ -1043,7 +1048,9 @@ export default function PurchaseInvoices() {
                         <Command>
                           <CommandInput placeholder={FLEX_TEXT.typeToFilter} />
                           <CommandList>
-                            <CommandEmpty>No goods receipts found.</CommandEmpty>
+                            <CommandEmpty>
+                              No goods receipts found.
+                            </CommandEmpty>
                             <CommandGroup>
                               {goodsReceipts.map((grn: any) => {
                                 const reference = String(grn.grnNumber);
@@ -1052,10 +1059,14 @@ export default function PurchaseInvoices() {
                                   <CommandItem
                                     key={grn.id}
                                     value={`${reference} ${grn.vendor}`}
-                                    onSelect={() => toggleGoodsReceipt(reference)}
+                                    onSelect={() =>
+                                      toggleGoodsReceipt(reference)
+                                    }
                                   >
                                     <Checkbox checked={checked} tabIndex={-1} />
-                                    <span>{reference} ({grn.vendor})</span>
+                                    <span>
+                                      {reference} ({grn.vendor})
+                                    </span>
                                   </CommandItem>
                                 );
                               })}
@@ -1335,7 +1346,8 @@ export default function PurchaseInvoices() {
                           )
                           .reduce(
                             (sum: number, po: any) =>
-                              sum + Number(po.grandTotal || po.totalAmount || 0),
+                              sum +
+                              Number(po.grandTotal || po.totalAmount || 0),
                             0,
                           )
                           .toLocaleString("en-IN")}

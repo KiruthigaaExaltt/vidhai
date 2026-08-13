@@ -6,6 +6,7 @@ import { Shell } from "@/components/layout/Shell";
 import { FlexTabs } from "./FlexTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DataPagination } from "@/components/ui/data-pagination";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -955,64 +956,16 @@ export default function PurchaseOrdersPage() {
               </table>
             </div>
 
-            {/* Pagination Footer */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
-              <div>
-                {FLEX_TEXT.showing}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length > 0 ? pageStart + 1 : 0}
-                </span>{" "}
-                {FLEX_TEXT.to}{" "}
-                <span className="font-semibold text-foreground">
-                  {Math.min(pageStart + pageSize, filtered.length)}
-                </span>{" "}
-                {FLEX_TEXT.of}{" "}
-                <span className="font-semibold text-foreground">
-                  {filtered.length}
-                </span>{" "}
-                {FLEX_TEXT.records}
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span>{FLEX_TEXT.rowsPerPage}</span>
-                  <Select value={rowsPerPage} onValueChange={setRowsPerPage}>
-                    <SelectTrigger className="h-7 w-16 text-xs bg-background">
-                      <SelectValue placeholder="10" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10</SelectItem>
-                      <SelectItem value="25">25</SelectItem>
-                      <SelectItem value="50">50</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    disabled={currentPage === 1}
-                    onClick={() =>
-                      setCurrentPage((page) => Math.max(1, page - 1))
-                    }
-                    className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="w-6 h-6 rounded bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center">
-                    {currentPage}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={currentPage === totalPages}
-                    onClick={() =>
-                      setCurrentPage((page) => Math.min(totalPages, page + 1))
-                    }
-                    className="p-1 rounded border border-border hover:bg-muted disabled:opacity-40"
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            <DataPagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={filtered.length}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(size) => {
+                setRowsPerPage(String(size));
+                setCurrentPage(1);
+              }}
+            />
           </CardContent>
         </Card>
 

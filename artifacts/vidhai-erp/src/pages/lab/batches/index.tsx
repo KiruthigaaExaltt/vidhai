@@ -9,12 +9,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Plus, FlaskConical } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 
 function stageLabel(stage: string) {
   if (stage === "MS") return "Mother Spawn";
@@ -31,11 +39,14 @@ export default function LabBatches() {
 
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState("");
+  const batchPagination = useClientPagination((batches ?? []) as any[]);
 
   const createMutation = useCreateLabBatch({
     mutation: {
       onSuccess: (data: any) => {
-        queryClient.invalidateQueries({ queryKey: getListLabBatchesQueryKey() });
+        queryClient.invalidateQueries({
+          queryKey: getListLabBatchesQueryKey(),
+        });
         setOpen(false);
         setNotes("");
         setLocation(`/lab/batches/${data.id}`);
@@ -55,9 +66,10 @@ export default function LabBatches() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <FlaskConical className="w-5 h-5 text-primary" />
-              <h1 className="text-2xl font-semibold tracking-tight">Lab Location D — Spawn Preparation</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Lab Location D — Spawn Preparation
+              </h1>
             </div>
-            
           </div>
 
           <Dialog open={open} onOpenChange={setOpen}>
@@ -72,15 +84,30 @@ export default function LabBatches() {
               </DialogHeader>
               <form onSubmit={handleCreate} className="space-y-4 pt-4">
                 <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Location</Label>
-                  <div className="px-3 py-2 bg-muted rounded-sm text-sm border font-medium">Lab (Location D)</div>
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Location
+                  </Label>
+                  <div className="px-3 py-2 bg-muted rounded-sm text-sm border font-medium">
+                    Lab (Location D)
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Initial Notes (Optional)</Label>
-                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} className="rounded-sm" placeholder="Strain, media notes..." />
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Initial Notes (Optional)
+                  </Label>
+                  <Input
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="rounded-sm"
+                    placeholder="Strain, media notes..."
+                  />
                 </div>
                 <DialogFooter>
-                  <Button type="submit" disabled={createMutation.isPending} className="w-full rounded-sm">
+                  <Button
+                    type="submit"
+                    disabled={createMutation.isPending}
+                    className="w-full rounded-sm"
+                  >
                     {createMutation.isPending ? "Creating..." : "Create Batch"}
                   </Button>
                 </DialogFooter>
@@ -92,7 +119,9 @@ export default function LabBatches() {
         <Card className="rounded-sm border-border shadow-none">
           <CardContent className="p-0">
             {isLoading ? (
-              <div className="p-6 text-center text-sm text-muted-foreground">Loading...</div>
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                Loading...
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left whitespace-nowrap">
@@ -107,27 +136,41 @@ export default function LabBatches() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {batches?.map((b: any) => (
+                    {batchPagination.paginatedRows.map((b: any) => (
                       <tr
                         key={b.id}
                         onClick={() => setLocation(`/lab/batches/${b.id}`)}
                         className="hover:bg-muted/30 cursor-pointer h-[36px] transition-colors"
                       >
-                        <td className="px-4 font-mono font-bold text-primary">{b.batchCode}</td>
+                        <td className="px-4 font-mono font-bold text-primary">
+                          {b.batchCode}
+                        </td>
                         <td className="px-4">
-                          <StatusBadge status={b.currentStage} label={stageLabel(b.currentStage)} />
+                          <StatusBadge
+                            status={b.currentStage}
+                            label={stageLabel(b.currentStage)}
+                          />
                         </td>
                         <td className="px-4">
                           <StatusBadge status={b.status} />
                         </td>
-                        <td className="px-4 font-mono text-muted-foreground">{new Date(b.createdAt).toLocaleDateString()}</td>
-                        <td className="px-4 text-muted-foreground">{b.createdByName ?? "—"}</td>
-                        <td className="px-4 text-muted-foreground truncate max-w-[200px]">{b.notes ?? "—"}</td>
+                        <td className="px-4 font-mono text-muted-foreground">
+                          {new Date(b.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 text-muted-foreground">
+                          {b.createdByName ?? "—"}
+                        </td>
+                        <td className="px-4 text-muted-foreground truncate max-w-[200px]">
+                          {b.notes ?? "—"}
+                        </td>
                       </tr>
                     ))}
                     {batches?.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                        <td
+                          colSpan={6}
+                          className="px-4 py-8 text-center text-muted-foreground"
+                        >
                           No spawn batches yet. Create the first one.
                         </td>
                       </tr>
@@ -137,6 +180,13 @@ export default function LabBatches() {
               </div>
             )}
           </CardContent>
+          <DataPagination
+            currentPage={batchPagination.currentPage}
+            pageSize={batchPagination.pageSize}
+            totalCount={batchPagination.totalCount}
+            onPageChange={batchPagination.setCurrentPage}
+            onPageSizeChange={batchPagination.setPageSize}
+          />
         </Card>
       </div>
     </Shell>

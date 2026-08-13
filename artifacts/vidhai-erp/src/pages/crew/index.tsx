@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { DataPagination } from "@/components/ui/data-pagination";
+import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -132,7 +134,15 @@ export default function Crew() {
     setLoading(true);
     try {
       await loadEmployees();
-      if (tab !== "employees" && tab !== "leave" && tab !== "claims" && tab !== "overtime" && tab !== "bonus" && tab !== "deductions") setRows(await api(tab));
+      if (
+        tab !== "employees" &&
+        tab !== "leave" &&
+        tab !== "claims" &&
+        tab !== "overtime" &&
+        tab !== "bonus" &&
+        tab !== "deductions"
+      )
+        setRows(await api(tab));
     } catch (e: any) {
       toast({
         title: "Unable to load Crew",
@@ -158,6 +168,12 @@ export default function Crew() {
         (status === "All" || r.status === status),
     );
   }, [tab, employees, rows, search, status]);
+  const crewPagination = useClientPagination(
+    visible,
+    `${tab}|${search}|${status}`,
+    10,
+    tab,
+  );
   const metrics = {
     total: employees.length,
     active: employees.filter((e) => e.status === "Active").length,
@@ -322,16 +338,29 @@ export default function Crew() {
               </p>
             </div>
             <div className="flex gap-2">
-
-              {canCreate && tab !== "attendance" && tab !== "leave" && tab !== "claims" && tab !== "overtime" && tab !== "bonus" && tab !== "deductions" && (
-                <Button onClick={() => begin()}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {tab === "employees" ? "Add Member" : `New ${label(tab)}`}
-                </Button>
-              )}
+              {canCreate &&
+                tab !== "attendance" &&
+                tab !== "leave" &&
+                tab !== "claims" &&
+                tab !== "overtime" &&
+                tab !== "bonus" &&
+                tab !== "deductions" && (
+                  <Button onClick={() => begin()}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    {tab === "employees" ? "Add Member" : `New ${label(tab)}`}
+                  </Button>
+                )}
             </div>
           </div>
-          {["employees","attendance","leave","claims","overtime","bonus","deductions"].includes(tab) && (
+          {[
+            "employees",
+            "attendance",
+            "leave",
+            "claims",
+            "overtime",
+            "bonus",
+            "deductions",
+          ].includes(tab) && (
             <div className="grid gap-4 md:grid-cols-4">
               <Metric
                 icon={Users}
@@ -359,74 +388,89 @@ export default function Crew() {
             </div>
           )}
           {tab === "attendance" ? (
-            <AttendanceModule employees={employees} logs={rows} user={user} can={can} refresh={load} edit={begin}/>
+            <AttendanceModule
+              employees={employees}
+              logs={rows}
+              user={user}
+              can={can}
+              refresh={load}
+              edit={begin}
+            />
           ) : tab === "leave" ? (
-            <LeaveModule employees={employees} user={user} can={can}/>
+            <LeaveModule employees={employees} user={user} can={can} />
           ) : tab === "claims" ? (
-            <ClaimsModule employees={employees} user={user} can={can}/>
+            <ClaimsModule employees={employees} user={user} can={can} />
           ) : tab === "overtime" ? (
-            <OvertimeModule employees={employees} user={user} can={can}/>
+            <OvertimeModule employees={employees} user={user} can={can} />
           ) : tab === "bonus" ? (
-            <BonusModule employees={employees} user={user} can={can}/>
+            <BonusModule employees={employees} user={user} can={can} />
           ) : tab === "deductions" ? (
-            <DeductionsModule employees={employees} user={user} can={can}/>
+            <DeductionsModule employees={employees} user={user} can={can} />
           ) : (
             <>
-          <div className="flex gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder={`Search ${tab}...`}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <select
-              className="h-10 rounded-md border bg-background px-3 text-sm"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option>All</option>
-              {[
-                "Active",
-                "On Leave",
-                "Offboarded",
-                "Pending",
-                "Approved",
-                "Rejected",
-              ].map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-          </div>
-          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-            {loading ? (
-              <div className="p-14 text-center text-muted-foreground">
-                Loading Crew records…
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="pl-9"
+                    placeholder={`Search ${tab}...`}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                >
+                  <option>All</option>
+                  {[
+                    "Active",
+                    "On Leave",
+                    "Offboarded",
+                    "Pending",
+                    "Approved",
+                    "Rejected",
+                  ].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
               </div>
-            ) : !visible.length ? (
-              <div className="p-20 text-center text-muted-foreground">
-                No {tab} found
+              <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+                {loading ? (
+                  <div className="p-14 text-center text-muted-foreground">
+                    Loading Crew records…
+                  </div>
+                ) : !visible.length ? (
+                  <div className="p-20 text-center text-muted-foreground">
+                    No {tab} found
+                  </div>
+                ) : tab === "employees" ? (
+                  <EmployeeTable
+                    rows={crewPagination.paginatedRows}
+                    edit={begin}
+                    remove={remove}
+                    canEdit={can("crew.employees.update")}
+                    canDelete={can("crew.employees.delete")}
+                  />
+                ) : (
+                  <RecordTable
+                    tab={tab}
+                    rows={crewPagination.paginatedRows}
+                    canApprove={canApprove}
+                    canReject={canReject}
+                    decide={decide}
+                  />
+                )}
+                <DataPagination
+                  currentPage={crewPagination.currentPage}
+                  pageSize={crewPagination.pageSize}
+                  totalCount={crewPagination.totalCount}
+                  onPageChange={crewPagination.setCurrentPage}
+                  onPageSizeChange={crewPagination.setPageSize}
+                  loading={loading}
+                />
               </div>
-            ) : tab === "employees" ? (
-              <EmployeeTable
-                rows={visible}
-                edit={begin}
-                remove={remove}
-                canEdit={can("crew.employees.update")}
-                canDelete={can("crew.employees.delete")}
-              />
-            ) : (
-              <RecordTable
-                tab={tab}
-                rows={visible}
-                canApprove={canApprove}
-                canReject={canReject}
-                decide={decide}
-              />
-            )}
-          </div>
             </>
           )}
         </div>
@@ -499,70 +543,152 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
   const formatDate = (value: any) => {
     if (!value) return "—";
     const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    return Number.isNaN(date.getTime())
+      ? String(value)
+      : date.toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
   };
-  const initials = (name: string) => String(name || "E").trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase();
-  const statusTone = (status: string) => status === "Active" ? "bg-emerald-50 text-emerald-700" : status === "On Leave" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700";
-  return <div className="overflow-x-auto">
-    <table className="w-full min-w-[760px] text-sm">
-      <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground"><tr>
-        <th className="px-4 py-3">Employee code</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Joining date</th><th className="px-4 py-3 text-center">Actions</th>
-      </tr></thead>
-      <tbody>{rows.map((employee:any)=><tr key={employee.id} className="border-t transition-colors hover:bg-muted/20">
-        <td className="px-4 py-3"><div className="flex items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-semibold text-primary">{employee.photoUrl?<img src={`${base}${employee.photoUrl}`} alt="" className="h-full w-full object-cover"/>:initials(employee.name)}</span><span className="font-medium text-muted-foreground">{employee.employeeCode}</span></div></td>
-        <td className="px-4 py-3"><div className="font-semibold">{employee.name}</div><div className="text-xs text-muted-foreground">{employee.designation || "—"}</div></td>
-        <td className="px-4 py-3 text-muted-foreground">{employee.department || "—"}</td>
-        <td className="px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(employee.status)}`}>{employee.status}</span></td>
-        <td className="px-4 py-3 text-muted-foreground">{formatDate(employee.joinDate)}</td>
-        <td className="px-4 py-3">
-          <div className="flex justify-center">
-            {(canEdit || (canDelete && !employee.isSystemGenerated)) && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="h-8 w-8 p-0" aria-label="Member actions">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {canEdit && (
-                    <DropdownMenuItem onClick={() => edit(employee)}>
-                      Edit
-                    </DropdownMenuItem>
+  const initials = (name: string) =>
+    String(name || "E")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase();
+  const statusTone = (status: string) =>
+    status === "Active"
+      ? "bg-emerald-50 text-emerald-700"
+      : status === "On Leave"
+        ? "bg-amber-50 text-amber-700"
+        : "bg-rose-50 text-rose-700";
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] text-sm">
+        <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3">Employee code</th>
+            <th className="px-4 py-3">Name</th>
+            <th className="px-4 py-3">Department</th>
+            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Joining date</th>
+            <th className="px-4 py-3 text-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((employee: any) => (
+            <tr
+              key={employee.id}
+              className="border-t transition-colors hover:bg-muted/20"
+            >
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 font-semibold text-primary">
+                    {employee.photoUrl ? (
+                      <img
+                        src={`${base}${employee.photoUrl}`}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      initials(employee.name)
+                    )}
+                  </span>
+                  <span className="font-medium text-muted-foreground">
+                    {employee.employeeCode}
+                  </span>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <div className="font-semibold">{employee.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {employee.designation || "—"}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-muted-foreground">
+                {employee.department || "—"}
+              </td>
+              <td className="px-4 py-3">
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone(employee.status)}`}
+                >
+                  {employee.status}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-muted-foreground">
+                {formatDate(employee.joinDate)}
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex justify-center">
+                  {(canEdit || (canDelete && !employee.isSystemGenerated)) && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          aria-label="Member actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {canEdit && (
+                          <DropdownMenuItem onClick={() => edit(employee)}>
+                            Edit
+                          </DropdownMenuItem>
+                        )}
+                        {canDelete && !employee.isSystemGenerated && (
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                            onClick={() => setEmployeeToDelete(employee)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
-                  {canDelete && !employee.isSystemGenerated && (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                      onClick={() => setEmployeeToDelete(employee)}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Dialog
+        open={!!employeeToDelete}
+        onOpenChange={(isOpen) => !isOpen && setEmployeeToDelete(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Member?</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            Are you sure you want to remove "{employeeToDelete?.name}" from this
+            member list?
           </div>
-        </td>
-      </tr>)}</tbody>
-    </table>
-    <div className="border-t px-4 py-3 text-sm text-muted-foreground">Showing {rows.length} employee{rows.length===1?"":"s"}</div>
-    
-    <Dialog open={!!employeeToDelete} onOpenChange={(isOpen) => !isOpen && setEmployeeToDelete(null)}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete Member?</DialogTitle>
-        </DialogHeader>
-        <div className="py-4">
-          Are you sure you want to remove "{employeeToDelete?.name}" from this member list?
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setEmployeeToDelete(null)} disabled={isDeleting}>Cancel</Button>
-          <Button variant="destructive" onClick={handleDeleteConfirm} disabled={isDeleting}>
-            {isDeleting ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  </div>;
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEmployeeToDelete(null)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }
 function RecordTable({ tab, rows, canApprove, canReject, decide }: any) {
   return (
