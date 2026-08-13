@@ -1,4 +1,7 @@
 import { Router } from "express";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   db,
   batchesTable,
@@ -20,8 +23,36 @@ import {
   isAvailableChamber,
   validateProducedBags,
 } from "../lib/annurProduction";
+import { resolveUploadPath } from "../lib/uploadStorage";
 
 const router = Router();
+
+const ANNUR_VERIFICATION_FOLDER = [
+  "production",
+  "annur",
+  "stage-verification",
+] as const;
+
+async function saveAnnurVerificationImage(value: unknown): Promise<string> {
+  if (typeof value !== "string")
+    throw new Error("Verification photo is invalid");
+  if (value.startsWith("/api/batches/files/verification/")) return value;
+  const match = value.match(
+    /^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)$/s,
+  );
+  if (!match) throw new Error("Verification photo must be JPG, PNG or WEBP");
+  const buffer = Buffer.from(match[2].replace(/\s/g, ""), "base64");
+  if (!buffer.length) throw new Error("Verification photo data is malformed");
+  if (buffer.length > 5 * 1024 * 1024)
+    throw new Error("Each verification photo must not exceed 5 MB");
+  const extension =
+    match[1] === "png" ? "png" : match[1] === "webp" ? "webp" : "jpg";
+  const directory = resolveUploadPath(...ANNUR_VERIFICATION_FOLDER);
+  await mkdir(directory, { recursive: true });
+  const fileName = `${Date.now()}-${randomUUID()}.${extension}`;
+  await writeFile(path.join(directory, fileName), buffer);
+  return `/api/batches/files/verification/${fileName}`;
+}
 
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId)
@@ -230,6 +261,11 @@ router.post("/", async (req, res) => {
       error: error?.message || "Failed to create batch and formulation",
     });
   }
+});
+router.get("/files/verification/:file", requireAuth, (req, res) => {
+  const fileName = path.basename(req.params.file);
+  const target = resolveUploadPath(...ANNUR_VERIFICATION_FOLDER, fileName);
+  return res.sendFile(target, { dotfiles: "deny" });
 });
 // ── Get batch detail ──────────────────────────────────────────────────────────
 router.get("/:id", async (req, res) => {
@@ -514,6 +550,17 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     });
   }
 
+  let storedVerificationImages: string[];
+  try {
+    storedVerificationImages = await Promise.all(
+      verificationImages.slice(0, 2).map(saveAnnurVerificationImage),
+    );
+  } catch (error: any) {
+    return res.status(400).json({
+      error: error?.message || "Failed to store verification photos",
+    });
+  }
+
   const isDispatchCompletion =
     batch.currentStage === "DISPATCH" && nextStage === "COMPLETED";
   const produced = isDispatchCompletion
@@ -567,7 +614,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
       enteredAt: exitedAt,
       enteredByUserId: userId,
       notes: notes ?? null,
-      verificationImages: JSON.stringify(verificationImages.slice(0, 2)),
+      verificationImages: JSON.stringify(storedVerificationImages),
     });
     const batchUpdates: Record<string, unknown> = {
       currentStage: nextStage,
