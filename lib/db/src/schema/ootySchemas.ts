@@ -32,6 +32,7 @@ export const ootyGrowingBatchesTable = mongoTable("ooty_growing_batches", {
   casingAppliedDate: date("casing_applied_date", { mode: "string" }),
   cookoutDate: date("cookout_date", { mode: "string" }),
   substrateWeightKg: numeric("substrate_weight_kg", { precision: 10, scale: 4 }),
+  manureProducedKg: numeric("manure_produced_kg", { precision: 10, scale: 4 }),
   notes: text("notes"),
   createdByUserId: integer("created_by_user_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -102,6 +103,39 @@ export const ootyHarvestsTable = mongoTable("ooty_harvests", {
 export const insertOotyHarvestSchema = createInsertSchema(ootyHarvestsTable).omit({ id: true, createdAt: true });
 export type InsertOotyHarvest = z.infer<typeof insertOotyHarvestSchema>;
 export type OotyHarvest = typeof ootyHarvestsTable.$inferSelect;
+// One row per stock-posted flush. The unique key prevents retries from increasing Mushroom twice.
+export const ootyHarvestInventoryPostingsTable = mongoTable("ooty_harvest_inventory_postings", {
+  id: serial("id").primaryKey(),
+  postingKey: text("posting_key").notNull().unique(),
+  growingBatchId: integer("growing_batch_id").notNull().references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),
+  harvestId: integer("harvest_id").notNull().references(() => ootyHarvestsTable.id, { onDelete: "cascade" }),
+  flushNumber: integer("flush_number").notNull(),
+  inventoryId: integer("inventory_id").notNull(),
+  inventoryAdjustmentId: integer("inventory_adjustment_id").notNull(),
+  warehouseId: integer("warehouse_id").notNull(),
+  mushroomCount: integer("mushroom_count").notNull(),
+  harvestWeightKg: numeric("harvest_weight_kg", { precision: 10, scale: 4 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertOotyHarvestInventoryPostingSchema = createInsertSchema(ootyHarvestInventoryPostingsTable).omit({ id: true, createdAt: true });
+export type OotyHarvestInventoryPosting = typeof ootyHarvestInventoryPostingsTable.$inferSelect;
+
+// One row per Cookout Manure stock posting. The unique key prevents retry/double-click duplication.
+export const ootyCookoutInventoryPostingsTable = mongoTable("ooty_cookout_inventory_postings", {
+  id: serial("id").primaryKey(),
+  postingKey: text("posting_key").notNull().unique(),
+  growingBatchId: integer("growing_batch_id").notNull().references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),
+  inventoryId: integer("inventory_id").notNull(),
+  inventoryAdjustmentId: integer("inventory_adjustment_id").notNull(),
+  warehouseId: integer("warehouse_id").notNull(),
+  manureKg: numeric("manure_kg", { precision: 10, scale: 4 }).notNull(),
+  cookoutDate: date("cookout_date", { mode: "string" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertOotyCookoutInventoryPostingSchema = createInsertSchema(ootyCookoutInventoryPostingsTable).omit({ id: true, createdAt: true });
+export type OotyCookoutInventoryPosting = typeof ootyCookoutInventoryPostingsTable.$inferSelect;
 
 export const phaseApprovalsTable = mongoTable("phase_approvals", {
   id: serial("id").primaryKey(),

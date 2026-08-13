@@ -68,7 +68,7 @@ import { ItemNameDialog } from "./components/ItemNameDialog";
 import { AssetManagement } from "./components/AssetManagement";
 import { toast } from "sonner";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function SummaryCard({
   icon: Icon,
@@ -86,7 +86,9 @@ function SummaryCard({
   wide?: boolean;
 }) {
   return (
-    <Card className={`relative overflow-hidden rounded-sm border-border shadow-md ${wide ? "col-span-2 lg:col-span-1 xl:col-span-2" : ""}`}>
+    <Card
+      className={`relative overflow-hidden rounded-sm border-border shadow-md ${wide ? "col-span-2 lg:col-span-1 xl:col-span-2" : ""}`}
+    >
       <div
         className={`absolute top-0 left-0 w-full h-1 ${accent ? "bg-destructive" : "bg-primary"}`}
       />
@@ -138,7 +140,7 @@ const NAV = [
   { id: "assets", icon: Wrench, label: "Asset Management" },
 ];
 
-// ─── main component ─────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ main component Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 export default function InventoryModule() {
   const queryClient = useQueryClient();
@@ -157,7 +159,7 @@ export default function InventoryModule() {
     });
   };
 
-  // ── mutations ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ mutations Ã¢â€â‚¬Ã¢â€â‚¬
   const createMaterial = useCreateMaterial({
     mutation: {
       onSuccess: () => {
@@ -198,7 +200,7 @@ export default function InventoryModule() {
     },
   });
 
-  // ── dialogs ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ dialogs Ã¢â€â‚¬Ã¢â€â‚¬
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [movOpen, setMovOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -207,7 +209,7 @@ export default function InventoryModule() {
   const [addIndentOpen, setAddIndentOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
-  // ── api ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ api Ã¢â€â‚¬Ã¢â€â‚¬
   const { data: services = [], refetch: refetchServices } = useQuery({
     queryKey: ["services"],
     queryFn: async () => {
@@ -350,7 +352,8 @@ export default function InventoryModule() {
         body: JSON.stringify(data),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || "Failed to update inventory item");
+      if (!res.ok)
+        throw new Error(body.error || "Failed to update inventory item");
       return body;
     },
     onSuccess: () => {
@@ -361,7 +364,8 @@ export default function InventoryModule() {
       setEditingId(null);
       toast.success("Item updated");
     },
-    onError: (error: any) => toast.error(error?.message || "Failed to update inventory item"),
+    onError: (error: any) =>
+      toast.error(error?.message || "Failed to update inventory item"),
   });
 
   const deleteMaterial = useMutation({
@@ -454,7 +458,7 @@ export default function InventoryModule() {
   const [assets, setAssets] = useState<any[]>([]);
   const [indents, setIndents] = useState<any[]>([]);
 
-  // ── computed dashboard stats ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ computed dashboard stats Ã¢â€â‚¬Ã¢â€â‚¬
   const totalItems = materials?.length ?? 0;
   const totalQOH =
     inventory?.reduce((s, i) => s + (i.quantityOnHand ?? 0), 0) ?? 0;
@@ -466,7 +470,7 @@ export default function InventoryModule() {
   const criticalItems =
     inventory?.filter((i) => (i.quantityOnHand ?? 0) < 10).length ?? 0;
 
-  // ── handlers ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ handlers Ã¢â€â‚¬Ã¢â€â‚¬
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
     if (!productForm.name) {
@@ -514,14 +518,31 @@ export default function InventoryModule() {
 
   const openInventoryItem = (inv: any, readOnly: boolean) => {
     setProductForm({
-      name: inv.materialName || "", unit: inv.unit || "kg", sku: inv.sku || "",
-      categoryId: inv.categoryId ? String(inv.categoryId) : "", attributeValues: inv.attributeValues || {},
-      buyPricePerUnit: inv.buyPricePerUnit == null ? "" : String(inv.buyPricePerUnit), sellPricePerUnit: inv.sellPricePerUnit == null ? "" : String(inv.sellPricePerUnit),
-      gstPercent: String(inv.gstPercent ?? ""), criticalLevel: inv.criticalLevel == null ? "10" : String(inv.criticalLevel),
-      itemType: inv.itemType || "Raw Material", hsnSac: inv.hsnSac || "", imageUrl: inv.imageUrl || "",
-      warehouseStocks: (inventory ?? []).filter(row => row.materialId === inv.materialId).map(row => ({ warehouseId: String(row.locationId || ""), stock: String(row.quantityOnHand ?? 0) })),
+      name: inv.materialName || "",
+      unit: inv.unit || "kg",
+      sku: inv.sku || "",
+      categoryId: inv.categoryId ? String(inv.categoryId) : "",
+      attributeValues: inv.attributeValues || {},
+      buyPricePerUnit:
+        inv.buyPricePerUnit == null ? "" : String(inv.buyPricePerUnit),
+      sellPricePerUnit:
+        inv.sellPricePerUnit == null ? "" : String(inv.sellPricePerUnit),
+      gstPercent: String(inv.gstPercent ?? ""),
+      criticalLevel:
+        inv.criticalLevel == null ? "10" : String(inv.criticalLevel),
+      itemType: inv.itemType || "Raw Material",
+      hsnSac: inv.hsnSac || "",
+      imageUrl: inv.imageUrl || "",
+      warehouseStocks: (inventory ?? [])
+        .filter((row) => row.materialId === inv.materialId)
+        .map((row) => ({
+          warehouseId: String(row.locationId || ""),
+          stock: String(row.quantityOnHand ?? 0),
+        })),
     });
-    setEditingId(inv.materialId); setViewMode(readOnly); setAddProductOpen(true);
+    setEditingId(inv.materialId);
+    setViewMode(readOnly);
+    setAddProductOpen(true);
   };
 
   const handleServiceSubmit = (e: React.FormEvent) => {
@@ -642,7 +663,7 @@ export default function InventoryModule() {
     return () => clearTimeout(timer);
   }, [productForm.categoryId, productForm.attributeValues, categories]);
 
-  // ── render ──
+  // Ã¢â€â‚¬Ã¢â€â‚¬ render Ã¢â€â‚¬Ã¢â€â‚¬
   return (
     <Shell>
       <div className="min-h-[calc(100vh-72px)] bg-muted/30 flex flex-col">
@@ -668,7 +689,7 @@ export default function InventoryModule() {
           </div>
 
           <div className="min-w-0 w-full flex-1 p-6 md:p-8">
-            {/* ── DASHBOARD ── */}
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ DASHBOARD Ã¢â€â‚¬Ã¢â€â‚¬ */}
             <TabsContent
               value="dashboard"
               className="outline-none mt-0 space-y-6"
@@ -682,7 +703,7 @@ export default function InventoryModule() {
                 <SummaryCard
                   icon={IndianRupee}
                   label="Total Inventory Value"
-                  value={`₹${totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
+                  value={`Ã¢â€šÂ¹${totalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`}
                   sub="based on buy price"
                   wide
                 />
@@ -786,8 +807,8 @@ export default function InventoryModule() {
                               {m.materialName}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {m.fromLocationName || "—"} →{" "}
-                              {m.toLocationName || "—"}
+                              {m.fromLocationName || "Ã¢â‚¬â€"} Ã¢â€ â€™{" "}
+                              {m.toLocationName || "Ã¢â‚¬â€"}
                             </p>
                           </div>
                           <span className="font-mono text-sm font-semibold">
@@ -806,7 +827,7 @@ export default function InventoryModule() {
               </div>
             </TabsContent>
 
-            {/* ── ITEM & PRODUCT MASTER ── */}
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ ITEM & PRODUCT MASTER Ã¢â€â‚¬Ã¢â€â‚¬ */}
             <TabsContent
               value="products"
               className="outline-none mt-0 space-y-6"
@@ -901,190 +922,327 @@ export default function InventoryModule() {
                     </div>
                   ) : (
                     <>
-                    <div className="overflow-x-auto rounded-lg border bg-card">
-                      <table className="w-full min-w-[980px] text-sm">
-                        <thead className="border-b bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="px-4 py-3">Item</th><th className="px-4 py-3">SKU</th><th className="px-4 py-3">Category</th><th className="px-4 py-3">Warehouse</th><th className="px-4 py-3 text-right">Quantity</th><th className="px-4 py-3 text-right">Buy Price</th><th className="px-4 py-3 text-right">Sell Price</th><th className="px-4 py-3 text-right">Actions</th></tr></thead>
-                        <tbody className="divide-y">{(inventory ?? []).map(inv => <tr key={inv.id} className="hover:bg-muted/30"><td className="px-4 py-3"><div className="flex items-center gap-3">{inv.imageUrl ? <img src={inv.imageUrl} alt="" className="h-10 w-10 rounded-md border object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-md border bg-muted"><Package className="h-4 w-4 text-muted-foreground" /></div>}<div><div className="font-semibold">{inv.materialName}</div><div className="text-xs text-muted-foreground">{(inv as any).itemType || "Material"} · {inv.unit}</div></div></div></td><td className="px-4 py-3 font-mono text-xs">{inv.sku || "—"}</td><td className="px-4 py-3">{inv.category || "—"}</td><td className="px-4 py-3 font-medium">{inv.locationName || "Unassigned"}</td><td className="px-4 py-3 text-right font-mono font-bold">{inv.quantityOnHand} {inv.unit}</td><td className="px-4 py-3 text-right">₹{inv.buyPricePerUnit ?? "—"}</td><td className="px-4 py-3 text-right">₹{inv.sellPricePerUnit ?? "—"}</td><td className="px-4 py-3"><div className="flex justify-end gap-1"><Button size="icon" variant="ghost" title="View" onClick={() => openInventoryItem(inv, true)}><Eye className="h-4 w-4" /></Button><Button size="icon" variant="ghost" title="Edit" onClick={() => openInventoryItem(inv, false)}><Edit2 className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="text-destructive" title="Delete" onClick={() => { setItemToDelete({ id: inv.materialId, type: "material" }); setDeleteConfirmOpen(true); }}><Trash2 className="h-4 w-4" /></Button></div></td></tr>)}</tbody>
-                      </table>
-                      {(inventory ?? []).length === 0 && <div className="p-16 text-center text-sm text-muted-foreground">No items yet. Click "Add Item" to get started.</div>}
-                    </div>
-                    <div className="hidden">
-                      {(inventory ?? []).map((inv) => (
-                        <Card
-                          key={inv.id}
-                          className="rounded-sm border-border shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col group"
-                        >
-                          <div className="aspect-square bg-muted/30 relative flex items-center justify-center overflow-hidden border-b">
-                            {inv.imageUrl ? (
-                              <img
-                                src={inv.imageUrl}
-                                alt={inv.materialName}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <ImageIcon className="w-10 h-10 text-muted-foreground/20" />
-                            )}
-                            {inv.sku && (
-                              <div className="absolute top-2 right-2">
-                                <Badge className="bg-white/90 text-foreground border shadow-sm text-[10px] font-mono px-1.5 py-0.5 rounded-sm">
-                                  {inv.sku}
-                                </Badge>
-                              </div>
-                            )}
-                            {inv.category && (
-                              <div className="absolute top-2 left-2">
-                                <Badge className="bg-primary/90 text-primary-foreground border-none text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
-                                  {inv.category}
-                                </Badge>
-                              </div>
-                            )}
+                      <div className="overflow-x-auto rounded-lg border bg-card">
+                        <table className="w-full min-w-[980px] text-sm">
+                          <thead className="border-b bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                            <tr>
+                              <th className="px-4 py-3">Item</th>
+                              <th className="px-4 py-3">SKU</th>
+                              <th className="px-4 py-3">Category</th>
+                              <th className="px-4 py-3">Warehouse</th>
+                              <th className="px-4 py-3 text-right">Quantity</th>
+                              <th className="px-4 py-3 text-right">
+                                Buy Price
+                              </th>
+                              <th className="px-4 py-3 text-right">
+                                Sell Price
+                              </th>
+                              <th className="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {(inventory ?? []).map((inv) => (
+                              <tr key={inv.id} className="hover:bg-muted/30">
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-3">
+                                    {inv.imageUrl ? (
+                                      <img
+                                        src={inv.imageUrl}
+                                        alt=""
+                                        className="h-10 w-10 rounded-md border object-cover"
+                                      />
+                                    ) : (
+                                      <div className="grid h-10 w-10 place-items-center rounded-md border bg-muted">
+                                        <Package className="h-4 w-4 text-muted-foreground" />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="font-semibold">
+                                        {inv.materialName}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {(inv as any).itemType || "Material"}{" "}
+                                        Ã‚Â· {inv.unit}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-mono text-xs">
+                                  {inv.sku || "Ã¢â‚¬â€"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {inv.category || "Ã¢â‚¬â€"}
+                                </td>
+                                <td className="px-4 py-3 font-medium">
+                                  {inv.locationName || "Unassigned"}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono font-bold">
+                                  {inv.quantityOnHand} {inv.unit}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  {String.fromCharCode(8377)}
+                                  {inv.buyPricePerUnit ?? "—"}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  {String.fromCharCode(8377)}
+                                  {inv.sellPricePerUnit ?? "—"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      title="View"
+                                      onClick={() =>
+                                        openInventoryItem(inv, true)
+                                      }
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      title="Edit"
+                                      onClick={() =>
+                                        openInventoryItem(inv, false)
+                                      }
+                                    >
+                                      <Edit2 className="h-4 w-4" />
+                                    </Button>
+                                    {!(inv as any).isProtected && (
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="text-destructive"
+                                        title="Delete"
+                                        onClick={() => {
+                                          setItemToDelete({
+                                            id: inv.materialId,
+                                            type: "material",
+                                          });
+                                          setDeleteConfirmOpen(true);
+                                        }}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {(inventory ?? []).length === 0 && (
+                          <div className="p-16 text-center text-sm text-muted-foreground">
+                            No items yet. Click "Add Item" to get started.
                           </div>
-                          <CardContent className="p-3 flex-1 flex flex-col">
-                            <h3 className="font-semibold text-sm leading-tight line-clamp-2">
-                              {inv.materialName}
-                            </h3>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {inv.locationName || "Global"}
-                            </p>
-                            <div className="mt-auto pt-3 flex items-end justify-between">
-                              <div>
-                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                  QOH
-                                </p>
-                                <p className="text-lg font-mono font-bold text-foreground leading-tight">
-                                  {inv.quantityOnHand}{" "}
-                                  <span className="text-xs font-normal text-muted-foreground">
-                                    {inv.unit}
-                                  </span>
-                                </p>
-                              </div>
-                              {inv.qrCode && (
-                                <QrCode className="w-5 h-5 text-muted-foreground/40" />
+                        )}
+                      </div>
+                      <div className="hidden">
+                        {(inventory ?? []).map((inv) => (
+                          <Card
+                            key={inv.id}
+                            className="rounded-sm border-border shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col group"
+                          >
+                            <div className="aspect-square bg-muted/30 relative flex items-center justify-center overflow-hidden border-b">
+                              {inv.imageUrl ? (
+                                <img
+                                  src={inv.imageUrl}
+                                  alt={inv.materialName}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <ImageIcon className="w-10 h-10 text-muted-foreground/20" />
+                              )}
+                              {inv.sku && (
+                                <div className="absolute top-2 right-2">
+                                  <Badge className="bg-white/90 text-foreground border shadow-sm text-[10px] font-mono px-1.5 py-0.5 rounded-sm">
+                                    {inv.sku}
+                                  </Badge>
+                                </div>
+                              )}
+                              {inv.category && (
+                                <div className="absolute top-2 left-2">
+                                  <Badge className="bg-primary/90 text-primary-foreground border-none text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm">
+                                    {inv.category}
+                                  </Badge>
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 pt-2 border-t border-border/50 mt-2">
-                              <div className="flex-1">
-                                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                                  Buy
-                                </p>
-                                <p className="text-xs font-mono font-semibold">
-                                  ₹{inv.buyPricePerUnit ?? "—"}
-                                </p>
+                            <CardContent className="p-3 flex-1 flex flex-col">
+                              <h3 className="font-semibold text-sm leading-tight line-clamp-2">
+                                {inv.materialName}
+                              </h3>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {inv.locationName || "Global"}
+                              </p>
+                              <div className="mt-auto pt-3 flex items-end justify-between">
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                    QOH
+                                  </p>
+                                  <p className="text-lg font-mono font-bold text-foreground leading-tight">
+                                    {inv.quantityOnHand}{" "}
+                                    <span className="text-xs font-normal text-muted-foreground">
+                                      {inv.unit}
+                                    </span>
+                                  </p>
+                                </div>
+                                {inv.qrCode && (
+                                  <QrCode className="w-5 h-5 text-muted-foreground/40" />
+                                )}
                               </div>
-                              <div className="w-px h-5 bg-border/50" />
-                              <div className="flex-1">
-                                <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
-                                  Sell
-                                </p>
-                                <p className="text-xs font-mono font-semibold">
-                                  ₹{inv.sellPricePerUnit ?? "—"}
-                                </p>
+                              <div className="flex items-center gap-2 pt-2 border-t border-border/50 mt-2">
+                                <div className="flex-1">
+                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                                    Buy
+                                  </p>
+                                  <p className="text-xs font-mono font-semibold">
+                                    {String.fromCharCode(8377)}
+                                    {inv.buyPricePerUnit ?? "—"}
+                                  </p>
+                                </div>
+                                <div className="w-px h-5 bg-border/50" />
+                                <div className="flex-1">
+                                  <p className="text-[9px] uppercase tracking-wider text-muted-foreground">
+                                    Sell
+                                  </p>
+                                  <p className="text-xs font-mono font-semibold">
+                                    {String.fromCharCode(8377)}
+                                    {inv.sellPricePerUnit ?? "—"}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
-                            {/* Action buttons */}
-                            <div className="flex items-center gap-1 pt-2 mt-2 border-t border-border/50">
-                              <button
-                                onClick={() => {
-                                  setProductForm({
-                                    name: inv.materialName || "",
-                                    unit: inv.unit || "kg",
-                                    sku: inv.sku || "",
-                                    categoryId: (inv as any).categoryId
-                                      ? String((inv as any).categoryId)
-                                      : "",
-                                    attributeValues:
-                                      (inv as any).attributeValues || {},
-                                    buyPricePerUnit: inv.buyPricePerUnit
-                                      ? String(inv.buyPricePerUnit)
-                                      : "",
-                                    sellPricePerUnit: inv.sellPricePerUnit
-                                      ? String(inv.sellPricePerUnit)
-                                      : "",
-                                    gstPercent: String(
-                                      (inv as any).gstPercent ?? "",
-                                    ),
-                                    criticalLevel: (inv as any).criticalLevel
-                                      ? String((inv as any).criticalLevel)
-                                      : "10",
-                                    itemType:
-                                      (inv as any).itemType || "Raw Material",
-                                    hsnSac: (inv as any).hsnSac || "",
-                                    imageUrl: inv.imageUrl || "",
-                                    warehouseStocks: (inventory ?? []).filter(row => row.materialId === inv.materialId).map(row => ({ warehouseId: String(row.locationId || ""), stock: String(row.quantityOnHand ?? 0) })),
-                                  });
-                                  setEditingId(inv.materialId);
-                                  setViewMode(true);
-                                  setAddProductOpen(true);
-                                }}
-                                className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors py-1 rounded-sm hover:bg-primary/5"
-                                title="View"
-                              >
-                                <Eye className="w-3.5 h-3.5" /> View
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setProductForm({
-                                    name: inv.materialName || "",
-                                    unit: inv.unit || "kg",
-                                    sku: inv.sku || "",
-                                    categoryId: (inv as any).categoryId
-                                      ? String((inv as any).categoryId)
-                                      : "",
-                                    attributeValues:
-                                      (inv as any).attributeValues || {},
-                                    buyPricePerUnit: inv.buyPricePerUnit
-                                      ? String(inv.buyPricePerUnit)
-                                      : "",
-                                    sellPricePerUnit: inv.sellPricePerUnit
-                                      ? String(inv.sellPricePerUnit)
-                                      : "",
-                                    gstPercent: String(
-                                      (inv as any).gstPercent ?? "",
-                                    ),
-                                    criticalLevel: (inv as any).criticalLevel
-                                      ? String((inv as any).criticalLevel)
-                                      : "10",
-                                    itemType:
-                                      (inv as any).itemType || "Raw Material",
-                                    hsnSac: (inv as any).hsnSac || "",
-                                    imageUrl: inv.imageUrl || "",
-                                    warehouseStocks: (inventory ?? []).filter(row => row.materialId === inv.materialId).map(row => ({ warehouseId: String(row.locationId || ""), stock: String(row.quantityOnHand ?? 0) })),
-                                  });
-                                  setEditingId(inv.materialId);
-                                  setViewMode(false);
-                                  setAddProductOpen(true);
-                                }}
-                                className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors py-1 rounded-sm hover:bg-primary/5"
-                                title="Edit"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" /> Edit
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setItemToDelete({
-                                    id: inv.materialId,
-                                    type: "material",
-                                  });
-                                  setDeleteConfirmOpen(true);
-                                }}
-                                className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1 rounded-sm hover:bg-destructive/5"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" /> Delete
-                              </button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                      {(inventory ?? []).length === 0 && !invLoading && (
-                        <div className="col-span-full py-16 text-center text-muted-foreground">
-                          <Package className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                          <p className="text-sm">
-                            No items yet. Click "Add Item" to get started.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+                              {/* Action buttons */}
+                              <div className="flex items-center gap-1 pt-2 mt-2 border-t border-border/50">
+                                <button
+                                  onClick={() => {
+                                    setProductForm({
+                                      name: inv.materialName || "",
+                                      unit: inv.unit || "kg",
+                                      sku: inv.sku || "",
+                                      categoryId: (inv as any).categoryId
+                                        ? String((inv as any).categoryId)
+                                        : "",
+                                      attributeValues:
+                                        (inv as any).attributeValues || {},
+                                      buyPricePerUnit: inv.buyPricePerUnit
+                                        ? String(inv.buyPricePerUnit)
+                                        : "",
+                                      sellPricePerUnit: inv.sellPricePerUnit
+                                        ? String(inv.sellPricePerUnit)
+                                        : "",
+                                      gstPercent: String(
+                                        (inv as any).gstPercent ?? "",
+                                      ),
+                                      criticalLevel: (inv as any).criticalLevel
+                                        ? String((inv as any).criticalLevel)
+                                        : "10",
+                                      itemType:
+                                        (inv as any).itemType || "Raw Material",
+                                      hsnSac: (inv as any).hsnSac || "",
+                                      imageUrl: inv.imageUrl || "",
+                                      warehouseStocks: (inventory ?? [])
+                                        .filter(
+                                          (row) =>
+                                            row.materialId === inv.materialId,
+                                        )
+                                        .map((row) => ({
+                                          warehouseId: String(
+                                            row.locationId || "",
+                                          ),
+                                          stock: String(
+                                            row.quantityOnHand ?? 0,
+                                          ),
+                                        })),
+                                    });
+                                    setEditingId(inv.materialId);
+                                    setViewMode(true);
+                                    setAddProductOpen(true);
+                                  }}
+                                  className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors py-1 rounded-sm hover:bg-primary/5"
+                                  title="View"
+                                >
+                                  <Eye className="w-3.5 h-3.5" /> View
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setProductForm({
+                                      name: inv.materialName || "",
+                                      unit: inv.unit || "kg",
+                                      sku: inv.sku || "",
+                                      categoryId: (inv as any).categoryId
+                                        ? String((inv as any).categoryId)
+                                        : "",
+                                      attributeValues:
+                                        (inv as any).attributeValues || {},
+                                      buyPricePerUnit: inv.buyPricePerUnit
+                                        ? String(inv.buyPricePerUnit)
+                                        : "",
+                                      sellPricePerUnit: inv.sellPricePerUnit
+                                        ? String(inv.sellPricePerUnit)
+                                        : "",
+                                      gstPercent: String(
+                                        (inv as any).gstPercent ?? "",
+                                      ),
+                                      criticalLevel: (inv as any).criticalLevel
+                                        ? String((inv as any).criticalLevel)
+                                        : "10",
+                                      itemType:
+                                        (inv as any).itemType || "Raw Material",
+                                      hsnSac: (inv as any).hsnSac || "",
+                                      imageUrl: inv.imageUrl || "",
+                                      warehouseStocks: (inventory ?? [])
+                                        .filter(
+                                          (row) =>
+                                            row.materialId === inv.materialId,
+                                        )
+                                        .map((row) => ({
+                                          warehouseId: String(
+                                            row.locationId || "",
+                                          ),
+                                          stock: String(
+                                            row.quantityOnHand ?? 0,
+                                          ),
+                                        })),
+                                    });
+                                    setEditingId(inv.materialId);
+                                    setViewMode(false);
+                                    setAddProductOpen(true);
+                                  }}
+                                  className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-primary transition-colors py-1 rounded-sm hover:bg-primary/5"
+                                  title="Edit"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" /> Edit
+                                </button>
+                                {!(inv as any).isProtected && (
+                                  <button
+                                    onClick={() => {
+                                      setItemToDelete({
+                                        id: inv.materialId,
+                                        type: "material",
+                                      });
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1 rounded-sm hover:bg-destructive/5"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                                  </button>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                        {(inventory ?? []).length === 0 && !invLoading && (
+                          <div className="col-span-full py-16 text-center text-muted-foreground">
+                            <Package className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                            <p className="text-sm">
+                              No items yet. Click "Add Item" to get started.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
                 </TabsContent>
@@ -1121,7 +1279,7 @@ export default function InventoryModule() {
                             >
                               <td className="px-4 font-medium">{m.name}</td>
                               <td className="px-4 text-muted-foreground">
-                                {m.category || "—"}
+                                {m.category || "Ã¢â‚¬â€"}
                               </td>
                               <td className="px-4">
                                 <Badge
@@ -1225,7 +1383,7 @@ export default function InventoryModule() {
                                   {c.name}
                                 </td>
                                 <td className="px-4 py-3 font-mono text-muted-foreground">
-                                  {c.categoryCode || "—"}
+                                  {c.categoryCode || "Ã¢â‚¬â€"}
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <Badge variant="outline">
@@ -1318,7 +1476,7 @@ export default function InventoryModule() {
                                   {s.gstPercent}%
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                  ₹{s.sellingPrice}
+                                  Ã¢â€šÂ¹{s.sellingPrice}
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   <div className="flex items-center justify-end gap-2 text-muted-foreground">
@@ -1381,7 +1539,7 @@ export default function InventoryModule() {
               </Tabs>
             </TabsContent>
 
-            {/* ── WAREHOUSES & STORES ── */}
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ WAREHOUSES & STORES Ã¢â€â‚¬Ã¢â€â‚¬ */}
             <TabsContent
               value="warehouses"
               className="outline-none mt-0 space-y-6"
@@ -1489,7 +1647,7 @@ export default function InventoryModule() {
               </div>
             </TabsContent>
 
-            {/* ── STOCK MOVEMENTS ── */}
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ STOCK MOVEMENTS Ã¢â€â‚¬Ã¢â€â‚¬ */}
             <TabsContent
               value="movements"
               className="outline-none mt-0 space-y-6"
@@ -1585,16 +1743,16 @@ export default function InventoryModule() {
                                 {m.materialName}
                               </td>
                               <td className="px-4 text-muted-foreground text-xs">
-                                {m.fromLocationName || "—"}
+                                {m.fromLocationName || "Ã¢â‚¬â€"}
                               </td>
                               <td className="px-4 text-muted-foreground text-xs">
-                                {m.toLocationName || "—"}
+                                {m.toLocationName || "Ã¢â‚¬â€"}
                               </td>
                               <td className="px-4 text-right font-mono font-semibold">
                                 {m.quantityKg} kg
                               </td>
                               <td className="px-4 text-muted-foreground text-xs">
-                                {m.reason || "—"}
+                                {m.reason || "Ã¢â‚¬â€"}
                               </td>
                             </tr>
                           ))
@@ -1606,7 +1764,7 @@ export default function InventoryModule() {
               </Card>
             </TabsContent>
 
-            {/* ── MATERIAL ISSUE ── */}
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ MATERIAL ISSUE Ã¢â€â‚¬Ã¢â€â‚¬ */}
             <TabsContent
               value="indents"
               className="outline-none mt-0 space-y-6"
@@ -1742,9 +1900,12 @@ export default function InventoryModule() {
               </div>
             </TabsContent>
 
-            {/* ── ASSET MANAGEMENT ── */}
+            {/* Ã¢â€â‚¬Ã¢â€â‚¬ ASSET MANAGEMENT Ã¢â€â‚¬Ã¢â€â‚¬ */}
             <AssetManagement />
-            <TabsContent value="assets-legacy" className="outline-none mt-0 space-y-6">
+            <TabsContent
+              value="assets-legacy"
+              className="outline-none mt-0 space-y-6"
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight font-display">
@@ -1790,7 +1951,8 @@ export default function InventoryModule() {
                               </td>
                               <td className="px-4 font-medium">{a.name}</td>
                               <td className="px-4 text-right font-mono text-sm">
-                                ₹{Number(a.purchaseValue).toLocaleString()}
+                                Ã¢â€šÂ¹
+                                {Number(a.purchaseValue).toLocaleString()}
                               </td>
                               <td className="px-4">
                                 <Badge
@@ -1834,7 +1996,7 @@ export default function InventoryModule() {
         </Tabs>
       </div>
 
-      {/* ── DIALOGS ── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ DIALOGS Ã¢â€â‚¬Ã¢â€â‚¬ */}
 
       {/* Add Product */}
       <Dialog
@@ -2023,7 +2185,8 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">
-                  Buying Price (₹) <span className="text-destructive">*</span>
+                  Buying Price (Ã¢â€šÂ¹){" "}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   type="number"
@@ -2043,7 +2206,8 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">
-                  Selling Price (₹) <span className="text-destructive">*</span>
+                  Selling Price (Ã¢â€šÂ¹){" "}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   type="number"
@@ -2300,10 +2464,10 @@ export default function InventoryModule() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="inward">
-                    Inward (GRN — Goods Received)
+                    Inward (GRN Ã¢â‚¬â€ Goods Received)
                   </SelectItem>
                   <SelectItem value="outward">
-                    Outward (DC — Delivery Challan)
+                    Outward (DC Ã¢â‚¬â€ Delivery Challan)
                   </SelectItem>
                   <SelectItem value="adjustment">Adjustment</SelectItem>
                 </SelectContent>
@@ -2593,7 +2757,7 @@ export default function InventoryModule() {
         </DialogContent>
       </Dialog>
 
-{/* Add Asset */}
+      {/* Add Asset */}
       <Dialog open={addAssetOpen} onOpenChange={setAddAssetOpen}>
         <DialogContent className="rounded-sm shadow-xl max-w-md">
           <DialogHeader>
@@ -2630,7 +2794,7 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Purchase Value (₹)
+                  Purchase Value (Ã¢â€šÂ¹)
                 </Label>
                 <Input
                   type="number"
@@ -2660,7 +2824,7 @@ export default function InventoryModule() {
         </DialogContent>
       </Dialog>
 
-      {/* ── ADD SERVICE DIALOG ── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ ADD SERVICE DIALOG Ã¢â€â‚¬Ã¢â€â‚¬ */}
       <Dialog
         open={addServiceOpen}
         onOpenChange={(val) => {
@@ -2740,7 +2904,7 @@ export default function InventoryModule() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Enter selling price (₹)
+                    Enter selling price (Ã¢â€šÂ¹)
                   </Label>
                   <Input
                     disabled={viewMode}
