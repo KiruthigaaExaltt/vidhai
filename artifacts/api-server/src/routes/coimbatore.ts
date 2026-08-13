@@ -200,15 +200,19 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
 
     for (const mat of (materials ?? [])) {
       if (!mat.name || !(mat.weightKg > 0)) continue;
-      const [found] = await tx.select().from(materialsTable)
-        .where(ilike(materialsTable.name, mat.name)).limit(1);
-      if (found) {
-        await tx.insert(coimbatoreBatchMaterialsTable).values({
-          batchId,
-          materialId: found.id,
-          weightKg: String(mat.weightKg),
-        });
+      let [found] = await tx.select().from(materialsTable)
+        .where(ilike(materialsTable.name, mat.name.trim())).limit(1);
+      if (!found) {
+        [found] = await tx.insert(materialsTable).values({
+          name: mat.name.trim(), unit: "kg", category: "raw_material", itemType: "Raw Material",
+          itemIdentifier: `VLT-RM-COIM-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        }).returning();
       }
+      await tx.insert(coimbatoreBatchMaterialsTable).values({
+        batchId,
+        materialId: found.id,
+        weightKg: String(mat.weightKg),
+      });
     }
 
     // Upsert turn config

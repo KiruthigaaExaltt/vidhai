@@ -17,13 +17,13 @@ import { eq, desc, inArray, isNull, and } from "@workspace/db";
 
 const router = Router();
 
-const OOTY_STAGE_SEQ = ["SPAWN_RUN", "CASING_RUN", "PINNING_FLUSH1", "FLUSH2", "COOKOUT", "COMPLETED"] as const;
+const OOTY_STAGE_SEQ = ["SPAWN_RUN", "CASING_RUN", "PRONING", "PINNING_FLUSH1", "FLUSH2", "COOKOUT", "COMPLETED"] as const;
 
 // Map fine-grained stage → coarse phase (for alert system and legacy compat)
 function stageToPhase(stage: string): string {
   if (stage === "SPAWN_RUN") return "SPAWN_RUN";
   if (stage === "CASING_RUN") return "CASING_RUN";
-  if (stage === "PINNING_FLUSH1" || stage === "FLUSH2") return "DF";
+  if (stage === "PRONING" || stage === "PINNING_FLUSH1" || stage === "FLUSH2") return "DF";
   if (stage === "COOKOUT") return "COOKOUT";
   if (stage === "COMPLETED") return "COMPLETED";
   return stage;

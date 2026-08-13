@@ -12,4 +12,10 @@ export interface BatchInput {
   targetBags?: number | null;
   /** @nullable */
   notes?: string | null;
-}
+  formulation?: Array<{
+    materialId?: number | null;
+    name: string;
+    wetWeightKg: number;
+    moisturePercent: number;
+    nitrogenPercent: number;
+  }>;}
