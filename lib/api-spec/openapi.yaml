@@ -2156,6 +2156,17 @@ components:
         locationId: { type: integer }
         targetBags: { type: ["integer", "null"] }
         notes: { type: ["string", "null"] }
+        formulation:
+          type: array
+          items:
+            type: object
+            required: [name, wetWeightKg, moisturePercent, nitrogenPercent]
+            properties:
+              materialId: { type: ["integer", "null"] }
+              name: { type: string }
+              wetWeightKg: { type: number }
+              moisturePercent: { type: number }
+              nitrogenPercent: { type: number }
 
     BatchUpdate:
       type: object
@@ -2179,6 +2190,10 @@ components:
         notes: { type: ["string", "null"] }
         nh3Ppm: { type: ["number", "null"] }
         temperatureCelsius: { type: ["number", "null"] }
+        chamberId: { type: ["integer", "null"] }
+        verificationImages:
+          type: array
+          items: { type: string }
         spawnBatchRef: { type: ["string", "null"] }
         spawnBatchType:
           type: string
@@ -2667,7 +2682,7 @@ components:
         coimBatchId: { type: ["integer", "null"] }
         currentPhase:
           type: string
-          enum: [SPAWN_RUN, CASING_RUN, DF, COOKOUT, COMPLETED]
+          enum: [SPAWN_RUN, CASING_RUN, PRONING, DF, COOKOUT, COMPLETED]
         phaseEnteredAt: { type: ["string", "null"] }
         status: { type: string }
         spawnRunStartDate: { type: ["string", "null"] }
@@ -2731,7 +2746,7 @@ components:
       properties:
         nextPhase:
           type: string
-          enum: [CASING_RUN, DF, COOKOUT, COMPLETED]
+          enum: [CASING_RUN, PRONING, DF, COOKOUT, COMPLETED]
         notes: { type: ["string", "null"] }
         cookoutDate: { type: ["string", "null"] }
         substrateWeightKg: { type: ["number", "null"] }

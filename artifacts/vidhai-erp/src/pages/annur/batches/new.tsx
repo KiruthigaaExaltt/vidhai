@@ -3,7 +3,6 @@ import {
   useCreateBatch,
   useListLocations,
   useListMaterials,
-  useAddBatchMaterial,
 } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import {
@@ -74,7 +73,6 @@ export default function NewBatch() {
   );
 
   const createBatch = useCreateBatch();
-  const addMaterial = useAddBatchMaterial();
 
   const [targetBags, setTargetBags] = useState<string>("4500");
   const [notes, setNotes] = useState("");
@@ -197,48 +195,21 @@ export default function NewBatch() {
     }
 
     try {
-      // 1. Create Batch
       const batch = await createBatch.mutateAsync({
         data: {
           locationId: annurLoc.id,
           targetBags: targetBags ? Number(targetBags) : null,
           notes: notes || null,
-        },
-      });
-
-      // 2. Add Materials â€” use pre-resolved materialId where available,
-      //    fall back to flexible name match to handle any DB name variations.
-      const skipped: string[] = [];
-      const promises = formulation.map((row) => {
-        const match = row.materialId
-          ? materialsList.find((m) => m.id === row.materialId)
-          : resolveMaterial(materialsList, row.name);
-
-        if (!match) {
-          skipped.push(row.name);
-          return Promise.resolve(null);
-        }
-        if (row.wetWeightKg <= 0) return Promise.resolve(null);
-
-        return addMaterial.mutateAsync({
-          id: batch.id,
-          data: {
-            materialId: match.id,
+          formulation: formulation.map(row => ({
+            materialId: row.materialId,
+            name: row.name,
             wetWeightKg: row.wetWeightKg,
             moisturePercent: row.moisturePercent,
             nitrogenPercent: row.nitrogenPercent,
-          },
-        });
+          })),
+        } as any,
       });
-
-      await Promise.all(promises);
-      if (skipped.length > 0) {
-        toast.warning(
-          `Batch created â€” ${skipped.length} material(s) could not be matched and were skipped: ${skipped.join(", ")}`,
-        );
-      } else {
-        toast.success("Batch created successfully");
-      }
+      toast.success("Batch and formulation created successfully");
       setLocation(`/annur/batches/${batch.id}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to create batch");
@@ -528,10 +499,10 @@ export default function NewBatch() {
           <div className="flex justify-end pt-4">
             <Button
               type="submit"
-              disabled={createBatch.isPending || addMaterial.isPending}
+              disabled={createBatch.isPending}
               className="rounded-md px-10 h-12 text-lg shadow-md"
             >
-              {createBatch.isPending || addMaterial.isPending
+              {createBatch.isPending
                 ? "Initiating..."
                 : "Initiate Batch"}
             </Button>

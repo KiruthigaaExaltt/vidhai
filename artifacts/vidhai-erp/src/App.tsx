@@ -94,14 +94,90 @@ function ProtectedRoute({
   return <Component {...rest} />;
 }
 
+const landingRoutes = [
+  { path: "/dashboard", permissions: ["dashboard.view"] },
+  { path: "/tasks", permissions: ["task.task_board.view"] },
+  {
+    path: "/crew",
+    permissions: [
+      "crew.employees.view",
+      "crew.attendance.view",
+      "crew.leave.view",
+      "crew.claims.view",
+      "crew.overtime.view",
+      "crew.bonus.view",
+      "crew.deductions.view",
+    ],
+  },
+  {
+    path: "/crewpay",
+    permissions: ["crewpay.salary_slip.view", "crewpay.payroll.view"],
+  },
+  { path: "/scheduling", permissions: ["scheduling.calendar.view"] },
+  { path: "/annur/batches", permissions: ["production.batches.view"] },
+  { path: "/ooty", permissions: ["production.growing_rooms.view"] },
+  { path: "/coimbatore/batches", permissions: ["production.casing_soil.view"] },
+  { path: "/lab/batches", permissions: ["production.spawn_batches.view"] },
+  { path: "/crm", permissions: ["crm.contacts.view"] },
+  {
+    path: "/sales",
+    permissions: [
+      "sales.quotations.view",
+      "sales.proforma_invoices.view",
+      "sales.delivery_challans.view",
+      "sales.invoices.view",
+      "sales.payments.view",
+      "sales.returns.view",
+    ],
+  },
+  { path: "/inventory", permissions: ["inventory.stock.view"] },
+  { path: "/accounts", permissions: ["accounts.finance_dashboard.view"] },
+  { path: "/reports", permissions: ["reports.view"] },
+  {
+    path: "/settings",
+    permissions: [
+      "settings.company_profile.view",
+      "settings.user_management.view",
+      "settings.templates.view",
+      "settings.master_settings.view",
+      "settings.alert_colors.view",
+      "settings.locations.view",
+    ],
+  },
+] as const;
+
+function LandingRoute() {
+  const { user, isLoading, can } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user) {
+      setLocation("/login");
+      return;
+    }
+    const destination = landingRoutes.find(({ permissions }) =>
+      permissions.some((permission) => can(permission)),
+    );
+    setLocation(destination?.path ?? "/profile");
+  }, [isLoading, user, can, setLocation]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-sm font-mono text-muted-foreground">Loading...</div>
+    </div>
+  );
+}
 function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
 
-      <Route path="/">
+      <Route path="/dashboard">
         <ProtectedRoute component={Dashboard} permission="dashboard.view" />
       </Route>
+
+      <Route path="/" component={LandingRoute} />
 
       <Route path="/settings">
         <ProtectedRoute

@@ -1,9 +1,10 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import {
   useGetBatch, getGetBatchQueryKey,
   useAdvanceBatchStage,
   useListLabBatches,
+  useListChambers, getListChambersQueryKey,
 } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,13 +54,41 @@ export default function BatchDetail() {
   });
   const { data: labBatches } = useListLabBatches({ query: { enabled: true } } as any);
   const completedLabBatches = labBatches?.filter((b: any) => b.status === "completed") ?? [];
+  const { data: chambers } = useListChambers({ locationId: batch?.locationId }, { query: { enabled: !!batch?.locationId } } as any);
+  const availableBulkChambers = chambers?.filter((chamber: any) => chamber.chamberType === "bulk" && chamber.status === "idle" && !chamber.currentBatchId) ?? [];
+  const assignedBulkChamber = chambers?.find((chamber: any) => chamber.chamberType === "bulk" && chamber.currentBatchId === batchId);
+  const [chamberPromptOpen, setChamberPromptOpen] = useState(false);
+  const [promptChamberId, setPromptChamberId] = useState("");
+  const [assigningChamber, setAssigningChamber] = useState(false);
+
+  useEffect(() => {
+    if (batch?.currentStage === "BULK_CHAMBER" && chambers && !assignedBulkChamber) setChamberPromptOpen(true);
+  }, [batch?.currentStage, chambers, assignedBulkChamber]);
+
+  const assignCurrentBulkChamber = async () => {
+    if (!promptChamberId) return;
+    setAssigningChamber(true);
+    try {
+      const response = await fetch(`/api/batches/${batchId}/assign-chamber`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chamberId: Number(promptChamberId) }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Failed to assign chamber");
+      await queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() });
+      setChamberPromptOpen(false);
+      toast.success("Bulk chamber assigned");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to assign chamber"); }
+    finally { setAssigningChamber(false); }
+  };
 
   const advanceMutation = useAdvanceBatchStage({
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetBatchQueryKey(batchId) });
+        queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() });
         toast.success("Stage completed");
-        setCompleteDialog({ open: false, stageKey: "", nextStageKey: "", notes: "", spawnType: "internal", spawnRef: "" });
+        setCompleteDialog({ open: false, stageKey: "", nextStageKey: "", notes: "", spawnType: "internal", spawnRef: "", chamberId: "" });
         setStageImages([null, null]);
       },
       onError: (e: any) => {
@@ -79,14 +108,14 @@ export default function BatchDetail() {
   const [stageImages, setStageImages] = useState<(string | null)[]>([null, null]);
   const [completeDialog, setCompleteDialog] = useState({
     open: false, stageKey: "", nextStageKey: "",
-    notes: "", spawnType: "internal", spawnRef: "",
+    notes: "", spawnType: "internal", spawnRef: "", chamberId: "",
   });
 
   const openCompleteDialog = (stageKey: string) => {
     const idx = STAGE_SEQ.findIndex(s => s.key === stageKey);
     const nextStageKey = idx < STAGE_SEQ.length - 1 ? STAGE_SEQ[idx + 1].key : "COMPLETED";
     setStageImages([null, null]);
-    setCompleteDialog({ open: true, stageKey, nextStageKey, notes: "", spawnType: "internal", spawnRef: "" });
+    setCompleteDialog({ open: true, stageKey, nextStageKey, notes: "", spawnType: "internal", spawnRef: "", chamberId: "" });
   };
 
   const handleImageFile = (slot: 0 | 1, file: File) => {
@@ -103,9 +132,11 @@ export default function BatchDetail() {
 
   // Show spawn picker when COMPLETING Quality Check (which moves the batch TO Spawn Mixing)
   const isSpawnMixing = completeDialog.nextStageKey === "SPAWN_MIXING";
+  const isEnteringBulkChamber = completeDialog.nextStageKey === "BULK_CHAMBER";
   const imagesReady = stageImages[0] !== null && stageImages[1] !== null;
   const spawnReady = !isSpawnMixing || !!completeDialog.spawnRef;
-  const canSubmit = imagesReady && spawnReady && !advanceMutation.isPending;
+  const chamberReady = !isEnteringBulkChamber || !!completeDialog.chamberId;
+  const canSubmit = imagesReady && spawnReady && chamberReady && !advanceMutation.isPending;
 
   const handleCompleteStage = () => {
     advanceMutation.mutate({
@@ -114,6 +145,7 @@ export default function BatchDetail() {
         nextStage: completeDialog.nextStageKey as any,
         notes: completeDialog.notes || null,
         verificationImages: stageImages.filter(Boolean),
+        ...(isEnteringBulkChamber && { chamberId: Number(completeDialog.chamberId) }),
         ...(isSpawnMixing && {
           spawnBatchRef: completeDialog.spawnRef,
           spawnBatchType: completeDialog.spawnType,
@@ -457,6 +489,29 @@ export default function BatchDetail() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={chamberPromptOpen} onOpenChange={setChamberPromptOpen}>
+        <DialogContent className="rounded-sm border-border max-w-md shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Select Bulk Chamber</DialogTitle>
+            <p className="text-sm text-muted-foreground">This batch is in the Bulk Chamber stage but has no chamber assigned. Select an available chamber to continue.</p>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Available Bulk Chambers</Label>
+            <Select value={promptChamberId} onValueChange={setPromptChamberId}>
+              <SelectTrigger className="rounded-sm"><SelectValue placeholder="Select a bulk chamber..." /></SelectTrigger>
+              <SelectContent>
+                {availableBulkChambers.map((chamber: any) => <SelectItem key={chamber.id} value={String(chamber.id)}>{chamber.name}{chamber.capacity ? ` - ${chamber.capacity} bags` : ""}</SelectItem>)}
+                {availableBulkChambers.length === 0 && <SelectItem value="__none__" disabled>No bulk chambers available</SelectItem>}
+              </SelectContent>
+            </Select>
+            {availableBulkChambers.length === 0 && <p className="text-xs text-amber-600">Create a Bulk chamber or make an occupied chamber available first.</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setChamberPromptOpen(false)}>Later</Button>
+            <Button disabled={!promptChamberId || assigningChamber} onClick={assignCurrentBulkChamber}>{assigningChamber ? "Assigning..." : "Assign Chamber"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* ── Complete Stage Dialog ──────────────────────────────────────────────── */}
       <Dialog open={completeDialog.open} onOpenChange={open => {
         if (!open) {
@@ -533,6 +588,19 @@ export default function BatchDetail() {
               </div>
             </div>
 
+            {isEnteringBulkChamber && (
+              <div className="p-3 bg-muted/30 border border-border rounded-sm space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-foreground">Bulk Chamber</p>
+                <Select value={completeDialog.chamberId} onValueChange={value => setCompleteDialog(previous => ({ ...previous, chamberId: value }))}>
+                  <SelectTrigger className="rounded-sm h-9 bg-white"><SelectValue placeholder="Select an available bulk chamber..." /></SelectTrigger>
+                  <SelectContent>
+                    {availableBulkChambers.map((chamber: any) => <SelectItem key={chamber.id} value={String(chamber.id)}>{chamber.name}{chamber.capacity ? ` - ${chamber.capacity} bags` : ""}</SelectItem>)}
+                    {availableBulkChambers.length === 0 && <SelectItem value="__none__" disabled>No bulk chambers available</SelectItem>}
+                  </SelectContent>
+                </Select>
+                {!completeDialog.chamberId && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />{availableBulkChambers.length === 0 ? "Create a Bulk chamber or make an occupied chamber available first." : "Select a Bulk chamber to continue."}</p>}
+              </div>
+            )}
             {/* Spawn Mixing extras */}
             {isSpawnMixing && (
               <div className="p-3 bg-muted/30 border border-border rounded-sm space-y-3">
@@ -609,7 +677,8 @@ export default function BatchDetail() {
             >
               {advanceMutation.isPending ? "Saving…" : (
                 !imagesReady ? `Add ${2 - stageImages.filter(Boolean).length} more photo${stageImages.filter(Boolean).length === 1 ? "" : "s"}` :
-                !spawnReady ? "Select spawn batch" : "Mark Stage Complete ✓"
+                !spawnReady ? "Select spawn batch" :
+                !chamberReady ? "Select bulk chamber" : "Mark Stage Complete ✓"
               )}
             </Button>
           </DialogFooter>

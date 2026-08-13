@@ -241,14 +241,14 @@ export default function OotyRoomDetail() {
           .filter((log: any) => log.exitedAt !== null && log.exitedAt !== undefined)
           .map((log: any) => log.stage)
       );
-      const active = b.currentStage ?? "SPAWN_RUN";
+      const active = b.currentStage === "PRONING" ? "PINNING_FLUSH1" : (b.currentStage ?? "SPAWN_RUN");
       return { completedStageKeys: completed, currentStageKey: active };
     }
 
     // Backward compat: derive from currentPhase
     const currentPhase = b.currentPhase ?? "SPAWN_RUN";
     const completed = completedStagesFromPhase(currentPhase);
-    const stage = b.currentStage && b.currentStage !== "" ? b.currentStage : (
+    const stage = b.currentStage === "PRONING" ? "PINNING_FLUSH1" : b.currentStage && b.currentStage !== "" ? b.currentStage : (
       currentPhase === "DF" ? "PINNING_FLUSH1" :
       currentPhase === "COMPLETED" ? "COMPLETED" :
       currentPhase
