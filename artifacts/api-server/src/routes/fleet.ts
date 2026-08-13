@@ -8,7 +8,8 @@ import {
   locationsTable,
   usersTable,
 } from "@workspace/db";
-import { eq, desc } from "@workspace/db";
+import { and, eq, desc } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -20,7 +21,10 @@ function requireAuth(req: any, res: any, next: any) {
 // ── Vehicles ──────────────────────────────────────────────────────────────────
 
 router.get("/vehicles", requireAuth, async (req, res) => {
-  const rows = await db
+  const pagination = paginateQuery(req.query);
+  const status = String(req.query.status || "ALL");
+  const filter = and(status === "ALL" ? undefined : eq(vehiclesTable.status, status));
+  const [rows, totalCount] = await Promise.all([db
     .select({
       id: vehiclesTable.id,
       name: vehiclesTable.name,
@@ -33,10 +37,10 @@ router.get("/vehicles", requireAuth, async (req, res) => {
       homeLocationCode: locationsTable.code,
       homeLocationName: locationsTable.name,
     })
-    .from(vehiclesTable)
+    .from(vehiclesTable).where(filter)
     .leftJoin(locationsTable, eq(vehiclesTable.homeLocationId, locationsTable.id))
-    .orderBy(vehiclesTable.name);
-  return res.json(rows);
+    .orderBy(vehiclesTable.name).offset(pagination.skip).limit(pagination.limit), db.count(vehiclesTable, filter)]);
+  return res.json(paginatedResponse(rows, totalCount, pagination));
 });
 
 router.post("/vehicles", requireAuth, async (req, res) => {

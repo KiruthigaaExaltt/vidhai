@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Edit2,
   Eye,
+  Loader2,
   MoreHorizontal,
   Plus,
   QrCode,
@@ -245,6 +246,9 @@ export function AssetManagement() {
   const data = assets.data?.data || [],
     rows = allocations.data?.data || [],
     employeeRows = employees.data?.data || employees.data || [];
+  const assetPagination = assets.data?.pagination ?? assets.data ?? {};
+  const allocationPagination =
+    allocations.data?.pagination ?? allocations.data ?? {};
   const changeSearch = (value: string) => {
     setSearch(value);
     setAssetPage(1);
@@ -281,8 +285,10 @@ export function AssetManagement() {
         />
         <TabsContent value="assets">
           <Card>
-            <CardContent className="p-0 overflow-x-auto">
-              <table className="w-full text-sm">
+            <CardContent className="relative overflow-x-auto p-0">
+              <table
+                className={`w-full text-sm transition-opacity ${assets.isFetching ? "opacity-60" : "opacity-100"}`}
+              >
                 <thead className="border-b bg-muted/50">
                   <tr>
                     <th className="p-3 text-left">Asset</th>
@@ -364,12 +370,19 @@ export function AssetManagement() {
                   )}
                 </tbody>
               </table>
+              {assets.isFetching && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/25" role="status" aria-label="Loading assets">
+                  <span className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-xs font-medium text-muted-foreground shadow-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading assets
+                  </span>
+                </div>
+              )}
             </CardContent>
             <DataPagination
               currentPage={assetPage}
               pageSize={assetPageSize}
-              totalCount={assets.data?.totalCount || 0}
-              totalPages={assets.data?.totalPages || 0}
+              totalCount={Number(assetPagination.totalCount) || 0}
+              totalPages={Number(assetPagination.totalPages) || 0}
               loading={assets.isFetching}
               onPageChange={setAssetPage}
               onPageSizeChange={(size) => {
@@ -381,8 +394,10 @@ export function AssetManagement() {
         </TabsContent>
         <TabsContent value="allocations">
           <Card>
-            <CardContent className="p-0 overflow-x-auto">
-              <table className="w-full text-sm">
+            <CardContent className="relative overflow-x-auto p-0">
+              <table
+                className={`w-full text-sm transition-opacity ${allocations.isFetching ? "opacity-60" : "opacity-100"}`}
+              >
                 <thead className="border-b bg-muted/50">
                   <tr>
                     <th className="p-3 text-left">SKU</th>
@@ -447,12 +462,19 @@ export function AssetManagement() {
                   )}
                 </tbody>
               </table>
+              {allocations.isFetching && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/25" role="status" aria-label="Loading allocated assets">
+                  <span className="flex items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-xs font-medium text-muted-foreground shadow-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading allocated assets
+                  </span>
+                </div>
+              )}
             </CardContent>
             <DataPagination
               currentPage={allocationPage}
               pageSize={allocationPageSize}
-              totalCount={allocations.data?.totalCount || 0}
-              totalPages={allocations.data?.totalPages || 0}
+              totalCount={Number(allocationPagination.totalCount) || 0}
+              totalPages={Number(allocationPagination.totalPages) || 0}
               loading={allocations.isFetching}
               onPageChange={setAllocationPage}
               onPageSizeChange={(size) => {

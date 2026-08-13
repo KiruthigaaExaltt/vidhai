@@ -248,6 +248,12 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
       ? rows.filter((row: any) => Number(row.id) === Number(own.id))
       : [];
   }
+  const counts = {
+    total: rows.length,
+    active: rows.filter((row: any) => row.status === "Active").length,
+    leave: rows.filter((row: any) => row.status === "On Leave").length,
+    off: rows.filter((row: any) => row.status === "Offboarded").length,
+  };
   const q = String(req.query.search || "").toLowerCase(),
     status = String(req.query.status || "");
   if (q)
@@ -276,6 +282,7 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
     skip,
     limit,
     ...paginationMetadata(total, pagination),
+    counts,
   });
 });
 router.get("/employees/next-code", async (req: any, res: any): Promise<any> => {

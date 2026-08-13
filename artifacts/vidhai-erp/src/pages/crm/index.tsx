@@ -3,12 +3,10 @@ import {
   getListContactsQueryKey,
   useCreateContact,
   useDeleteContact,
-  useListContacts,
   useUpdateContact,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -88,10 +86,24 @@ const EMPTY_FORM: Omit<Contact, "id"> = {
 export default function CRMPage() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
-  const { data = [], isLoading, isError } = useListContacts();
-  const contacts = data as unknown as Contact[];
   const [tab, setTab] = useState<ContactType | "all">("all");
   const [search, setSearch] = useState("");
+  const [paginationStates, setPaginationStates] = useState<Record<string, { page: number; size: number }>>({});
+  const paginationState = paginationStates[tab] ?? { page: 1, size: 10 };
+  const setPagination = (next: Partial<typeof paginationState>) =>
+    setPaginationStates((current) => ({ ...current, [tab]: { ...(current[tab] ?? paginationState), ...next } }));
+  const contactsQuery = useQuery({
+    queryKey: [...getListContactsQueryKey(), tab, search, paginationState.page, paginationState.size],
+    queryFn: async () => {
+      const params = new URLSearchParams({ type: tab, search, skip: String((paginationState.page - 1) * paginationState.size), limit: String(paginationState.size) });
+      const response = await fetch(`/api/contacts?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Could not load contacts");
+      return response.json();
+    },
+    placeholderData: keepPreviousData,
+  });
+  const contacts = (contactsQuery.data?.data ?? []) as Contact[];
+  const { isLoading, isError, isFetching } = contactsQuery;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [form, setForm] = useState<Omit<Contact, "id">>({ ...EMPTY_FORM });
@@ -140,26 +152,13 @@ export default function CRMPage() {
     },
   });
 
-  const filtered = contacts.filter((c) => {
-    const matchesTab = tab === "all" || c.type === tab;
-    const q = search.toLowerCase();
-    const matchesSearch =
-      !q ||
-      c.name.toLowerCase().includes(q) ||
-      c.company.toLowerCase().includes(q) ||
-      c.phone.includes(q) ||
-      (c.whatsappNumber || "").includes(q) ||
-      (c.gstin || "").toLowerCase().includes(q) ||
-      c.email.toLowerCase().includes(q);
-    return matchesTab && matchesSearch;
-  });
-  const contactPagination = useClientPagination(filtered, `${tab}|${search}`);
+  const filtered = contacts;
 
   const counts: Record<string, number> = {
-    all: contacts.length,
-    client: contacts.filter((c) => c.type === "client").length,
-    vendor: contacts.filter((c) => c.type === "vendor").length,
-    other: contacts.filter((c) => c.type === "other").length,
+    all: Number(contactsQuery.data?.counts?.all || 0),
+    client: Number(contactsQuery.data?.counts?.client || 0),
+    vendor: Number(contactsQuery.data?.counts?.vendor || 0),
+    other: Number(contactsQuery.data?.counts?.other || 0),
   };
 
   const openNew = () => {
@@ -259,7 +258,10 @@ export default function CRMPage() {
             <Input
               placeholder="Search by name, company, phone..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPagination({ page: 1 });
+              }}
               className="rounded-full h-11 pl-11 pr-5 text-sm border border-gray-300 transition-all duration-300 ease-in-out focus:scale-[1.02] focus:border-primary focus:ring-2 focus:ring-primary/20 hover:border-primary/50"
             />
           </div>
@@ -313,7 +315,7 @@ export default function CRMPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {contactPagination.paginatedRows.map((c) => (
+                    {contacts.map((c) => (
                       <tr
                         key={c.id}
                         className="hover:bg-muted/30 transition-colors"
@@ -427,11 +429,13 @@ export default function CRMPage() {
             )}
           </CardContent>
           <DataPagination
-            currentPage={contactPagination.currentPage}
-            pageSize={contactPagination.pageSize}
-            totalCount={contactPagination.totalCount}
-            onPageChange={contactPagination.setCurrentPage}
-            onPageSizeChange={contactPagination.setPageSize}
+            currentPage={paginationState.page}
+            pageSize={paginationState.size}
+            totalCount={Number(contactsQuery.data?.totalCount || 0)}
+            totalPages={Number(contactsQuery.data?.totalPages || 0)}
+            loading={isFetching}
+            onPageChange={(page) => setPagination({ page })}
+            onPageSizeChange={(size) => setPagination({ size, page: 1 })}
           />
         </Card>
       </div>

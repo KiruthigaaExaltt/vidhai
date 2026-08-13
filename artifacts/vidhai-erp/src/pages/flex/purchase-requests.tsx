@@ -142,9 +142,10 @@ export interface PurchaseRequestItem {
   versionLogs?: VersionLog[];
 }
 
-async function fetchPurchaseRequests(): Promise<PurchaseRequestItem[]> {
+async function fetchPurchaseRequests(params: { skip: number; limit: number; search: string }): Promise<{ data: PurchaseRequestItem[]; totalCount: number; totalPages: number }> {
   try {
-    const res = await fetch(`${BASE}/api/flex/purchase-requests`, {
+    const query = new URLSearchParams({ skip: String(params.skip), limit: String(params.limit), search: params.search });
+    const res = await fetch(`${BASE}/api/flex/purchase-requests?${query}`, {
       credentials: "include",
     });
     if (res.ok) {
@@ -152,7 +153,7 @@ async function fetchPurchaseRequests(): Promise<PurchaseRequestItem[]> {
       return data;
     }
   } catch {}
-  return [];
+  return { data: [], totalCount: 0, totalPages: 0 };
 }
 
 async function createPurchaseRequest(payload: any) {
@@ -251,14 +252,23 @@ async function updateVendorAvailability(
 export default function PurchaseRequestsPage() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [selectedVendor, setSelectedVendor] = useState("All");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = Number(rowsPerPage);
   const {
-    data: prs = [],
+    data: purchaseRequestPage,
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ["get", "/api/flex/purchase-requests"],
-    queryFn: fetchPurchaseRequests,
+    queryKey: ["get", "/api/flex/purchase-requests", currentPage, pageSize, search],
+    queryFn: () => fetchPurchaseRequests({ skip: (currentPage - 1) * pageSize, limit: pageSize, search }),
+    placeholderData: (previous) => previous,
   });
+  const prs = purchaseRequestPage?.data ?? [];
 
   const nextPrNumber = useMemo(() => {
     const highestSequence = prs.reduce((highest, pr) => {
@@ -290,12 +300,6 @@ export default function PurchaseRequestsPage() {
   const [activeSubTab, setActiveSubTab] = useState<"requests" | "availability">(
     "requests",
   );
-  const [search, setSearch] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [selectedVendor, setSelectedVendor] = useState("All");
-  const [rowsPerPage, setRowsPerPage] = useState("10");
-  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal Dialog states
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -769,19 +773,11 @@ export default function PurchaseRequestsPage() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [prs, search, selectedVendor, fromDate, toDate]);
-  const pageSize = Number(rowsPerPage);
-  const paginatedRequests = filtered.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
+  const paginatedRequests = filtered;
   useEffect(
     () => setCurrentPage(1),
     [search, selectedVendor, fromDate, toDate, rowsPerPage],
   );
-  useEffect(() => {
-    const lastPage = Math.max(1, Math.ceil(filtered.length / pageSize));
-    if (currentPage > lastPage) setCurrentPage(lastPage);
-  }, [currentPage, filtered.length, pageSize]);
 
   const availabilityGroups = useMemo(() => {
     const grouped = new Map<number, VendorAvailabilityItem[]>();
@@ -1153,12 +1149,14 @@ export default function PurchaseRequestsPage() {
                 <DataPagination
                   currentPage={currentPage}
                   pageSize={pageSize}
-                  totalCount={filtered.length}
+                  totalCount={Number(purchaseRequestPage?.totalCount || 0)}
+                  totalPages={Number(purchaseRequestPage?.totalPages || 0)}
                   onPageChange={setCurrentPage}
                   onPageSizeChange={(size) => {
                     setRowsPerPage(String(size));
                     setCurrentPage(1);
                   }}
+                  loading={isFetching}
                 />
               </CardContent>
             </Card>

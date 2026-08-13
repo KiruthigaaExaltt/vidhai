@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -122,13 +121,22 @@ export default function Crew() {
     [loading, setLoading] = useState(false),
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("All"),
+    [employeePage, setEmployeePage] = useState(1),
+    [employeePageSize, setEmployeePageSize] = useState(10),
+    [employeeMeta, setEmployeeMeta] = useState<any>({ totalCount: 0, totalPages: 0, counts: {} }),
     [open, setOpen] = useState(false),
     [editing, setEditing] = useState<any>(null),
     [form, setForm] = useState<any>(emptyEmployee),
     [busy, setBusy] = useState(false);
   const loadEmployees = async () => {
-    const r = await api("employees?limit=100");
+    const params = new URLSearchParams(
+      tab === "employees"
+        ? { skip: String((employeePage - 1) * employeePageSize), limit: String(employeePageSize), search, status }
+        : { skip: "0", limit: "200" },
+    );
+    const r = await api(`employees?${params}`);
     setEmployees(r.data || []);
+    setEmployeeMeta(r);
   };
   const load = async () => {
     setLoading(true);
@@ -155,7 +163,7 @@ export default function Crew() {
   };
   useEffect(() => {
     void load();
-  }, [tab]);
+  }, [tab, employeePage, employeePageSize, search, status]);
   const visible = useMemo(() => {
     const source = tab === "employees" ? employees : rows,
       q = search.toLowerCase();
@@ -168,17 +176,11 @@ export default function Crew() {
         (status === "All" || r.status === status),
     );
   }, [tab, employees, rows, search, status]);
-  const crewPagination = useClientPagination(
-    visible,
-    `${tab}|${search}|${status}`,
-    10,
-    tab,
-  );
   const metrics = {
-    total: employees.length,
-    active: employees.filter((e) => e.status === "Active").length,
-    leave: employees.filter((e) => e.status === "On Leave").length,
-    off: employees.filter((e) => e.status === "Offboarded").length,
+    total: Number(employeeMeta.counts?.total ?? employeeMeta.totalCount ?? employees.length),
+    active: Number(employeeMeta.counts?.active ?? 0),
+    leave: Number(employeeMeta.counts?.leave ?? 0),
+    off: Number(employeeMeta.counts?.off ?? 0),
   };
   const begin = (row?: any) => {
     setEditing(row || null);
@@ -415,13 +417,19 @@ export default function Crew() {
                     className="pl-9"
                     placeholder={`Search ${tab}...`}
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setEmployeePage(1);
+                    }}
                   />
                 </div>
                 <select
                   className="h-10 rounded-md border bg-background px-3 text-sm"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  onChange={(e) => {
+                    setStatus(e.target.value);
+                    setEmployeePage(1);
+                  }}
                 >
                   <option>All</option>
                   {[
@@ -447,7 +455,7 @@ export default function Crew() {
                   </div>
                 ) : tab === "employees" ? (
                   <EmployeeTable
-                    rows={crewPagination.paginatedRows}
+                    rows={employees}
                     edit={begin}
                     remove={remove}
                     canEdit={can("crew.employees.update")}
@@ -456,18 +464,22 @@ export default function Crew() {
                 ) : (
                   <RecordTable
                     tab={tab}
-                    rows={crewPagination.paginatedRows}
+                    rows={visible}
                     canApprove={canApprove}
                     canReject={canReject}
                     decide={decide}
                   />
                 )}
                 <DataPagination
-                  currentPage={crewPagination.currentPage}
-                  pageSize={crewPagination.pageSize}
-                  totalCount={crewPagination.totalCount}
-                  onPageChange={crewPagination.setCurrentPage}
-                  onPageSizeChange={crewPagination.setPageSize}
+                  currentPage={employeePage}
+                  pageSize={employeePageSize}
+                  totalCount={Number(employeeMeta.totalCount || 0)}
+                  totalPages={Number(employeeMeta.totalPages || 0)}
+                  onPageChange={setEmployeePage}
+                  onPageSizeChange={(size) => {
+                    setEmployeePageSize(size);
+                    setEmployeePage(1);
+                  }}
                   loading={loading}
                 />
               </div>

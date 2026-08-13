@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import {
   ArrowLeft,
   Banknote,
@@ -57,16 +56,22 @@ export default function CrewPay() {
     [search, setSearch] = useState(""),
     [department, setDepartment] = useState("All"),
     [status, setStatus] = useState("All"),
+    [currentPage, setCurrentPage] = useState(1),
+    [pageSize, setPageSize] = useState(10),
+    [pagination, setPagination] = useState({ totalCount: 0, totalPages: 0 }),
+    [serverTotals, setServerTotals] = useState({ gross: 0, deductions: 0, net: 0 }),
+    [departmentOptions, setDepartmentOptions] = useState<string[]>([]),
     [selected, setSelected] = useState<any>(null);
   const load = async () => {
     setLoading(true);
     try {
-      let salaryRows = await api(`salary-slips?payrollMonth=${period}`);
-      const payrollRows = await api(`payroll?payrollMonth=${period}`).catch(
-        () => [],
-      );
-      setSlips(salaryRows);
-      setPayroll(payrollRows);
+      const params = new URLSearchParams({ payrollMonth: period, search, department, status, skip: String((currentPage - 1) * pageSize), limit: String(pageSize) });
+      const result = await api(`salary-slips?${params}`);
+      setSlips(result.data || []);
+      setPayroll((result.data || []).map((row: any) => ({ employeeId: row.employeeId, status: row.payrollStatus })));
+      setPagination({ totalCount: Number(result.totalCount || 0), totalPages: Number(result.totalPages || 0) });
+      setServerTotals(result.totals || { gross: 0, deductions: 0, net: 0 });
+      setDepartmentOptions(result.departments || []);
     } catch (error: any) {
       toast({
         title: "Unable to load CrewPay",
@@ -79,7 +84,7 @@ export default function CrewPay() {
   };
   useEffect(() => {
     void load();
-  }, [period]);
+  }, [period, search, department, status, currentPage, pageSize]);
   const generate = async (employeeId?: number) => {
     setBusy(true);
     try {
@@ -115,38 +120,8 @@ export default function CrewPay() {
   const payrollByEmployee = new Map(
       payroll.map((row) => [Number(row.employeeId), row]),
     ),
-    departments = [
-      "All",
-      ...new Set(slips.map((row) => row.department).filter(Boolean)),
-    ],
-    visible = useMemo(
-      () =>
-        slips.filter(
-          (row) =>
-            (department === "All" || row.department === department) &&
-            (status === "All" ||
-              (payrollByEmployee.get(Number(row.employeeId))?.status ||
-                "Generated") === status) &&
-            (!search ||
-              `${row.employeeName} ${row.employeeCode} ${row.department} ${row.designation}`
-                .toLowerCase()
-                .includes(search.toLowerCase())),
-        ),
-      [slips, payroll, department, status, search],
-    ),
-    totals = {
-      gross: visible.reduce((n, r) => n + Number(r.grossPay || 0), 0),
-      deductions: visible.reduce(
-        (n, r) => n + Number(r.totalDeductions || 0),
-        0,
-      ),
-      net: visible.reduce((n, r) => n + Number(r.netPay || 0), 0),
-    };
-  const slipPagination = useClientPagination(
-    visible,
-    `${period}|${department}|${status}|${search}`,
-    10,
-  );
+    departments = ["All", ...departmentOptions],
+    totals = serverTotals;
   return (
     <Shell>
       <div className="min-w-0 flex-1 bg-muted/20">
@@ -200,7 +175,7 @@ export default function CrewPay() {
                 <Metric
                   icon={FileText}
                   label="Generated slips"
-                  value={slips.length}
+                  value={pagination.totalCount}
                   tone="text-emerald-600"
                 />
                 <Metric
@@ -231,13 +206,13 @@ export default function CrewPay() {
                     className="pl-9"
                     placeholder="Search employees..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
                   />
                 </div>
                 <select
                   className="h-10 rounded-md border bg-card px-3 text-sm"
                   value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
+                  onChange={(e) => { setDepartment(e.target.value); setCurrentPage(1); }}
                 >
                   {departments.map((value) => (
                     <option key={value} value={value}>
@@ -248,7 +223,7 @@ export default function CrewPay() {
                 <select
                   className="h-10 rounded-md border bg-card px-3 text-sm"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value)}
+                  onChange={(e) => { setStatus(e.target.value); setCurrentPage(1); }}
                 >
                   {["All", "Generated", "Processing", "Processed", "Paid"].map(
                     (value) => (
@@ -261,16 +236,17 @@ export default function CrewPay() {
               </div>
               <SlipTable
                 loading={loading}
-                rows={slipPagination.paginatedRows}
+                rows={slips}
                 payrollByEmployee={payrollByEmployee}
                 open={setSelected}
                 pagination={
                   <DataPagination
-                    currentPage={slipPagination.currentPage}
-                    pageSize={slipPagination.pageSize}
-                    totalCount={slipPagination.totalCount}
-                    onPageChange={slipPagination.setCurrentPage}
-                    onPageSizeChange={slipPagination.setPageSize}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    totalCount={pagination.totalCount}
+                    totalPages={pagination.totalPages}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
                     loading={loading}
                   />
                 }
@@ -341,7 +317,7 @@ function SlipTable({
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {loading && !rows.length ? (
               <Empty text="Loading salary slips..." />
             ) : rows.length ? (
               rows.map((r: any) => (

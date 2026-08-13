@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, itemNamesTable, inventoryCategoriesTable, materialsTable } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -18,7 +19,12 @@ router.get("/", async (req, res) => {
   .where(eq(itemNamesTable.isActive, true))
   .orderBy(desc(itemNamesTable.id));
   
-  res.json(items);
+  let data = items;
+  const search = String(req.query.search || "").trim().toLowerCase();
+  if (search) data = data.filter((row) => [row.name, row.category].some((value) => String(value || "").toLowerCase().includes(search)));
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(data);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
 });
 
 router.post("/", async (req, res) => {

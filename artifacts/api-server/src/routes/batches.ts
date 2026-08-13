@@ -9,6 +9,7 @@ import {
   materialsTable,
 } from "@workspace/db";
 import { eq, and, desc } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -42,7 +43,7 @@ function formatBatch(b: any, locationCode: string, createdByName: string) {
 
 // ── Batch list ────────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
-  const { locationId, stage, status } = req.query as Record<string, string | undefined>;
+  const { locationId, stage, status, search, from, to } = req.query as Record<string, string | undefined>;
 
   const rows = await db
     .select({
@@ -59,8 +60,19 @@ router.get("/", async (req, res) => {
   if (locationId) filtered = filtered.filter((r) => String(r.batch.locationId) === locationId);
   if (stage) filtered = filtered.filter((r) => r.batch.currentStage === stage);
   if (status) filtered = filtered.filter((r) => r.batch.status === status);
-
-  return res.json(filtered.map((r) => formatBatch(r.batch, r.locationCode, r.createdByName ?? "System")));
+  if (search) filtered = filtered.filter((r) => String(r.batch.batchCode).toLowerCase().includes(search.toLowerCase()));
+  if (from) filtered = filtered.filter((r) => new Date(r.batch.createdAt) >= new Date(from));
+  if (to) filtered = filtered.filter((r) => new Date(r.batch.createdAt) <= new Date(`${to}T23:59:59.999`));
+  const formatted = filtered.map((r) => formatBatch(r.batch, r.locationCode, r.createdByName ?? "System"));
+  // Keep the unpaginated contract for small lookup consumers that do not request paging.
+  if (req.query.skip === undefined && req.query.limit === undefined)
+    return res.json(formatted);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(
+    formatted.slice(pagination.skip, pagination.skip + pagination.limit),
+    formatted.length,
+    pagination,
+  ));
 });
 
 // ── Create batch ──────────────────────────────────────────────────────────────

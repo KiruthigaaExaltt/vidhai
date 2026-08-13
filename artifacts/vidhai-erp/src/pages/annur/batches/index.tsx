@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useListBatches, useListLocations } from "@workspace/api-client-react";
+import { useEffect, useState } from "react";
+import { useListLocations } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,8 @@ import {
 import { Plus, Trash2, Search, Filter, X, CalendarDays } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import { toast } from "sonner";
 
 const ALL_STAGES = [
@@ -63,20 +62,38 @@ export default function Batches() {
     (l) => l.code === "A" || l.name.toLowerCase().includes("annur"),
   );
 
-  const {
-    data: batches,
-    isLoading,
-    refetch,
-  } = useListBatches({ locationId: annurLoc?.id || undefined }, {
-    query: { enabled: true },
-  } as any);
-
   // ── Filters ────────────────────────────────────────────────────────────────
   const [filterStage, setFilterStage] = useState("__all__");
   const [filterStatus, setFilterStatus] = useState("__all__");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchPageSize, setBatchPageSize] = useState(10);
+  useEffect(() => setBatchPage(1), [filterStage, filterStatus, filterFrom, filterTo, filterSearch]);
+  const batchQuery = useQuery({
+    queryKey: ["annur-batches", annurLoc?.id, filterStage, filterStatus, filterFrom, filterTo, filterSearch, batchPage, batchPageSize],
+    enabled: Boolean(annurLoc?.id),
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        locationId: String(annurLoc!.id),
+        skip: String((batchPage - 1) * batchPageSize),
+        limit: String(batchPageSize),
+      });
+      if (filterStage !== "__all__") params.set("stage", filterStage);
+      if (filterStatus !== "__all__") params.set("status", filterStatus);
+      if (filterFrom) params.set("from", filterFrom);
+      if (filterTo) params.set("to", filterTo);
+      if (filterSearch) params.set("search", filterSearch);
+      const response = await fetch(`/api/batches?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load batches");
+      return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
+    },
+    placeholderData: keepPreviousData,
+  });
+  const batches = batchQuery.data?.data ?? [];
+  const isLoading = batchQuery.isLoading || batchQuery.isFetching;
+  const refetch = batchQuery.refetch;
 
   const clearFilters = () => {
     setFilterStage("__all__");
@@ -84,6 +101,7 @@ export default function Batches() {
     setFilterFrom("");
     setFilterTo("");
     setFilterSearch("");
+    setBatchPage(1);
   };
   const hasFilters =
     filterStage !== "__all__" ||
@@ -92,25 +110,7 @@ export default function Batches() {
     filterTo ||
     filterSearch;
 
-  const filtered = (batches ?? []).filter((b) => {
-    if (filterStage !== "__all__" && b.currentStage !== filterStage)
-      return false;
-    if (filterStatus !== "__all__" && b.status !== filterStatus) return false;
-    if (filterFrom && new Date(b.createdAt) < new Date(filterFrom))
-      return false;
-    if (filterTo && new Date(b.createdAt) > new Date(filterTo + "T23:59:59"))
-      return false;
-    if (
-      filterSearch &&
-      !b.batchCode.toLowerCase().includes(filterSearch.toLowerCase())
-    )
-      return false;
-    return true;
-  });
-  const batchPagination = useClientPagination(
-    filtered,
-    `${filterStage}|${filterStatus}|${filterFrom}|${filterTo}|${filterSearch}`,
-  );
+  const filtered = batches;
 
   // ── Delete ─────────────────────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -270,7 +270,7 @@ export default function Batches() {
               )}
 
               <span className="ml-auto text-xs text-muted-foreground self-end pb-2">
-                {filtered.length} batch{filtered.length !== 1 ? "es" : ""}
+                {Number(batchQuery.data?.totalCount || 0)} batch{Number(batchQuery.data?.totalCount || 0) !== 1 ? "es" : ""}
               </span>
             </div>
           </CardContent>
@@ -279,7 +279,7 @@ export default function Batches() {
         {/* Table */}
         <Card className="rounded-md border-border shadow-md">
           <CardContent className="p-0">
-            {isLoading ? (
+            {isLoading && !filtered.length ? (
               <div className="py-20 text-center text-sm text-muted-foreground">
                 Loading batches...
               </div>
@@ -313,7 +313,7 @@ export default function Batches() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {batchPagination.paginatedRows.map((b) => (
+                    {filtered.map((b) => (
                       <tr
                         key={b.id}
                         onClick={() => setLocation(`/annur/batches/${b.id}`)}
@@ -375,11 +375,13 @@ export default function Batches() {
             )}
           </CardContent>
           <DataPagination
-            currentPage={batchPagination.currentPage}
-            pageSize={batchPagination.pageSize}
-            totalCount={batchPagination.totalCount}
-            onPageChange={batchPagination.setCurrentPage}
-            onPageSizeChange={batchPagination.setPageSize}
+            currentPage={batchPage}
+            pageSize={batchPageSize}
+            totalCount={Number(batchQuery.data?.totalCount || 0)}
+            totalPages={Number(batchQuery.data?.totalPages || 0)}
+            onPageChange={setBatchPage}
+            onPageSizeChange={(size) => { setBatchPageSize(size); setBatchPage(1); }}
+            loading={isLoading}
           />
         </Card>
 

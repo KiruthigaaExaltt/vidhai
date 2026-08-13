@@ -1,14 +1,12 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import {
-  useListVehicles,
   getListVehiclesQueryKey,
   useCreateVehicle,
   useUpdateVehicle,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -69,11 +67,6 @@ export default function FleetList() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
-  const { data: vehicles, isLoading } = useListVehicles({
-    query: { queryKey: getListVehiclesQueryKey() },
-  });
-  const list: any[] = (vehicles as any) ?? [];
-
   const refetch = () =>
     queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
   const createMut = useCreateVehicle({ mutation: { onSuccess: refetch } });
@@ -85,6 +78,20 @@ export default function FleetList() {
   const [editStatus, setEditStatus] = useState<VehicleStatus>("available");
   const [formError, setFormError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState("ALL");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const vehiclesQuery = useQuery({
+    queryKey: [...getListVehiclesQueryKey(), filterStatus, currentPage, pageSize],
+    queryFn: async () => {
+      const params = new URLSearchParams({ status: filterStatus, skip: String((currentPage - 1) * pageSize), limit: String(pageSize) });
+      const response = await fetch(`/api/fleet/vehicles?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load vehicles");
+      return response.json();
+    },
+    placeholderData: keepPreviousData,
+  });
+  const list: any[] = vehiclesQuery.data?.data ?? [];
+  const { isLoading, isFetching } = vehiclesQuery;
 
   const openNew = () => {
     setEditVehicle(null);
@@ -151,11 +158,7 @@ export default function FleetList() {
     }
   };
 
-  const filtered =
-    filterStatus === "ALL"
-      ? list
-      : list.filter((v: any) => v.status === filterStatus);
-  const vehiclePagination = useClientPagination(filtered, filterStatus);
+  const filtered = list;
 
   return (
     <Shell>
@@ -176,7 +179,10 @@ export default function FleetList() {
           {["ALL", "available", "in_use", "maintenance", "retired"].map((s) => (
             <button
               key={s}
-              onClick={() => setFilterStatus(s)}
+              onClick={() => {
+                setFilterStatus(s);
+                setCurrentPage(1);
+              }}
               className={`px-3 py-1.5 rounded-sm text-xs font-medium border transition-colors ${
                 filterStatus === s
                   ? "bg-primary text-white border-primary"
@@ -219,7 +225,7 @@ export default function FleetList() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {vehiclePagination.paginatedRows.map((v: any) => (
+                  {list.map((v: any) => (
                     <tr
                       key={v.id}
                       className="h-[36px] hover:bg-muted/20 cursor-pointer"
@@ -275,11 +281,16 @@ export default function FleetList() {
             )}
           </CardContent>
           <DataPagination
-            currentPage={vehiclePagination.currentPage}
-            pageSize={vehiclePagination.pageSize}
-            totalCount={vehiclePagination.totalCount}
-            onPageChange={vehiclePagination.setCurrentPage}
-            onPageSizeChange={vehiclePagination.setPageSize}
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalCount={Number(vehiclesQuery.data?.totalCount || 0)}
+            totalPages={Number(vehiclesQuery.data?.totalPages || 0)}
+            loading={isFetching}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setCurrentPage(1);
+            }}
           />
         </Card>
 

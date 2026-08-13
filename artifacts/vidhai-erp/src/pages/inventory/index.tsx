@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
 import {
-  useListInventory,
   useListMaterials,
   useCreateMaterial,
   getListMaterialsQueryKey,
   getListInventoryQueryKey,
   useCreateInventoryAdjustment,
-  useListInventoryMovements,
   useCreateInventoryMovement,
   useListLocations,
 } from "@workspace/api-client-react";
@@ -147,18 +145,61 @@ const NAV = [
 export default function InventoryModule() {
   const queryClient = useQueryClient();
   const [section, setSection] = useState("dashboard");
+  const [masterPaging, setMasterPaging] = useState<Record<string, { page: number; size: number }>>({
+    inventory: { page: 1, size: 10 },
+    items: { page: 1, size: 10 },
+    category: { page: 1, size: 10 },
+    services: { page: 1, size: 10 },
+    warehouses: { page: 1, size: 10 },
+    movements: { page: 1, size: 10 },
+  });
+  const setMasterPage = (key: string, next: Partial<{ page: number; size: number }>) =>
+    setMasterPaging((current) => ({ ...current, [key]: { ...current[key], ...next } }));
 
-  const { data: inventory, isLoading: invLoading } = useListInventory();
   const { data: materials } = useListMaterials();
-  const { data: movements, isLoading: movLoading } =
-    useListInventoryMovements();
   const { data: locations } = useListLocations();
+  const inventoryMasterQuery = useQuery({
+    queryKey: ["inventory-master-paged", masterPaging.inventory.page, masterPaging.inventory.size],
+    queryFn: async () => {
+      const state = masterPaging.inventory;
+      const response = await fetch(`/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load inventory items");
+      return response.json();
+    },
+    placeholderData: (previous) => previous,
+  });
+  const inventory: any[] = inventoryMasterQuery.data?.data ?? [];
+  const invLoading = inventoryMasterQuery.isLoading || inventoryMasterQuery.isFetching;
+  const warehouseQuery = useQuery({
+    queryKey: ["vault-locations-paged", masterPaging.warehouses.page, masterPaging.warehouses.size],
+    queryFn: async () => {
+      const state = masterPaging.warehouses;
+      const response = await fetch(`/api/vault/locations?skip=${(state.page - 1) * state.size}&limit=${state.size}`);
+      if (!response.ok) throw new Error("Unable to load warehouses");
+      return response.json();
+    },
+    placeholderData: (previous) => previous,
+  });
+  const pagedWarehouses: any[] = warehouseQuery.data?.data ?? [];
+  const movementQuery = useQuery({
+    queryKey: ["inventory-movements-paged", masterPaging.movements.page, masterPaging.movements.size],
+    queryFn: async () => {
+      const state = masterPaging.movements;
+      const response = await fetch(`/api/inventory/movements?skip=${(state.page - 1) * state.size}&limit=${state.size}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load stock movements");
+      return response.json();
+    },
+    placeholderData: (previous) => previous,
+  });
+  const movements: any[] = movementQuery.data?.data ?? [];
+  const movLoading = movementQuery.isLoading || movementQuery.isFetching;
 
   const refreshMaterials = () => {
     queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey() });
     queryClient.invalidateQueries({
       queryKey: ["get", "/api/flex/master-data"],
     });
+    queryClient.invalidateQueries({ queryKey: ["inventory-master-paged"] });
   };
 
   // ── mutations ──
@@ -184,6 +225,7 @@ export default function InventoryModule() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["inventory"] });
+        queryClient.invalidateQueries({ queryKey: ["inventory-master-paged"] });
         setMovOpen(false);
         setMovForm(EMPTY_MOV);
         toast.success("Stock movement recorded");
@@ -195,6 +237,8 @@ export default function InventoryModule() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["inventory"] });
         queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+        queryClient.invalidateQueries({ queryKey: ["inventory-movements-paged"] });
+        queryClient.invalidateQueries({ queryKey: ["inventory-master-paged"] });
         setTransferOpen(false);
         setTransferForm(EMPTY_TRANSFER);
         toast.success("Transfer recorded");
@@ -212,18 +256,31 @@ export default function InventoryModule() {
   const [addServiceOpen, setAddServiceOpen] = useState(false);
 
   // ── api ──
-  const { data: services = [], refetch: refetchServices } = useQuery({
-    queryKey: ["services"],
+  const servicesQuery = useQuery({
+    queryKey: ["services-paged", masterPaging.services.page, masterPaging.services.size],
     queryFn: async () => {
-      const res = await fetch("/api/services");
+      const state = masterPaging.services;
+      const res = await fetch(`/api/services?skip=${(state.page - 1) * state.size}&limit=${state.size}`);
       return res.json();
     },
+    placeholderData: (previous) => previous,
   });
+  const services = servicesQuery.data?.data ?? [];
+  const refetchServices = servicesQuery.refetch;
 
-  const { data: itemNames } = useQuery({
-    queryKey: ["item-names"],
+  const { data: allItemNames } = useQuery({
+    queryKey: ["item-names-lookup"],
     queryFn: async () => (await fetch("/api/vault/item-names")).json(),
   });
+  const itemNamesQuery = useQuery({
+    queryKey: ["item-names-paged", masterPaging.items.page, masterPaging.items.size],
+    queryFn: async () => {
+      const state = masterPaging.items;
+      return (await fetch(`/api/vault/item-names?skip=${(state.page - 1) * state.size}&limit=${state.size}`)).json();
+    },
+    placeholderData: (previous) => previous,
+  });
+  const itemNames = itemNamesQuery.data?.data ?? [];
 
   const createService = useMutation({
     mutationFn: async (data: any) => {
@@ -269,24 +326,35 @@ export default function InventoryModule() {
     },
   });
 
-  const { data: categories = [], refetch: refetchCategories } = useQuery({
-    queryKey: ["categories"],
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories-lookup"],
     queryFn: async () => {
       const res = await fetch("/api/categories");
       return res.json();
     },
   });
+  const categoriesQuery = useQuery({
+    queryKey: ["categories-paged", masterPaging.category.page, masterPaging.category.size],
+    queryFn: async () => {
+      const state = masterPaging.category;
+      return (await fetch(`/api/categories?skip=${(state.page - 1) * state.size}&limit=${state.size}`)).json();
+    },
+    placeholderData: (previous) => previous,
+  });
+  const pagedCategories = categoriesQuery.data?.data ?? [];
+  const refetchCategories = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["categories-lookup"] });
+    await categoriesQuery.refetch();
+  };
 
-  const { data: vaultLocations = [] } = useQuery({
+  const { data: vaultLocationLookup } = useQuery({
     queryKey: ["vault-locations"],
     queryFn: async () => {
-      const res = await fetch("/api/vault/locations");
+      const res = await fetch("/api/vault/locations?skip=0&limit=200");
       return res.json();
     },
   });
-  const inventoryPagination = useClientPagination(inventory ?? []);
-  const warehousePagination = useClientPagination(vaultLocations);
-  const movementPagination = useClientPagination(movements ?? []);
+  const vaultLocations: any[] = vaultLocationLookup?.data ?? [];
 
   const deleteWarehouse = useMutation({
     mutationFn: async (id: number) => {
@@ -298,6 +366,7 @@ export default function InventoryModule() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vault-locations"] });
+      queryClient.invalidateQueries({ queryKey: ["vault-locations-paged"] });
       toast.success("Warehouse deleted");
     },
     onError: (err: any) => toast.error(err.message),
@@ -946,7 +1015,7 @@ export default function InventoryModule() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {inventoryPagination.paginatedRows.map((inv) => (
+                            {(inventoryMasterQuery.data?.data ?? []).map((inv: any) => (
                               <tr key={inv.id} className="hover:bg-muted/30">
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-3">
@@ -1034,12 +1103,13 @@ export default function InventoryModule() {
                           </tbody>
                         </table>
                         <DataPagination
-                          currentPage={inventoryPagination.currentPage}
-                          pageSize={inventoryPagination.pageSize}
-                          totalCount={inventoryPagination.totalCount}
-                          onPageChange={inventoryPagination.setCurrentPage}
-                          onPageSizeChange={inventoryPagination.setPageSize}
-                          loading={invLoading}
+                          currentPage={masterPaging.inventory.page}
+                          pageSize={masterPaging.inventory.size}
+                          totalCount={Number(inventoryMasterQuery.data?.totalCount || 0)}
+                          totalPages={Number(inventoryMasterQuery.data?.totalPages || 0)}
+                          onPageChange={(page) => setMasterPage("inventory", { page })}
+                          onPageSizeChange={(size) => setMasterPage("inventory", { page: 1, size })}
+                          loading={inventoryMasterQuery.isFetching}
                         />
                         {(inventory ?? []).length === 0 && (
                           <div className="p-16 text-center text-sm text-muted-foreground">
@@ -1333,7 +1403,7 @@ export default function InventoryModule() {
                               </td>
                             </tr>
                           ))}
-                          {(!materials || materials.length === 0) && (
+                          {itemNames.length === 0 && (
                             <tr>
                               <td
                                 colSpan={5}
@@ -1346,6 +1416,15 @@ export default function InventoryModule() {
                         </tbody>
                       </table>
                     </CardContent>
+                    <DataPagination
+                      currentPage={masterPaging.items.page}
+                      pageSize={masterPaging.items.size}
+                      totalCount={Number(itemNamesQuery.data?.totalCount || 0)}
+                      totalPages={Number(itemNamesQuery.data?.totalPages || 0)}
+                      onPageChange={(page) => setMasterPage("items", { page })}
+                      onPageSizeChange={(size) => setMasterPage("items", { page: 1, size })}
+                      loading={itemNamesQuery.isFetching}
+                    />
                   </Card>
                 </TabsContent>
 
@@ -1357,7 +1436,7 @@ export default function InventoryModule() {
                     </p>
                   </div>
                   <Card className="rounded-sm border-border shadow-md overflow-hidden">
-                    {categories.length === 0 ? (
+                    {pagedCategories.length === 0 ? (
                       <CardContent className="p-10 text-center text-sm text-muted-foreground">
                         No categories defined yet.
                       </CardContent>
@@ -1379,7 +1458,7 @@ export default function InventoryModule() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
-                            {categories.map((c: any) => (
+                            {pagedCategories.map((c: any) => (
                               <tr
                                 key={c.id}
                                 className="hover:bg-muted/30 transition-colors"
@@ -1427,6 +1506,15 @@ export default function InventoryModule() {
                         </table>
                       </div>
                     )}
+                    <DataPagination
+                      currentPage={masterPaging.category.page}
+                      pageSize={masterPaging.category.size}
+                      totalCount={Number(categoriesQuery.data?.totalCount || 0)}
+                      totalPages={Number(categoriesQuery.data?.totalPages || 0)}
+                      onPageChange={(page) => setMasterPage("category", { page })}
+                      onPageSizeChange={(size) => setMasterPage("category", { page: 1, size })}
+                      loading={categoriesQuery.isFetching}
+                    />
                   </Card>
                 </TabsContent>
 
@@ -1539,6 +1627,15 @@ export default function InventoryModule() {
                         </tbody>
                       </table>
                     </CardContent>
+                    <DataPagination
+                      currentPage={masterPaging.services.page}
+                      pageSize={masterPaging.services.size}
+                      totalCount={Number(servicesQuery.data?.totalCount || 0)}
+                      totalPages={Number(servicesQuery.data?.totalPages || 0)}
+                      onPageChange={(page) => setMasterPage("services", { page })}
+                      onPageSizeChange={(size) => setMasterPage("services", { page: 1, size })}
+                      loading={servicesQuery.isFetching}
+                    />
                   </Card>
                 </TabsContent>
               </Tabs>
@@ -1580,8 +1677,8 @@ export default function InventoryModule() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {warehousePagination.paginatedRows.length ? (
-                        warehousePagination.paginatedRows.map((w: any) => (
+                      {pagedWarehouses.length ? (
+                        pagedWarehouses.map((w: any) => (
                           <tr key={w.id} className="hover:bg-muted/30">
                             <td className="px-4 py-3 font-semibold">
                               {w.locationName}
@@ -1655,11 +1752,13 @@ export default function InventoryModule() {
                   </table>
                 </div>
                 <DataPagination
-                  currentPage={warehousePagination.currentPage}
-                  pageSize={warehousePagination.pageSize}
-                  totalCount={warehousePagination.totalCount}
-                  onPageChange={warehousePagination.setCurrentPage}
-                  onPageSizeChange={warehousePagination.setPageSize}
+                  currentPage={masterPaging.warehouses.page}
+                  pageSize={masterPaging.warehouses.size}
+                  totalCount={Number(warehouseQuery.data?.totalCount || 0)}
+                  totalPages={Number(warehouseQuery.data?.totalPages || 0)}
+                  onPageChange={(page) => setMasterPage("warehouses", { page })}
+                  onPageSizeChange={(size) => setMasterPage("warehouses", { page: 1, size })}
+                  loading={warehouseQuery.isFetching}
                 />
               </div>
               <div className="hidden">
@@ -1816,7 +1915,7 @@ export default function InventoryModule() {
                             </td>
                           </tr>
                         ) : (
-                          movementPagination.paginatedRows.map((m) => (
+                          movements.map((m) => (
                             <tr
                               key={m.id}
                               className="hover:bg-muted/30 transition-colors h-[44px]"
@@ -1864,11 +1963,12 @@ export default function InventoryModule() {
                   </div>
                 </CardContent>
                 <DataPagination
-                  currentPage={movementPagination.currentPage}
-                  pageSize={movementPagination.pageSize}
-                  totalCount={movementPagination.totalCount}
-                  onPageChange={movementPagination.setCurrentPage}
-                  onPageSizeChange={movementPagination.setPageSize}
+                  currentPage={masterPaging.movements.page}
+                  pageSize={masterPaging.movements.size}
+                  totalCount={Number(movementQuery.data?.totalCount || 0)}
+                  totalPages={Number(movementQuery.data?.totalPages || 0)}
+                  onPageChange={(page) => setMasterPage("movements", { page })}
+                  onPageSizeChange={(size) => setMasterPage("movements", { page: 1, size })}
                   loading={movLoading}
                 />
               </Card>
@@ -2144,7 +2244,7 @@ export default function InventoryModule() {
                   disabled={viewMode}
                   value={productForm.name}
                   onValueChange={(v) => {
-                    const selectedItem = itemNames?.find(
+                    const selectedItem = allItemNames?.find(
                       (i: any) => i.name === v,
                     );
                     setProductForm({
@@ -2162,7 +2262,7 @@ export default function InventoryModule() {
                     <SelectValue placeholder="Select an Item Name" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(itemNames ?? []).map((item: any) => (
+                    {(allItemNames ?? []).map((item: any) => (
                       <SelectItem key={item.id} value={item.name}>
                         {item.name}
                       </SelectItem>

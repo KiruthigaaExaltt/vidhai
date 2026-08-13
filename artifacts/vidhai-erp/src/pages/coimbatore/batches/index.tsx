@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  useListCoimbatoreBatches,
   useCreateCoimbatoreBatch,
   getListCoimbatoreBatchesQueryKey,
 } from "@workspace/api-client-react";
@@ -36,9 +35,8 @@ import {
 } from "@/components/ui/select";
 import { Plus, Leaf, Trash2, Search, Filter, X, Pencil } from "lucide-react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "sonner";
 
@@ -59,14 +57,33 @@ export default function CoimbatoreBatches() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
-  const { data: batches, isLoading, refetch } = useListCoimbatoreBatches();
-
   // ── Filters ────────────────────────────────────────────────────────────────
   const [filterStage, setFilterStage] = useState("__all__");
   const [filterStatus, setFilterStatus] = useState("__all__");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchPageSize, setBatchPageSize] = useState(10);
+  useEffect(() => setBatchPage(1), [filterStage, filterStatus, filterFrom, filterTo, filterSearch]);
+  const batchQuery = useQuery({
+    queryKey: ["coimbatore-batches-paged", filterStage, filterStatus, filterFrom, filterTo, filterSearch, batchPage, batchPageSize],
+    queryFn: async () => {
+      const params = new URLSearchParams({ skip: String((batchPage - 1) * batchPageSize), limit: String(batchPageSize) });
+      if (filterStage !== "__all__") params.set("stage", filterStage);
+      if (filterStatus !== "__all__") params.set("status", filterStatus);
+      if (filterFrom) params.set("from", filterFrom);
+      if (filterTo) params.set("to", filterTo);
+      if (filterSearch) params.set("search", filterSearch);
+      const response = await fetch(`/api/coimbatore/batches?${params}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load casing soil batches");
+      return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
+    },
+    placeholderData: keepPreviousData,
+  });
+  const batches = batchQuery.data?.data ?? [];
+  const isLoading = batchQuery.isLoading || batchQuery.isFetching;
+  const refetch = batchQuery.refetch;
 
   const clearFilters = () => {
     setFilterStage("__all__");
@@ -82,25 +99,7 @@ export default function CoimbatoreBatches() {
     !!filterTo ||
     !!filterSearch;
 
-  const filtered = ((batches ?? []) as any[]).filter((b: any) => {
-    if (filterStage !== "__all__" && b.currentStage !== filterStage)
-      return false;
-    if (filterStatus !== "__all__" && b.status !== filterStatus) return false;
-    if (filterFrom && new Date(b.createdAt) < new Date(filterFrom))
-      return false;
-    if (filterTo && new Date(b.createdAt) > new Date(filterTo + "T23:59:59"))
-      return false;
-    if (
-      filterSearch &&
-      !b.batchCode?.toLowerCase().includes(filterSearch.toLowerCase())
-    )
-      return false;
-    return true;
-  });
-  const batchPagination = useClientPagination(
-    filtered,
-    `${filterStage}|${filterStatus}|${filterFrom}|${filterTo}|${filterSearch}`,
-  );
+  const filtered = batches;
 
   // ── Create ─────────────────────────────────────────────────────────────────
   const [batchOpen, setBatchOpen] = useState(false);
@@ -112,6 +111,7 @@ export default function CoimbatoreBatches() {
         queryClient.invalidateQueries({
           queryKey: getListCoimbatoreBatchesQueryKey(),
         });
+        queryClient.invalidateQueries({ queryKey: ["coimbatore-batches-paged"] });
         setBatchOpen(false);
         setBatchNotes("");
         setLocation(`/coimbatore/batches/${data.id}`);
@@ -376,7 +376,7 @@ export default function CoimbatoreBatches() {
               )}
 
               <span className="ml-auto text-xs text-muted-foreground self-end pb-1">
-                {filtered.length} batch{filtered.length !== 1 ? "es" : ""}
+                {Number(batchQuery.data?.totalCount || 0)} batch{Number(batchQuery.data?.totalCount || 0) !== 1 ? "es" : ""}
               </span>
             </div>
           </CardContent>
@@ -414,7 +414,7 @@ export default function CoimbatoreBatches() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {batchPagination.paginatedRows.map((b: any) => (
+                    {filtered.map((b: any) => (
                       <tr
                         key={b.id}
                         onClick={() =>
@@ -494,11 +494,13 @@ export default function CoimbatoreBatches() {
             )}
           </CardContent>
           <DataPagination
-            currentPage={batchPagination.currentPage}
-            pageSize={batchPagination.pageSize}
-            totalCount={batchPagination.totalCount}
-            onPageChange={batchPagination.setCurrentPage}
-            onPageSizeChange={batchPagination.setPageSize}
+            currentPage={batchPage}
+            pageSize={batchPageSize}
+            totalCount={Number(batchQuery.data?.totalCount || 0)}
+            totalPages={Number(batchQuery.data?.totalPages || 0)}
+            onPageChange={setBatchPage}
+            onPageSizeChange={(size) => { setBatchPageSize(size); setBatchPage(1); }}
+            loading={isLoading}
           />
         </Card>
       </div>

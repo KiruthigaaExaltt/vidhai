@@ -8,16 +8,16 @@ import {
 import { eq, and } from "@workspace/db";
 import crypto from "crypto";
 import { inventoryTable } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   const mats = await db
     .select()
     .from(materialsTable)
     .orderBy(materialsTable.name);
-  res.json(
-    mats.map((m) => ({
+  let data: any[] = mats.map((m) => ({
       ...m,
       defaultMoisturePercent:
         m.defaultMoisturePercent != null
@@ -28,8 +28,12 @@ router.get("/", async (_req, res) => {
           ? Number(m.defaultNitrogenPercent)
           : null,
       gstPercent: m.gstPercent != null ? Number(m.gstPercent) : 0,
-    })),
-  );
+    }));
+  const search = String(req.query.search || "").trim().toLowerCase();
+  if (search) data = data.filter((row: any) => [row.name, row.sku, row.category, row.itemType].some((value) => String(value || "").toLowerCase().includes(search)));
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(data);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
 });
 
 router.post("/generate-sku", async (req, res) => {

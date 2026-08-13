@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type PageToken = number | "ellipsis-left" | "ellipsis-right";
 
@@ -104,12 +105,15 @@ export function DataPagination({
             <PaginationItem>
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Previous page"
+                title="Previous page"
                 disabled={disabled || page === 1}
                 onClick={() => go(page - 1)}
               >
-                Previous
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
               </Button>
             </PaginationItem>
             {pageTokens(page, pages).map((token) =>
@@ -137,12 +141,15 @@ export function DataPagination({
             <PaginationItem>
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Next page"
+                title="Next page"
                 disabled={disabled || page === pages}
                 onClick={() => go(page + 1)}
               >
-                Next
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
               </Button>
             </PaginationItem>
           </PaginationContent>

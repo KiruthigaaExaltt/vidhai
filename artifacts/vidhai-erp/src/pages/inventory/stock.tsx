@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import {
-  useListInventory,
   useCreateInventoryAdjustment,
   useListMaterials,
 } from "@workspace/api-client-react";
@@ -26,25 +24,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getListInventoryQueryKey } from "@workspace/api-client-react";
 
 export default function Stock() {
   const queryClient = useQueryClient();
-  const { data: inventory, isLoading } = useListInventory();
+  const [stockPage, setStockPage] = useState(1);
+  const [stockPageSize, setStockPageSize] = useState(10);
+  const stockQuery = useQuery({
+    queryKey: ["inventory-stock-paged", stockPage, stockPageSize],
+    queryFn: async () => {
+      const response = await fetch(`/api/inventory?skip=${(stockPage - 1) * stockPageSize}&limit=${stockPageSize}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load inventory");
+      return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
+    },
+    placeholderData: keepPreviousData,
+  });
+  const inventory = stockQuery.data?.data ?? [];
+  const isLoading = stockQuery.isLoading || stockQuery.isFetching;
   const { data: materials } = useListMaterials();
 
   const createMutation = useCreateInventoryAdjustment({
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListInventoryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["inventory-stock-paged"] });
         setIsOpen(false);
       },
     },
   });
 
   const [isOpen, setIsOpen] = useState(false);
-  const stockPagination = useClientPagination(inventory ?? []);
   const [formData, setFormData] = useState({
     materialId: "",
     quantityDelta: "",
@@ -202,7 +212,7 @@ export default function Stock() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {stockPagination.paginatedRows.map((inv) => (
+                    {inventory.map((inv) => (
                       <tr key={inv.id} className="hover:bg-muted/30 h-[36px]">
                         <td className="px-4 font-medium">{inv.materialName}</td>
                         <td className="px-4 text-muted-foreground">
@@ -229,11 +239,12 @@ export default function Stock() {
                   </tbody>
                 </table>
                 <DataPagination
-                  currentPage={stockPagination.currentPage}
-                  pageSize={stockPagination.pageSize}
-                  totalCount={stockPagination.totalCount}
-                  onPageChange={stockPagination.setCurrentPage}
-                  onPageSizeChange={stockPagination.setPageSize}
+                  currentPage={stockPage}
+                  pageSize={stockPageSize}
+                  totalCount={Number(stockQuery.data?.totalCount || 0)}
+                  totalPages={Number(stockQuery.data?.totalPages || 0)}
+                  onPageChange={setStockPage}
+                  onPageSizeChange={(size) => { setStockPageSize(size); setStockPage(1); }}
                   loading={isLoading}
                 />
               </div>

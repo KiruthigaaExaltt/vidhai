@@ -13,6 +13,7 @@ import {
   locationsTable,
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -206,7 +207,7 @@ router.get("/timesheet", requireAuth, async (req, res) => {
 });
 
 router.get("/", requireAuth, async (req, res) => {
-  const { status, assigneeId, locationId } = req.query as Record<
+  const { status, assigneeId, locationId, search } = req.query as Record<
     string,
     string | undefined
   >;
@@ -242,7 +243,27 @@ router.get("/", requireAuth, async (req, res) => {
   }
   if (locationId)
     rows = rows.filter((task: any) => String(task.locationId) === locationId);
-  return res.json(await Promise.all(rows.map(serializeTask)));
+  if (search) {
+    const value = search.trim().toLowerCase();
+    rows = rows.filter((task: any) =>
+      [task.title, task.description, task.batchRef, task.notes].some((field) =>
+        String(field || "").toLowerCase().includes(value),
+      ),
+    );
+  }
+  const pagination = paginateQuery(req.query);
+  const totalCount = rows.length;
+  const pageRows = rows.slice(
+    pagination.skip,
+    pagination.skip + pagination.limit,
+  );
+  return res.json(
+    paginatedResponse(
+      await Promise.all(pageRows.map(serializeTask)),
+      totalCount,
+      pagination,
+    ),
+  );
 });
 
 router.post("/", requireAuth, async (req, res) => {

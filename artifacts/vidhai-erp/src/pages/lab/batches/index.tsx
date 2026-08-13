@@ -1,5 +1,4 @@
 import {
-  useListLabBatches,
   useCreateLabBatch,
   getListLabBatchesQueryKey,
 } from "@workspace/api-client-react";
@@ -19,10 +18,9 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, FlaskConical } from "lucide-react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 
 function stageLabel(stage: string) {
   if (stage === "MS") return "Mother Spawn";
@@ -35,11 +33,21 @@ function stageLabel(stage: string) {
 export default function LabBatches() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const { data: batches, isLoading } = useListLabBatches();
-
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState("");
-  const batchPagination = useClientPagination((batches ?? []) as any[]);
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchPageSize, setBatchPageSize] = useState(10);
+  const batchQuery = useQuery({
+    queryKey: ["lab-batches-paged", batchPage, batchPageSize],
+    queryFn: async () => {
+      const response = await fetch(`/api/lab/batches?skip=${(batchPage - 1) * batchPageSize}&limit=${batchPageSize}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load spawn batches");
+      return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
+    },
+    placeholderData: keepPreviousData,
+  });
+  const batches = batchQuery.data?.data ?? [];
+  const isLoading = batchQuery.isLoading || batchQuery.isFetching;
 
   const createMutation = useCreateLabBatch({
     mutation: {
@@ -47,6 +55,7 @@ export default function LabBatches() {
         queryClient.invalidateQueries({
           queryKey: getListLabBatchesQueryKey(),
         });
+        queryClient.invalidateQueries({ queryKey: ["lab-batches-paged"] });
         setOpen(false);
         setNotes("");
         setLocation(`/lab/batches/${data.id}`);
@@ -136,7 +145,7 @@ export default function LabBatches() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {batchPagination.paginatedRows.map((b: any) => (
+                    {batches.map((b: any) => (
                       <tr
                         key={b.id}
                         onClick={() => setLocation(`/lab/batches/${b.id}`)}
@@ -181,11 +190,13 @@ export default function LabBatches() {
             )}
           </CardContent>
           <DataPagination
-            currentPage={batchPagination.currentPage}
-            pageSize={batchPagination.pageSize}
-            totalCount={batchPagination.totalCount}
-            onPageChange={batchPagination.setCurrentPage}
-            onPageSizeChange={batchPagination.setPageSize}
+            currentPage={batchPage}
+            pageSize={batchPageSize}
+            totalCount={Number(batchQuery.data?.totalCount || 0)}
+            totalPages={Number(batchQuery.data?.totalPages || 0)}
+            onPageChange={setBatchPage}
+            onPageSizeChange={(size) => { setBatchPageSize(size); setBatchPage(1); }}
+            loading={isLoading}
           />
         </Card>
       </div>

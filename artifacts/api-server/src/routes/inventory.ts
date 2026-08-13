@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { inventoryTable, inventoryAdjustmentsTable, inventoryMovementsTable, materialsTable, inventoryLocationsTable, usersTable } from "@workspace/db";
 import { eq, desc } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -23,8 +24,7 @@ router.get("/", requireAuth, async (req, res) => {
     .leftJoin(inventoryLocationsTable, eq(inventoryTable.locationId, inventoryLocationsTable.id))
     .orderBy(materialsTable.name);
 
-  return res.json(
-    rows.map((r) => ({
+  let data = rows.map((r) => ({
       id: r.inv.id,
       materialId: r.material.id,
       materialName: r.material.name,
@@ -46,8 +46,16 @@ router.get("/", requireAuth, async (req, res) => {
       imageUrl: r.material.imageUrl,
       qrCode: r.material.qrCode,
       lastUpdated: r.inv.lastUpdated,
-    }))
+    }));
+  const search = String(req.query.search || "").trim().toLowerCase();
+  if (search) data = data.filter((row) =>
+    [row.materialName, row.sku, row.category, row.locationName].some((value) =>
+      String(value || "").toLowerCase().includes(search),
+    ),
   );
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(data);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
 });
 
 // Adjust inventory stock
@@ -113,8 +121,7 @@ router.get("/movements", requireAuth, async (req, res) => {
     .leftJoin(usersTable, eq(inventoryMovementsTable.createdByUserId, usersTable.id))
     .orderBy(desc(inventoryMovementsTable.createdAt));
 
-  return res.json(
-    rows.map((r) => ({
+  let data = rows.map((r) => ({
       id: r.mov.id,
       materialId: r.mov.materialId,
       materialName: r.materialName,
@@ -125,8 +132,16 @@ router.get("/movements", requireAuth, async (req, res) => {
       notes: r.mov.notes,
       createdByName: r.createdByName ?? null,
       createdAt: r.mov.createdAt,
-    }))
+    }));
+  const search = String(req.query.search || "").trim().toLowerCase();
+  if (search) data = data.filter((row) =>
+    [row.materialName, row.reason, row.notes, row.createdByName].some((value) =>
+      String(value || "").toLowerCase().includes(search),
+    ),
   );
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(data);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
 });
 
 // Create inventory movement (transfer between locations)

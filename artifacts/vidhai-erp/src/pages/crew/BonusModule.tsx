@@ -174,7 +174,22 @@ export function BonusModule({
           .toLowerCase()
           .includes(query.toLowerCase()),
     );
-  const pagination = useClientPagination(recent, `${payrollMonth}|${query}`);
+  const pagination = useClientPagination(
+    recent,
+    `${payrollMonth}|${query}`,
+    10,
+    "bonus-entries",
+  );
+  const summaryEmployees = useMemo(
+    () => employees.filter((employee) => employee.status !== "Offboarded"),
+    [employees],
+  );
+  const summaryPagination = useClientPagination(
+    summaryEmployees,
+    payrollMonth,
+    10,
+    "bonus-summary",
+  );
   const years = Array.from(
     { length: 9 },
     (_, index) => now.getFullYear() - 4 + index,
@@ -220,9 +235,7 @@ export function BonusModule({
               onChange={(event) => setEmployeeId(event.target.value)}
             >
               <option value="">Select employee</option>
-              {employees
-                .filter((employee) => employee.status !== "Offboarded")
-                .map((employee) => (
+              {summaryEmployees.map((employee) => (
                   <option key={employee.id} value={employee.id}>
                     {employee.name} ({employee.employeeCode})
                   </option>
@@ -276,9 +289,7 @@ export function BonusModule({
               </tr>
             </thead>
             <tbody>
-              {employees
-                .filter((employee) => employee.status !== "Offboarded")
-                .map((employee) => (
+              {summaryPagination.paginatedRows.map((employee) => (
                   <tr key={employee.id} className="border-t">
                     <td className="px-4 py-3 font-medium">{employee.name}</td>
                     <td className="px-4 py-3">{employee.department}</td>
@@ -300,6 +311,15 @@ export function BonusModule({
             </tbody>
           </table>
         </div>
+        <DataPagination
+          currentPage={summaryPagination.currentPage}
+          pageSize={summaryPagination.pageSize}
+          totalCount={summaryPagination.totalCount}
+          totalPages={summaryPagination.totalPages}
+          onPageChange={summaryPagination.setCurrentPage}
+          onPageSizeChange={summaryPagination.setPageSize}
+          loading={loading}
+        />
       </section>
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b p-4">

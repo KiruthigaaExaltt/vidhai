@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
-import { useClientPagination } from "@/hooks/use-client-pagination";
 import { Shell } from "@/components/layout/Shell";
 import {
   Plus,
@@ -67,19 +66,36 @@ export default function Sales() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [paginationByTab, setPaginationByTab] = useState<Record<string, { page: number; size: number }>>({});
+  const [listMeta, setListMeta] = useState({ totalCount: 0, totalPages: 0 });
+  const paginationState = paginationByTab[activeTab] ?? { page: 1, size: 10 };
+  const setListPagination = (next: Partial<typeof paginationState>) =>
+    setPaginationByTab((current) => ({
+      ...current,
+      [activeTab]: { ...(current[activeTab] ?? paginationState), ...next },
+    }));
+  const pagedPath = (path: string) =>
+    `${path}?skip=${(paginationState.page - 1) * paginationState.size}&limit=${paginationState.size}`;
+  const acceptPage = (body: any, setter: (rows: any[]) => void) => {
+    setter(body.data || []);
+    setListMeta({
+      totalCount: Number(body.totalCount || 0),
+      totalPages: Number(body.totalPages || 0),
+    });
+  };
 
   const loadQuotations = async () => {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sales/quotations", {
+      const response = await fetch(pagedPath("/api/sales/quotations"), {
         credentials: "include",
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || "Unable to load quotations");
       }
-      setQuotations(await response.json());
+      acceptPage(await response.json(), setQuotations);
     } catch (error) {
       setLoadError(
         error instanceof Error ? error.message : "Unable to load quotations",
@@ -93,7 +109,7 @@ export default function Sales() {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sales/proforma-invoices", {
+      const response = await fetch(pagedPath("/api/sales/proforma-invoices"), {
         credentials: "include",
       });
       if (!response.ok)
@@ -101,7 +117,7 @@ export default function Sales() {
           (await response.json().catch(() => ({}))).error ||
             "Unable to load Proforma invoices",
         );
-      setProformas(await response.json());
+      acceptPage(await response.json(), setProformas);
     } catch (error) {
       setLoadError(
         error instanceof Error
@@ -231,13 +247,13 @@ export default function Sales() {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sales/challans", {
+      const response = await fetch(pagedPath("/api/sales/challans"), {
         credentials: "include",
       });
       const body = await response.json().catch(() => []);
       if (!response.ok)
         throw new Error(body.error || "Unable to load Delivery Challans");
-      setChallans(body);
+      acceptPage(body, setChallans);
     } catch (error) {
       setLoadError(
         error instanceof Error
@@ -253,13 +269,13 @@ export default function Sales() {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sales/invoices", {
+      const response = await fetch(pagedPath("/api/sales/invoices"), {
         credentials: "include",
       });
       const body = await response.json().catch(() => []);
       if (!response.ok)
         throw new Error(body.error || "Unable to load Invoices");
-      setInvoices(body);
+      acceptPage(body, setInvoices);
     } catch (error) {
       setLoadError(
         error instanceof Error ? error.message : "Unable to load Invoices",
@@ -273,13 +289,13 @@ export default function Sales() {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sales/returns", {
+      const response = await fetch(pagedPath("/api/sales/returns"), {
         credentials: "include",
       });
       const body = await response.json().catch(() => []);
       if (!response.ok)
         throw new Error(body.error || "Unable to load Sales Returns");
-      setReturns(body);
+      acceptPage(body, setReturns);
     } catch (error) {
       setLoadError(
         error instanceof Error ? error.message : "Unable to load Sales Returns",
@@ -302,7 +318,7 @@ export default function Sales() {
     if (activeTab === "Delivery Challan") void loadChallans();
     if (activeTab === "Invoices") void loadInvoices();
     if (activeTab === "Sales Return") void loadReturns();
-  }, [activeTab]);
+  }, [activeTab, paginationState.page, paginationState.size]);
 
   const listedDocuments =
     activeTab === "Quotation"
@@ -314,12 +330,6 @@ export default function Sales() {
           : activeTab === "Sales Return"
             ? returns
             : challans;
-  const documentPagination = useClientPagination(
-    listedDocuments,
-    activeTab,
-    10,
-    activeTab,
-  );
 
   if (creatingType) {
     return (
@@ -511,7 +521,7 @@ export default function Sales() {
             activeTab === "Sales Return" ? (
             <Card className="rounded-xl border border-border shadow-sm bg-card">
               <CardContent className="p-0">
-                {loading ? (
+                {loading && listedDocuments.length === 0 ? (
                   <div className="p-12 text-center text-muted-foreground">
                     Loading quotations...
                   </div>
@@ -558,7 +568,7 @@ export default function Sales() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {documentPagination.paginatedRows.map((row) => {
+                        {listedDocuments.map((row) => {
                           const numeric = (value: any) => {
                             const parsed = Number(
                               value?.$numberDecimal ??
@@ -714,11 +724,12 @@ export default function Sales() {
                 )}
               </CardContent>
               <DataPagination
-                currentPage={documentPagination.currentPage}
-                pageSize={documentPagination.pageSize}
-                totalCount={documentPagination.totalCount}
-                onPageChange={documentPagination.setCurrentPage}
-                onPageSizeChange={documentPagination.setPageSize}
+                currentPage={paginationState.page}
+                pageSize={paginationState.size}
+                totalCount={listMeta.totalCount}
+                totalPages={listMeta.totalPages}
+                onPageChange={(page) => setListPagination({ page })}
+                onPageSizeChange={(size) => setListPagination({ size, page: 1 })}
                 loading={loading}
               />
             </Card>

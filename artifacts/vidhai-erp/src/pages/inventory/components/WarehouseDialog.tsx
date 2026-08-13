@@ -58,6 +58,7 @@ export function WarehouseDialog({ open, onOpenChange, formState }: WarehouseDial
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vault-locations"] });
+      queryClient.invalidateQueries({ queryKey: ["vault-locations-paged"] });
       toast.success(`Warehouse ${isEditing ? "updated" : "created"} successfully`);
       onOpenChange(false);
     },

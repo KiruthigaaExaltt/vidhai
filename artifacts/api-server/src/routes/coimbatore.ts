@@ -14,6 +14,7 @@ import {
   inventoryAdjustmentsTable,
 } from "@workspace/db";
 import { eq, desc, ilike } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -64,7 +65,16 @@ router.get("/batches", requireAuth, async (req, res) => {
     .leftJoin(usersTable, eq(batchesTable.createdByUserId, usersTable.id))
     .where(eq(locationsTable.code, "C"))
     .orderBy(desc(batchesTable.createdAt));
-  return res.json(batches);
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(batches);
+  let filtered = batches;
+  const { search, stage, status, from, to } = req.query as Record<string, string | undefined>;
+  if (search) filtered = filtered.filter((row) => row.batchCode.toLowerCase().includes(search.toLowerCase()));
+  if (stage) filtered = filtered.filter((row) => row.currentStage === stage);
+  if (status) filtered = filtered.filter((row) => row.status === status);
+  if (from) filtered = filtered.filter((row) => new Date(row.createdAt) >= new Date(from));
+  if (to) filtered = filtered.filter((row) => new Date(row.createdAt) <= new Date(`${to}T23:59:59.999`));
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(filtered.slice(pagination.skip, pagination.skip + pagination.limit), filtered.length, pagination));
 });
 
 // ── Create Coimbatore batch (starts in FORMULATION) ───────────────────────────

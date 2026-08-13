@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "demo:seed": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env --import tsx ./src/mushroom-demo-data.ts seed",
+    "demo:clear": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env --import tsx ./src/mushroom-demo-data.ts clear",
     "migrate:mongodb": "tsx ./migrate-postgresql-to-mongodb.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

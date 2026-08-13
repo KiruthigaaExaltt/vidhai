@@ -16,6 +16,7 @@ import {
   payrollTable,
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
+import { paginateQuery, paginationMetadata } from "../lib/pagination";
 const router = Router(),
   round = (n: number) => Math.round(n * 100) / 100,
   json = (v: any, f: any = {}) => {
@@ -552,7 +553,7 @@ router.get("/salary-slips", async (req: any, res: any): Promise<any> => {
       Number(req.query.employeeId || 0) || undefined,
     ),
     ids = new Set(allowed.map((e: any) => e.id)),
-    rows = (
+    allRows = (
       await db
         .select()
         .from(salarySlipsTable)
@@ -564,7 +565,23 @@ router.get("/salary-slips", async (req: any, res: any): Promise<any> => {
         )
         .orderBy(desc(salarySlipsTable.createdAt))
     ).filter((r: any) => ids.has(r.employeeId));
-  return res.json(rows.map(decode));
+  const payrollRows = await db.select().from(payrollTable).where(and(eq(payrollTable.organizationId, req.pay.org), eq(payrollTable.payPeriod, month)));
+  const payrollByEmployee = new Map(payrollRows.map((row: any) => [Number(row.employeeId), row]));
+  const search = String(req.query.search || "").trim().toLowerCase();
+  const department = String(req.query.department || "All");
+  const status = String(req.query.status || "All");
+  const rows = allRows.filter((row: any) =>
+    (department === "All" || row.department === department) &&
+    (status === "All" || String((payrollByEmployee.get(Number(row.employeeId)) as any)?.status || "Generated") === status) &&
+    (!search || `${row.employeeName} ${row.employeeCode} ${row.department} ${row.designation}`.toLowerCase().includes(search)),
+  );
+  const pagination = paginateQuery(req.query);
+  const data = rows.slice(pagination.skip, pagination.skip + pagination.limit).map((row: any) => ({
+    ...decode(row),
+    payrollStatus: (payrollByEmployee.get(Number(row.employeeId)) as any)?.status || "Generated",
+  }));
+  const totals = rows.reduce((sum: any, row: any) => ({ gross: sum.gross + Number(row.grossPay || 0), deductions: sum.deductions + Number(row.totalDeductions || 0), net: sum.net + Number(row.netPay || 0) }), { gross: 0, deductions: 0, net: 0 });
+  return res.json({ data, totals, departments: [...new Set(allRows.map((row: any) => row.department).filter(Boolean))], ...paginationMetadata(rows.length, pagination) });
 });
 router.get("/salary-slips/:id", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crewpay.salary_slip.view")) return;

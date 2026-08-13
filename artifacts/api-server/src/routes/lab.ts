@@ -13,6 +13,7 @@ import {
   materialsTable,
 } from "@workspace/db";
 import { eq, desc, ilike } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -69,7 +70,9 @@ router.get("/batches", requireAuth, async (req, res) => {
     .leftJoin(usersTable, eq(batchesTable.createdByUserId, usersTable.id))
     .where(eq(locationsTable.code, "D"))
     .orderBy(desc(batchesTable.createdAt));
-  return res.json(rows);
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(rows);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(rows.slice(pagination.skip, pagination.skip + pagination.limit), rows.length, pagination));
 });
 
 // ── Create Lab batch (starts in FORMULATION — no stage log yet) ───────────────

@@ -1,15 +1,48 @@
 import { Router } from "express";
-import { contactsTable, db, eq } from "@workspace/db";
+import { and, contactsTable, db, desc, eq, ilike, or } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 const validTypes = new Set(["client", "vendor", "other"]);
 
-router.get("/", async (_req, res) => {
-  const contacts = await db
-    .select()
-    .from(contactsTable)
-    .orderBy(contactsTable.name);
-  res.json(contacts);
+router.get("/", async (req, res) => {
+  const pagination = paginateQuery(req.query);
+  const type = String(req.query.type || "all");
+  const search = String(req.query.search || "").trim();
+  const filter = and(
+    type !== "all" ? eq(contactsTable.type, type) : undefined,
+    search
+      ? or(
+          ilike(contactsTable.name, `%${search}%`),
+          ilike(contactsTable.company, `%${search}%`),
+          ilike(contactsTable.phone, `%${search}%`),
+          ilike(contactsTable.whatsappNumber, `%${search}%`),
+          ilike(contactsTable.gstin, `%${search}%`),
+          ilike(contactsTable.email, `%${search}%`),
+        )
+      : undefined,
+  );
+  const searchFilter = and(
+    search
+      ? or(
+          ilike(contactsTable.name, `%${search}%`),
+          ilike(contactsTable.company, `%${search}%`),
+          ilike(contactsTable.phone, `%${search}%`),
+          ilike(contactsTable.whatsappNumber, `%${search}%`),
+          ilike(contactsTable.gstin, `%${search}%`),
+          ilike(contactsTable.email, `%${search}%`),
+        )
+      : undefined,
+  );
+  const [contacts, totalCount, all, client, vendor, other] = await Promise.all([
+    db.select().from(contactsTable).where(filter).orderBy(desc(contactsTable.createdAt)).offset(pagination.skip).limit(pagination.limit),
+    db.count(contactsTable, filter),
+    db.count(contactsTable, searchFilter),
+    db.count(contactsTable, and(searchFilter, eq(contactsTable.type, "client"))),
+    db.count(contactsTable, and(searchFilter, eq(contactsTable.type, "vendor"))),
+    db.count(contactsTable, and(searchFilter, eq(contactsTable.type, "other"))),
+  ]);
+  res.json({ ...paginatedResponse(contacts, totalCount, pagination), counts: { all, client, vendor, other } });
 });
 
 router.post("/", async (req, res) => {

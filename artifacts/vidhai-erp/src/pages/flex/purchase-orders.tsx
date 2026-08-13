@@ -86,8 +86,9 @@ export interface PurchaseOrderItem {
   createdBy?: string;
 }
 
-async function fetchPurchaseOrders(): Promise<PurchaseOrderItem[]> {
-  const res = await fetch(`${BASE}/api/flex/purchase-orders`, {
+async function fetchPurchaseOrders(skip: number, limit: number, search: string): Promise<{ data: PurchaseOrderItem[]; totalCount: number; totalPages: number }> {
+  const params = new URLSearchParams({ skip: String(skip), limit: String(limit), search });
+  const res = await fetch(`${BASE}/api/flex/purchase-orders?${params}`, {
     credentials: "include",
   });
   if (!res.ok) throw new Error("Unable to load purchase orders");
@@ -135,16 +136,25 @@ async function deletePurchaseOrder(id: number) {
 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [selectedVendor, setSelectedVendor] = useState("All");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = Number(rowsPerPage);
   const {
-    data: pos = [],
+    data: poPage,
     refetch,
     isFetching,
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ["get", "/api/flex/purchase-orders"],
-    queryFn: fetchPurchaseOrders,
+    queryKey: ["get", "/api/flex/purchase-orders", currentPage, pageSize, search],
+    queryFn: () => fetchPurchaseOrders((currentPage - 1) * pageSize, pageSize, search),
+    placeholderData: (previous) => previous,
   });
+  const pos = poPage?.data ?? [];
 
   const { data: masterData } = useFlexMasterData();
   const { data: purchaseRequests = [] } = useFlexPurchaseRequests();
@@ -152,12 +162,6 @@ export default function PurchaseOrdersPage() {
   const itemOptions = masterData?.items ?? [];
   const warehouseOptions = masterData?.warehouses ?? [];
 
-  const [search, setSearch] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [selectedVendor, setSelectedVendor] = useState("All");
-  const [rowsPerPage, setRowsPerPage] = useState("10");
-  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal Dialog states
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
@@ -646,13 +650,8 @@ export default function PurchaseOrdersPage() {
     });
   }, [pos, search, selectedVendor, fromDate, toDate]);
 
-  const pageSize = Number(rowsPerPage);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageStart = (currentPage - 1) * pageSize;
-  const paginatedPurchaseOrders = filtered.slice(
-    pageStart,
-    pageStart + pageSize,
-  );
+  const totalPages = Number(poPage?.totalPages || 0);
+  const paginatedPurchaseOrders = filtered;
 
   useEffect(() => {
     setCurrentPage(1);
@@ -959,12 +958,14 @@ export default function PurchaseOrdersPage() {
             <DataPagination
               currentPage={currentPage}
               pageSize={pageSize}
-              totalCount={filtered.length}
+              totalCount={Number(poPage?.totalCount || 0)}
+              totalPages={totalPages}
               onPageChange={setCurrentPage}
               onPageSizeChange={(size) => {
                 setRowsPerPage(String(size));
                 setCurrentPage(1);
               }}
+              loading={isFetching}
             />
           </CardContent>
         </Card>

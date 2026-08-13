@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, inventoryLocationsTable } from "@workspace/db";
 import { eq, desc } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
@@ -26,7 +27,9 @@ router.get("/", async (req, res) => {
     }
   }
   
-  res.json(locations);
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(locations);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(locations.slice(pagination.skip, pagination.skip + pagination.limit), locations.length, pagination));
 });
 
 router.post("/", async (req, res) => {

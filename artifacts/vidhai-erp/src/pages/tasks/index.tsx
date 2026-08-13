@@ -5,10 +5,9 @@ import {
   useCreateTask,
   useDeleteTask,
   useListBatches,
-  useListTasks,
   useUpdateTask,
 } from "@workspace/api-client-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -180,9 +179,34 @@ function Assignees({
 export default function Tasks() {
   const queryClient = useQueryClient();
   const { user, can } = useAuth();
-  const { data: rawTasks, isLoading } = useListTasks();
   const { data: batches = [] } = useListBatches();
-  const tasks = (rawTasks || []) as TaskRow[];
+  const [filter, setFilter] = useState("all");
+  const [taskPage, setTaskPage] = useState(1);
+  const [taskPageSize, setTaskPageSize] = useState(10);
+  const statusFilter =
+    filter === "start"
+      ? "in_progress"
+      : filter === "pause"
+        ? "paused"
+        : filter === "complete"
+          ? "done"
+          : "";
+  const taskQuery = useQuery({
+    queryKey: ["tasks", "paged", filter, taskPage, taskPageSize],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        skip: String((taskPage - 1) * taskPageSize),
+        limit: String(taskPageSize),
+      });
+      if (statusFilter) params.set("status", statusFilter);
+      return api<{ data: TaskRow[]; totalCount: number; totalPages: number }>(
+        `/tasks?${params}`,
+      );
+    },
+    placeholderData: keepPreviousData,
+  });
+  const tasks = taskQuery.data?.data ?? [];
+  const isLoading = taskQuery.isLoading || taskQuery.isFetching;
   const { data: crew = [] } = useQuery({
     queryKey: ["task-crew"],
     queryFn: () => api<Crew[]>("/tasks/crew"),
@@ -192,7 +216,6 @@ export default function Tasks() {
     queryFn: () => api<Timesheet>("/tasks/timesheet"),
   });
   const [tab, setTab] = useState<"tasks" | "timesheet">("tasks");
-  const [filter, setFilter] = useState("all");
   const [form, setForm] = useState(emptyForm);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTask, setEditTask] = useState<TaskRow | null>(null);
@@ -255,20 +278,13 @@ export default function Tasks() {
     },
   });
 
-  const filtered = tasks.filter(
-    (task) =>
-      filter === "all" ||
-      (filter === "start" && task.status === "in_progress") ||
-      (filter === "pause" && task.status === "paused") ||
-      (filter === "complete" && task.status === "done"),
-  );
+  const filtered = tasks;
   const myTasks = tasks.filter(
     (task) =>
       task.assignments?.some(
         (item) => Number(item.userId) === Number(user?.id),
       ) && task.status !== "cancelled",
   );
-  const taskPagination = useClientPagination(filtered, filter);
   const elapsedMinutes = (task: TaskRow) =>
     Number(task.actualMinutes || 0) +
     (task.activeTimers || []).reduce(
@@ -541,14 +557,17 @@ export default function Tasks() {
               {FILTER_OPTIONS.map((item) => (
                 <button
                   key={item.value}
-                  onClick={() => setFilter(item.value)}
+                  onClick={() => {
+                    setFilter(item.value);
+                    setTaskPage(1);
+                  }}
                   className={`rounded-full border px-3.5 py-1.5 text-xs font-medium ${filter === item.value ? "border-primary bg-primary text-primary-foreground" : "bg-white text-muted-foreground hover:border-primary/50"}`}
                 >
                   {item.label}
                 </button>
               ))}
               <span className="ml-auto font-mono text-xs text-muted-foreground">
-                {filtered.length} task{filtered.length === 1 ? "" : "s"}
+                {Number(taskQuery.data?.totalCount || 0)} task{Number(taskQuery.data?.totalCount || 0) === 1 ? "" : "s"}
               </span>
             </div>
             <Card className="overflow-hidden rounded-xl border-border/60 shadow-sm">
@@ -572,7 +591,7 @@ export default function Tasks() {
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {isLoading ? (
+                        {isLoading && !filtered.length ? (
                           <tr>
                             <td
                               colSpan={7}
@@ -581,8 +600,8 @@ export default function Tasks() {
                               Loading tasks...
                             </td>
                           </tr>
-                        ) : taskPagination.paginatedRows.length ? (
-                          taskPagination.paginatedRows.map((task) => (
+                        ) : filtered.length ? (
+                          filtered.map((task) => (
                             <tr key={task.id} className="hover:bg-muted/30">
                               <td className="max-w-[280px] px-4 py-3.5">
                                 <div className="truncate font-medium">
@@ -721,11 +740,12 @@ export default function Tasks() {
                 )}
               </CardContent>
               <DataPagination
-                currentPage={taskPagination.currentPage}
-                pageSize={taskPagination.pageSize}
-                totalCount={taskPagination.totalCount}
-                onPageChange={taskPagination.setCurrentPage}
-                onPageSizeChange={taskPagination.setPageSize}
+                currentPage={taskPage}
+                pageSize={taskPageSize}
+                totalCount={Number(taskQuery.data?.totalCount || 0)}
+                totalPages={Number(taskQuery.data?.totalPages || 0)}
+                onPageChange={setTaskPage}
+                onPageSizeChange={(size) => { setTaskPageSize(size); setTaskPage(1); }}
                 loading={isLoading}
               />
             </Card>

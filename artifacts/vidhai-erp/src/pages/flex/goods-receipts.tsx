@@ -103,13 +103,14 @@ function sharesPurchaseOrder(
   return receiptPurchaseOrderKeys(right).some((key) => leftKeys.has(key));
 }
 
-async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
-  const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
+async function fetchGoodsReceipts(skip: number, limit: number, search: string): Promise<{ data: GoodsReceiptItem[]; totalCount: number; totalPages: number }> {
+  const params = new URLSearchParams({ skip: String(skip), limit: String(limit), search });
+  const res = await fetch(`${BASE}/api/flex/goods-receipts?${params}`, {
     credentials: "include",
   });
   if (!res.ok) throw new Error("Failed to load Goods Receipts");
   const data = await res.json();
-  return (data || []).map((g: any) => ({
+  return { ...data, data: (data.data || []).map((g: any) => ({
     id: g.id,
     vendorId: String(g.vendorId || ""),
     vendor: String(g.vendor || ""),
@@ -130,7 +131,7 @@ async function fetchGoodsReceipts(): Promise<GoodsReceiptItem[]> {
     remainingQuantity: Number(g.remainingQuantity || 0),
     notes: g.notes || "",
     attachmentName: g.attachmentName || "",
-  }));
+  })) };
 }
 async function createGoodsReceipt(payload: any) {
   const res = await fetch(`${BASE}/api/flex/goods-receipts`, {
@@ -148,15 +149,24 @@ async function createGoodsReceipt(payload: any) {
 
 export default function GoodsReceipts() {
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [selectedVendor, setSelectedVendor] = useState("All");
+  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = Number(rowsPerPage);
   const {
-    data: grns = [],
+    data: grnPage,
     refetch,
     isFetching,
     isError: receiptsLoadFailed,
   } = useQuery({
-    queryKey: ["get", "/api/flex/goods-receipts"],
-    queryFn: fetchGoodsReceipts,
+    queryKey: ["get", "/api/flex/goods-receipts", currentPage, pageSize, search],
+    queryFn: () => fetchGoodsReceipts((currentPage - 1) * pageSize, pageSize, search),
+    placeholderData: (previous) => previous,
   });
+  const grns = grnPage?.data ?? [];
 
   const { data: masterData } = useFlexMasterData();
   const { data: purchaseOrders = [] } = useFlexPurchaseOrders();
@@ -165,14 +175,8 @@ export default function GoodsReceipts() {
   const userOptions = masterData?.users ?? [];
   const warehouseOptions = masterData?.warehouses ?? [];
 
-  const [search, setSearch] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [selectedVendor, setSelectedVendor] = useState("All");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewReceipt, setViewReceipt] = useState<GoodsReceiptItem | null>(null);
-  const [rowsPerPage, setRowsPerPage] = useState("10");
-  const [currentPage, setCurrentPage] = useState(1);
 
   // Form fields for Log Goods Receipt
   const [mappedPoIds, setMappedPoIds] = useState<string[]>([]);
@@ -486,19 +490,11 @@ export default function GoodsReceipts() {
       return matchesVendor && matchesSearch && matchesFromDate && matchesToDate;
     });
   }, [synchronizedGrns, search, selectedVendor, fromDate, toDate]);
-  const pageSize = Number(rowsPerPage);
-  const paginatedReceipts = filtered.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
+  const paginatedReceipts = filtered;
   useEffect(
     () => setCurrentPage(1),
     [search, selectedVendor, fromDate, toDate, rowsPerPage],
   );
-  useEffect(() => {
-    const lastPage = Math.max(1, Math.ceil(filtered.length / pageSize));
-    if (currentPage > lastPage) setCurrentPage(lastPage);
-  }, [currentPage, filtered.length, pageSize]);
 
   const handlePrintGRN = (g: GoodsReceiptItem) => {
     const printWindow = window.open("", "_blank");
@@ -811,12 +807,14 @@ export default function GoodsReceipts() {
             <DataPagination
               currentPage={currentPage}
               pageSize={pageSize}
-              totalCount={filtered.length}
+              totalCount={Number(grnPage?.totalCount || 0)}
+              totalPages={Number(grnPage?.totalPages || 0)}
               onPageChange={setCurrentPage}
               onPageSizeChange={(size) => {
                 setRowsPerPage(String(size));
                 setCurrentPage(1);
               }}
+              loading={isFetching}
             />
           </CardContent>
         </Card>

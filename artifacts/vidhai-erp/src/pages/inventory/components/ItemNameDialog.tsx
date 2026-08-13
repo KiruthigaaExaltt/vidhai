@@ -47,7 +47,8 @@ export function ItemNameDialog({ open, onOpenChange, formState, categories }: It
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["item-names"] });
+      queryClient.invalidateQueries({ queryKey: ["item-names-lookup"] });
+      queryClient.invalidateQueries({ queryKey: ["item-names-paged"] });
       toast.success(`Item ${isEditing ? "updated" : "added"} successfully`);
       onOpenChange(false);
     },

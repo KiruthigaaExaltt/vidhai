@@ -27,6 +27,7 @@ import {
   accountsReceivableTable
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import {
   cancelInvoiceAccounting,
   deletePaymentAccounting,
@@ -311,6 +312,19 @@ function resolveVersionSeries(status: string): "Draft" | "Sent" {
   return status === "Draft" ? "Draft" : "Sent";
 }
 
+function listResponse(req: any, res: any, rows: any[]) {
+  if (req.query.skip === undefined && req.query.limit === undefined)
+    return res.json(rows);
+  const pagination = paginateQuery(req.query);
+  return res.json(
+    paginatedResponse(
+      rows.slice(pagination.skip, pagination.skip + pagination.limit),
+      rows.length,
+      pagination,
+    ),
+  );
+}
+
 function isQuotationLocked(status: string) {
   return status === "Approved" || status === "Rejected";
 }
@@ -504,7 +518,7 @@ router.get("/quotations", requireAuth, async (req, res) => {
   if (!forMapping) {
     // Only return the latest version of each quotation
     const rows = await db.select().from(quotationsTable).where(eq(quotationsTable.isLatestVersion, true)).orderBy(desc(quotationsTable.createdAt));
-    return res.json(rows.map(serializeQuotation));
+    return listResponse(req, res, rows.map(serializeQuotation));
   } else {
     const rows = await db.select().from(quotationsTable).orderBy(desc(quotationsTable.createdAt));
     return res.json(rows.map(serializeQuotation));
@@ -1111,7 +1125,7 @@ router.post("/approved-quotations/reject", requireAuth, async (req, res) => {
 // --- Proforma Invoice mapping, revisions and customer workflow ---
 router.get("/proforma-invoices", requireAuth, async (req, res) => {
   const rows = await db.select().from(proformaInvoicesTable).orderBy(desc(proformaInvoicesTable.createdAt));
-  return res.json(rows
+  return listResponse(req, res, rows
     .filter(row => row.isLatestVersion !== false)
     .map(serializeProforma));
 });
@@ -1220,9 +1234,9 @@ router.delete("/proforma-invoices/:id", requireAuth, async (req, res) => {
 });
 
 // --- Delivery Challans and warehouse dispatch automation ---
-router.get("/challans", requireAuth, async (_req, res) => {
+router.get("/challans", requireAuth, async (req, res) => {
   const rows = await db.select().from(deliveryChallansTable).orderBy(desc(deliveryChallansTable.createdAt));
-  return res.json(rows.map(serializeProforma));
+  return listResponse(req, res, rows.map(serializeProforma));
 });
 
 router.post("/challans", requireAuth, async (req, res) => {
@@ -1326,7 +1340,7 @@ router.get("/invoices", requireAuth, async (req, res) => {
     await recalculateInvoiceAccounting(invoice.id, context.organizationId);
   rows = await db.select().from(salesInvoicesTable).orderBy(desc(salesInvoicesTable.createdAt));
   const latest = rows.filter(row => row.isLatestVersion || !row.rootInvoiceNumber);
-  return res.json(latest.map(serializeProforma));
+  return listResponse(req, res, latest.map(serializeProforma));
 });
 
 router.post("/invoices", requireAuth, async (req, res) => {
@@ -1663,7 +1677,7 @@ async function restockSalesReturn(returnId: number, userId: number) {
 }
 
 // --- Sales Returns and receiving inventory automation ---
-router.get("/returns", requireAuth, async (_req, res) => res.json((await db.select().from(salesReturnsTable).orderBy(desc(salesReturnsTable.createdAt))).map(serializeProforma)));
+router.get("/returns", requireAuth, async (req, res) => listResponse(req, res, (await db.select().from(salesReturnsTable).orderBy(desc(salesReturnsTable.createdAt))).map(serializeProforma)));
 
 router.post("/returns", requireAuth, async (req, res) => {
   try {

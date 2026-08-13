@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { db, eq, desc, and } from "@workspace/db";
 import {
   purchaseRequestsTable,
@@ -24,6 +25,19 @@ import {
 } from "@workspace/db";
 
 const router = Router();
+function paginatedList(req: any, res: any, input: any[]) {
+  if (req.query.skip === undefined && req.query.limit === undefined)
+    return res.json(input);
+  const search = String(req.query.search || "").trim().toLowerCase();
+  const status = String(req.query.status || "").trim().toLowerCase();
+  const data = input.filter((row) => {
+    if (search && !JSON.stringify(row).toLowerCase().includes(search)) return false;
+    if (status && status !== "all" && String(row.status || "").toLowerCase() !== status) return false;
+    return true;
+  });
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
+}
 const FLEX_API_MESSAGES = {
   amountMustBeGreaterThanZero: "Amount must be greater than 0",
   grnNumberRequired: "GRN Number is required",
@@ -363,7 +377,7 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
     .where(eq(purchaseRequestsTable.organizationId, org))
     .orderBy(desc(purchaseRequestsTable.createdAt));
 
-  return res.json(
+  return paginatedList(req, res,
     prs.map((pr: any) => {
       const createdDateObj = new Date(pr.createdAt);
       const formattedTime = createdDateObj.toLocaleTimeString("en-US", {
@@ -753,7 +767,7 @@ router.get("/purchase-orders", requireAuth, async (req, res) => {
     .where(eq(purchaseOrdersTable.organizationId, org))
     .orderBy(desc(purchaseOrdersTable.createdAt));
 
-  return res.json(
+  return paginatedList(req, res,
     pos.map((po: any) => {
       const createdDateObj = new Date(po.createdAt);
       const formattedDate = createdDateObj.toLocaleDateString("en-GB", {
@@ -1017,7 +1031,7 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
       .filter((purchaseOrder) => purchaseOrder.status === "Completed")
       .map((purchaseOrder) => Number(purchaseOrder.id)),
   );
-  return res.json(
+  return paginatedList(req, res,
     grns.map((g: any) => {
       const mappedPurchaseOrderIds =
         Array.isArray(g.purchaseOrderIds) && g.purchaseOrderIds.length
@@ -1889,7 +1903,7 @@ router.get("/purchase-invoices", requireAuth, async (req, res) => {
     .where(eq(purchaseInvoicesTable.organizationId, org))
     .orderBy(desc(purchaseInvoicesTable.createdAt));
 
-  return res.json(
+  return paginatedList(req, res,
     invoices.map((inv: any) => ({
       id: inv.id,
       invoiceNumber: inv.invoiceNumber,
@@ -2474,7 +2488,7 @@ router.get("/vendor-payments", requireAuth, async (req, res) => {
     .where(eq(vendorPaymentsTable.organizationId, org))
     .orderBy(desc(vendorPaymentsTable.createdAt));
 
-  return res.json(
+  return paginatedList(req, res,
     payments.map((p: any) => ({
       id: p.id,
       paymentNumber: p.paymentNumber,
@@ -2574,7 +2588,7 @@ router.get("/purchase-returns", requireAuth, async (req, res) => {
     .where(eq(purchaseReturnsTable.organizationId, org))
     .orderBy(desc(purchaseReturnsTable.createdAt));
 
-  return res.json(
+  return paginatedList(req, res,
     returns.map((r: any) => ({
       id: r.id,
       returnNumber: r.returnNumber,

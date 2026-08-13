@@ -1,18 +1,22 @@
 import { Router } from "express";
 import { db, servicesTable } from "@workspace/db";
 import { eq } from "@workspace/db";
+import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   const services = await db.select().from(servicesTable).orderBy(servicesTable.name);
-  res.json(
-    services.map((s) => ({
+  let data: any[] = services.map((s) => ({
       ...s,
       sellingPrice: s.sellingPrice != null ? Number(s.sellingPrice) : null,
       gstPercent: s.gstPercent != null ? Number(s.gstPercent) : null,
-    }))
-  );
+    }));
+  const search = String(req.query.search || "").trim().toLowerCase();
+  if (search) data = data.filter((row: any) => [row.name, row.hsnSac, row.unit].some((value) => String(value || "").toLowerCase().includes(search)));
+  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(data);
+  const pagination = paginateQuery(req.query);
+  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
 });
 
 router.post("/", async (req, res) => {

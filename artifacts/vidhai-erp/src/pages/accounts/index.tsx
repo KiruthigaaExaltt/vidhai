@@ -105,6 +105,16 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
+  const [listPaging, setListPaging] = useState<Record<"j" | "ap" | "ar", { page: number; size: number }>>({
+    j: { page: 1, size: 10 },
+    ap: { page: 1, size: 10 },
+    ar: { page: 1, size: 10 },
+  });
+  const [listMeta, setListMeta] = useState<Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>>({
+    j: { totalCount: 0, totalPages: 0 },
+    ap: { totalCount: 0, totalPages: 0 },
+    ar: { totalCount: 0, totalPages: 0 },
+  });
   const [apPayment, setApPayment] = useState({
     paymentDate: new Date().toISOString().slice(0, 10),
     paymentMode: "Bank Transfer",
@@ -266,9 +276,9 @@ export default function Accounts() {
     const calls = [
       ["s", "/dashboard-summary"],
       ["c", "/coa"],
-      ["j", "/journal-entries?limit=100"],
-      ["ap", "/ap?limit=100"],
-      ["ar", "/ar?limit=100"],
+      ["j", `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`],
+      ["ap", `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`],
+      ["ar", `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`],
       ["cu", "/customer-ledger"],
       ["v", "/vendor-ledger"],
       ["f", "/financial-statements"],
@@ -286,20 +296,30 @@ export default function Accounts() {
       }
       if (k === "s") setSummary(v);
       if (k === "c") setCoa(v as any[]);
-      if (k === "j") setJournals((v as any).items || []);
-      if (k === "ap") setAp((v as any).items || []);
-      if (k === "ar") setAr((v as any).items || []);
+      if (k === "j" || k === "ap" || k === "ar") {
+        const response = v as any;
+        if (k === "j") setJournals(response.items || []);
+        if (k === "ap") setAp(response.items || []);
+        if (k === "ar") setAr(response.items || []);
+        setListMeta((current) => ({
+          ...current,
+          [k]: {
+            totalCount: Number(response.totalCount ?? response.total ?? 0),
+            totalPages: Number(response.totalPages ?? 0),
+          },
+        }));
+      }
       if (k === "cu") setCustomers(v as any[]);
       if (k === "v") setVendors(v as any[]);
       if (k === "f") setStatements(v);
     }
-    const reconciledAr = await api("/ar?limit=100").catch(() => null);
+    const reconciledAr = await api(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`).catch(() => null);
     if (reconciledAr) setAr(reconciledAr.items || []);
     setLoading(false);
   };
   useEffect(() => {
     void load();
-  }, []);
+  }, [listPaging.j.page, listPaging.j.size, listPaging.ap.page, listPaging.ap.size, listPaging.ar.page, listPaging.ar.size]);
   const reconcile = async () => {
     setLoading(true);
     setError("");
@@ -513,12 +533,15 @@ export default function Accounts() {
     rows,
     cols,
     showFooter = true,
+    serverKey,
   }: {
     rows: any[];
     cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
     showFooter?: boolean;
+    serverKey?: "j" | "ap" | "ar";
   }) => {
-    const pagination = useClientPagination(rows);
+    const clientPagination = useClientPagination(serverKey ? [] : rows);
+    const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
     return (
       <div className="overflow-hidden rounded-md border bg-white">
         <div className="overflow-x-auto">
@@ -533,7 +556,7 @@ export default function Accounts() {
               </tr>
             </thead>
             <tbody>
-              {pagination.paginatedRows.map((r, i) => (
+              {displayedRows.map((r, i) => (
                 <tr key={r.id ?? i} className="border-t">
                   {cols.map((c) => (
                     <td key={c[1]} className="px-3 py-2">
@@ -542,7 +565,7 @@ export default function Accounts() {
                   ))}
                 </tr>
               ))}
-              {!pagination.paginatedRows.length && (
+              {!displayedRows.length && (
                 <tr className="border-t">
                   <td
                     colSpan={cols.length}
@@ -592,11 +615,17 @@ export default function Accounts() {
         )}
         {showFooter && (
           <DataPagination
-            currentPage={pagination.currentPage}
-            pageSize={pagination.pageSize}
-            totalCount={pagination.totalCount}
-            onPageChange={pagination.setCurrentPage}
-            onPageSizeChange={pagination.setPageSize}
+            currentPage={serverKey ? listPaging[serverKey].page : clientPagination.currentPage}
+            pageSize={serverKey ? listPaging[serverKey].size : clientPagination.pageSize}
+            totalCount={serverKey ? listMeta[serverKey].totalCount : clientPagination.totalCount}
+            totalPages={serverKey ? listMeta[serverKey].totalPages : undefined}
+            onPageChange={(page) => serverKey
+              ? setListPaging((current) => ({ ...current, [serverKey]: { ...current[serverKey], page } }))
+              : clientPagination.setCurrentPage(page)}
+            onPageSizeChange={(size) => serverKey
+              ? setListPaging((current) => ({ ...current, [serverKey]: { page: 1, size } }))
+              : clientPagination.setPageSize(size)}
+            loading={loading}
           />
         )}
       </div>
@@ -892,6 +921,7 @@ export default function Accounts() {
               </TabsList>
               <TabsContent value="bills">
                 <Table
+                  serverKey="ap"
                   rows={f(
                     ap.filter((entry) => entry.entryType !== "Debit Note"),
                   )}
@@ -992,6 +1022,7 @@ export default function Accounts() {
               </TabsContent>
               <TabsContent value="debit-notes">
                 <Table
+                  serverKey="ap"
                   rows={f(
                     ap.filter((entry) => entry.entryType === "Debit Note"),
                   )}
@@ -1031,6 +1062,7 @@ export default function Accounts() {
               </TabsList>
               <TabsContent value="invoices">
                 <Table
+                  serverKey="ar"
                   rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
                   cols={[
                     ["Invoice", "invoiceNumber"],
@@ -1096,6 +1128,7 @@ export default function Accounts() {
               </TabsContent>
               <TabsContent value="credit-notes">
                 <Table
+                  serverKey="ar"
                   rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
                   cols={[
                     ["Credit Note", "creditNoteNumber"],
@@ -1132,6 +1165,7 @@ export default function Accounts() {
               </div>
             )}
             <Table
+              serverKey="j"
               rows={f(journals)}
               cols={[
                 ["Date", "entryDate"],
