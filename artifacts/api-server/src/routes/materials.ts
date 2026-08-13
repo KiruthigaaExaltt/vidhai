@@ -9,6 +9,7 @@ import { eq, and } from "@workspace/db";
 import crypto from "crypto";
 import { inventoryTable } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { PROTECTED_VAULT_ITEM_NAMES } from "../lib/ensureDefaultVaultItems";
 
 const router = Router();
 
@@ -18,22 +19,38 @@ router.get("/", async (req, res) => {
     .from(materialsTable)
     .orderBy(materialsTable.name);
   let data: any[] = mats.map((m) => ({
-      ...m,
-      defaultMoisturePercent:
-        m.defaultMoisturePercent != null
-          ? Number(m.defaultMoisturePercent)
-          : null,
-      defaultNitrogenPercent:
-        m.defaultNitrogenPercent != null
-          ? Number(m.defaultNitrogenPercent)
-          : null,
-      gstPercent: m.gstPercent != null ? Number(m.gstPercent) : 0,
-    }));
-  const search = String(req.query.search || "").trim().toLowerCase();
-  if (search) data = data.filter((row: any) => [row.name, row.sku, row.category, row.itemType].some((value) => String(value || "").toLowerCase().includes(search)));
-  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(data);
+    ...m,
+    defaultMoisturePercent:
+      m.defaultMoisturePercent != null
+        ? Number(m.defaultMoisturePercent)
+        : null,
+    defaultNitrogenPercent:
+      m.defaultNitrogenPercent != null
+        ? Number(m.defaultNitrogenPercent)
+        : null,
+    gstPercent: m.gstPercent != null ? Number(m.gstPercent) : 0,
+  }));
+  const search = String(req.query.search || "")
+    .trim()
+    .toLowerCase();
+  if (search)
+    data = data.filter((row: any) =>
+      [row.name, row.sku, row.category, row.itemType].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(search),
+      ),
+    );
+  if (req.query.skip === undefined && req.query.limit === undefined)
+    return res.json(data);
   const pagination = paginateQuery(req.query);
-  return res.json(paginatedResponse(data.slice(pagination.skip, pagination.skip + pagination.limit), data.length, pagination));
+  return res.json(
+    paginatedResponse(
+      data.slice(pagination.skip, pagination.skip + pagination.limit),
+      data.length,
+      pagination,
+    ),
+  );
 });
 
 router.post("/generate-sku", async (req, res) => {
@@ -181,14 +198,12 @@ router.post("/", async (req, res): Promise<any> => {
 
     try {
       for (const ws of normalizedStocks)
-        await db
-          .insert(inventoryTable)
-          .values({
-            materialId: mat.id,
-            locationId: ws.warehouseId,
-            quantityOnHand: String(ws.stock),
-            costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null,
-          });
+        await db.insert(inventoryTable).values({
+          materialId: mat.id,
+          locationId: ws.warehouseId,
+          quantityOnHand: String(ws.stock),
+          costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null,
+        });
     } catch (stockError) {
       await db
         .delete(inventoryTable)
@@ -201,15 +216,13 @@ router.post("/", async (req, res): Promise<any> => {
       .select()
       .from(inventoryTable)
       .where(eq(inventoryTable.materialId, mat.id));
-    res
-      .status(201)
-      .json({
-        ...mat,
-        warehouseStocks: savedStocks.map((row) => ({
-          warehouseId: row.locationId,
-          stock: Number(row.quantityOnHand),
-        })),
-      });
+    res.status(201).json({
+      ...mat,
+      warehouseStocks: savedStocks.map((row) => ({
+        warehouseId: row.locationId,
+        stock: Number(row.quantityOnHand),
+      })),
+    });
   } catch (err: any) {
     if (err.code === 11000 || err.code === "23505") {
       res
@@ -318,14 +331,12 @@ router.patch("/:id", async (req, res) => {
           })
           .where(eq(inventoryTable.id, existing.id));
       else
-        await db
-          .insert(inventoryTable)
-          .values({
-            materialId: mat.id,
-            locationId: ws.warehouseId,
-            quantityOnHand: String(ws.stock),
-            costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null,
-          });
+        await db.insert(inventoryTable).values({
+          materialId: mat.id,
+          locationId: ws.warehouseId,
+          quantityOnHand: String(ws.stock),
+          costBasis: buyPricePerUnit != null ? String(buyPricePerUnit) : null,
+        });
     }
   }
   return res.json({
@@ -342,10 +353,21 @@ router.patch("/:id", async (req, res) => {
 });
 
 router.delete("/:id", async (req, res) => {
+  const [material] = await db
+    .select()
+    .from(materialsTable)
+    .where(eq(materialsTable.id, Number(req.params.id)))
+    .limit(1);
+  if (!material) return res.status(404).json({ error: "Not found" });
+  if (PROTECTED_VAULT_ITEM_NAMES.has(material.name.trim().toLowerCase())) {
+    return res.status(403).json({
+      error: "This is a protected system item and cannot be deleted",
+    });
+  }
   await db
     .delete(materialsTable)
     .where(eq(materialsTable.id, Number(req.params.id)));
-  res.status(204).send();
+  return res.status(204).send();
 });
 
 export default router;

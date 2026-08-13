@@ -137,6 +137,7 @@ export default function OotyRoomDetail() {
     // Cookout extras
     cookoutDate: new Date().toISOString().split("T")[0],
     substrateWeightKg: "",
+    manureKg: "",
   });
 
   const closeDialog = () => {
@@ -158,6 +159,7 @@ export default function OotyRoomDetail() {
       harvestQualityNote: "",
       cookoutDate: new Date().toISOString().split("T")[0],
       substrateWeightKg: "",
+    manureKg: "",
     });
   };
 
@@ -204,8 +206,10 @@ export default function OotyRoomDetail() {
 
   const imagesReady = stageImages[0] !== null && stageImages[1] !== null;
   const casingReady = !isSpawnRun || !!completeDialog.casingBatchRef;
-  const harvestReady = !isHarvestStage || !!completeDialog.harvestWeightKg;
-  const cookoutReady = !isCookout || !!completeDialog.substrateWeightKg;
+  const harvestReady = !isHarvestStage || (Number(completeDialog.harvestWeightKg) > 0 && Number.isInteger(Number(completeDialog.harvestCount)) && Number(completeDialog.harvestCount) > 0);
+  const manureValue = Number(completeDialog.manureKg);
+  const manurePrecisionValid = Math.abs(manureValue * 10000 - Math.round(manureValue * 10000)) <= 1e-7;
+  const cookoutReady = !isCookout || (!!completeDialog.substrateWeightKg && completeDialog.manureKg !== "" && Number.isFinite(manureValue) && manureValue >= 0 && manurePrecisionValid);
   const canSubmit = imagesReady && casingReady && harvestReady && cookoutReady && !advanceStageMutation.isPending;
 
   const handleCompleteStage = () => {
@@ -226,6 +230,7 @@ export default function OotyRoomDetail() {
     if (isCookout) {
       payload.cookoutDate = completeDialog.cookoutDate;
       payload.substrateWeightKg = completeDialog.substrateWeightKg ? Number(completeDialog.substrateWeightKg) : null;
+      payload.manureKg = completeDialog.manureKg === "" ? null : manureValue;
     }
     advanceStageMutation.mutate(payload);
   };
@@ -804,7 +809,7 @@ export default function OotyRoomDetail() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Mushroom Count</Label>
+                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Mushroom Count *</Label>
                     <Input
                       type="number"
                       placeholder="optional"
@@ -857,10 +862,27 @@ export default function OotyRoomDetail() {
                       className="rounded-sm h-8 font-mono text-sm"
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Manure (kg) *</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.0001"
+                      placeholder="e.g. 500"
+                      value={completeDialog.manureKg}
+                      onChange={e => setCompleteDialog(p => ({ ...p, manureKg: e.target.value }))}
+                      className="rounded-sm h-8 font-mono text-sm"
+                    />
+                  </div>
                 </div>
                 {!completeDialog.substrateWeightKg && (
                   <p className="text-xs text-amber-600 flex items-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5" /> Substrate weight required
+                  </p>
+                )}
+                {(completeDialog.manureKg === "" || !Number.isFinite(manureValue) || manureValue < 0 || !manurePrecisionValid) && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Enter a valid non-negative Manure quantity (up to 4 decimals)
                   </p>
                 )}
               </div>
@@ -890,8 +912,8 @@ export default function OotyRoomDetail() {
               {advanceStageMutation.isPending ? "Saving…" :
                 !imagesReady ? `Add ${2 - stageImages.filter(Boolean).length} more photo${stageImages.filter(Boolean).length === 1 ? "" : "s"}` :
                 !casingReady ? "Enter casing soil reference" :
-                !harvestReady ? "Enter harvest weight" :
-                !cookoutReady ? "Enter substrate weight" :
+                !harvestReady ? "Enter harvest weight and mushroom count" :
+                !cookoutReady ? "Enter substrate and Manure weight" :
                 "Mark Stage Complete ✓"
               }
             </Button>

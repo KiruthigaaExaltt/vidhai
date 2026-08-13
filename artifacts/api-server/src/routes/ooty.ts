@@ -12,8 +12,16 @@ import {
   batchesTable,
   locationsTable,
   usersTable,
+  inventoryAdjustmentsTable,
+  inventoryLocationsTable,
+  inventoryTable,
+  materialsTable,
+  ootyHarvestInventoryPostingsTable,
+  ootyCookoutInventoryPostingsTable,
 } from "@workspace/db";
-import { eq, desc, inArray, isNull, and } from "@workspace/db";
+import { eq, desc, inArray, isNull, and, ilike } from "@workspace/db";
+import { flushNumberForStage, harvestInventoryPostingKey, validateHarvestProduction } from "../lib/ootyHarvestInventory";
+import { cookoutManurePostingKey, validateCookoutManure } from "../lib/ootyCookoutInventory";
 
 const router = Router();
 
@@ -336,14 +344,14 @@ router.patch("/growing-batches/:id", requireAuth, async (req, res) => {
 });
 
 // Advance stage — stage-based, requires 2 verification images
-// Accepts: nextStage, verificationImages[], notes, casingBatchRef, harvestData, cookoutDate, substrateWeightKg
+// Accepts: nextStage, verificationImages[], notes, casingBatchRef, harvestData, cookoutDate, substrateWeightKg, manureKg
 router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const userId = (req.session as any).userId;
   const {
     nextStage, verificationImages, notes,
     casingBatchRef, harvestData,
-    cookoutDate, substrateWeightKg,
+    cookoutDate, substrateWeightKg, manureKg,
     // Legacy fields
     nextPhase,
   } = req.body as any;
@@ -355,15 +363,59 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   const targetStage = nextStage ?? (nextPhase ? phaseToStage(nextPhase) : null);
   if (!targetStage) return res.status(400).json({ error: "nextStage is required" });
 
-  // Require 2 verification images for all non-COMPLETED transitions
-  const imgs: string[] = Array.isArray(verificationImages) ? verificationImages.filter(Boolean) : [];
-  if (targetStage !== "COMPLETED" && imgs.length < 2) {
-    return res.status(400).json({ error: "Two verification photos are required to complete a stage" });
-  }
-
   const effectiveCurrentStage = batch.currentStage && batch.currentStage !== ""
     ? normalizeStage(batch.currentStage)
     : phaseToStage(batch.currentPhase);
+  const isCookoutCompletion = effectiveCurrentStage === "COOKOUT" && targetStage === "COMPLETED";
+
+  // Keep the existing two-photo requirement for Cookout completion.
+  const imgs: string[] = Array.isArray(verificationImages) ? verificationImages.filter(Boolean) : [];
+  if ((targetStage !== "COMPLETED" || isCookoutCompletion) && imgs.length < 2) {
+    return res.status(400).json({ error: "Two verification photos are required to complete a stage" });
+  }
+
+  const flushNumber = flushNumberForStage(effectiveCurrentStage);
+  const expectedHarvestTarget = flushNumber === 1 ? "FLUSH2" : flushNumber === 2 ? "COOKOUT" : null;
+  let harvestProduction: ReturnType<typeof validateHarvestProduction> | null = null;
+  let mushroomMaterial: any = null, ootyWarehouse: any = null, room: any = null, ootyLocation: any = null;
+  let postingKey: string | null = null;
+  if (flushNumber) {
+    if (targetStage !== expectedHarvestTarget) return res.status(409).json({ error: "This flush has already been completed or the next stage is invalid" });
+    harvestProduction = validateHarvestProduction(harvestData);
+    if (!harvestProduction.ok) return res.status(400).json({ error: harvestProduction.error });
+    [mushroomMaterial] = await db.select().from(materialsTable).where(ilike(materialsTable.name, "Mushroom")).limit(1);
+    if (!mushroomMaterial) return res.status(409).json({ error: "Mushroom is missing from the Vault Item & Product Master" });
+    [room] = await db.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.id, batch.roomId)).limit(1);
+    [ootyLocation] = room ? await db.select().from(locationsTable).where(eq(locationsTable.id, room.locationId)).limit(1) : [];
+    if (!room || !ootyLocation || ootyLocation.code !== "B") return res.status(409).json({ error: "Harvest stock can only be posted from Ooty Location B" });
+    const vaultLocations = await db.select().from(inventoryLocationsTable);
+    ootyWarehouse = vaultLocations.find((location: any) => String(location.systemCode ?? "").toUpperCase() === "OOTY" || /ooty/i.test(String(location.locationName ?? "")));
+    if (!ootyWarehouse) return res.status(409).json({ error: "Ooty Vault store was not found" });
+    postingKey = harvestInventoryPostingKey(id, flushNumber);
+    const [existingPosting] = await db.select().from(ootyHarvestInventoryPostingsTable).where(eq(ootyHarvestInventoryPostingsTable.postingKey, postingKey)).limit(1);
+    if (existingPosting) return res.status(409).json({ error: `Flush ${flushNumber} inventory was already posted` });
+  }
+  let cookoutProduction: ReturnType<typeof validateCookoutManure> | null = null;
+  let manureMaterial: any = null;
+  let cookoutPostingKey: string | null = null;
+  if (isCookoutCompletion) {
+    cookoutProduction = validateCookoutManure(manureKg);
+    if (!cookoutProduction.ok) return res.status(400).json({ error: cookoutProduction.error });
+    if (!cookoutDate) return res.status(400).json({ error: "Cookout date is required" });
+    const spentSubstrate = Number(substrateWeightKg);
+    if (!Number.isFinite(spentSubstrate) || spentSubstrate < 0) return res.status(400).json({ error: "Spent substrate must be a non-negative number" });
+    [manureMaterial] = await db.select().from(materialsTable).where(eq(materialsTable.sku, "VLT-RM-MANURE")).limit(1);
+    if (!manureMaterial) return res.status(409).json({ error: "Manure is missing from the Vault Item & Product Master" });
+    [room] = await db.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.id, batch.roomId)).limit(1);
+    [ootyLocation] = room ? await db.select().from(locationsTable).where(eq(locationsTable.id, room.locationId)).limit(1) : [];
+    if (!room || !ootyLocation || ootyLocation.code !== "B") return res.status(409).json({ error: "Cookout output can only be posted from Ooty Location B" });
+    const vaultLocations = await db.select().from(inventoryLocationsTable);
+    ootyWarehouse = vaultLocations.find((location: any) => String(location.systemCode ?? "").toUpperCase() === "OOTY");
+    if (!ootyWarehouse) return res.status(409).json({ error: "Ooty Warehouse was not found" });
+    cookoutPostingKey = cookoutManurePostingKey(id);
+    const [existingPosting] = await db.select().from(ootyCookoutInventoryPostingsTable).where(eq(ootyCookoutInventoryPostingsTable.postingKey, cookoutPostingKey)).limit(1);
+    if (existingPosting) return res.status(409).json({ error: "Cookout Manure inventory was already posted" });
+  }
 
   const now = new Date();
   const nextPhaseValue = stageToPhase(targetStage);
@@ -395,6 +447,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     if (targetStage === "CASING_RUN") batchUpdates.casingAppliedDate = now.toISOString().split("T")[0];
     if (cookoutDate !== undefined && cookoutDate !== null) batchUpdates.cookoutDate = cookoutDate;
     if (substrateWeightKg !== undefined && substrateWeightKg !== null) batchUpdates.substrateWeightKg = String(substrateWeightKg);
+    if (cookoutProduction?.ok) batchUpdates.manureProducedKg = String(cookoutProduction.manureKg);
     if (targetStage === "COMPLETED") batchUpdates.status = "completed";
 
     // If completing (COOKOUT→COMPLETED), reset room
@@ -404,37 +457,30 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
         .where(eq(ootyRoomsTable.id, batch.roomId));
     }
 
-    // Create harvest record for flush completion stages
-    if (targetStage === "PINNING_FLUSH1" || targetStage === "FLUSH2") {
-      // Harvest data from the stage being EXITED (user logged it on completion of the previous stage)
-      // No — harvestData belongs to the stage being completed. The user hits "Complete SPAWN_RUN" and
-      // harvest is logged for PINNING_FLUSH1/FLUSH2. Actually let me reconsider:
-      // The user hits "Complete PINNING_FLUSH1" → enters harvest data for Flush 1 → we save harvest
-      // "Complete FLUSH2" → enters harvest data for Flush 2 → we save harvest
-      // So harvest is saved when completing/entering the flush stage? No:
-      // PINNING_FLUSH1 is the stage. When they hit Complete on PINNING_FLUSH1, they log harvest for Flush 1.
-      // nextStage = FLUSH2 when completing PINNING_FLUSH1.
-      // So the harvest data is attached to completing the current stage (effectiveCurrentStage).
+    // Save harvest, increment Ooty Mushroom stock, and write traceability atomically.
+    if (flushNumber && harvestProduction?.ok && postingKey) {
+      const [harvest] = await tx.insert(ootyHarvestsTable).values({
+        growingBatchId: id, harvestDate: harvestData.harvestDate ?? now.toISOString().split("T")[0],
+        weightKg: String(harvestProduction.weightKg), mushroomCount: harvestProduction.mushroomCount,
+        avgWeightG: String(Math.round((harvestProduction.weightKg * 1000 * 10) / harvestProduction.mushroomCount) / 10),
+        qualityNote: harvestData.qualityNote ?? null, flushNumber, recordedByUserId: userId,
+      }).returning();
+      let [stock] = await tx.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, mushroomMaterial.id), eq(inventoryTable.locationId, ootyWarehouse.id))).limit(1);
+      if (stock) [stock] = await tx.update(inventoryTable).set({ quantityOnHand: String(Number(stock.quantityOnHand) + harvestProduction.mushroomCount), lastUpdated: now }).where(eq(inventoryTable.id, stock.id)).returning();
+      else [stock] = await tx.insert(inventoryTable).values({ materialId: mushroomMaterial.id, locationId: ootyWarehouse.id, quantityOnHand: String(harvestProduction.mushroomCount) }).returning();
+      const traceNotes = ["Ooty Growing Rooms mushroom harvest", `Growing Batch: ${batch.batchCode} (#${id})`, `Room: ${room.name} (#${room.id})`, `Flush: ${flushNumber}`, `Harvest: #${harvest.id}`, `Harvest Date: ${harvest.harvestDate}`, `Harvest Weight: ${harvestProduction.weightKg} kg`, `Mushroom Count: ${harvestProduction.mushroomCount}`].join(" | ");
+      const [adjustment] = await tx.insert(inventoryAdjustmentsTable).values({ materialId: mushroomMaterial.id, locationId: ootyLocation.id, quantityDelta: String(harvestProduction.mushroomCount), reason: "production", notes: traceNotes, adjustedByUserId: userId }).returning();
+      await tx.insert(ootyHarvestInventoryPostingsTable).values({ postingKey, growingBatchId: id, harvestId: harvest.id, flushNumber, inventoryId: stock.id, inventoryAdjustmentId: adjustment.id, warehouseId: ootyWarehouse.id, mushroomCount: harvestProduction.mushroomCount, harvestWeightKg: String(harvestProduction.weightKg) });
     }
 
-    // Save harvest if completing a harvest-requiring stage (PINNING_FLUSH1 or FLUSH2 being exited)
-    if (
-      (effectiveCurrentStage === "PINNING_FLUSH1" || effectiveCurrentStage === "FLUSH2") &&
-      harvestData && harvestData.weightKg
-    ) {
-      const flushNum = effectiveCurrentStage === "PINNING_FLUSH1" ? 1 : 2;
-      const weight = Number(harvestData.weightKg);
-      const count = harvestData.mushroomCount ? Number(harvestData.mushroomCount) : null;
-      await tx.insert(ootyHarvestsTable).values({
-        growingBatchId: id,
-        harvestDate: harvestData.harvestDate ?? now.toISOString().split("T")[0],
-        weightKg: String(weight),
-        mushroomCount: count,
-        avgWeightG: count && count > 0 ? String(Math.round((weight * 1000) / count * 10) / 10) : null,
-        qualityNote: harvestData.qualityNote ?? null,
-        flushNumber: flushNum,
-        recordedByUserId: userId,
-      });
+    // Increment Ooty Manure and create its traceable production ledger entry atomically.
+    if (isCookoutCompletion && cookoutProduction?.ok && cookoutPostingKey) {
+      let [stock] = await tx.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, manureMaterial.id), eq(inventoryTable.locationId, ootyWarehouse.id))).limit(1);
+      if (stock) [stock] = await tx.update(inventoryTable).set({ quantityOnHand: String(Number(stock.quantityOnHand) + cookoutProduction.manureKg), lastUpdated: now }).where(eq(inventoryTable.id, stock.id)).returning();
+      else [stock] = await tx.insert(inventoryTable).values({ materialId: manureMaterial.id, locationId: ootyWarehouse.id, quantityOnHand: String(cookoutProduction.manureKg) }).returning();
+      const traceNotes = ["Ooty Growing Rooms Cookout Manure output", `Growing Batch: ${batch.batchCode} (#${id})`, `Room: ${room.name} (#${room.id})`, "Stage: Cookout", `Cookout Date: ${cookoutDate}`, `Spent Substrate: ${substrateWeightKg} kg`, `Manure Produced: ${cookoutProduction.manureKg} kg`].join(" | ");
+      const [adjustment] = await tx.insert(inventoryAdjustmentsTable).values({ materialId: manureMaterial.id, locationId: ootyLocation.id, quantityDelta: String(cookoutProduction.manureKg), reason: "production", notes: traceNotes, adjustedByUserId: userId }).returning();
+      await tx.insert(ootyCookoutInventoryPostingsTable).values({ postingKey: cookoutPostingKey, growingBatchId: id, inventoryId: stock.id, inventoryAdjustmentId: adjustment.id, warehouseId: ootyWarehouse.id, manureKg: String(cookoutProduction.manureKg), cookoutDate });
     }
 
     const [row] = await tx.update(ootyGrowingBatchesTable)

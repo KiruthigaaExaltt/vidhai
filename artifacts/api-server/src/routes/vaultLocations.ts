@@ -10,52 +10,89 @@ function formatWarehouseCode(id: number) {
 }
 
 router.get("/", async (req, res) => {
-  let query = db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.isActive, true));
-  
+  let query = db
+    .select()
+    .from(inventoryLocationsTable)
+    .where(eq(inventoryLocationsTable.isActive, true));
+
   if (req.query.locationType) {
-    query = query.where(eq(inventoryLocationsTable.locationType, req.query.locationType as string));
+    query = query.where(
+      eq(
+        inventoryLocationsTable.locationType,
+        req.query.locationType as string,
+      ),
+    );
   }
-  
+
   const locations = await query.orderBy(desc(inventoryLocationsTable.id));
-  
+
   // Backfill warehouse codes if missing
   for (const loc of locations) {
     if (!loc.warehouseCode) {
       const code = formatWarehouseCode(loc.id);
-      await db.update(inventoryLocationsTable).set({ warehouseCode: code }).where(eq(inventoryLocationsTable.id, loc.id));
+      await db
+        .update(inventoryLocationsTable)
+        .set({ warehouseCode: code })
+        .where(eq(inventoryLocationsTable.id, loc.id));
       loc.warehouseCode = code;
     }
   }
-  
-  if (req.query.skip === undefined && req.query.limit === undefined) return res.json(locations);
+
+  if (req.query.skip === undefined && req.query.limit === undefined)
+    return res.json(locations);
   const pagination = paginateQuery(req.query);
-  return res.json(paginatedResponse(locations.slice(pagination.skip, pagination.skip + pagination.limit), locations.length, pagination));
+  return res.json(
+    paginatedResponse(
+      locations.slice(pagination.skip, pagination.skip + pagination.limit),
+      locations.length,
+      pagination,
+    ),
+  );
 });
 
 router.post("/", async (req, res) => {
-  const { locationName, locationType, capacity, capacityUnit, manager, contactNumber, address, imageUrl, isDefault } = req.body;
-  
+  const {
+    locationName,
+    locationType,
+    capacity,
+    capacityUnit,
+    manager,
+    contactNumber,
+    address,
+    imageUrl,
+    isDefault,
+  } = req.body;
+
   // Create reserved warehouse if doesn't exist
-  let reserved = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.isReservedWarehouse, true)).limit(1).then(r => r[0]);
+  let reserved = await db
+    .select()
+    .from(inventoryLocationsTable)
+    .where(eq(inventoryLocationsTable.isReservedWarehouse, true))
+    .limit(1)
+    .then((r) => r[0]);
   if (!reserved) {
-    [reserved] = await db.insert(inventoryLocationsTable).values({
-      warehouseCode: "WH-RSVD",
-      locationName: "Reserved Warehouse",
-      locationType: "Warehouse",
-      systemCode: "RSVD",
-      isSystem: true,
-      isReservedWarehouse: true,
-      isProtected: true,
-      isActive: true,
-      capacity: 999999,
-      capacityUnit: "units",
-      manager: "System",
-    }).returning();
+    [reserved] = await db
+      .insert(inventoryLocationsTable)
+      .values({
+        warehouseCode: "WH-RSVD",
+        locationName: "Reserved Warehouse",
+        locationType: "Warehouse",
+        systemCode: "RSVD",
+        isSystem: true,
+        isReservedWarehouse: true,
+        isProtected: true,
+        isActive: true,
+        capacity: 999999,
+        capacityUnit: "units",
+        manager: "System",
+      })
+      .returning();
   }
 
   // Handle default logic
   if (isDefault && locationType === "Warehouse") {
-    await db.update(inventoryLocationsTable)
+    await db
+      .update(inventoryLocationsTable)
       .set({ isDefault: false })
       .where(eq(inventoryLocationsTable.locationType, "Warehouse"));
   }
@@ -88,22 +125,38 @@ router.post("/", async (req, res) => {
 
 router.patch("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const location = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.id, id)).limit(1).then(r => r[0]);
-  
+  const location = await db
+    .select()
+    .from(inventoryLocationsTable)
+    .where(eq(inventoryLocationsTable.id, id))
+    .limit(1)
+    .then((r) => r[0]);
+
   if (!location) {
     res.status(404).json({ error: "Not found" });
     return;
   }
-  
+
   if (location.isProtected) {
     res.status(403).json({ error: "Cannot edit protected system warehouse" });
     return;
   }
 
-  const { locationName, locationType, capacity, capacityUnit, manager, contactNumber, address, imageUrl, isDefault } = req.body;
+  const {
+    locationName,
+    locationType,
+    capacity,
+    capacityUnit,
+    manager,
+    contactNumber,
+    address,
+    imageUrl,
+    isDefault,
+  } = req.body;
 
   if (isDefault && locationType === "Warehouse") {
-    await db.update(inventoryLocationsTable)
+    await db
+      .update(inventoryLocationsTable)
       .set({ isDefault: false })
       .where(eq(inventoryLocationsTable.locationType, "Warehouse"));
   }
@@ -129,15 +182,24 @@ router.patch("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   const id = Number(req.params.id);
-  const location = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.id, id)).limit(1).then(r => r[0]);
-  
+  const location = await db
+    .select()
+    .from(inventoryLocationsTable)
+    .where(eq(inventoryLocationsTable.id, id))
+    .limit(1)
+    .then((r) => r[0]);
+
   if (!location) {
     res.status(404).json({ error: "Not found" });
     return;
   }
-  
+
   if (location.isProtected || location.isReservedWarehouse) {
-    res.status(403).json({ error: "Reserved Warehouse is system protected and cannot be deleted" });
+    res
+      .status(403)
+      .json({
+        error: "Reserved Warehouse is system protected and cannot be deleted",
+      });
     return;
   }
 

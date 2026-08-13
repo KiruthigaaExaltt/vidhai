@@ -145,7 +145,9 @@ const NAV = [
 export default function InventoryModule() {
   const queryClient = useQueryClient();
   const [section, setSection] = useState("dashboard");
-  const [masterPaging, setMasterPaging] = useState<Record<string, { page: number; size: number }>>({
+  const [masterPaging, setMasterPaging] = useState<
+    Record<string, { page: number; size: number }>
+  >({
     inventory: { page: 1, size: 10 },
     items: { page: 1, size: 10 },
     category: { page: 1, size: 10 },
@@ -153,28 +155,48 @@ export default function InventoryModule() {
     warehouses: { page: 1, size: 10 },
     movements: { page: 1, size: 10 },
   });
-  const setMasterPage = (key: string, next: Partial<{ page: number; size: number }>) =>
-    setMasterPaging((current) => ({ ...current, [key]: { ...current[key], ...next } }));
+  const setMasterPage = (
+    key: string,
+    next: Partial<{ page: number; size: number }>,
+  ) =>
+    setMasterPaging((current) => ({
+      ...current,
+      [key]: { ...current[key], ...next },
+    }));
 
   const { data: materials } = useListMaterials();
   const { data: locations } = useListLocations();
   const inventoryMasterQuery = useQuery({
-    queryKey: ["inventory-master-paged", masterPaging.inventory.page, masterPaging.inventory.size],
+    queryKey: [
+      "inventory-master-paged",
+      masterPaging.inventory.page,
+      masterPaging.inventory.size,
+    ],
     queryFn: async () => {
       const state = masterPaging.inventory;
-      const response = await fetch(`/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}`, { credentials: "include" });
+      const response = await fetch(
+        `/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        { credentials: "include" },
+      );
       if (!response.ok) throw new Error("Unable to load inventory items");
       return response.json();
     },
     placeholderData: (previous) => previous,
   });
   const inventory: any[] = inventoryMasterQuery.data?.data ?? [];
-  const invLoading = inventoryMasterQuery.isLoading || inventoryMasterQuery.isFetching;
+  const invLoading =
+    inventoryMasterQuery.isLoading || inventoryMasterQuery.isFetching;
   const warehouseQuery = useQuery({
-    queryKey: ["vault-locations-paged", masterPaging.warehouses.page, masterPaging.warehouses.size],
+    queryKey: [
+      "vault-locations-paged",
+      masterPaging.warehouses.page,
+      masterPaging.warehouses.size,
+    ],
     queryFn: async () => {
       const state = masterPaging.warehouses;
-      const response = await fetch(`/api/vault/locations?skip=${(state.page - 1) * state.size}&limit=${state.size}`);
+      const response = await fetch(
+        `/api/vault/locations?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+      );
       if (!response.ok) throw new Error("Unable to load warehouses");
       return response.json();
     },
@@ -182,10 +204,17 @@ export default function InventoryModule() {
   });
   const pagedWarehouses: any[] = warehouseQuery.data?.data ?? [];
   const movementQuery = useQuery({
-    queryKey: ["inventory-movements-paged", masterPaging.movements.page, masterPaging.movements.size],
+    queryKey: [
+      "inventory-movements-paged",
+      masterPaging.movements.page,
+      masterPaging.movements.size,
+    ],
     queryFn: async () => {
       const state = masterPaging.movements;
-      const response = await fetch(`/api/inventory/movements?skip=${(state.page - 1) * state.size}&limit=${state.size}`, { credentials: "include" });
+      const response = await fetch(
+        `/api/inventory/movements?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        { credentials: "include" },
+      );
       if (!response.ok) throw new Error("Unable to load stock movements");
       return response.json();
     },
@@ -237,7 +266,9 @@ export default function InventoryModule() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["inventory"] });
         queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
-        queryClient.invalidateQueries({ queryKey: ["inventory-movements-paged"] });
+        queryClient.invalidateQueries({
+          queryKey: ["inventory-movements-paged"],
+        });
         queryClient.invalidateQueries({ queryKey: ["inventory-master-paged"] });
         setTransferOpen(false);
         setTransferForm(EMPTY_TRANSFER);
@@ -257,10 +288,16 @@ export default function InventoryModule() {
 
   // ── api ──
   const servicesQuery = useQuery({
-    queryKey: ["services-paged", masterPaging.services.page, masterPaging.services.size],
+    queryKey: [
+      "services-paged",
+      masterPaging.services.page,
+      masterPaging.services.size,
+    ],
     queryFn: async () => {
       const state = masterPaging.services;
-      const res = await fetch(`/api/services?skip=${(state.page - 1) * state.size}&limit=${state.size}`);
+      const res = await fetch(
+        `/api/services?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+      );
       return res.json();
     },
     placeholderData: (previous) => previous,
@@ -273,10 +310,18 @@ export default function InventoryModule() {
     queryFn: async () => (await fetch("/api/vault/item-names")).json(),
   });
   const itemNamesQuery = useQuery({
-    queryKey: ["item-names-paged", masterPaging.items.page, masterPaging.items.size],
+    queryKey: [
+      "item-names-paged",
+      masterPaging.items.page,
+      masterPaging.items.size,
+    ],
     queryFn: async () => {
       const state = masterPaging.items;
-      return (await fetch(`/api/vault/item-names?skip=${(state.page - 1) * state.size}&limit=${state.size}`)).json();
+      return (
+        await fetch(
+          `/api/vault/item-names?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        )
+      ).json();
     },
     placeholderData: (previous) => previous,
   });
@@ -334,10 +379,18 @@ export default function InventoryModule() {
     },
   });
   const categoriesQuery = useQuery({
-    queryKey: ["categories-paged", masterPaging.category.page, masterPaging.category.size],
+    queryKey: [
+      "categories-paged",
+      masterPaging.category.page,
+      masterPaging.category.size,
+    ],
     queryFn: async () => {
       const state = masterPaging.category;
-      return (await fetch(`/api/categories?skip=${(state.page - 1) * state.size}&limit=${state.size}`)).json();
+      return (
+        await fetch(
+          `/api/categories?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        )
+      ).json();
     },
     placeholderData: (previous) => previous,
   });
@@ -1015,100 +1068,112 @@ export default function InventoryModule() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {(inventoryMasterQuery.data?.data ?? []).map((inv: any) => (
-                              <tr key={inv.id} className="hover:bg-muted/30">
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-3">
-                                    {inv.imageUrl ? (
-                                      <img
-                                        src={inv.imageUrl}
-                                        alt=""
-                                        className="h-10 w-10 rounded-md border object-cover"
-                                      />
-                                    ) : (
-                                      <div className="grid h-10 w-10 place-items-center rounded-md border bg-muted">
-                                        <Package className="h-4 w-4 text-muted-foreground" />
-                                      </div>
-                                    )}
-                                    <div>
-                                      <div className="font-semibold">
-                                        {inv.materialName}
-                                      </div>
-                                      <div className="text-xs text-muted-foreground">
-                                        {(inv as any).itemType || "Material"} ·{" "}
-                                        {inv.unit}
+                            {(inventoryMasterQuery.data?.data ?? []).map(
+                              (inv: any) => (
+                                <tr key={inv.id} className="hover:bg-muted/30">
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-3">
+                                      {inv.imageUrl ? (
+                                        <img
+                                          src={inv.imageUrl}
+                                          alt=""
+                                          className="h-10 w-10 rounded-md border object-cover"
+                                        />
+                                      ) : (
+                                        <div className="grid h-10 w-10 place-items-center rounded-md border bg-muted">
+                                          <Package className="h-4 w-4 text-muted-foreground" />
+                                        </div>
+                                      )}
+                                      <div>
+                                        <div className="font-semibold">
+                                          {inv.materialName}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {(inv as any).itemType || "Material"}{" "}
+                                          · {inv.unit}
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 font-mono text-xs">
-                                  {inv.sku || "—"}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {inv.category || "—"}
-                                </td>
-                                <td className="px-4 py-3 font-medium">
-                                  {inv.locationName || "Unassigned"}
-                                </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold">
-                                  {inv.quantityOnHand} {inv.unit}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  ₹{inv.buyPricePerUnit ?? "—"}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  ₹{inv.sellPricePerUnit ?? "—"}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex justify-end gap-1">
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      title="View"
-                                      onClick={() =>
-                                        openInventoryItem(inv, true)
-                                      }
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      title="Edit"
-                                      onClick={() =>
-                                        openInventoryItem(inv, false)
-                                      }
-                                    >
-                                      <Edit2 className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="text-destructive"
-                                      title="Delete"
-                                      onClick={() => {
-                                        setItemToDelete({
-                                          id: inv.materialId,
-                                          type: "material",
-                                        });
-                                        setDeleteConfirmOpen(true);
-                                      }}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
+                                  </td>
+                                  <td className="px-4 py-3 font-mono text-xs">
+                                    {inv.sku || "—"}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {inv.category || "—"}
+                                  </td>
+                                  <td className="px-4 py-3 font-medium">
+                                    {inv.locationName || "Unassigned"}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-mono font-bold">
+                                    {inv.quantityOnHand} {inv.unit}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    ₹{inv.buyPricePerUnit ?? "—"}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    ₹{inv.sellPricePerUnit ?? "—"}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex justify-end gap-1">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        title="View"
+                                        onClick={() =>
+                                          openInventoryItem(inv, true)
+                                        }
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        title="Edit"
+                                        onClick={() =>
+                                          openInventoryItem(inv, false)
+                                        }
+                                      >
+                                        <Edit2 className="h-4 w-4" />
+                                      </Button>
+                                      {!inv.isProtected && (
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="text-destructive"
+                                          title="Delete"
+                                          onClick={() => {
+                                            setItemToDelete({
+                                              id: inv.materialId,
+                                              type: "material",
+                                            });
+                                            setDeleteConfirmOpen(true);
+                                          }}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ),
+                            )}
                           </tbody>
                         </table>
                         <DataPagination
                           currentPage={masterPaging.inventory.page}
                           pageSize={masterPaging.inventory.size}
-                          totalCount={Number(inventoryMasterQuery.data?.totalCount || 0)}
-                          totalPages={Number(inventoryMasterQuery.data?.totalPages || 0)}
-                          onPageChange={(page) => setMasterPage("inventory", { page })}
-                          onPageSizeChange={(size) => setMasterPage("inventory", { page: 1, size })}
+                          totalCount={Number(
+                            inventoryMasterQuery.data?.totalCount || 0,
+                          )}
+                          totalPages={Number(
+                            inventoryMasterQuery.data?.totalPages || 0,
+                          )}
+                          onPageChange={(page) =>
+                            setMasterPage("inventory", { page })
+                          }
+                          onPageSizeChange={(size) =>
+                            setMasterPage("inventory", { page: 1, size })
+                          }
                           loading={inventoryMasterQuery.isFetching}
                         />
                         {(inventory ?? []).length === 0 && (
@@ -1292,19 +1357,21 @@ export default function InventoryModule() {
                                 >
                                   <Edit2 className="w-3.5 h-3.5" /> Edit
                                 </button>
-                                <button
-                                  onClick={() => {
-                                    setItemToDelete({
-                                      id: inv.materialId,
-                                      type: "material",
-                                    });
-                                    setDeleteConfirmOpen(true);
-                                  }}
-                                  className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1 rounded-sm hover:bg-destructive/5"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" /> Delete
-                                </button>
+                                {!inv.isProtected && (
+                                  <button
+                                    onClick={() => {
+                                      setItemToDelete({
+                                        id: inv.materialId,
+                                        type: "material",
+                                      });
+                                      setDeleteConfirmOpen(true);
+                                    }}
+                                    className="flex-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-destructive transition-colors py-1 rounded-sm hover:bg-destructive/5"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                                  </button>
+                                )}
                               </div>
                             </CardContent>
                           </Card>
@@ -1422,7 +1489,9 @@ export default function InventoryModule() {
                       totalCount={Number(itemNamesQuery.data?.totalCount || 0)}
                       totalPages={Number(itemNamesQuery.data?.totalPages || 0)}
                       onPageChange={(page) => setMasterPage("items", { page })}
-                      onPageSizeChange={(size) => setMasterPage("items", { page: 1, size })}
+                      onPageSizeChange={(size) =>
+                        setMasterPage("items", { page: 1, size })
+                      }
                       loading={itemNamesQuery.isFetching}
                     />
                   </Card>
@@ -1511,8 +1580,12 @@ export default function InventoryModule() {
                       pageSize={masterPaging.category.size}
                       totalCount={Number(categoriesQuery.data?.totalCount || 0)}
                       totalPages={Number(categoriesQuery.data?.totalPages || 0)}
-                      onPageChange={(page) => setMasterPage("category", { page })}
-                      onPageSizeChange={(size) => setMasterPage("category", { page: 1, size })}
+                      onPageChange={(page) =>
+                        setMasterPage("category", { page })
+                      }
+                      onPageSizeChange={(size) =>
+                        setMasterPage("category", { page: 1, size })
+                      }
                       loading={categoriesQuery.isFetching}
                     />
                   </Card>
@@ -1632,8 +1705,12 @@ export default function InventoryModule() {
                       pageSize={masterPaging.services.size}
                       totalCount={Number(servicesQuery.data?.totalCount || 0)}
                       totalPages={Number(servicesQuery.data?.totalPages || 0)}
-                      onPageChange={(page) => setMasterPage("services", { page })}
-                      onPageSizeChange={(size) => setMasterPage("services", { page: 1, size })}
+                      onPageChange={(page) =>
+                        setMasterPage("services", { page })
+                      }
+                      onPageSizeChange={(size) =>
+                        setMasterPage("services", { page: 1, size })
+                      }
                       loading={servicesQuery.isFetching}
                     />
                   </Card>
@@ -1757,7 +1834,9 @@ export default function InventoryModule() {
                   totalCount={Number(warehouseQuery.data?.totalCount || 0)}
                   totalPages={Number(warehouseQuery.data?.totalPages || 0)}
                   onPageChange={(page) => setMasterPage("warehouses", { page })}
-                  onPageSizeChange={(size) => setMasterPage("warehouses", { page: 1, size })}
+                  onPageSizeChange={(size) =>
+                    setMasterPage("warehouses", { page: 1, size })
+                  }
                   loading={warehouseQuery.isFetching}
                 />
               </div>
@@ -1968,7 +2047,9 @@ export default function InventoryModule() {
                   totalCount={Number(movementQuery.data?.totalCount || 0)}
                   totalPages={Number(movementQuery.data?.totalPages || 0)}
                   onPageChange={(page) => setMasterPage("movements", { page })}
-                  onPageSizeChange={(size) => setMasterPage("movements", { page: 1, size })}
+                  onPageSizeChange={(size) =>
+                    setMasterPage("movements", { page: 1, size })
+                  }
                   loading={movLoading}
                 />
               </Card>
