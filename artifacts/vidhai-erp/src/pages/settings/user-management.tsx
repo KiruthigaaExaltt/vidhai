@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Edit2,
+  Eye,
+  EyeOff,
   KeyRound,
   Plus,
   RefreshCw,
@@ -102,6 +104,7 @@ export default function UserManagement() {
     [crewUser, setCrewUser] = useState<any>(null),
     [passwordFor, setPasswordFor] = useState<User | null>(null),
     [password, setPassword] = useState(""),
+    [showPassword, setShowPassword] = useState(false),
     [busy, setBusy] = useState(false);
   const load = async () => {
     try {
@@ -649,7 +652,12 @@ export default function UserManagement() {
       </Dialog>
       <Dialog
         open={!!passwordFor}
-        onOpenChange={(v) => !v && setPasswordFor(null)}
+        onOpenChange={(v) => {
+          if (!v) {
+            setPasswordFor(null);
+            setShowPassword(false);
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -658,11 +666,23 @@ export default function UserManagement() {
             </DialogTitle>
           </DialogHeader>
           <Field label="New password (minimum 8 characters)">
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </Field>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPasswordFor(null)}>

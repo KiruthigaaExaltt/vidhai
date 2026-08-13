@@ -180,14 +180,19 @@ router.get("/files/:folder/:file", async (req: any, res: any): Promise<any> => {
 });
 
 router.get("/", async (req: any, res: any) => {
-  const auth = await context(req, res);
-  if (!auth) return;
-  if (!canRead(auth.permissions))
-    return res.status(403).json({
-      error: "Access denied",
-      permission: "settings.company_profile.view",
-    });
-  return res.json(response(await findOrganization(auth.organizationId)));
+  try {
+    const auth = await context(req, res);
+    if (!auth) return;
+    if (!canRead(auth.permissions))
+      return res.status(403).json({
+        error: "Access denied",
+        permission: "settings.company_profile.view",
+      });
+    return res.json(response(await findOrganization(auth.organizationId)));
+  } catch (error) {
+    console.error("Unable to load organization details; using defaults", error);
+    return res.json(response());
+  }
 });
 
 router.put("/", async (req: any, res: any) => {
