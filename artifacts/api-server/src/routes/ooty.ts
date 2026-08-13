@@ -17,13 +17,18 @@ import { eq, desc, inArray, isNull, and } from "@workspace/db";
 
 const router = Router();
 
-const OOTY_STAGE_SEQ = ["SPAWN_RUN", "CASING_RUN", "PRONING", "PINNING_FLUSH1", "FLUSH2", "COOKOUT", "COMPLETED"] as const;
+const OOTY_STAGE_SEQ = ["SPAWN_RUN", "CASING_RUN", "PINNING_FLUSH1", "FLUSH2", "COOKOUT", "COMPLETED"] as const;
 
 // Map fine-grained stage → coarse phase (for alert system and legacy compat)
+function normalizeStage(stage: string): string {
+  return stage === "PRONING" ? "PINNING_FLUSH1" : stage;
+}
+
 function stageToPhase(stage: string): string {
+  stage = normalizeStage(stage);
   if (stage === "SPAWN_RUN") return "SPAWN_RUN";
   if (stage === "CASING_RUN") return "CASING_RUN";
-  if (stage === "PRONING" || stage === "PINNING_FLUSH1" || stage === "FLUSH2") return "DF";
+  if (stage === "PINNING_FLUSH1" || stage === "FLUSH2") return "DF";
   if (stage === "COOKOUT") return "COOKOUT";
   if (stage === "COMPLETED") return "COMPLETED";
   return stage;
@@ -63,6 +68,7 @@ function alertLevelForRoom(room: any, batch: any) {
 function parseStageLog(log: any) {
   return {
     ...log,
+    stage: normalizeStage(log.stage),
     verificationImages: log.verificationImages
       ? (() => { try { return JSON.parse(log.verificationImages); } catch { return []; } })()
       : [],
@@ -300,7 +306,7 @@ router.get("/growing-batches/:id", requireAuth, async (req, res) => {
 
   // Derive currentStage for legacy batches that have currentStage defaulting to empty
   const effectiveCurrentStage = batch.currentStage && batch.currentStage !== ""
-    ? batch.currentStage
+    ? normalizeStage(batch.currentStage)
     : phaseToStage(batch.currentPhase);
 
   return res.json({
@@ -356,7 +362,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   }
 
   const effectiveCurrentStage = batch.currentStage && batch.currentStage !== ""
-    ? batch.currentStage
+    ? normalizeStage(batch.currentStage)
     : phaseToStage(batch.currentPhase);
 
   const now = new Date();

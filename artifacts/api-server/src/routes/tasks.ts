@@ -51,7 +51,7 @@ async function context(req: any) {
     permissions,
     elevated:
       permissions.includes("*") ||
-      permissions.includes("task.task_board.update"),
+      permissions.includes("task.task_board.for_others"),
   };
 }
 

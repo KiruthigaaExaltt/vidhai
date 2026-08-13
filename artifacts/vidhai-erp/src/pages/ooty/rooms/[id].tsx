@@ -45,7 +45,6 @@ import { toast } from "sonner";
 const STAGE_SEQ = [
   { key: "SPAWN_RUN",      label: "Spawn Run",    dayRange: "16–22 d",    icon: Sprout,   phase: "SPAWN_RUN" },
   { key: "CASING_RUN",     label: "Casing Run",   dayRange: "8–10 d",     icon: Layers,   phase: "CASING_RUN" },
-  { key: "PRONING",        label: "Proning",      dayRange: "—",          icon: Sprout,   phase: "DF" },
   { key: "PINNING_FLUSH1", label: "Flush 1",      dayRange: "DF Day 9–11",icon: Scissors, phase: "DF" },
   { key: "FLUSH2",         label: "Flush 2",      dayRange: "DF Day 15–17",icon: Scissors, phase: "DF" },
   { key: "COOKOUT",        label: "Cookout",      dayRange: "—",          icon: Flame,    phase: "COOKOUT" },
@@ -60,7 +59,6 @@ function completedStagesFromPhase(currentPhase: string): Set<string> {
   if (["CASING_RUN", "DF", "COOKOUT", "COMPLETED"].includes(currentPhase)) completed.add("SPAWN_RUN");
   if (["DF", "COOKOUT", "COMPLETED"].includes(currentPhase)) completed.add("CASING_RUN");
   if (["COOKOUT", "COMPLETED"].includes(currentPhase)) {
-    completed.add("PRONING");
     completed.add("PINNING_FLUSH1");
     completed.add("FLUSH2");
   }
@@ -243,14 +241,14 @@ export default function OotyRoomDetail() {
           .filter((log: any) => log.exitedAt !== null && log.exitedAt !== undefined)
           .map((log: any) => log.stage)
       );
-      const active = b.currentStage ?? "SPAWN_RUN";
+      const active = b.currentStage === "PRONING" ? "PINNING_FLUSH1" : (b.currentStage ?? "SPAWN_RUN");
       return { completedStageKeys: completed, currentStageKey: active };
     }
 
     // Backward compat: derive from currentPhase
     const currentPhase = b.currentPhase ?? "SPAWN_RUN";
     const completed = completedStagesFromPhase(currentPhase);
-    const stage = b.currentStage && b.currentStage !== "" ? b.currentStage : (
+    const stage = b.currentStage === "PRONING" ? "PINNING_FLUSH1" : b.currentStage && b.currentStage !== "" ? b.currentStage : (
       currentPhase === "DF" ? "PINNING_FLUSH1" :
       currentPhase === "COMPLETED" ? "COMPLETED" :
       currentPhase
