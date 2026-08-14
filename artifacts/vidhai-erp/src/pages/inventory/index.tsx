@@ -175,7 +175,7 @@ export default function InventoryModule() {
     queryFn: async () => {
       const state = masterPaging.inventory;
       const response = await fetch(
-        `/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        `/api/inventory?coreOnly=true&skip=${(state.page - 1) * state.size}&limit=${state.size}`,
         { credentials: "include" },
       );
       if (!response.ok) throw new Error("Unable to load inventory items");
@@ -183,9 +183,20 @@ export default function InventoryModule() {
     },
     placeholderData: (previous) => previous,
   });
-  const inventory: any[] = inventoryMasterQuery.data?.data ?? [];
+  const masterInventory: any[] = inventoryMasterQuery.data?.data ?? [];
   const invLoading =
     inventoryMasterQuery.isLoading || inventoryMasterQuery.isFetching;
+  const inventoryQuery = useQuery({
+    queryKey: ["inventory"],
+    queryFn: async () => {
+      const response = await fetch("/api/inventory", {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Unable to load inventory");
+      return response.json();
+    },
+  });
+  const inventory: any[] = inventoryQuery.data ?? [];
   const warehouseQuery = useQuery({
     queryKey: [
       "vault-locations-paged",
@@ -319,7 +330,7 @@ export default function InventoryModule() {
       const state = masterPaging.items;
       return (
         await fetch(
-          `/api/vault/item-names?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+          `/api/vault/item-names?coreOnly=true&skip=${(state.page - 1) * state.size}&limit=${state.size}`,
         )
       ).json();
     },
@@ -1067,95 +1078,93 @@ export default function InventoryModule() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {(inventoryMasterQuery.data?.data ?? []).map(
-                              (inv: any) => (
-                                <tr key={inv.id} className="hover:bg-muted/30">
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-3">
-                                      {inv.imageUrl ? (
-                                        <img
-                                          src={inv.imageUrl}
-                                          alt=""
-                                          className="h-10 w-10 rounded-md border object-cover"
-                                        />
-                                      ) : (
-                                        <div className="grid h-10 w-10 place-items-center rounded-md border bg-muted">
-                                          <Package className="h-4 w-4 text-muted-foreground" />
-                                        </div>
-                                      )}
-                                      <div>
-                                        <div className="font-semibold">
-                                          {inv.materialName}
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                          {(inv as any).itemType || "Material"}{" "}
-                                          · {inv.unit}
-                                        </div>
+                            {masterInventory.map((inv: any) => (
+                              <tr key={inv.id} className="hover:bg-muted/30">
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-3">
+                                    {inv.imageUrl ? (
+                                      <img
+                                        src={inv.imageUrl}
+                                        alt=""
+                                        className="h-10 w-10 rounded-md border object-cover"
+                                      />
+                                    ) : (
+                                      <div className="grid h-10 w-10 place-items-center rounded-md border bg-muted">
+                                        <Package className="h-4 w-4 text-muted-foreground" />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <div className="font-semibold">
+                                        {inv.materialName}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {(inv as any).itemType || "Material"} ·{" "}
+                                        {inv.unit}
                                       </div>
                                     </div>
-                                  </td>
-                                  <td className="px-4 py-3 font-mono text-xs">
-                                    {inv.sku || "—"}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {inv.category || "—"}
-                                  </td>
-                                  <td className="px-4 py-3 font-medium">
-                                    {inv.locationName || "Unassigned"}
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-mono font-bold">
-                                    {inv.quantityOnHand} {inv.unit}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    ₹{inv.buyPricePerUnit ?? "—"}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    ₹{inv.sellPricePerUnit ?? "—"}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex justify-end gap-1">
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 font-mono text-xs">
+                                  {inv.sku || "—"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {inv.category || "—"}
+                                </td>
+                                <td className="px-4 py-3 font-medium">
+                                  {inv.locationName || "Unassigned"}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono font-bold">
+                                  {inv.quantityOnHand} {inv.unit}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  ₹{inv.buyPricePerUnit ?? "—"}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  ₹{inv.sellPricePerUnit ?? "—"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      title="View"
+                                      onClick={() =>
+                                        openInventoryItem(inv, true)
+                                      }
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      title="Edit"
+                                      onClick={() =>
+                                        openInventoryItem(inv, false)
+                                      }
+                                    >
+                                      <Edit2 className="h-4 w-4" />
+                                    </Button>
+                                    {!inv.isProtected && (
                                       <Button
                                         size="icon"
                                         variant="ghost"
-                                        title="View"
-                                        onClick={() =>
-                                          openInventoryItem(inv, true)
-                                        }
+                                        className="text-destructive"
+                                        title="Delete"
+                                        onClick={() => {
+                                          setItemToDelete({
+                                            id: inv.materialId,
+                                            type: "material",
+                                          });
+                                          setDeleteConfirmOpen(true);
+                                        }}
                                       >
-                                        <Eye className="h-4 w-4" />
+                                        <Trash2 className="h-4 w-4" />
                                       </Button>
-                                      <Button
-                                        size="icon"
-                                        variant="ghost"
-                                        title="Edit"
-                                        onClick={() =>
-                                          openInventoryItem(inv, false)
-                                        }
-                                      >
-                                        <Edit2 className="h-4 w-4" />
-                                      </Button>
-                                      {!inv.isProtected && (
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="text-destructive"
-                                          title="Delete"
-                                          onClick={() => {
-                                            setItemToDelete({
-                                              id: inv.materialId,
-                                              type: "material",
-                                            });
-                                            setDeleteConfirmOpen(true);
-                                          }}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      )}
-                                    </div>
-                                  </td>
-                                </tr>
-                              ),
-                            )}
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                         <DataPagination
@@ -1175,14 +1184,14 @@ export default function InventoryModule() {
                           }
                           loading={inventoryMasterQuery.isFetching}
                         />
-                        {(inventory ?? []).length === 0 && (
+                        {masterInventory.length === 0 && (
                           <div className="p-16 text-center text-sm text-muted-foreground">
                             No items yet. Click "Add Item" to get started.
                           </div>
                         )}
                       </div>
                       <div className="hidden">
-                        {(inventory ?? []).map((inv) => (
+                        {masterInventory.map((inv) => (
                           <Card
                             key={inv.id}
                             className="rounded-sm border-border shadow-md hover:shadow-lg transition-all overflow-hidden flex flex-col group"
@@ -1375,7 +1384,7 @@ export default function InventoryModule() {
                             </CardContent>
                           </Card>
                         ))}
-                        {(inventory ?? []).length === 0 && !invLoading && (
+                        {masterInventory.length === 0 && !invLoading && (
                           <div className="col-span-full py-16 text-center text-muted-foreground">
                             <Package className="w-10 h-10 mx-auto mb-3 opacity-20" />
                             <p className="text-sm">

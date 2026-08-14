@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
-import maharishiImage from "@assets/maharishi-for-vsp_1783669693733.jpg";
+import maharishiImage from "@assets/maharishi-login-portrait.jpg";
  
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -59,7 +59,7 @@ export default function Login() {
           <img
             src={maharishiImage}
             alt="Maharishi"
-            className="w-full h-auto max-h-[260px] object-cover rounded-sm"
+            className="mx-auto h-[300px] w-full object-contain object-top rounded-sm"
           />
  
           {/* Heading */}

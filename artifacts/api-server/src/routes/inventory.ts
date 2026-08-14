@@ -11,6 +11,7 @@ import {
 import { eq, desc } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { PROTECTED_VAULT_ITEM_NAMES } from "../lib/ensureDefaultVaultItems";
+import { isCoreProductMasterItem } from "../lib/coreProductMaster";
 
 const router = Router();
 
@@ -72,6 +73,8 @@ router.get("/", requireAuth, async (req, res) => {
     qrCode: r.material.qrCode,
     lastUpdated: r.inv.lastUpdated,
   }));
+  if (String(req.query.coreOnly || "").toLowerCase() === "true")
+    data = data.filter((row) => isCoreProductMasterItem(row.materialName));
   const search = String(req.query.search || "")
     .trim()
     .toLowerCase();
@@ -189,6 +192,8 @@ router.get("/movements", requireAuth, async (req, res) => {
     createdByName: r.createdByName ?? null,
     createdAt: r.mov.createdAt,
   }));
+  if (String(req.query.coreOnly || "").toLowerCase() === "true")
+    data = data.filter((row) => isCoreProductMasterItem(row.materialName));
   const search = String(req.query.search || "")
     .trim()
     .toLowerCase();
