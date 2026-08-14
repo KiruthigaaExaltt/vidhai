@@ -254,6 +254,32 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <Card className="rounded-sm border-border shadow-lg">
+          <CardHeader className="border-b bg-muted/20 p-6">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-foreground">
+              Global Stage Distribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="max-h-[400px] overflow-auto p-0">
+            {isSummaryLoading ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">Loading...</div>
+            ) : (
+              <div className="grid grid-cols-2 divide-border sm:grid-cols-3 lg:grid-cols-4">
+                {summary?.stageBreakdown.map((item) => (
+                  <div key={item.stage} className="flex items-center justify-between border-b border-r p-4 transition-colors hover:bg-muted/30">
+                    <span className="truncate pr-4 text-sm font-medium text-muted-foreground">
+                      {item.stage.replace(/_/g, " ")}
+                    </span>
+                    <span className="rounded border bg-white px-3 py-1 font-mono text-base font-semibold text-foreground shadow-sm">
+                      {item.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
       </div>
     </Shell>
   );
