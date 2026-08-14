@@ -5,6 +5,7 @@ import {
   normalizeOverrides,
   normalizePermissions,
   normalizePermissionKey,
+  buildPermissionKey,
 } from "./permissionCatalog";
 
 export type AuthUser = Record<string, any>;
@@ -62,6 +63,44 @@ export function requirePermission(permission: string) {
     (req as any).authUser = user;
     return next();
   };
+}
+export function permissionSetHas(permissions: string[], permission: string) {
+  const key = normalizePermissionKey(permission);
+  return (
+    Boolean(key) && (permissions.includes("*") || permissions.includes(key!))
+  );
+}
+export function scopedPermissionSetHas(
+  permissions: string[],
+  moduleKey: string,
+  submoduleKey: string | null | undefined,
+  action: string,
+) {
+  const key = buildPermissionKey(moduleKey, submoduleKey, action);
+  return Boolean(key) && permissionSetHas(permissions, key!);
+}
+export function resolveScopeFromPermissions(
+  permissions: string[],
+  moduleKey: string,
+  submoduleKey?: string | null,
+) {
+  const canForOwn = scopedPermissionSetHas(
+    permissions,
+    moduleKey,
+    submoduleKey,
+    "for_own",
+  );
+  const canForOthers = scopedPermissionSetHas(
+    permissions,
+    moduleKey,
+    submoduleKey,
+    "for_others",
+  );
+  return {
+    canForOwn,
+    canForOthers,
+    mode: canForOthers ? "all" : canForOwn ? "own" : "none",
+  } as const;
 }
 export function permissionAction(req: Request): string {
   const path = req.path.toLowerCase();

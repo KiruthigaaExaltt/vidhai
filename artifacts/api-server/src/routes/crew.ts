@@ -27,7 +27,11 @@ import {
   crewDeductionsTable,
   crewAuditLogsTable,
 } from "@workspace/db";
-import { effectivePermissions, getAuthUser } from "../lib/access";
+import {
+  effectivePermissions,
+  getAuthUser,
+  permissionSetHas,
+} from "../lib/access";
 import {
   crewUploadFolder,
   resolveCrewUploadPath,
@@ -116,13 +120,27 @@ router.get("/files/:folder/:file", async (req: any, res: any): Promise<any> => {
   return res.sendFile(target, { dotfiles: "deny" });
 });
 const can = (req: any, key: string) =>
-  req.crew.permissions.includes("*") || req.crew.permissions.includes(key);
+  permissionSetHas(req.crew.permissions, key);
 function need(req: any, res: any, key: string) {
   if (can(req, key)) return true;
   res.status(403).json({ error: `Missing permission: ${key}` });
   return false;
 }
 async function ownEmployee(req: any) {
+  const linkedEmployeeId = Number(req.crew.user.employeeId);
+  if (Number.isInteger(linkedEmployeeId) && linkedEmployeeId > 0) {
+    const [linked] = await db
+      .select()
+      .from(employeesTable)
+      .where(
+        and(
+          eq(employeesTable.id, linkedEmployeeId),
+          eq(employeesTable.organizationId, req.crew.org),
+        ),
+      );
+    if (linked && !linked.isDeleted && linked.status !== "Offboarded")
+      return linked;
+  }
   const uid = Number(req.crew.user.id);
   const rows = await db
     .select()
@@ -133,7 +151,9 @@ async function ownEmployee(req: any) {
         eq(employeesTable.userId, uid),
       ),
     );
-  return rows.find((e: any) => !e.isDeleted) || null;
+  return (
+    rows.find((e: any) => !e.isDeleted && e.status !== "Offboarded") || null
+  );
 }
 async function scopedEmployee(req: any, res: any, id: number, sub: string) {
   const [e] = await db
@@ -233,8 +253,23 @@ async function saveDataUrl(value: any, folder: "employees" | "claims") {
 }
 
 router.get("/employees", async (req: any, res: any): Promise<any> => {
-  const canViewDirectory = can(req, "crew.employees.view");
-  if (!canViewDirectory && !can(req, "crew.attendance.view"))
+  const requestedScope = String(req.query.scope || "employees");
+  const allowedScopes = new Set([
+    "employees",
+    "attendance",
+    "leave",
+    "claims",
+    "overtime",
+    "bonus",
+    "deductions",
+  ]);
+  if (!allowedScopes.has(requestedScope))
+    return res.status(400).json({ error: "Invalid Crew employee scope" });
+  if (
+    !can(req, `crew.${requestedScope}.view`) &&
+    !can(req, `crew.${requestedScope}.create`) &&
+    !can(req, `crew.${requestedScope}.update`)
+  )
     return res.status(403).json({ error: "Crew employee access denied" });
   let rows = (
     await db
@@ -243,13 +278,9 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
       .where(eq(employeesTable.organizationId, req.crew.org))
       .orderBy(asc(employeesTable.name))
   ).filter((x: any) => !x.isDeleted);
-  if (canViewDirectory) rows = await scopedRows(req, rows, "employees");
-  else {
-    const own = await ownEmployee(req);
-    rows = own
-      ? rows.filter((row: any) => Number(row.id) === Number(own.id))
-      : [];
-  }
+
+  rows = await scopedRows(req, rows, requestedScope);
+
   const counts = {
     total: rows.length,
     active: rows.filter((row: any) => row.status === "Active").length,
@@ -2130,7 +2161,7 @@ async function syncAttendanceDeductions(
       amount = daily;
       reason = "Absent and LOP";
       source = "Auto";
-      notes = `Absent and LOP — ${salary.toFixed(2)} ÷ ${days} days`;
+      notes = `Absent and LOP â€” ${salary.toFixed(2)} Ã· ${days} days`;
     } else if (log.status === "Half Day") {
       amount = daily / 2;
       reason = "Half day absent and LOP";
@@ -2169,7 +2200,7 @@ async function syncAttendanceDeductions(
             : template?.fineType === "based_on_salary"
               ? rate * hours
               : fine * hours;
-        notes = `${reason.replaceAll("_", " ")} — ${total} minutes`;
+        notes = `${reason.replaceAll("_", " ")} â€” ${total} minutes`;
       }
     }
     amount = Math.round(amount * 100) / 100;

@@ -7,7 +7,11 @@ import {
   useListBatches,
   useUpdateTask,
 } from "@workspace/api-client-react";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -409,7 +413,7 @@ export default function Tasks() {
     );
   }
 
-  const TaskForm = ({ editing = false }: { editing?: boolean }) => (
+  const renderTaskForm = (editing = false) => (
     <form
       onSubmit={(event) => submitTask(event, editing)}
       className="space-y-4 pt-2"
@@ -564,7 +568,8 @@ export default function Tasks() {
                 </button>
               ))}
               <span className="ml-auto font-mono text-xs text-muted-foreground">
-                {Number(taskQuery.data?.totalCount || 0)} task{Number(taskQuery.data?.totalCount || 0) === 1 ? "" : "s"}
+                {Number(taskQuery.data?.totalCount || 0)} task
+                {Number(taskQuery.data?.totalCount || 0) === 1 ? "" : "s"}
               </span>
             </div>
             <Card className="overflow-hidden rounded-xl border-border/60 shadow-sm">
@@ -742,7 +747,10 @@ export default function Tasks() {
                 totalCount={Number(taskQuery.data?.totalCount || 0)}
                 totalPages={Number(taskQuery.data?.totalPages || 0)}
                 onPageChange={setTaskPage}
-                onPageSizeChange={(size) => { setTaskPageSize(size); setTaskPage(1); }}
+                onPageSizeChange={(size) => {
+                  setTaskPageSize(size);
+                  setTaskPage(1);
+                }}
                 loading={isLoading}
               />
             </Card>
@@ -756,7 +764,7 @@ export default function Tasks() {
             <DialogHeader>
               <DialogTitle>New task</DialogTitle>
             </DialogHeader>
-            <TaskForm />
+            {renderTaskForm()}
           </DialogContent>
         </Dialog>
         <Dialog
@@ -767,7 +775,7 @@ export default function Tasks() {
             <DialogHeader>
               <DialogTitle>Edit task</DialogTitle>
             </DialogHeader>
-            <TaskForm editing />
+            {renderTaskForm(true)}
           </DialogContent>
         </Dialog>
         <Dialog

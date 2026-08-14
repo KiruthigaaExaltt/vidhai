@@ -274,6 +274,28 @@ const actionAliases: Record<string, string> = {
   changetime: "change_time",
   managesettings: "manage_settings",
 };
+export function normalizeRbacAction(action: string): PermissionAction | null {
+  const normalized = String(action ?? "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const compact = normalized.replaceAll("_", "");
+  const canonical = actionAliases[compact] ?? normalized;
+  return ACTIONS.includes(canonical as PermissionAction)
+    ? (canonical as PermissionAction)
+    : null;
+}
+export function buildPermissionKey(
+  moduleKey: string,
+  submoduleKey: string | null | undefined,
+  action: string,
+): string | null {
+  const normalizedAction = normalizeRbacAction(action);
+  if (!normalizedAction) return null;
+  const scope = [moduleKey, submoduleKey].filter(Boolean).join(".");
+  return normalizePermissionKey(scope + "." + normalizedAction);
+}
 const keyAliases: Record<string, string> = {
   tasks: "task.task_board",
   task: "task.task_board",

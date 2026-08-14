@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { scheduleEventsTable } from "@workspace/db";
 import { eq } from "@workspace/db";
+import { listLiveProductionEvents } from "../lib/liveProductionCalendar";
 
 const router = Router();
 
@@ -52,11 +53,18 @@ function toDate(d: string): Date {
 
 // ── CRUD routes ───────────────────────────────────────────────────────────────
 router.get("/events", requireAuth, async (req, res) => {
-  const { locationCode } = req.query as Record<string, string>;
+  const { locationCode, from, to } = req.query as Record<string, string>;
   let query = db.select().from(scheduleEventsTable).$dynamic();
   if (locationCode) query = query.where(eq(scheduleEventsTable.locationCode, locationCode));
-  const rows = await query.orderBy(scheduleEventsTable.plannedDate);
-  return res.json(rows);
+  const storedRows = await query.orderBy(scheduleEventsTable.plannedDate);
+  const liveRows = await listLiveProductionEvents();
+  return res.json(
+    [...storedRows, ...liveRows]
+      .filter((event: any) => !locationCode || event.locationCode === locationCode)
+      .filter((event: any) => !from || event.plannedDate >= from)
+      .filter((event: any) => !to || event.plannedDate <= to)
+      .sort((a: any, b: any) => a.plannedDate.localeCompare(b.plannedDate)),
+  );
 });
 
 router.post("/events", requireAuth, async (req, res) => {

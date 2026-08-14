@@ -7,6 +7,11 @@ interface AuthContextType {
   logout: () => void;
   permissions: string[];
   can: (permission: string) => boolean;
+  hasScopedPermission: (
+    moduleKey: string,
+    submoduleKey: string | null | undefined,
+    action?: string,
+  ) => boolean;
   refreshPermissions: () => Promise<void>;
 }
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,6 +28,14 @@ const normalizePermission = (value: string) => {
   };
   return [...parts, aliases[action.replaceAll("_", "")] ?? action].join(".");
 };
+const buildScopedPermissionKey = (
+  moduleKey: string,
+  submoduleKey: string | null | undefined,
+  action = "view",
+) =>
+  normalizePermission(
+    [moduleKey, submoduleKey, action].filter(Boolean).join("."),
+  );
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
@@ -83,6 +96,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     String(user?.role).toLowerCase() === "admin" ||
     permissions.includes("*") ||
     permissions.includes(normalizePermission(permission));
+  const hasScopedPermission = (
+    moduleKey: string,
+    submoduleKey: string | null | undefined,
+    action = "view",
+  ) => {
+    const key = buildScopedPermissionKey(moduleKey, submoduleKey, action);
+    if (can(key)) return true;
+    if (key === "crew.attendance.for_own") return can("crew.attendance_own");
+    if (key === "crew.attendance.for_others")
+      return can("crew.attendance_others");
+    return false;
+  };
   return (
     <AuthContext.Provider
       value={{
@@ -92,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         permissions,
         can,
+        hasScopedPermission,
         refreshPermissions,
       }}
     >

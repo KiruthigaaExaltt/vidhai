@@ -112,7 +112,7 @@ const readFile = (file: File) =>
   });
 
 export default function Crew() {
-  const { can, user } = useAuth(),
+  const { can, hasScopedPermission, user } = useAuth(),
     { toast } = useToast();
   const allowed = tabs.filter(([k]) => can(`crew.${k}.view`));
   const [tab, setTab] = useState<Tab>((allowed[0]?.[0] || "employees") as Tab);
@@ -123,7 +123,11 @@ export default function Crew() {
     [status, setStatus] = useState("All"),
     [employeePage, setEmployeePage] = useState(1),
     [employeePageSize, setEmployeePageSize] = useState(10),
-    [employeeMeta, setEmployeeMeta] = useState<any>({ totalCount: 0, totalPages: 0, counts: {} }),
+    [employeeMeta, setEmployeeMeta] = useState<any>({
+      totalCount: 0,
+      totalPages: 0,
+      counts: {},
+    }),
     [open, setOpen] = useState(false),
     [editing, setEditing] = useState<any>(null),
     [form, setForm] = useState<any>(emptyEmployee),
@@ -131,8 +135,14 @@ export default function Crew() {
   const loadEmployees = async () => {
     const params = new URLSearchParams(
       tab === "employees"
-        ? { skip: String((employeePage - 1) * employeePageSize), limit: String(employeePageSize), search, status }
-        : { skip: "0", limit: "200" },
+        ? {
+            scope: tab,
+            skip: String((employeePage - 1) * employeePageSize),
+            limit: String(employeePageSize),
+            search,
+            status,
+          }
+        : { scope: tab, skip: "0", limit: "200" },
     );
     const r = await api(`employees?${params}`);
     setEmployees(r.data || []);
@@ -177,7 +187,9 @@ export default function Crew() {
     );
   }, [tab, employees, rows, search, status]);
   const metrics = {
-    total: Number(employeeMeta.counts?.total ?? employeeMeta.totalCount ?? employees.length),
+    total: Number(
+      employeeMeta.counts?.total ?? employeeMeta.totalCount ?? employees.length,
+    ),
     active: Number(employeeMeta.counts?.active ?? 0),
     leave: Number(employeeMeta.counts?.leave ?? 0),
     off: Number(employeeMeta.counts?.off ?? 0),
@@ -311,7 +323,10 @@ export default function Crew() {
     };
     input.click();
   };
-  const canCreate = can(`crew.${tab}.create`),
+  const canCreate =
+      can(`crew.${tab}.create`) &&
+      (hasScopedPermission("crew", tab, "for_own") ||
+        hasScopedPermission("crew", tab, "for_others")),
     canApprove = can(`crew.${tab}.approve`),
     canReject = can(`crew.${tab}.reject`);
   return (
@@ -444,7 +459,7 @@ export default function Crew() {
               <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                 {loading ? (
                   <div className="p-14 text-center text-muted-foreground">
-                    Loading Crew records…
+                    Loading Crew recordsâ€¦
                   </div>
                 ) : !visible.length ? (
                   <div className="p-20 text-center text-muted-foreground">
@@ -511,7 +526,7 @@ export default function Crew() {
                 Cancel
               </Button>
               <Button disabled={busy} onClick={save}>
-                {busy ? "Saving…" : "Save"}
+                {busy ? "Savingâ€¦" : "Save"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -550,7 +565,7 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
     }
   };
   const formatDate = (value: any) => {
-    if (!value) return "—";
+    if (!value) return "â€”";
     const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     return Number.isNaN(date.getTime())
       ? String(value)
@@ -614,11 +629,11 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
               <td className="px-4 py-3">
                 <div className="font-semibold">{employee.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {employee.designation || "—"}
+                  {employee.designation || "â€”"}
                 </div>
               </td>
               <td className="px-4 py-3 text-muted-foreground">
-                {employee.department || "—"}
+                {employee.department || "â€”"}
               </td>
               <td className="px-4 py-3">
                 <span
@@ -718,10 +733,10 @@ function RecordTable({ tab, rows, canApprove, canReject, decide }: any) {
               <td className="p-3 font-medium">{r.employeeName}</td>
               <td className="p-3">
                 {tab === "attendance"
-                  ? `${r.checkInTime || "—"} – ${r.checkOutTime || "—"}`
+                  ? `${r.checkInTime || "â€”"} â€“ ${r.checkOutTime || "â€”"}`
                   : tab === "leave"
                     ? `${r.leaveType}: ${r.reason}`
-                    : `${r.title || r.notes || label(tab)}${r.amount ? ` · ₹${Number(r.amount).toLocaleString("en-IN")}` : ""}`}
+                    : `${r.title || r.notes || label(tab)}${r.amount ? ` Â· â‚¹${Number(r.amount).toLocaleString("en-IN")}` : ""}`}
               </td>
               <td className="p-3 text-muted-foreground">
                 {r.attendanceDate ||
@@ -1034,7 +1049,7 @@ function Select({ value, change, items }: any) {
       value={value || ""}
       onChange={(e) => change(e.target.value)}
     >
-      <option value="">Select…</option>
+      <option value="">Selectâ€¦</option>
       {items.map((x: any) => (
         <option
           key={typeof x === "string" ? x : x.value}

@@ -65,6 +65,7 @@ const EVENT_TYPES: Record<string, string> = {
   dispatch_target: "Dispatch Target",
   spawn_ready_target: "Spawn Ready",
   qc_approve_target: "QC Approve Target",
+  production_stage: "Production Stage",
   custom: "Custom",
 };
 
@@ -184,6 +185,10 @@ export default function SchedulingCalendar() {
   };
 
   const openEdit = (ev: any) => {
+    if (ev.isLiveProduction) {
+      setLocation(ev.sourcePath);
+      return;
+    }
     if (!can("scheduling.calendar.update")) return;
     setEditEvent(ev);
     setForm({
@@ -308,7 +313,8 @@ export default function SchedulingCalendar() {
               className="rounded-lg shadow-sm h-10 px-4 font-medium hover:shadow-md transition-all"
               onClick={() => setLocation("/scheduling/suggest")}
             >
-              <CalendarCheck className="w-4 h-4 mr-2 text-amber-500" /> Plan Schedule
+              <CalendarCheck className="w-4 h-4 mr-2 text-amber-500" /> Plan
+              Schedule
             </Button>
             <Button
               className="rounded-lg shadow-sm h-10 px-4 font-medium hover:shadow-md transition-all"
@@ -462,13 +468,15 @@ export default function SchedulingCalendar() {
                             <div
                               key={ev.id}
                               className="flex items-center gap-1.5 text-xs px-1.5 py-1 rounded-md hover:bg-black/5"
-                              title={`${EVENT_TYPES[ev.eventType] || ev.eventType} — ${ev.locationCode}${ev.planCode ? ` · ${ev.planCode}` : ""}`}
+                              title={`${ev.displayTitle || EVENT_TYPES[ev.eventType] || ev.eventType} — ${ev.locationCode}${ev.planCode ? ` · ${ev.planCode}` : ""}`}
                             >
                               <div
                                 className={`w-2 h-2 rounded-full shrink-0 ${locColor}`}
                               />
                               <span className="truncate flex-1 font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                                {EVENT_TYPES[ev.eventType] || ev.eventType}
+                                {ev.displayTitle ||
+                                  EVENT_TYPES[ev.eventType] ||
+                                  ev.eventType}
                               </span>
                               {ev.planCode && (
                                 <span className="text-[9px] font-mono text-muted-foreground/60">
@@ -558,22 +566,35 @@ export default function SchedulingCalendar() {
                                 )}
                               </div>
                               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  onClick={() => openEdit(ev)}
-                                  className="p-1 rounded-md hover:bg-black/10"
-                                >
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => setDeleteId(ev.id)}
-                                  className="p-1 rounded-md hover:bg-black/10 text-red-600"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
+                                {ev.isLiveProduction ? (
+                                  <button
+                                    onClick={() => setLocation(ev.sourcePath)}
+                                    className="px-2 py-1 text-[10px] font-semibold rounded-md hover:bg-black/10"
+                                  >
+                                    Open
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => openEdit(ev)}
+                                      className="p-1 rounded-md hover:bg-black/10"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteId(ev.id)}
+                                      className="p-1 rounded-md hover:bg-black/10 text-red-600"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </div>
                             <h4 className="font-semibold text-sm mb-1">
-                              {EVENT_TYPES[ev.eventType] || ev.eventType}
+                              {ev.displayTitle ||
+                                EVENT_TYPES[ev.eventType] ||
+                                ev.eventType}
                             </h4>
                             {ev.startDate && (
                               <div className="text-xs font-mono opacity-80">
@@ -718,7 +739,9 @@ export default function SchedulingCalendar() {
                               </div>
                             </td>
                             <td className="px-5 font-medium text-foreground text-xs">
-                              {EVENT_TYPES[ev.eventType] || ev.eventType}
+                              {ev.displayTitle ||
+                                EVENT_TYPES[ev.eventType] ||
+                                ev.eventType}
                             </td>
                             <td className="px-5 font-mono text-xs text-muted-foreground">
                               {fmtDate(ev.startDate) !== "—" ? (
@@ -748,18 +771,29 @@ export default function SchedulingCalendar() {
                             </td>
                             <td className="px-3 text-right">
                               <div className="flex gap-1 justify-end">
-                                <button
-                                  onClick={() => openEdit(ev)}
-                                  className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-                                >
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                                <button
-                                  onClick={() => setDeleteId(ev.id)}
-                                  className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
+                                {ev.isLiveProduction ? (
+                                  <button
+                                    onClick={() => setLocation(ev.sourcePath)}
+                                    className="px-2 py-1 text-[10px] font-semibold rounded-md hover:bg-muted"
+                                  >
+                                    Open
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => openEdit(ev)}
+                                      className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteId(ev.id)}
+                                      className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </td>
                           </tr>
