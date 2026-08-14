@@ -167,9 +167,9 @@ export default function Departments() {
 
   return (
     <div className="w-full space-y-5">
-      <div className="flex items-center justify-between border-b border-border pb-4">
+      <div className="flex flex-col items-stretch gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl font-semibold text-foreground">Departments</h2>
-        <Button onClick={openCreate}>
+        <Button className="w-full sm:w-auto" onClick={openCreate}>
           <Plus className="mr-2 h-4 w-4" /> Add Department
         </Button>
       </div>

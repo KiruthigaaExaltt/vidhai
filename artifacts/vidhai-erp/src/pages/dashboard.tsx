@@ -79,13 +79,13 @@ export default function Dashboard() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-8 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:space-y-8 md:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground font-display">System Cockpit</h1>
             
           </div>
-          <div className="flex items-center gap-3">
+          <div className="grid w-full grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:flex sm:w-auto sm:items-center">
             <Link href="/annur/chambers" className="flex-1 sm:flex-none">
               <Button variant="outline" className="w-full sm:w-auto font-medium rounded-lg shadow-sm h-10 px-4">
                 <Thermometer className="w-4 h-4 mr-2" />
@@ -111,7 +111,7 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6 pt-2">
-              <div className="text-4xl font-display font-bold mb-6 text-foreground">
+              <div className="mb-6 text-3xl font-display font-bold text-foreground sm:text-4xl">
                 {annurCount + coimCount + labCount + ootyCount} <span className="text-lg font-normal text-muted-foreground">total batches</span>
               </div>
               <div className="space-y-3">

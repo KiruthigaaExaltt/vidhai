@@ -480,7 +480,7 @@ export default function OrganizationDetails() {
       {/* Terms & Conditions */}
       <Card className="shadow-none border-border">
         <CardContent className="p-6 space-y-4">
-          <div className="flex justify-between items-center border-b pb-2">
+          <div className="flex flex-col items-stretch gap-2 border-b pb-2 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">
               Terms & Conditions
             </h3>

@@ -70,8 +70,8 @@ export default function LabBatches() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
-        <div className="flex items-center justify-between">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <FlaskConical className="w-5 h-5 text-primary" />
@@ -83,7 +83,7 @@ export default function LabBatches() {
 
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="rounded-sm font-medium h-9">
+              <Button className="h-9 w-full rounded-sm font-medium sm:w-auto">
                 <Plus className="w-4 h-4 mr-2" /> New Spawn Batch
               </Button>
             </DialogTrigger>

@@ -13,7 +13,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       />
       <main className="flex min-w-0 flex-1 flex-col lg:ml-64">
         <TopHeader onOpenNavigation={() => setMobileNavigationOpen(true)} />
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="app-content min-w-0 flex-1 overflow-x-hidden">{children}</div>
       </main>
     </div>
   );

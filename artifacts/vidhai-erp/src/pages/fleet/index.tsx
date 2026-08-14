@@ -162,20 +162,20 @@ export default function FleetList() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Truck className="w-6 h-6 text-primary" /> Vehicle Fleet
             </h1>
           </div>
-          <Button size="sm" className="rounded-sm h-8" onClick={openNew}>
+          <Button size="sm" className="h-9 w-full rounded-sm md:h-8 md:w-auto" onClick={openNew}>
             <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Vehicle
           </Button>
         </div>
 
         {/* Status filter */}
-        <div className="flex gap-1">
+        <div className="flex w-full gap-1 overflow-x-auto pb-1">
           {["ALL", "available", "in_use", "maintenance", "retired"].map((s) => (
             <button
               key={s}
@@ -183,7 +183,7 @@ export default function FleetList() {
                 setFilterStatus(s);
                 setCurrentPage(1);
               }}
-              className={`px-3 py-1.5 rounded-sm text-xs font-medium border transition-colors ${
+              className={`shrink-0 whitespace-nowrap px-3 py-1.5 rounded-sm text-xs font-medium border transition-colors ${
                 filterStatus === s
                   ? "bg-primary text-white border-primary"
                   : "bg-background border-border text-muted-foreground hover:bg-muted/50"

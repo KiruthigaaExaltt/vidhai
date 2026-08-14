@@ -52,7 +52,7 @@ export default function ReportBatchSummary() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
         <Button variant="ghost" onClick={() => setLocation("/reports")} className="px-0 hover:bg-transparent text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4 mr-2" /> Reports
         </Button>
@@ -65,11 +65,11 @@ export default function ReportBatchSummary() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap gap-3 items-end">
+        <div className="grid grid-cols-1 items-end gap-3 sm:flex sm:flex-wrap">
           <div className="space-y-1">
             <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Location</Label>
             <select
-              className="h-9 rounded-sm border border-border bg-background px-3 text-sm"
+              className="h-9 w-full rounded-sm border border-border bg-background px-3 text-sm sm:w-auto"
               value={locationCode}
               onChange={(e) => setLocationCode(e.target.value)}
             >
@@ -78,11 +78,11 @@ export default function ReportBatchSummary() {
           </div>
           <div className="space-y-1">
             <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">From</Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-sm h-9 font-mono w-[150px]" />
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 w-full rounded-sm font-mono sm:w-[150px]" />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">To</Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-sm h-9 font-mono w-[150px]" />
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 w-full rounded-sm font-mono sm:w-[150px]" />
           </div>
         </div>
 

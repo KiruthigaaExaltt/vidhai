@@ -972,7 +972,7 @@ export default function PurchaseOrdersPage() {
 
         {/* ── PURCHASE ORDER BUILDER MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) ── */}
         <Dialog open={isBuilderOpen} onOpenChange={setIsBuilderOpen}>
-          <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6">
+          <DialogContent className="max-h-[calc(100svh-1rem)] max-w-4xl overflow-x-hidden overflow-y-auto p-4 sm:max-h-[92vh] sm:p-6">
             <DialogHeader className="pb-2 border-b border-border">
               <DialogTitle className="flex items-center gap-2.5 text-xl font-bold text-foreground">
                 <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
@@ -1161,7 +1161,7 @@ export default function PurchaseOrdersPage() {
                   </button>
                 </div>
 
-                <div className="border border-border/80 rounded-lg p-2.5 bg-background space-y-2 shadow-2xs">
+                <div className="space-y-2 overflow-x-auto rounded-lg border border-border/80 bg-background p-2.5 pb-3 shadow-2xs [&>.grid]:min-w-[700px]">
                   <div className="grid grid-cols-12 gap-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
                     <div className="col-span-4">{FLEX_TEXT.description}</div>
                     <div className="col-span-1">{FLEX_TEXT.hsn}</div>

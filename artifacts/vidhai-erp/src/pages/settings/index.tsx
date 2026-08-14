@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Building2,
   ChevronDown,
@@ -38,6 +38,7 @@ const templates: [View, string][] = [
   ["leave", "Leave Template"],
 ];
 export default function Settings() {
+  const mobileNavRef = useRef<HTMLElement>(null);
   const { can } = useAuth();
   const companyProfileAccess = can("settings.company_profile.view"),
     userAccess = can("settings.user_management.view"),
@@ -47,14 +48,50 @@ export default function Settings() {
     ),
     [expanded, setExpanded] = useState(true),
     [mastersExpanded, setMastersExpanded] = useState(true);
+  const mobileItems: [View, string][] = [
+    ...(companyProfileAccess ? [["general", "General"] as [View, string]] : []),
+    ...(userAccess
+      ? [
+          ["users", "Users"],
+          ["departments", "Departments"],
+        ] as [View, string][]
+      : []),
+    ...(templateAccess ? templates : []),
+    ...(userAccess
+      ? ([
+          ["alerts", "Alert Colors"],
+          ["locations", "Locations"],
+        ] as [View, string][])
+      : []),
+  ];
+  useEffect(() => {
+    mobileNavRef.current
+      ?.querySelector<HTMLElement>("[data-active='true']")
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [view]);
   return (
     <Shell>
-      <div className="min-h-[calc(100vh-72px)] w-full bg-muted/30 p-5 md:p-7">
-        <div className="mb-6">
+      <div className="min-h-[calc(100vh-72px)] w-full bg-muted/30 p-4 sm:p-5 md:p-7">
+        <div className="mb-4 md:mb-6">
           <h1 className="text-2xl font-bold tracking-tight">System Settings</h1>
         </div>
+        <nav ref={mobileNavRef} aria-label="Settings sections" className="-mx-4 mb-4 snap-x snap-mandatory overflow-x-auto overscroll-x-contain border-y bg-card px-4 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-max gap-1">
+            {mobileItems.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                data-active={view === key}
+                onClick={() => setView(key)}
+                className={`shrink-0 snap-center whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors ${view === key ? "border-primary bg-primary/5 text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </nav>
         <div className="grid items-start gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
-          <nav className="sticky top-[96px] h-fit min-w-0 p-1">
+          <nav className="sticky top-[96px] hidden h-fit min-w-0 p-1 md:block">
             {userAccess && (
               <>
                 <Nav
@@ -146,7 +183,7 @@ export default function Settings() {
               </>
             )}
           </nav>
-          <section className="min-w-0 rounded-xl border bg-card p-5 shadow-sm md:p-7">
+          <section className="settings-content min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5 md:p-7">
             {view === "general" && companyProfileAccess && (
               <OrganizationDetails />
             )}

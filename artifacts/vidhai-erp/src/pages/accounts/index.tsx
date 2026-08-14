@@ -788,16 +788,17 @@ export default function Accounts() {
   };
   return (
     <Shell>
-      <div className="min-h-full space-y-5 p-6">
-        <div className="flex items-center justify-between">
+      <div className="min-h-full space-y-5 p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <BookOpen />
               Accounts
             </h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full gap-2 sm:w-auto">
             <Button
+              className="w-full sm:w-auto"
               variant="outline"
               onClick={() => void reconcile()}
               disabled={loading}
@@ -834,7 +835,7 @@ export default function Accounts() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex h-auto w-full flex-wrap justify-start rounded-lg border bg-white p-1">
+          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border bg-white p-1 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
             <TabsTrigger value="dashboard">Finance Dashboard</TabsTrigger>
             <TabsTrigger value="customers">Customer Ledger</TabsTrigger>
             <TabsTrigger value="vendors">Vendor Ledger</TabsTrigger>
@@ -899,12 +900,13 @@ export default function Accounts() {
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
             {can("accounts.accounts_payable.create") && (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
+              <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                <Button className="w-full sm:w-auto" onClick={() => openManual("ap", { entryType: "Bill" })}>
                   <Plus className="mr-2 h-4 w-4" /> Add Bill
                 </Button>
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={() => openManual("ap", { entryType: "Debit Note" })}
                 >
                   <Plus className="mr-2 h-4 w-4" /> Add Debit Note

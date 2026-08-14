@@ -147,7 +147,7 @@ export default function Batches() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -155,8 +155,8 @@ export default function Batches() {
               Annur Location A — Batches
             </h1>
           </div>
-          <Link href="/annur/batches/new">
-            <Button className="rounded-md font-medium h-9">
+          <Link href="/annur/batches/new" className="w-full sm:w-auto">
+            <Button className="h-9 w-full rounded-md font-medium sm:w-auto">
               <Plus className="w-4 h-4 mr-2" /> New Batch
             </Button>
           </Link>
@@ -165,8 +165,8 @@ export default function Batches() {
         {/* Filter bar */}
         <Card className="rounded-md border-border shadow-md">
           <CardContent className="p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <Filter className="w-4 h-4 text-muted-foreground mt-6 shrink-0" />
+            <div className="grid grid-cols-1 items-end gap-3 sm:flex sm:flex-wrap">
+              <Filter className="hidden w-4 h-4 text-muted-foreground mt-6 shrink-0 sm:block" />
 
               {/* Search */}
               <div className="space-y-1.5 min-w-[180px] flex-1 sm:max-w-[220px]">
