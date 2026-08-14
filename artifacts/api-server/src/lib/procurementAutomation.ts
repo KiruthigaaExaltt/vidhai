@@ -4,7 +4,6 @@ import {
   chartOfAccountsTable,
   journalEntriesTable,
   journalLinesTable,
-  notificationsTable,
   purchaseInvoicesTable,
 } from "@workspace/db";
 
@@ -166,20 +165,6 @@ export async function postMatchedPurchaseInvoice(
         sourceId: invoice.id,
       });
     }
-    await tx.insert(notificationsTable).values({
-      organizationId,
-      sourceModule: "Flex",
-      targetModule: "Ledger",
-      eventType: "PURCHASE_INVOICE_MATCHED",
-      title: "Purchase invoice matched and posted",
-      message: `${invoice.invoiceNumber} for ${invoice.vendorName} is ready in Accounts Payable.`,
-      metadata: {
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        journalEntryId: journal.id,
-      },
-      isRead: false,
-    });
     const [updated] = await tx
       .update(purchaseInvoicesTable)
       .set({ isPostedToLedger: true, journalEntryId: journal.id })

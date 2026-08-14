@@ -5,6 +5,7 @@ import session from "express-session";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { configuredCorsOrigins, corsOriginHandler } from "./lib/cors";
+import { notificationEventMiddleware } from "./lib/notificationEvents";
 
 const app: Express = express();
 app.disable("etag");
@@ -41,18 +42,18 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET ?? "vidhai-dev-secret-2024",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: false,
-      httpOnly: true,
-      maxAge: 8 * 60 * 60 * 1000,
-    },
-  }),
-);
+export const sessionMiddleware = session({
+  secret: process.env.SESSION_SECRET ?? "vidhai-dev-secret-2024",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false,
+    httpOnly: true,
+    maxAge: 8 * 60 * 60 * 1000,
+  },
+});
+app.use(sessionMiddleware);
+app.use(notificationEventMiddleware);
 
 app.use(
   "/api",

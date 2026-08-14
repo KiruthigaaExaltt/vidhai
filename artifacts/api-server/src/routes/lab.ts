@@ -414,7 +414,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     .from(batchesTable)
     .where(eq(batchesTable.id, id))
     .limit(1);
-  return res.json(updated);
+  return res.json({ ...updated, completedStage: batch.currentStage });
 });
 
 // ── List available spawn outputs (for Annur spawn picker) ─────────────────────

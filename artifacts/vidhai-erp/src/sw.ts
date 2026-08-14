@@ -14,6 +14,49 @@ cleanupOutdatedCaches();
 clientsClaim();
 self.addEventListener("message", event => { if (event.data?.type === "SKIP_WAITING") self.skipWaiting(); });
 
+self.addEventListener("push", event => {
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (windows.some(client => client.visibilityState === "visible")) return;
+    let data: any = {};
+    try { data = event.data?.json() ?? {}; } catch { data = { message: event.data?.text() }; }
+    await self.registration.showNotification(data.title || "Vidhai ERP", {
+      body: data.message || "You have a new notification.",
+      icon: new URL("pwa-192x192.png", self.registration.scope).href,
+      badge: new URL("pwa-192x192.png", self.registration.scope).href,
+      tag: data.tag || `notification-${data.notificationId || Date.now()}`,
+      data: {
+        notificationId: data.notificationId,
+        navigationUrl: data.navigationUrl || "/notifications",
+      },
+    });
+  })());
+});
+
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const data = event.notification.data || {};
+    if (data.notificationId) {
+      try {
+        await fetch(`api/notifications/${data.notificationId}/read`, {
+          method: "PATCH",
+          credentials: "include",
+        });
+      } catch {}
+    }
+    const destination = new URL(data.navigationUrl || "notifications", self.registration.scope).href;
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of windows) {
+      if ("focus" in client) {
+        await client.navigate(destination);
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(destination);
+  })());
+});
+
 registerRoute(({ url }) => url.origin === self.location.origin && url.pathname.includes("/api/"), new NetworkOnly());
 registerRoute(
   ({ request, url }) => request.mode === "navigate" && url.origin === self.location.origin && !url.pathname.includes("/api/"),

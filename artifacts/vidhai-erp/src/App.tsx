@@ -50,6 +50,8 @@ import PurchaseReturns from "@/pages/flex/purchase-returns";
 import Crew from "@/pages/crew";
 import CrewPay from "@/pages/crewpay";
 import Accounts from "@/pages/accounts";
+import NotificationsPage from "@/pages/notifications";
+import { NotificationProvider } from "@/notifications/NotificationProvider";
 
 const queryClient = new QueryClient();
 
@@ -173,6 +175,10 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+
+      <Route path="/notifications">
+        <ProtectedRoute component={NotificationsPage} />
+      </Route>
 
       <Route path="/dashboard">
         <ProtectedRoute component={Dashboard} permission="dashboard.view" />
@@ -458,9 +464,11 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
+          <NotificationProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+            </WouterRouter>
+          </NotificationProvider>
         </AuthProvider>
         <Toaster />
         <SonnerToaster position="bottom-right" />

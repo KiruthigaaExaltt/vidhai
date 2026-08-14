@@ -1,12 +1,20 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { chambersTable, chamberReadingsTable, locationsTable, batchesTable, usersTable } from "@workspace/db";
-import { eq, desc } from "@workspace/db";
+import {
+  chambersTable,
+  chamberReadingsTable,
+  locationsTable,
+  batchesTable,
+  usersTable,
+} from "@workspace/db";
+import { and, eq, desc } from "@workspace/db";
+import { organizationId } from "../lib/access";
 
 const router = Router();
 
 function requireAuth(req: any, res: any, next: any) {
-  if (!(req.session as any)?.userId) return res.status(401).json({ error: "Not authenticated" });
+  if (!(req.session as any)?.userId)
+    return res.status(401).json({ error: "Not authenticated" });
   next();
 }
 
@@ -22,10 +30,14 @@ router.get("/", requireAuth, async (req, res) => {
     })
     .from(chambersTable)
     .innerJoin(locationsTable, eq(chambersTable.locationId, locationsTable.id))
-    .leftJoin(batchesTable, eq(chambersTable.currentBatchId, batchesTable.id));
+    .leftJoin(batchesTable, eq(chambersTable.currentBatchId, batchesTable.id))
+    .where(eq(chambersTable.organizationId, organizationId(req)));
 
   let filtered = rows;
-  if (locationId) filtered = filtered.filter((r) => String(r.chamber.locationId) === locationId);
+  if (locationId)
+    filtered = filtered.filter(
+      (r) => String(r.chamber.locationId) === locationId,
+    );
 
   return res.json(
     filtered.map((r) => ({
@@ -38,34 +50,54 @@ router.get("/", requireAuth, async (req, res) => {
       capacity: r.chamber.capacity,
       currentBatchId: r.chamber.currentBatchId,
       currentBatchCode: r.currentBatchCode ?? null,
-      lastTemperature: r.chamber.lastTemperature !== null ? Number(r.chamber.lastTemperature) : null,
+      lastTemperature:
+        r.chamber.lastTemperature !== null
+          ? Number(r.chamber.lastTemperature)
+          : null,
       lastNh3: r.chamber.lastNh3 !== null ? Number(r.chamber.lastNh3) : null,
       lastReadingAt: r.chamber.lastReadingAt,
       lengthM: r.chamber.lengthM !== null ? Number(r.chamber.lengthM) : null,
       widthM: r.chamber.widthM !== null ? Number(r.chamber.widthM) : null,
       heightM: r.chamber.heightM !== null ? Number(r.chamber.heightM) : null,
       notes: r.chamber.notes,
-    }))
+    })),
   );
 });
 
 // Create chamber
 router.post("/", requireAuth, async (req, res) => {
-  const { name, locationId, chamberType, capacity, lengthM, widthM, heightM, notes } = req.body;
-
-  const [chamber] = await db.insert(chambersTable).values({
+  const {
     name,
     locationId,
-    chamberType: chamberType ?? "bulk",
-    status: "idle",
-    capacity: capacity ?? null,
-    lengthM: lengthM ?? null,
-    widthM: widthM ?? null,
-    heightM: heightM ?? null,
-    notes: notes ?? null,
-  }).returning();
+    chamberType,
+    capacity,
+    lengthM,
+    widthM,
+    heightM,
+    notes,
+  } = req.body;
 
-  const [loc] = await db.select().from(locationsTable).where(eq(locationsTable.id, locationId)).limit(1);
+  const [chamber] = await db
+    .insert(chambersTable)
+    .values({
+      organizationId: organizationId(req),
+      name,
+      locationId,
+      chamberType: chamberType ?? "bulk",
+      status: "idle",
+      capacity: capacity ?? null,
+      lengthM: lengthM ?? null,
+      widthM: widthM ?? null,
+      heightM: heightM ?? null,
+      notes: notes ?? null,
+    })
+    .returning();
+
+  const [loc] = await db
+    .select()
+    .from(locationsTable)
+    .where(eq(locationsTable.id, locationId))
+    .limit(1);
   return res.status(201).json({ ...chamber, locationCode: loc?.code ?? "" });
 });
 
@@ -81,13 +113,25 @@ router.get("/:id", requireAuth, async (req, res) => {
     .from(chambersTable)
     .innerJoin(locationsTable, eq(chambersTable.locationId, locationsTable.id))
     .leftJoin(batchesTable, eq(chambersTable.currentBatchId, batchesTable.id))
-    .where(eq(chambersTable.id, id))
+    .where(
+      and(
+        eq(chambersTable.id, id),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    )
     .limit(1);
 
   if (!row) return res.status(404).json({ error: "Chamber not found" });
 
-  const readings = await db.select().from(chamberReadingsTable)
-    .where(eq(chamberReadingsTable.chamberId, id))
+  const readings = await db
+    .select()
+    .from(chamberReadingsTable)
+    .where(
+      and(
+        eq(chamberReadingsTable.chamberId, id),
+        eq(chamberReadingsTable.organizationId, organizationId(req)),
+      ),
+    )
     .orderBy(desc(chamberReadingsTable.recordedAt))
     .limit(20);
 
@@ -101,7 +145,10 @@ router.get("/:id", requireAuth, async (req, res) => {
     capacity: row.chamber.capacity,
     currentBatchId: row.chamber.currentBatchId,
     currentBatchCode: row.currentBatchCode ?? null,
-    lastTemperature: row.chamber.lastTemperature !== null ? Number(row.chamber.lastTemperature) : null,
+    lastTemperature:
+      row.chamber.lastTemperature !== null
+        ? Number(row.chamber.lastTemperature)
+        : null,
     lastNh3: row.chamber.lastNh3 !== null ? Number(row.chamber.lastNh3) : null,
     lastReadingAt: row.chamber.lastReadingAt,
     lengthM: row.chamber.lengthM !== null ? Number(row.chamber.lengthM) : null,
@@ -115,7 +162,17 @@ router.get("/:id", requireAuth, async (req, res) => {
 // Update chamber
 router.patch("/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const { name, chamberType, status, capacity, currentBatchId, lengthM, widthM, heightM, notes } = req.body;
+  const {
+    name,
+    chamberType,
+    status,
+    capacity,
+    currentBatchId,
+    lengthM,
+    widthM,
+    heightM,
+    notes,
+  } = req.body;
 
   const updates: Record<string, any> = {};
   if (name !== undefined) updates.name = name;
@@ -128,17 +185,37 @@ router.patch("/:id", requireAuth, async (req, res) => {
   if (heightM !== undefined) updates.heightM = heightM;
   if (notes !== undefined) updates.notes = notes;
 
-  const [updated] = await db.update(chambersTable).set(updates).where(eq(chambersTable.id, id)).returning();
+  const [updated] = await db
+    .update(chambersTable)
+    .set(updates)
+    .where(
+      and(
+        eq(chambersTable.id, id),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    )
+    .returning();
   if (!updated) return res.status(404).json({ error: "Chamber not found" });
 
-  const [loc] = await db.select().from(locationsTable).where(eq(locationsTable.id, updated.locationId)).limit(1);
+  const [loc] = await db
+    .select()
+    .from(locationsTable)
+    .where(eq(locationsTable.id, updated.locationId))
+    .limit(1);
   return res.json({ ...updated, locationCode: loc?.code ?? "" });
 });
 
 // Delete chamber
 router.delete("/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  await db.delete(chambersTable).where(eq(chambersTable.id, id));
+  await db
+    .delete(chambersTable)
+    .where(
+      and(
+        eq(chambersTable.id, id),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    );
   return res.status(204).send();
 });
 
@@ -152,9 +229,20 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       recordedByName: usersTable.displayName,
     })
     .from(chamberReadingsTable)
-    .innerJoin(chambersTable, eq(chamberReadingsTable.chamberId, chambersTable.id))
-    .leftJoin(usersTable, eq(chamberReadingsTable.recordedByUserId, usersTable.id))
-    .where(eq(chamberReadingsTable.chamberId, chamberId))
+    .innerJoin(
+      chambersTable,
+      eq(chamberReadingsTable.chamberId, chambersTable.id),
+    )
+    .leftJoin(
+      usersTable,
+      eq(chamberReadingsTable.recordedByUserId, usersTable.id),
+    )
+    .where(
+      and(
+        eq(chamberReadingsTable.chamberId, chamberId),
+        eq(chamberReadingsTable.organizationId, organizationId(req)),
+      ),
+    )
     .orderBy(desc(chamberReadingsTable.recordedAt));
 
   return res.json(
@@ -162,14 +250,18 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       id: r.reading.id,
       chamberId: r.reading.chamberId,
       chamberName: r.chamberName,
-      temperatureCelsius: r.reading.temperatureCelsius !== null ? Number(r.reading.temperatureCelsius) : null,
+      temperatureCelsius:
+        r.reading.temperatureCelsius !== null
+          ? Number(r.reading.temperatureCelsius)
+          : null,
       nh3Ppm: r.reading.nh3Ppm !== null ? Number(r.reading.nh3Ppm) : null,
-      co2Percent: r.reading.co2Percent !== null ? Number(r.reading.co2Percent) : null,
+      co2Percent:
+        r.reading.co2Percent !== null ? Number(r.reading.co2Percent) : null,
       humidity: r.reading.humidity !== null ? Number(r.reading.humidity) : null,
       notes: r.reading.notes,
       recordedAt: r.reading.recordedAt,
       recordedByName: r.recordedByName ?? "System",
-    }))
+    })),
   );
 });
 
@@ -179,23 +271,54 @@ router.post("/:id/readings", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
   const { temperatureCelsius, nh3Ppm, co2Percent, humidity, notes } = req.body;
 
-  const [reading] = await db.insert(chamberReadingsTable).values({
-    chamberId,
-    temperatureCelsius: temperatureCelsius ?? null,
-    nh3Ppm: nh3Ppm ?? null,
-    co2Percent: co2Percent ?? null,
-    humidity: humidity ?? null,
-    notes: notes ?? null,
-    recordedByUserId: userId,
-  }).returning();
+  const [chamber] = await db
+    .select()
+    .from(chambersTable)
+    .where(
+      and(
+        eq(chambersTable.id, chamberId),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    )
+    .limit(1);
+  if (!chamber) return res.status(404).json({ error: "Chamber not found" });
+
+  const [reading] = await db
+    .insert(chamberReadingsTable)
+    .values({
+      organizationId: organizationId(req),
+      chamberId,
+      temperatureCelsius: temperatureCelsius ?? null,
+      nh3Ppm: nh3Ppm ?? null,
+      co2Percent: co2Percent ?? null,
+      humidity: humidity ?? null,
+      notes: notes ?? null,
+      recordedByUserId: userId,
+    })
+    .returning();
 
   // Update chamber's last reading
   const updates: Record<string, any> = { lastReadingAt: new Date() };
-  if (temperatureCelsius !== undefined) updates.lastTemperature = temperatureCelsius;
+  if (temperatureCelsius !== undefined)
+    updates.lastTemperature = temperatureCelsius;
   if (nh3Ppm !== undefined) updates.lastNh3 = nh3Ppm;
-  await db.update(chambersTable).set(updates).where(eq(chambersTable.id, chamberId));
+  await db
+    .update(chambersTable)
+    .set(updates)
+    .where(
+      and(
+        eq(chambersTable.id, chamberId),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    );
 
-  return res.status(201).json(reading);
+  const interval = new Date(reading.recordedAt);
+  interval.setMinutes(0, 0, 0);
+  return res.status(201).json({
+    ...reading,
+    chamberName: chamber.name,
+    expectedLogTime: interval.toISOString(),
+  });
 });
 
 export default router;

@@ -262,6 +262,46 @@ export const permissionCatalog: PermissionCatalogRow[] = [
   },
   { module: "Settings � Locations", key: "settings.locations", actions: crud },
 ];
+const notificationScopes = new Set([
+  "task.task_board",
+  "task.time_logs",
+  "scheduling.calendar",
+  "scheduling.plan_schedule",
+  "production.batches",
+  "production.chambers",
+  "production.growing_rooms",
+  "production.casing_soil",
+  "production.spawn_batches",
+  "crew.attendance",
+  "crew.leave",
+  "crew.claims",
+  "crew.overtime",
+  "crew.bonus",
+  "crew.deductions",
+  "sales.quotations",
+  "sales.proforma_invoices",
+  "sales.delivery_challans",
+  "sales.invoices",
+  "sales.returns",
+  "accounts.chart_of_accounts",
+  "accounts.accounts_payable",
+  "accounts.accounts_receivable",
+  "accounts.journal_entries",
+  "accounts.financial_statements",
+  "flex.purchase_requests",
+  "flex.purchase_orders",
+  "flex.goods_receipts",
+  "flex.purchase_invoices",
+  "flex.purchase_returns",
+  "inventory.stock",
+  "inventory.materials",
+  "inventory.categories",
+  "inventory.warehouses",
+  "inventory.assets",
+]);
+for (const row of permissionCatalog)
+  if (notificationScopes.has(row.key) && !row.actions.includes("notification"))
+    row.actions.push("notification");
 const rows = new Map(permissionCatalog.map((row) => [row.key, row]));
 export const allPermissionKeys = permissionCatalog.flatMap((row) =>
   row.actions.map((action) => `${row.key}.${action}`),

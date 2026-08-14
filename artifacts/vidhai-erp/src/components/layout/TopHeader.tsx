@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 import { useLogout } from "@workspace/api-client-react";
 import {
+  Bell,
   ChevronDown,
   Download,
   LogOut,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { usePwa } from "@/pwa/PwaProvider";
+import { useNotifications } from "@/notifications/NotificationProvider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +30,7 @@ export function TopHeader({
   const { user, logout: clearUser } = useAuth();
   const logoutMutation = useLogout();
   const pwa = usePwa();
+  const { unreadCount } = useNotifications();
 
   const handleLogout = async () => {
     try {
@@ -49,6 +52,21 @@ export function TopHeader({
         aria-label="Open navigation"
       >
         <Menu className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => navigate("/notifications")}
+        className="relative ml-auto mr-1 inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:ml-0"
+        aria-label={
+          unreadCount ? `${unreadCount} unread notifications` : "Notifications"
+        }
+      >
+        <Bell className="h-5 w-5" />
+        {unreadCount > 0 && (
+          <span className="absolute right-0.5 top-0.5 min-w-5 rounded-full bg-destructive px-1 text-center text-[10px] font-bold leading-5 text-destructive-foreground">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

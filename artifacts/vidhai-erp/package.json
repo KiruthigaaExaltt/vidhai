@@ -89,6 +89,7 @@
   "dependencies": {
     "@tensorflow-models/blazeface": "^0.1.0",
     "@tensorflow/tfjs": "^4.22.0",
-    "react-webcam": "^7.2.0"
+    "react-webcam": "^7.2.0",
+    "socket.io-client": "^4.8.3"
   }
 }

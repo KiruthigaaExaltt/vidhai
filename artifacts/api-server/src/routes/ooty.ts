@@ -1390,7 +1390,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     return row;
   });
 
-  return res.json(updated);
+  return res.json({ ...updated, completedStage: batch.currentStage });
 });
 
 // Add observation

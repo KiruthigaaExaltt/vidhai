@@ -804,9 +804,10 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
-  return res.json(
-    formatBatch(updated, loc?.code ?? "", user?.displayName ?? "System"),
-  );
+  return res.json({
+    ...formatBatch(updated, loc?.code ?? "", user?.displayName ?? "System"),
+    completedStage: batch.currentStage,
+  });
 });
 
 // ── Replace all materials (formulation save) ──────────────────────────────────

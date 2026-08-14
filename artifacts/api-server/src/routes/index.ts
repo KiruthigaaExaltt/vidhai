@@ -36,6 +36,7 @@ import assetsRouter from "./assets";
 import accountsRouter from "./accounts";
 import workOrdersRouter from "./workOrders";
 import organizationSettingsRouter from "./organizationSettings";
+import notificationsRouter from "./notifications";
 import { requireModulePermission } from "../lib/access";
 
 const segment = (path: string, index = 0) =>
@@ -87,6 +88,7 @@ const accountsScope = (req: any) =>
 const router: IRouter = Router();
 router.use(healthRouter);
 router.use("/auth", authRouter);
+router.use("/notifications", notificationsRouter);
 router.use("/users", usersRouter);
 router.use("/settings/users", usersRouter);
 router.use("/locations", locationsRouter);

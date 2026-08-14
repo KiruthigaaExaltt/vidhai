@@ -5,6 +5,7 @@ import { batchesTable } from "./batches";
 
 export const chambersTable = mongoTable("chambers", {
   id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().default(1),
   name: text("name").notNull(),
   locationId: integer("location_id").notNull().references(() => locationsTable.id),
   chamberType: text("chamber_type").notNull().default("bulk"),
@@ -23,6 +24,7 @@ export const chambersTable = mongoTable("chambers", {
 
 export const chamberReadingsTable = mongoTable("chamber_readings", {
   id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().default(1),
   chamberId: integer("chamber_id").notNull().references(() => chambersTable.id, { onDelete: "cascade" }),
   temperatureCelsius: numeric("temperature_celsius", { precision: 6, scale: 2 }),
   nh3Ppm: numeric("nh3_ppm", { precision: 8, scale: 4 }),

@@ -18,7 +18,6 @@ import {
   inventoryTable,
   inventoryMovementsTable,
   accountsPayableTable,
-  notificationsTable,
   chartOfAccountsTable,
   journalEntriesTable,
   journalLinesTable,
@@ -1853,16 +1852,6 @@ async function settleApprovedVendorPayment(
       approvedAt: new Date(),
       journalEntryId: journal.id,
     }).where(eq(vendorPaymentsTable.id, payment.id)).returning();
-    await tx.insert(notificationsTable).values({
-      organizationId: org,
-      sourceModule: "Flex",
-      targetModule: "Ledger",
-      eventType: "VENDOR_PAYMENT_APPROVED",
-      title: "Vendor payment approved",
-      message: `${payment.paymentNumber} was approved and posted.`,
-      metadata: { paymentId: payment.id, invoiceNumber: payment.invoiceReference, journalEntryId: journal.id },
-      isRead: false,
-    });
     return updated;
   });
 }
@@ -2207,16 +2196,6 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     })
     .returning();
 
-  await db.insert(notificationsTable).values({
-    organizationId: org,
-    sourceModule: "Flex",
-    targetModule: "Ledger",
-    eventType: "PURCHASE_INVOICE_LOGGED",
-    title: "Purchase invoice logged",
-    message: `${invoiceNumber} for ${vendorName} was logged in Flex.`,
-    metadata: { invoiceId: created.id, invoiceNumber, matchStatus },
-    isRead: false,
-  });
 
   const posted = await postMatchedPurchaseInvoice(org, created.id, userId);
   return res.status(201).json(posted || created);
@@ -2550,7 +2529,6 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     );
     return res.status(201).json(settled);
   }
-  await db.insert(notificationsTable).values({ organizationId: org, sourceModule: "Flex", targetModule: "Flex", eventType: "VENDOR_PAYMENT_APPROVAL_REQUESTED", title: "Vendor payment awaiting approval", message: `${paymentNumber} for ${vendorName} requires approval.`, metadata: { paymentId: created.id, invoiceNumber: invoiceReference, amount }, isRead: false });
   return res.status(201).json(created);
 });
 
