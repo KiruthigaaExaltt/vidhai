@@ -97,6 +97,13 @@ export default function OotyRooms() {
   const { toast } = useToast();
   const { data: rooms, isLoading } = useListOotyRooms();
   const { data: annurBatches } = useListBatches();
+  const completedAnnurBatches =
+    (annurBatches as any[] | undefined)?.filter(
+      (batch: any) =>
+        batch.currentStage === "COMPLETED" &&
+        batch.status === "dispatched" &&
+        Number(batch.actualBags) > 0,
+    ) ?? [];
 
   const refetch = () =>
     queryClient.invalidateQueries({ queryKey: getListOotyRoomsQueryKey() });
@@ -545,25 +552,16 @@ export default function OotyRooms() {
                 onChange={(e) => setAssignForm({ ...assignForm, annurBatchId: e.target.value })}
               >
                 <option value="">— Select Annur batch —</option>
-                {(annurBatches as any[])
-                  ?.filter((b: any) => b.status === "dispatched" && Number(b.actualBags) > 0)
-                  .map((b: any) => (
-                    <option key={b.id} value={b.id}>
-                      {b.batchCode} — {b.actualBags ? `${b.actualBags} produced bags` : b.status}
-                    </option>
-                  ))}
-                {(annurBatches as any[])?.filter((b: any) => b.currentStage !== "DISPATCH" && b.status !== "dispatched").length === (annurBatches as any[])?.length && (
-                  <option value="" disabled>No dispatched batches yet — all batches shown</option>
+                {completedAnnurBatches.map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.batchCode} — {b.actualBags} produced bags
+                  </option>
+                ))}
+                {completedAnnurBatches.length === 0 && (
+                  <option value="" disabled>No completed Annur batches available</option>
                 )}
-                {(annurBatches as any[])
-                  ?.filter((b: any) => b.currentStage !== "DISPATCH" && b.status !== "dispatched")
-                  .map((b: any) => (
-                    <option key={b.id} value={b.id} className="text-muted-foreground">
-                      {b.batchCode} ({b.currentStage ?? b.status})
-                    </option>
-                  ))}
               </select>
-              <p className="text-[11px] text-muted-foreground">Dispatched batches shown first. One Annur batch can supply multiple rooms.</p>
+              <p className="text-[11px] text-muted-foreground">Only completed Annur batches with produced bags are shown. One Annur batch can supply multiple rooms.</p>
             </div>
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Bags Allocated to this Room</Label>

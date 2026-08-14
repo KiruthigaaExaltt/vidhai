@@ -72,6 +72,22 @@ export const insertOotyBatchSourceSchema = createInsertSchema(ootyBatchSourcesTa
 export type InsertOotyBatchSource = z.infer<typeof insertOotyBatchSourceSchema>;
 export type OotyBatchSource = typeof ootyBatchSourcesTable.$inferSelect;
 
+// One row per Growing Room assignment. The unique key prevents a retry from
+// consuming the same Annur grow bags from Vault inventory twice.
+export const ootyGrowBagInventoryPostingsTable = mongoTable("ooty_grow_bag_inventory_postings", {
+  id: serial("id").primaryKey(),
+  postingKey: text("posting_key").notNull().unique(),
+  growingBatchId: integer("growing_batch_id").notNull().references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),
+  inventoryId: integer("inventory_id").notNull(),
+  inventoryAdjustmentId: integer("inventory_adjustment_id").notNull(),
+  warehouseId: integer("warehouse_id").notNull(),
+  allocatedBags: integer("allocated_bags").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertOotyGrowBagInventoryPostingSchema = createInsertSchema(ootyGrowBagInventoryPostingsTable).omit({ id: true, createdAt: true });
+export type OotyGrowBagInventoryPosting = typeof ootyGrowBagInventoryPostingsTable.$inferSelect;
+
 export const ootyObservationsTable = mongoTable("ooty_observations", {
   id: serial("id").primaryKey(),
   growingBatchId: integer("growing_batch_id").notNull().references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),

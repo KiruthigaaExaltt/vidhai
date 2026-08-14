@@ -18,6 +18,7 @@ import {
   materialsTable,
   ootyHarvestInventoryPostingsTable,
   ootyCookoutInventoryPostingsTable,
+  ootyGrowBagInventoryPostingsTable,
 } from "@workspace/db";
 import { eq, desc, inArray, isNull, and, ilike } from "@workspace/db";
 import { flushNumberForStage, harvestInventoryPostingKey, validateHarvestProduction } from "../lib/ootyHarvestInventory";
@@ -234,11 +235,20 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     : annurBatchId ? [{ annurBatchId: Number(annurBatchId), bagCount: bagCount ?? null }] : [];
   for (const source of requestedSources) {
     const [annurBatch] = await db.select().from(batchesTable).where(eq(batchesTable.id, Number(source.annurBatchId))).limit(1);
-    if (!annurBatch || annurBatch.status !== "dispatched" || !annurBatch.actualBags) return res.status(400).json({ error: "Select a dispatched Annur batch with produced bags" });
+    if (!annurBatch || annurBatch.currentStage !== "COMPLETED" || annurBatch.status !== "dispatched" || !annurBatch.actualBags) return res.status(400).json({ error: "Select a completed Annur batch with produced bags" });
     const allocated = (await db.select().from(ootyBatchSourcesTable).where(eq(ootyBatchSourcesTable.annurBatchId, annurBatch.id))).reduce((sum, row) => sum + Number(row.bagCount || 0), 0);
     const requested = Number(source.bagCount || 0);
     if (!Number.isInteger(requested) || requested <= 0 || allocated + requested > annurBatch.actualBags) return res.status(400).json({ error: `Only ${annurBatch.actualBags - allocated} produced bags remain available from ${annurBatch.batchCode}` });
   }
+  if (requestedSources.length === 0) return res.status(400).json({ error: "Select a completed Annur batch and enter the bags allocated" });
+  const totalAllocatedBags = requestedSources.reduce((sum, source) => sum + Number(source.bagCount || 0), 0);
+  const [growBagMaterial] = await db.select().from(materialsTable).where(eq(materialsTable.sku, "VLT-RM-GROW-BAG")).limit(1);
+  const [annurWarehouse] = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.systemCode, "ANNUR")).limit(1);
+  const [annurLocation] = await db.select().from(locationsTable).where(eq(locationsTable.code, "A")).limit(1);
+  if (!growBagMaterial || !annurWarehouse || !annurLocation) return res.status(409).json({ error: "Annur Grow Bag inventory configuration is missing" });
+  const [availableStock] = await db.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, growBagMaterial.id), eq(inventoryTable.locationId, annurWarehouse.id))).limit(1);
+  if (!availableStock || Number(availableStock.quantityOnHand) < totalAllocatedBags) return res.status(409).json({ error: `Only ${Number(availableStock?.quantityOnHand || 0)} grow bags are available in the Annur Vault` });
+
   const result = await db.transaction(async (tx) => {
     const [batch] = await tx.insert(ootyGrowingBatchesTable).values({
       batchCode: code, roomId,
@@ -272,6 +282,31 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
         });
       }
     }
+
+    // Consume assigned grow bags from Annur Vault in the same transaction.
+    const [stock] = await tx.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, growBagMaterial.id), eq(inventoryTable.locationId, annurWarehouse.id))).limit(1);
+    if (!stock || Number(stock.quantityOnHand) < totalAllocatedBags) throw new Error("Insufficient Annur Grow Bag stock");
+    const [updatedStock] = await tx.update(inventoryTable).set({
+      quantityOnHand: String(Number(stock.quantityOnHand) - totalAllocatedBags),
+      lastUpdated: now,
+    }).where(eq(inventoryTable.id, stock.id)).returning();
+    const traceNotes = `Ooty Growing Room assignment | Growing Batch: ${batch.batchCode} (#${batch.id}) | Room: ${room.name} (#${room.id}) | Annur Sources: ${requestedSources.map((source) => `#${source.annurBatchId}: ${source.bagCount} bags`).join(", ")} | Total Bags: ${totalAllocatedBags}`;
+    const [adjustment] = await tx.insert(inventoryAdjustmentsTable).values({
+      materialId: growBagMaterial.id,
+      locationId: annurLocation.id,
+      quantityDelta: String(-totalAllocatedBags),
+      reason: "production_consumption",
+      notes: traceNotes,
+      adjustedByUserId: userId,
+    }).returning();
+    await tx.insert(ootyGrowBagInventoryPostingsTable).values({
+      postingKey: `ooty-grow-bag-assignment:${batch.id}`,
+      growingBatchId: batch.id,
+      inventoryId: updatedStock.id,
+      inventoryAdjustmentId: adjustment.id,
+      warehouseId: annurWarehouse.id,
+      allocatedBags: totalAllocatedBags,
+    });
 
     // Set room to active
     await tx.update(ootyRoomsTable)
