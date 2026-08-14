@@ -61,7 +61,7 @@ export const permissionCatalog: PermissionCatalogRow[] = [
   {
     module: "Production � Growing Rooms",
     key: "production.growing_rooms",
-    actions: crud,
+    actions: [...crud, "import"],
   },
   {
     module: "Production � Casing Soil",

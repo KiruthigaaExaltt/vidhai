@@ -38,12 +38,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Plus, Thermometer, Sprout, MoreVertical,
+  Plus, Thermometer, Sprout, MoreVertical, FileUp,
   Pencil, Trash2, WrenchIcon, CheckCircle2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
+import { GrowingRoomImportDialog } from "./GrowingRoomImportDialog";
 
 const PHASE_LABEL: Record<string, string> = {
   SPAWN_RUN: "Spawn Run",
@@ -95,6 +97,8 @@ export default function OotyRooms() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { can } = useAuth();
+  const [importOpen, setImportOpen] = useState(false);
   const { data: rooms, isLoading } = useListOotyRooms();
   const { data: annurBatches } = useListBatches();
   const completedAnnurBatches =
@@ -263,9 +267,18 @@ export default function OotyRooms() {
             
           </div>
 
-          <Button className="rounded-md font-medium h-9" onClick={() => setRoomOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" /> New Room
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {can("production.growing_rooms.import") && can("production.growing_rooms.create") && (
+              <Button variant="outline" className="rounded-md font-medium h-9" onClick={() => setImportOpen(true)}>
+                <FileUp className="w-4 h-4 mr-2" /> Import Excel
+              </Button>
+            )}
+            {can("production.growing_rooms.create") && (
+              <Button className="rounded-md font-medium h-9" onClick={() => setRoomOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" /> New Room
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Legend */}
@@ -601,6 +614,12 @@ export default function OotyRooms() {
           </form>
         </DialogContent>
       </Dialog>
+      <GrowingRoomImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        existingRooms={(rooms as any[]) ?? []}
+        onImported={refetch}
+      />
     </Shell>
   );
 }

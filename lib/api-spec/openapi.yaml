@@ -1074,6 +1074,22 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/OotyRoom" }
 
+  /ooty/rooms/import:
+    post:
+      operationId: importOotyRooms
+      tags: [ooty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OotyRoomImportRequest" }
+      responses:
+        "201":
+          description: Import completed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OotyRoomImportResponse" }
+
   /ooty/rooms/{id}:
     get:
       operationId: getOotyRoom
@@ -2661,6 +2677,47 @@ components:
         name: { type: string }
         capacity: { type: ["integer", "null"] }
         notes: { type: ["string", "null"] }
+
+    OotyRoomImportRow:
+      type: object
+      required: [rowNumber, name]
+      properties:
+        rowNumber: { type: integer, minimum: 2 }
+        name: { type: string }
+        capacity: { type: ["integer", "string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    OotyRoomImportRequest:
+      type: object
+      required: [rows]
+      properties:
+        fileName: { type: ["string", "null"] }
+        rows:
+          type: array
+          maxItems: 500
+          items: { $ref: "#/components/schemas/OotyRoomImportRow" }
+
+    OotyRoomImportResult:
+      type: object
+      required: [rowNumber, name, status]
+      properties:
+        rowNumber: { type: integer }
+        name: { type: string }
+        status: { type: string, enum: [created, skipped, failed] }
+        reason: { type: string }
+
+    OotyRoomImportResponse:
+      type: object
+      required: [total, created, skipped, failed, results]
+      properties:
+        fileName: { type: ["string", "null"] }
+        total: { type: integer }
+        created: { type: integer }
+        skipped: { type: integer }
+        failed: { type: integer }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/OotyRoomImportResult" }
 
     OotyRoomUpdate:
       type: object

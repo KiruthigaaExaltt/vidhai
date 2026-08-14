@@ -23,6 +23,8 @@ import {
 import { eq, desc, inArray, isNull, and, ilike } from "@workspace/db";
 import { flushNumberForStage, harvestInventoryPostingKey, validateHarvestProduction } from "../lib/ootyHarvestInventory";
 import { cookoutManurePostingKey, validateCookoutManure } from "../lib/ootyCookoutInventory";
+import { requirePermission } from "../lib/access";
+import { MAX_GROWING_ROOM_IMPORT_ROWS, normalizeGrowingRoomName, prepareGrowingRoomImport, validateGrowingRoomInput, type ValidGrowingRoomInput } from "../lib/ootyRoomImport";
 
 const router = Router();
 
@@ -129,15 +131,54 @@ router.get("/rooms", requireAuth, async (req, res) => {
   return res.json(result);
 });
 
+async function insertGrowingRoom(tx: any, locationId: number, input: ValidGrowingRoomInput) {
+  const [room] = await tx.insert(ootyRoomsTable).values({
+    name: input.name, locationId, capacity: input.capacity, notes: input.notes,
+  }).returning();
+  return room;
+}
+
 // Create room
 router.post("/rooms", requireAuth, async (req, res) => {
-  const { name, capacity, notes } = req.body as any;
+  const parsed = validateGrowingRoomInput(req.body as any);
+  if (!parsed.ok) return res.status(400).json({ error: parsed.errors.join(". "), errors: parsed.errors });
   const [loc] = await db.select().from(locationsTable).where(eq(locationsTable.code, "B")).limit(1);
   if (!loc) return res.status(400).json({ error: "Location B not found" });
-  const [room] = await db.insert(ootyRoomsTable).values({
-    name, locationId: loc.id, capacity: capacity ?? null, notes: notes ?? null,
-  }).returning();
+  const existing = await db.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.locationId, loc.id));
+  if (existing.some((room) => normalizeGrowingRoomName(room.name) === normalizeGrowingRoomName(parsed.value.name)))
+    return res.status(409).json({ error: `A Growing Room named "${parsed.value.name}" already exists in Ooty Location B` });
+  const room = await insertGrowingRoom(db, loc.id, parsed.value);
   return res.status(201).json(room);
+});
+
+router.post("/rooms/import", requireAuth, requirePermission("production.growing_rooms.create"), async (req, res) => {
+  const { fileName, rows } = req.body as { fileName?: unknown; rows?: unknown };
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: "The import contains no room rows" });
+  if (rows.length > MAX_GROWING_ROOM_IMPORT_ROWS) return res.status(400).json({ error: `A maximum of ${MAX_GROWING_ROOM_IMPORT_ROWS} rooms can be imported at once` });
+  const [loc] = await db.select().from(locationsTable).where(eq(locationsTable.code, "B")).limit(1);
+  if (!loc) return res.status(409).json({ error: "Ooty Location B was not found" });
+  const existingRooms = await db.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.locationId, loc.id));
+    const { results, pending } = prepareGrowingRoomImport(rows, existingRooms.map((room) => room.name));
+  if (pending.length) await db.transaction(async (tx) => {
+    const currentRooms = await tx.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.locationId, loc.id));
+    const currentNames = new Set(currentRooms.map((room) => normalizeGrowingRoomName(room.name)));
+    for (const item of pending) {
+      const key = normalizeGrowingRoomName(item.value.name);
+      if (currentNames.has(key)) { results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "skipped", reason: "Room already exists in Ooty Location B" }); continue; }
+      await insertGrowingRoom(tx, loc.id, item.value);
+      currentNames.add(key);
+      results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "created" });
+    }
+  });
+  results.sort((a, b) => a.rowNumber - b.rowNumber);
+  return res.status(201).json({
+    fileName: typeof fileName === "string" ? fileName.slice(0, 255) : null,
+    total: rows.length,
+    created: results.filter((row) => row.status === "created").length,
+    skipped: results.filter((row) => row.status === "skipped").length,
+    failed: results.filter((row) => row.status === "failed").length,
+    results,
+  });
 });
 
 // Get room detail
