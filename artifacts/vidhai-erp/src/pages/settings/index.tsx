@@ -52,9 +52,6 @@ export default function Settings() {
       <div className="min-h-[calc(100vh-72px)] w-full bg-muted/30 p-5 md:p-7">
         <div className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">System Settings</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage users, roles, templates, and system configuration.
-          </p>
         </div>
         <div className="grid items-start gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
           <nav className="sticky top-[96px] h-fit min-w-0 p-1">

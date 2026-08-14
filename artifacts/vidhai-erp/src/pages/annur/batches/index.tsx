@@ -47,10 +47,13 @@ const FILTER_INPUT =
 
 const DATE_INPUT = [
   FILTER_INPUT,
-  "font-mono w-[150px] pl-3 pr-2",
+  "font-mono w-[160px] pl-3 pr-9",
   "[&::-webkit-calendar-picker-indicator]:cursor-pointer",
-  "[&::-webkit-calendar-picker-indicator]:opacity-50",
-  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100",
+  "[&::-webkit-calendar-picker-indicator]:absolute",
+  "[&::-webkit-calendar-picker-indicator]:inset-0",
+  "[&::-webkit-calendar-picker-indicator]:h-full",
+  "[&::-webkit-calendar-picker-indicator]:w-full",
+  "[&::-webkit-calendar-picker-indicator]:opacity-0",
 ].join(" ");
 
 export default function Batches() {
@@ -226,7 +229,7 @@ export default function Batches() {
                   From Date
                 </Label>
                 <div className="relative">
-                  <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <CalendarDays className="pointer-events-none absolute right-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-primary" />
                   <Input
                     type="date"
                     value={filterFrom}
@@ -234,7 +237,7 @@ export default function Batches() {
                     onClick={(e) =>
                       (e.target as HTMLInputElement).showPicker?.()
                     }
-                    className={`${DATE_INPUT} pl-9 cursor-pointer`}
+                    className={`${DATE_INPUT} cursor-pointer`}
                   />
                 </div>
               </div>
@@ -245,7 +248,7 @@ export default function Batches() {
                   To Date
                 </Label>
                 <div className="relative">
-                  <CalendarDays className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <CalendarDays className="pointer-events-none absolute right-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-primary" />
                   <Input
                     type="date"
                     value={filterTo}
@@ -253,7 +256,7 @@ export default function Batches() {
                     onClick={(e) =>
                       (e.target as HTMLInputElement).showPicker?.()
                     }
-                    className={`${DATE_INPUT} pl-9 cursor-pointer`}
+                    className={`${DATE_INPUT} cursor-pointer`}
                   />
                 </div>
               </div>

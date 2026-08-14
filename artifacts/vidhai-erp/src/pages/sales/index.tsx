@@ -493,9 +493,6 @@ export default function Sales() {
               <h1 className="text-2xl font-bold text-foreground">
                 Sales Management
               </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Manage sales operations and dispatch tracking
-              </p>
             </div>
             <div className="flex gap-2">
               {canCreate && (

@@ -247,11 +247,6 @@ export default function VendorPayments() {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
               {FLEX_TEXT.vendorPayments}
             </h1>
-            <p className="text-xs text-muted-foreground mt-1">
-              {
-                FLEX_TEXT.recordPaymentsAgainstVendorBillsAndUpdateAccountsPayable
-              }
-            </p>
           </div>
 
           <div>

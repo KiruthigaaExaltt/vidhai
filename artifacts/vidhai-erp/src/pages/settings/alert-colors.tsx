@@ -65,9 +65,6 @@ export default function AlertColors() {
           <h1 className="text-2xl font-semibold tracking-tight">
             Alert Colors
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            System-wide status color definitions
-          </p>
         </div>
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>

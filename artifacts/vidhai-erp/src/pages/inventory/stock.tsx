@@ -82,9 +82,6 @@ export default function Stock() {
             <h1 className="text-2xl font-semibold tracking-tight">
               Stock Levels
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Raw material inventory quantities
-            </p>
           </div>
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>

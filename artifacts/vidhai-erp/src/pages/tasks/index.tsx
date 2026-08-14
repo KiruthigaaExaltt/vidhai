@@ -501,9 +501,6 @@ export default function Tasks() {
               <h1 className="font-display text-2xl font-bold tracking-tight">
                 Task management
               </h1>
-              <p className="text-sm text-muted-foreground">
-                Assign work, start tasks, and review manual timesheets
-              </p>
             </div>
           </div>
           <div className="flex gap-2">

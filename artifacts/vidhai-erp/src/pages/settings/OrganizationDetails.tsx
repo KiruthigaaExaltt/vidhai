@@ -187,10 +187,6 @@ export default function OrganizationDetails() {
       {/* Title */}
       <div>
         <h2 className="text-xl font-bold">Organization Details</h2>
-        <p className="text-sm text-muted-foreground">
-          Configure your company identity, tax information, and document
-          templates.
-        </p>
       </div>
 
       {/* Logos Section */}

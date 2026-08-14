@@ -964,9 +964,6 @@ export default function InventoryModule() {
                   <h1 className="text-2xl font-bold tracking-tight font-display">
                     Item & Product Master
                   </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Manage all inventory items and categories
-                  </p>
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -1730,9 +1727,6 @@ export default function InventoryModule() {
                   <h1 className="text-2xl font-bold tracking-tight font-display">
                     Warehouses & Stores
                   </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Manage storage locations and reserved stock
-                  </p>
                 </div>
                 <Button
                   onClick={() => setAddWarehouseOpen(true)}
@@ -1939,9 +1933,6 @@ export default function InventoryModule() {
                   <h1 className="text-2xl font-bold tracking-tight font-display">
                     Stock Movements
                   </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Record inward, outward, transfer, and adjustment movements
-                  </p>
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -2067,9 +2058,6 @@ export default function InventoryModule() {
                   <h1 className="text-2xl font-bold tracking-tight font-display">
                     Material Issue
                   </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Manage material indents and issuance from store
-                  </p>
                 </div>
                 <Button
                   onClick={() => setAddIndentOpen(true)}
@@ -2204,9 +2192,6 @@ export default function InventoryModule() {
                   <h1 className="text-2xl font-bold tracking-tight font-display">
                     Asset Management
                   </h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Track assets, their value, and allocation
-                  </p>
                 </div>
                 <Button
                   onClick={() => setAddAssetOpen(true)}

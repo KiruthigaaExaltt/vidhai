@@ -795,9 +795,6 @@ export default function Accounts() {
               <BookOpen />
               Accounts
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Double-entry ledger, subledgers and financial reporting
-            </p>
           </div>
           <div className="flex gap-2">
             <Button

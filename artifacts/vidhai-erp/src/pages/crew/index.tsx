@@ -335,9 +335,6 @@ export default function Crew() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold">Crew Management</h1>
-              <p className="text-sm text-muted-foreground">
-                Employee and workforce operations
-              </p>
             </div>
             <div className="flex gap-2">
               {canCreate &&

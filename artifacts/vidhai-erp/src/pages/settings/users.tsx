@@ -13,9 +13,6 @@ export default function Users() {
     <div className="w-full space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">System Users</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Access control and role management
-        </p>
       </div>
 
       <Card className="rounded-sm border-border shadow-none">

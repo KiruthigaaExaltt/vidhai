@@ -282,9 +282,6 @@ export default function ScheduleSuggest() {
             <Workflow className="w-6 h-6 text-primary" />
             Plan a Production Schedule
           </h1>
-          <p className="text-sm text-muted-foreground mt-1 leading-relaxed max-w-2xl">
-            Enter your <span className="font-semibold text-foreground">Target Sell / Ready Date</span>. The system back-calculates every upstream start date — Ooty room, Annur bags, Lab spawn prep, and Coimbatore casing soil.
-          </p>
         </div>
 
         {/* ── Plan Parameters ──────────────────────────────────────────────── */}

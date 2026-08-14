@@ -132,9 +132,6 @@ export default function Inventory() {
             <h1 className="text-3xl font-bold tracking-tight font-display">
               Inventory
             </h1>
-            <p className="text-base text-muted-foreground mt-1">
-              Manage global materials, stock levels, and transfers
-            </p>
           </div>
           <div className="flex gap-3">
             <Dialog open={isMovOpen} onOpenChange={setIsMovOpen}>

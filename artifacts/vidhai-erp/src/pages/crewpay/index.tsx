@@ -146,10 +146,6 @@ export default function CrewPay() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h1 className="text-2xl font-bold">CrewPay</h1>
-                  <p className="text-sm text-muted-foreground">
-                    Monthly salary-slip generation, payroll processing, and
-                    ledger sync
-                  </p>
                 </div>
                 <div className="flex gap-2">
                   <Input

@@ -262,9 +262,6 @@ export function AssetManagement() {
             <h1 className="text-2xl font-bold tracking-tight font-display">
               Asset Management
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Track assets, value, and employee allocation.
-            </p>
           </div>
           {tab === "assets" && (
             <Button onClick={() => setFormOpen(true)}>
