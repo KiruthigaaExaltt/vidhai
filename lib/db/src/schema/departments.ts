@@ -12,7 +12,7 @@ export const departmentsTable = mongoTable("departments", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id").notNull(),
   name: text("name").notNull(),
-  description: text("description").notNull().default(""),
+  description: text("description").default(""),
   status: text("status").notNull().default("Active"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

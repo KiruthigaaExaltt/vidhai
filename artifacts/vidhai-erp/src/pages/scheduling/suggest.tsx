@@ -26,7 +26,7 @@ import {
   Target,
   Package,
   CalendarClock,
-  Workflow,
+  CalendarCheck,
   GanttChartSquare,
   BookOpen,
 } from "lucide-react";
@@ -279,7 +279,7 @@ export default function ScheduleSuggest() {
         {/* ── Page header ──────────────────────────────────────────────────── */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
-            <Workflow className="w-6 h-6 text-primary" />
+            <CalendarCheck className="w-6 h-6 text-primary" />
             Plan a Production Schedule
           </h1>
         </div>

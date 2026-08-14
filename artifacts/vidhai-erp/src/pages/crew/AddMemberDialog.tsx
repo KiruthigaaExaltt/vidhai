@@ -150,6 +150,8 @@ export function AddMemberDialog({
       holidays: [],
       leave: [],
       salary: [],
+      departments: [],
+      roles: [],
     }),
     [preview, setPreview] = useState(""),
     [userDialog, setUserDialog] = useState(false),
@@ -286,6 +288,8 @@ export function AddMemberDialog({
       userId: id,
       name: u?.displayName || x.name,
       email: String(u?.email || x.email).toLowerCase(),
+      role: u?.role || x.role,
+      department: u?.department || x.department,
     }));
   };
   const photo = (file?: File) => {
@@ -332,7 +336,6 @@ export function AddMemberDialog({
       ["leaveTemplate", "Leave template is required."],
       ["salaryTemplateId", "Salary template is required."],
       ["annualCtc", "Annual CTC is required."],
-      ["baseSalary", "Base salary is required."],
       ["bankName", "Bank name is required."],
       ["accountHolderName", "Account holder name is required."],
       ["accountNumber", "Account number is required."],
@@ -349,7 +352,7 @@ export function AddMemberDialog({
       e.alternatePhone = "Enter exactly 10 digits.";
     if (f.dateOfBirth && f.dateOfBirth > today())
       e.dateOfBirth = "Date of birth cannot be in the future.";
-    for (const k of ["annualCtc", "baseSalary"] as const)
+    for (const k of ["annualCtc"] as const)
       if (f[k] !== "" && (!Number.isFinite(Number(f[k])) || Number(f[k]) < 0))
         e[k] = "Enter a non-negative amount.";
     if (f.aadhaarNumber && !/^\d{12}$/.test(f.aadhaarNumber))
@@ -386,7 +389,7 @@ export function AddMemberDialog({
           : null,
         salaryTemplateId: Number(f.salaryTemplateId),
         annualCtc: Number(f.annualCtc),
-        baseSalary: Number(f.baseSalary),
+        baseSalary: Number(f.baseSalary || 0),
         email: f.email.trim().toLowerCase(),
         phone: digits(f.phone),
         alternatePhone: f.alternatePhone ? digits(f.alternatePhone) : null,
@@ -438,18 +441,28 @@ export function AddMemberDialog({
   };
   const createUser = async () => {
     try {
+      const selectedRole = newUser.role || f.role;
+      if (!selectedRole)
+        throw new Error("Select a role before creating the user");
       const u = await request("users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({
+          ...newUser,
+          role: selectedRole,
+          department: f.department || null,
+          employeeName: f.name || newUser.name,
+        }),
       });
+      if (!u?.id) throw new Error("User was created without a valid link ID");
       setOptions((x: any) => ({ ...x, users: [...x.users, u] }));
-      chooseUser(String(u.id));
       setF((x) => ({
         ...x,
         userId: String(u.id),
         name: u.displayName,
         email: String(u.email || "").toLowerCase(),
+        role: u.role || selectedRole,
+        department: u.department || x.department,
         includeInUser: true,
       }));
       setUserDialog(false);
@@ -461,7 +474,7 @@ export function AddMemberDialog({
       });
     } catch (e: any) {
       toast({
-        title: "Unable to create user",
+        title: "Unable to create and link user",
         description: e.message,
         variant: "destructive",
       });
@@ -517,7 +530,15 @@ export function AddMemberDialog({
                         checked={f.includeInUser}
                         onChange={(e) => {
                           field("includeInUser", e.target.checked);
-                          if (e.target.checked) setUserDialog(true);
+                          if (e.target.checked) {
+                            setNewUser((user) => ({
+                              ...user,
+                              name: f.name || user.name,
+                              email: f.email || user.email,
+                              role: f.role || options.roles[0]?.name || "",
+                            }));
+                            setUserDialog(true);
+                          }
                         }}
                       />
                       <span>
@@ -638,11 +659,14 @@ export function AddMemberDialog({
               </Section>
               <Section title="HR & Compliance">
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Text
+                  <Choice
                     k="role"
                     label="Role"
                     required
-                    placeholder="e.g., Production Operator"
+                    items={options.roles.map((role: any) => ({
+                      value: role.name,
+                      label: role.name,
+                    }))}
                   />
                   <Text
                     k="designation"
@@ -650,11 +674,14 @@ export function AddMemberDialog({
                     required
                     placeholder="e.g., Senior Operator"
                   />
-                  <Text
+                  <Choice
                     k="department"
                     label="Department"
                     required
-                    placeholder="e.g., Production"
+                    items={options.departments.map((department: any) => ({
+                      value: department.name,
+                      label: department.name,
+                    }))}
                   />
                   <Text
                     k="employeeCode"
@@ -702,13 +729,6 @@ export function AddMemberDialog({
                       }
                     />
                   </F>
-                  <Text
-                    k="baseSalary"
-                    label="Base Salary"
-                    required
-                    type="number"
-                    min="0"
-                  />
                   <Text
                     k="joinDate"
                     label="Joining Date"
@@ -872,12 +892,37 @@ export function AddMemberDialog({
                   }))
                 }
               />
+              <select
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={newUser.role}
+                onChange={(e) => {
+                  const role = e.target.value;
+                  setNewUser((user) => ({ ...user, role }));
+                  field("role", role);
+                }}
+              >
+                <option value="">Select role</option>
+                {options.roles.map((role: any) => (
+                  <option key={role.id} value={role.name}>
+                    {role.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setUserDialog(false)}>
                 Cancel
               </Button>
-              <Button onClick={createUser}>Create & Link</Button>
+              <Button
+                disabled={
+                  !newUser.name.trim() ||
+                  (!newUser.username.trim() && !newUser.email.trim()) ||
+                  !newUser.role
+                }
+                onClick={createUser}
+              >
+                Create & Link
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

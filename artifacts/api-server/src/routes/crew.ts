@@ -16,6 +16,8 @@ import {
   holidayTemplatesTable,
   leaveTemplatesTable,
   salaryTemplatesTable,
+  departmentsTable,
+  rolesTable,
 } from "@workspace/db";
 import {
   employeesTable,
@@ -332,6 +334,8 @@ router.get(
         displayName: u.displayName,
         email: u.email,
         username: u.username,
+        role: u.role,
+        department: u.department,
       }));
     const active = async (table: any) =>
       (
@@ -345,6 +349,13 @@ router.get(
       holidays,
       leave: await active(leaveTemplatesTable),
       salary: await active(salaryTemplatesTable),
+      departments: (await active(departmentsTable)).filter(
+        (department: any) => department.status !== "Inactive",
+      ),
+      roles: (await active(rolesTable)).filter(
+        (role: any) =>
+          !role.isSuperAdmin && role.systemKey !== "SUPER_ADMIN",
+      ),
     });
   },
 );
@@ -386,7 +397,6 @@ router.post(
         "leaveTemplate",
         "salaryTemplateId",
         "annualCtc",
-        "baseSalary",
         "bankName",
         "accountHolderName",
         "accountNumber",
@@ -419,7 +429,7 @@ router.post(
         leaveTemplate: Number(b.leaveTemplate),
         salaryTemplateId: Number(b.salaryTemplateId),
         annualCtc: Number(b.annualCtc),
-        baseSalary: Number(b.baseSalary),
+        baseSalary: Number(b.baseSalary || 0),
         skills: tags(b.skills),
         certifications: tags(b.certifications),
         fixedComponentValues:
@@ -571,7 +581,12 @@ router.post(
       if (row.userId)
         await db
           .update(usersTable)
-          .set({ employeeId: row.id, employeeName: row.name })
+          .set({
+            employeeId: row.id,
+            employeeName: row.name,
+            role: row.role,
+            department: row.department,
+          })
           .where(
             and(
               eq(usersTable.id, row.userId),
@@ -662,7 +677,12 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
     if (row.userId)
       await db
         .update(usersTable)
-        .set({ employeeId: row.id, employeeName: row.name })
+        .set({
+          employeeId: row.id,
+          employeeName: row.name,
+          role: row.role,
+          department: row.department,
+        })
         .where(eq(usersTable.id, row.userId));
     void audit(req, "employee", row.id, row.name, "update", old, row);
     res.json(row);
