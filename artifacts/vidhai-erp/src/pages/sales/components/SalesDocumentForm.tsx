@@ -165,9 +165,24 @@ export function SalesDocumentForm({
   >(null);
 
   useEffect(() => {
-    fetch("/api/contacts")
-      .then((res) => res.json())
-      .then((data) => setClients(data.filter((c: any) => c.type === "client")))
+    fetch("/api/sales/clients", {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok)
+          throw new Error(body.error || "Unable to load CRM clients");
+        return body;
+      })
+      .then((body) => {
+        const contacts = Array.isArray(body) ? body : body.data || [];
+        setClients(
+          contacts.filter(
+            (contact: any) =>
+              String(contact.type || "").toLowerCase() === "client",
+          ),
+        );
+      })
       .catch((err) => console.error("Error loading clients:", err));
     fetch("/api/inventory", { credentials: "include" })
       .then(async (res) => {

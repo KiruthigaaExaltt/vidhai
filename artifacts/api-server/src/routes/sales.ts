@@ -41,6 +41,15 @@ import {
 
 const router = Router();
 
+router.get("/clients", requireAuth, async (_req, res) => {
+  const clients = await db
+    .select()
+    .from(contactsTable)
+    .where(eq(contactsTable.type, "client"))
+    .orderBy(contactsTable.name);
+  return res.json(clients);
+});
+
 const quotationNumericFields = ["subtotal", "taxableAmount", "cgstTotal", "sgstTotal", "igstTotal", "grandTotal", "discountAmount", "roundOff"] as const;
 function serializeQuotation<T extends Record<string, any>>(row: T) {
   const result: Record<string, any> = { ...row };
