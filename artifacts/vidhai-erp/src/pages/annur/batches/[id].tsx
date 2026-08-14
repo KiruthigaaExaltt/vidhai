@@ -95,6 +95,12 @@ export default function BatchDetail() {
       chamber.chamberType === "turn" &&
       chamber.id === (batch as any)?.turnChamberId,
   );
+  const assignedPreWettingChamber = chambers?.find(
+    (chamber: any) =>
+      chamber.chamberType === "pre_wetting" &&
+      (chamber.id === batch?.preWettingChamberId ||
+        chamber.currentBatchId === batchId),
+  );
   const availableBulkChambers =
     chambers?.filter(
       (chamber: any) =>
@@ -104,7 +110,9 @@ export default function BatchDetail() {
     ) ?? [];
   const assignedBulkChamber = chambers?.find(
     (chamber: any) =>
-      chamber.chamberType === "bulk" && chamber.currentBatchId === batchId,
+      chamber.chamberType === "bulk" &&
+      (chamber.id === batch?.bulkChamberId ||
+        chamber.currentBatchId === batchId),
   );
   const [chamberPromptOpen, setChamberPromptOpen] = useState(false);
   const [promptChamberId, setPromptChamberId] = useState("");
@@ -293,7 +301,9 @@ export default function BatchDetail() {
   }, [batch?.stageLogs]);
 
   const currentStageKey = batch?.currentStage ?? "PRE_WETTING";
+  const preWettingChamberLabel = assignedPreWettingChamber?.name;
   const turnChamberLabel = assignedTurnChamber?.name;
+  const bulkChamberLabel = assignedBulkChamber?.name;
   const batchCreatedAt = batch ? new Date(batch.createdAt) : new Date();
 
   // Formulation stats from saved materials (read-only, no local state)
@@ -370,14 +380,27 @@ export default function BatchDetail() {
           </div>
         </div>
 
-        {/* Tabs */}
-        {turnChamberLabel &&
-          ["T1", "T2", "T3", "T4"].includes(currentStageKey) && (
-            <div className="mb-3 text-xs text-muted-foreground">
-              <span className="font-semibold uppercase">Turn Chamber:</span>{" "}
-              {turnChamberLabel}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            ["Pre-Wetting Chamber", preWettingChamberLabel],
+            ["Turn Chamber", turnChamberLabel],
+            ["Bulk Chamber", bulkChamberLabel],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="rounded-md border bg-muted/20 px-4 py-3"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {label}
+              </p>
+              <p className="mt-1 text-sm font-medium">
+                {value || "Not recorded"}
+              </p>
             </div>
-          )}
+          ))}
+        </div>
+
+        {/* Tabs */}
         <Tabs defaultValue="formulation" className="w-full">
           <TabsList className="rounded-sm bg-transparent border-b w-full justify-start h-auto p-0 space-x-6 mb-6">
             <TabsTrigger
@@ -797,12 +820,12 @@ export default function BatchDetail() {
         open={!!lightboxSrc}
         onOpenChange={(open) => !open && setLightboxSrc(null)}
       >
-        <DialogContent className="rounded-sm border-border max-w-2xl shadow-2xl p-2 bg-black/95">
+        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
           {lightboxSrc && (
             <img
               src={lightboxSrc}
               alt="Verification photo"
-              className="w-full h-auto max-h-[80vh] object-contain rounded-sm"
+              className="w-full h-auto max-h-[80vh] object-contain"
             />
           )}
           <button

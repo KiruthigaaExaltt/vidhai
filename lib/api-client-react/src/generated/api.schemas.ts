@@ -392,6 +392,12 @@ export interface Batch {
   /** @nullable */
   actualBags?: number | null;
   /** @nullable */
+  preWettingChamberId?: number | null;
+  /** @nullable */
+  turnChamberId?: number | null;
+  /** @nullable */
+  bulkChamberId?: number | null;
+  /** @nullable */
   spawnEntryId?: number | null;
   /** @nullable */
   spawnBatchRef?: string | null;
@@ -478,6 +484,12 @@ export interface BatchDetail {
   /** @nullable */
   actualBags?: number | null;
   /** @nullable */
+  preWettingChamberId?: number | null;
+  /** @nullable */
+  turnChamberId?: number | null;
+  /** @nullable */
+  bulkChamberId?: number | null;
+  /** @nullable */
   spawnEntryId?: number | null;
   /** @nullable */
   dispatchLocationId?: number | null;
@@ -495,6 +507,7 @@ export interface BatchDetail {
 
 export interface BatchInput {
   locationId: number;
+  preWettingChamberId: number;
   /** @nullable */
   targetBags?: number | null;
   /** @nullable */

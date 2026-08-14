@@ -2122,6 +2122,9 @@ components:
         nitrogenContent: { type: ["number", "null"] }
         targetBags: { type: ["integer", "null"] }
         actualBags: { type: ["integer", "null"] }
+        preWettingChamberId: { type: ["integer", "null"] }
+        turnChamberId: { type: ["integer", "null"] }
+        bulkChamberId: { type: ["integer", "null"] }
         spawnEntryId: { type: ["integer", "null"] }
         spawnBatchRef: { type: ["string", "null"] }
         spawnBatchType: { type: ["string", "null"] }
@@ -2149,6 +2152,9 @@ components:
         nitrogenContent: { type: ["number", "null"] }
         targetBags: { type: ["integer", "null"] }
         actualBags: { type: ["integer", "null"] }
+        preWettingChamberId: { type: ["integer", "null"] }
+        turnChamberId: { type: ["integer", "null"] }
+        bulkChamberId: { type: ["integer", "null"] }
         spawnEntryId: { type: ["integer", "null"] }
         dispatchLocationId: { type: ["integer", "null"] }
         notes: { type: ["string", "null"] }
@@ -2167,9 +2173,10 @@ components:
 
     BatchInput:
       type: object
-      required: [locationId]
+      required: [locationId, preWettingChamberId]
       properties:
         locationId: { type: integer }
+        preWettingChamberId: { type: integer }
         targetBags: { type: ["integer", "null"] }
         notes: { type: ["string", "null"] }
         formulation:
@@ -2686,6 +2693,9 @@ components:
         name: { type: string }
         capacity: { type: ["integer", "string", "null"] }
         notes: { type: ["string", "null"] }
+        annurBatchCode: { type: ["string", "null"] }
+        bagsAllocated: { type: ["integer", "null"], minimum: 1 }
+        spawnRunStartDate: { type: ["string", "null"], format: date }
 
     OotyRoomImportRequest:
       type: object

@@ -18,6 +18,9 @@ const ALLOWED_HEADERS = new Map([
   ["room name", "name"],
   ["capacity", "capacity"],
   ["notes", "notes"],
+  ["annur batch", "annurBatchCode"],
+  ["bags allocated", "bagsAllocated"],
+  ["spawn run start date", "spawnRunStartDate"],
 ]);
 
 type ImportRow = {
@@ -25,6 +28,9 @@ type ImportRow = {
   name: unknown;
   capacity: unknown;
   notes: unknown;
+  annurBatchCode: unknown;
+  bagsAllocated: unknown;
+  spawnRunStartDate: unknown;
   status: "valid" | "invalid" | "duplicate" | "existing";
   errors: string[];
 };
@@ -52,7 +58,10 @@ const normalizeName = (value: unknown) =>
     .trim()
     .toLocaleLowerCase();
 
-function validateRow(row: Omit<ImportRow, "status" | "errors">): string[] {
+function validateRow(
+  row: Omit<ImportRow, "status" | "errors">,
+  completedBatchCodes: Set<string>,
+): string[] {
   const errors: string[] = [];
   const name = typeof row.name === "string" ? row.name.trim() : "";
   if (!name) errors.push("Room Name is required");
@@ -82,18 +91,63 @@ function validateRow(row: Omit<ImportRow, "status" | "errors">): string[] {
     errors.push("Notes must be text");
   else if (String(row.notes ?? "").trim().length > 1000)
     errors.push("Notes must be 1000 characters or fewer");
+  const annurBatchCode =
+    typeof row.annurBatchCode === "string" ? row.annurBatchCode.trim() : "";
+  const rawBags = row.bagsAllocated;
+  const hasAnnurBatch = annurBatchCode !== "";
+  const hasBags =
+    rawBags !== null && rawBags !== undefined && String(rawBags).trim() !== "";
+  const hasStartDate =
+    typeof row.spawnRunStartDate === "string" && row.spawnRunStartDate !== "";
+  const hasAnyAssignment = hasAnnurBatch || hasBags || hasStartDate;
+  if (hasAnyAssignment) {
+    if (!hasAnnurBatch)
+      errors.push("Annur Batch is required when assigning a batch");
+    else if (!completedBatchCodes.has(annurBatchCode.toLocaleLowerCase()))
+      errors.push(
+        `Annur Batch "${annurBatchCode}" is not available as a completed batch`,
+      );
+    const bagsAllocated =
+      typeof rawBags === "number"
+        ? rawBags
+        : Number(String(rawBags ?? "").trim());
+    if (!hasBags || !Number.isInteger(bagsAllocated) || bagsAllocated <= 0)
+      errors.push(
+        "Bags Allocated must be a positive whole number when assigning a batch",
+      );
+    if (
+      !hasStartDate ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(String(row.spawnRunStartDate))
+    )
+      errors.push(
+        "Spawn Run Start Date must use YYYY-MM-DD when assigning a batch",
+      );
+  }
   return errors;
+}
+
+function excelDateToIso(value: unknown): unknown {
+  if (value instanceof Date && !Number.isNaN(value.getTime()))
+    return value.toISOString().slice(0, 10);
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed)
+      return `${String(parsed.y).padStart(4, "0")}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+  }
+  return typeof value === "string" ? value.trim() : value;
 }
 
 export function GrowingRoomImportDialog({
   open,
   onOpenChange,
   existingRooms,
+  completedAnnurBatches,
   onImported,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingRooms: any[];
+  completedAnnurBatches: any[];
   onImported: () => void;
 }) {
   const { toast } = useToast();
@@ -103,6 +157,17 @@ export function GrowingRoomImportDialog({
   const [fileError, setFileError] = useState("");
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const completedBatchCodes = useMemo(
+    () =>
+      new Set(
+        completedAnnurBatches.map((batch) =>
+          String(batch.batchCode).trim().toLocaleLowerCase(),
+        ),
+      ),
+    [completedAnnurBatches],
+  );
+  const sampleBatchCode =
+    completedAnnurBatches[0]?.batchCode ?? "A-YYYYMMDD-001";
   const existingNames = useMemo(
     () => new Set(existingRooms.map((room) => normalizeName(room.name))),
     [existingRooms],
@@ -127,11 +192,27 @@ export function GrowingRoomImportDialog({
 
   const downloadTemplate = () => {
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["Room Name", "Capacity", "Notes"],
-      ["Room 01", 1000, ""],
-      ["Room 02", 1200, "North wing"],
+      [
+        "Room Name",
+        "Capacity",
+        "Notes",
+        "Annur Batch",
+        "Bags Allocated",
+        "Spawn Run Start Date",
+      ],
+      ["Room 01", 1000, "", sampleBatchCode, 1000, new Date()],
+      ["Room 02", 1200, "North wing", sampleBatchCode, 1200, new Date()],
     ]);
-    worksheet["!cols"] = [{ wch: 24 }, { wch: 14 }, { wch: 36 }];
+    worksheet["!cols"] = [
+      { wch: 24 },
+      { wch: 14 },
+      { wch: 36 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 22 },
+    ];
+    worksheet["F2"].z = "yyyy-mm-dd";
+    worksheet["F3"].z = "yyyy-mm-dd";
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Growing Rooms");
     XLSX.writeFile(workbook, "ooty-growing-rooms-template.xlsx");
@@ -151,7 +232,7 @@ export function GrowingRoomImportDialog({
     try {
       const workbook = XLSX.read(await file.arrayBuffer(), {
         type: "array",
-        cellDates: false,
+        cellDates: true,
       });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet)
@@ -175,6 +256,20 @@ export function GrowingRoomImportDialog({
         return setFileError('Required Excel column "Room Name" is missing');
       const capacityIndex = headers.indexOf("capacity");
       const notesIndex = headers.indexOf("notes");
+      const annurBatchIndex = headers.indexOf("annur batch");
+      const bagsAllocatedIndex = headers.indexOf("bags allocated");
+      const spawnRunStartDateIndex = headers.indexOf("spawn run start date");
+      const missingAssignmentHeaders = [
+        ["Annur Batch", annurBatchIndex],
+        ["Bags Allocated", bagsAllocatedIndex],
+        ["Spawn Run Start Date", spawnRunStartDateIndex],
+      ]
+        .filter(([, index]) => Number(index) < 0)
+        .map(([header]) => header);
+      if (missingAssignmentHeaders.length)
+        return setFileError(
+          `Required Excel columns missing: ${missingAssignmentHeaders.join(", ")}`,
+        );
       const nonBlank = data
         .slice(1)
         .map((cells, index) => ({ cells, rowNumber: index + 2 }))
@@ -195,8 +290,11 @@ export function GrowingRoomImportDialog({
           name: cells[nameIndex],
           capacity: capacityIndex >= 0 ? cells[capacityIndex] : "",
           notes: notesIndex >= 0 ? cells[notesIndex] : "",
+          annurBatchCode: cells[annurBatchIndex],
+          bagsAllocated: cells[bagsAllocatedIndex],
+          spawnRunStartDate: excelDateToIso(cells[spawnRunStartDateIndex]),
         };
-        const errors = validateRow(base);
+        const errors = validateRow(base, completedBatchCodes);
         if (errors.length) return { ...base, status: "invalid", errors };
         const key = normalizeName(base.name);
         if (seen.has(key))
@@ -229,12 +327,25 @@ export function GrowingRoomImportDialog({
         credentials: "include",
         body: JSON.stringify({
           fileName,
-          rows: rows.map(({ rowNumber, name, capacity, notes }) => ({
-            rowNumber,
-            name,
-            capacity,
-            notes,
-          })),
+          rows: rows.map(
+            ({
+              rowNumber,
+              name,
+              capacity,
+              notes,
+              annurBatchCode,
+              bagsAllocated,
+              spawnRunStartDate,
+            }) => ({
+              rowNumber,
+              name,
+              capacity,
+              notes,
+              annurBatchCode,
+              bagsAllocated,
+              spawnRunStartDate,
+            }),
+          ),
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -276,7 +387,8 @@ export function GrowingRoomImportDialog({
                 1. Download the Excel template
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Columns: Room Name (required), Capacity, Notes
+                Columns: Room Name, Capacity, Notes, Annur Batch, Bags
+                Allocated, Spawn Run Start Date
               </p>
             </div>
             <Button
@@ -323,13 +435,16 @@ export function GrowingRoomImportDialog({
                 </Badge>
               </div>
               <div className="border rounded-md overflow-x-auto max-h-[340px] overflow-y-auto">
-                <table className="w-full min-w-[720px] text-sm">
+                <table className="w-full min-w-[1100px] text-sm">
                   <thead className="sticky top-0 bg-muted">
                     <tr>
                       <th className="text-left p-2">Row</th>
                       <th className="text-left p-2">Room Name</th>
                       <th className="text-right p-2">Capacity</th>
                       <th className="text-left p-2">Notes</th>
+                      <th className="text-left p-2">Annur Batch</th>
+                      <th className="text-right p-2">Bags Allocated</th>
+                      <th className="text-left p-2">Spawn Run Date</th>
                       <th className="text-left p-2">Status / Error</th>
                     </tr>
                   </thead>
@@ -345,6 +460,15 @@ export function GrowingRoomImportDialog({
                         </td>
                         <td className="p-2 max-w-48 truncate">
                           {String(row.notes ?? "") || "—"}
+                        </td>
+                        <td className="p-2 font-mono">
+                          {String(row.annurBatchCode ?? "") || "—"}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {String(row.bagsAllocated ?? "") || "—"}
+                        </td>
+                        <td className="p-2 font-mono">
+                          {String(row.spawnRunStartDate ?? "") || "—"}
                         </td>
                         <td
                           className={`p-2 ${row.status === "valid" ? "text-emerald-700" : row.status === "existing" ? "text-amber-700" : "text-destructive"}`}

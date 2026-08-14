@@ -618,6 +618,7 @@ export default function OotyRooms() {
         open={importOpen}
         onOpenChange={setImportOpen}
         existingRooms={(rooms as any[]) ?? []}
+        completedAnnurBatches={completedAnnurBatches}
         onImported={refetch}
       />
     </Shell>

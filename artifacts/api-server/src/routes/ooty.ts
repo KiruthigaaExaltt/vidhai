@@ -152,24 +152,111 @@ router.post("/rooms", requireAuth, async (req, res) => {
 });
 
 router.post("/rooms/import", requireAuth, requirePermission("production.growing_rooms.create"), async (req, res) => {
+  const userId = (req.session as any).userId;
   const { fileName, rows } = req.body as { fileName?: unknown; rows?: unknown };
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: "The import contains no room rows" });
   if (rows.length > MAX_GROWING_ROOM_IMPORT_ROWS) return res.status(400).json({ error: `A maximum of ${MAX_GROWING_ROOM_IMPORT_ROWS} rooms can be imported at once` });
   const [loc] = await db.select().from(locationsTable).where(eq(locationsTable.code, "B")).limit(1);
   if (!loc) return res.status(409).json({ error: "Ooty Location B was not found" });
   const existingRooms = await db.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.locationId, loc.id));
-    const { results, pending } = prepareGrowingRoomImport(rows, existingRooms.map((room) => room.name));
-  if (pending.length) await db.transaction(async (tx) => {
+  const { results, pending } = prepareGrowingRoomImport(rows, existingRooms.map((room) => room.name));
+  const roomOnly = pending.filter((item) => item.value.annurBatchCode === null);
+  const assignmentPending = pending.filter(
+    (item): item is typeof item & { value: typeof item.value & { annurBatchCode: string; bagsAllocated: number; spawnRunStartDate: string } } =>
+      item.value.annurBatchCode !== null && item.value.bagsAllocated !== null && item.value.spawnRunStartDate !== null,
+  );
+  const annurBatches = await db.select().from(batchesTable);
+  const annurByCode = new Map(annurBatches.map((batch) => [String(batch.batchCode).trim().toLocaleLowerCase(), batch]));
+  const existingSources = await db.select().from(ootyBatchSourcesTable);
+  const allocatedByBatch = new Map<number, number>();
+  for (const source of existingSources)
+    allocatedByBatch.set(source.annurBatchId, (allocatedByBatch.get(source.annurBatchId) ?? 0) + Number(source.bagCount || 0));
+
+  const sourceValidated: Array<{ rowNumber: number; value: typeof assignmentPending[number]["value"]; annurBatch: any }> = [];
+  for (const item of assignmentPending) {
+    const annurBatch = annurByCode.get(item.value.annurBatchCode.toLocaleLowerCase());
+    if (!annurBatch || annurBatch.currentStage !== "COMPLETED" || annurBatch.status !== "dispatched" || !annurBatch.actualBags) {
+      results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "failed", reason: `Annur Batch "${item.value.annurBatchCode}" is not a completed batch with produced bags` });
+      continue;
+    }
+    const alreadyAllocated = allocatedByBatch.get(annurBatch.id) ?? 0;
+    const remaining = Number(annurBatch.actualBags) - alreadyAllocated;
+    if (item.value.bagsAllocated > remaining) {
+      results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "failed", reason: `Only ${remaining} produced bags remain available from ${annurBatch.batchCode}` });
+      continue;
+    }
+    allocatedByBatch.set(annurBatch.id, alreadyAllocated + item.value.bagsAllocated);
+    sourceValidated.push({ ...item, annurBatch });
+  }
+
+  if (sourceValidated.length) {
+    const [growBagMaterial] = await db.select().from(materialsTable).where(eq(materialsTable.sku, "VLT-RM-GROW-BAG")).limit(1);
+    const [annurWarehouse] = await db.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.systemCode, "ANNUR")).limit(1);
+    const [annurLocation] = await db.select().from(locationsTable).where(eq(locationsTable.code, "A")).limit(1);
+    if (!growBagMaterial || !annurWarehouse || !annurLocation)
+      return res.status(409).json({ error: "Annur Grow Bag inventory configuration is missing" });
+    const [availableStock] = await db.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, growBagMaterial.id), eq(inventoryTable.locationId, annurWarehouse.id))).limit(1);
+    let vaultRemaining = Number(availableStock?.quantityOnHand || 0);
+    const ready: typeof sourceValidated = [];
+    for (const item of sourceValidated) {
+      if (item.value.bagsAllocated > vaultRemaining) {
+        results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "failed", reason: `Only ${vaultRemaining} grow bags are available in the Annur Vault` });
+        continue;
+      }
+      vaultRemaining -= item.value.bagsAllocated;
+      ready.push(item);
+    }
+
+    if (ready.length) await db.transaction(async (tx) => {
+      const currentRooms = await tx.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.locationId, loc.id));
+      const currentNames = new Set(currentRooms.map((room) => normalizeGrowingRoomName(room.name)));
+      const importReady = ready.filter((item) => {
+        if (!currentNames.has(normalizeGrowingRoomName(item.value.name))) return true;
+        results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "skipped", reason: "Room already exists in Ooty Location B" });
+        return false;
+      });
+      if (!importReady.length) return;
+      const [stock] = await tx.select().from(inventoryTable).where(and(eq(inventoryTable.materialId, growBagMaterial.id), eq(inventoryTable.locationId, annurWarehouse.id))).limit(1);
+      const totalBags = importReady.reduce((sum, item) => sum + item.value.bagsAllocated, 0);
+      if (!stock || Number(stock.quantityOnHand) < totalBags) throw new Error("Insufficient Annur Grow Bag stock");
+      const now = new Date();
+      const [updatedStock] = await tx.update(inventoryTable).set({ quantityOnHand: String(Number(stock.quantityOnHand) - totalBags), lastUpdated: now }).where(eq(inventoryTable.id, stock.id)).returning();
+      const existingGrowingBatches = await tx.select().from(ootyGrowingBatchesTable);
+      const yy = String(now.getFullYear()).slice(2), mm = String(now.getMonth() + 1).padStart(2, "0"), dd = String(now.getDate()).padStart(2, "0");
+      let createdSequence = 0;
+      for (const item of importReady) {
+        const key = normalizeGrowingRoomName(item.value.name);
+
+        const room = await insertGrowingRoom(tx, loc.id, item.value);
+        createdSequence += 1;
+        const batchCode = `B-${yy}${mm}${dd}-${String(existingGrowingBatches.length + createdSequence).padStart(3, "0")}`;
+        const [batch] = await tx.insert(ootyGrowingBatchesTable).values({ batchCode, roomId: room.id, annurBatchId: item.annurBatch.id, currentPhase: "SPAWN_RUN", currentStage: "SPAWN_RUN", phaseEnteredAt: now, status: "active", spawnRunStartDate: item.value.spawnRunStartDate, notes: null, createdByUserId: userId }).returning();
+        await tx.insert(ootyStageLogsTable).values({ growingBatchId: batch.id, stage: "SPAWN_RUN", enteredAt: now, recordedByUserId: userId });
+        await tx.insert(ootyBatchSourcesTable).values({ growingBatchId: batch.id, annurBatchId: item.annurBatch.id, bagCount: item.value.bagsAllocated });
+        const traceNotes = `Ooty Growing Room Excel import | Growing Batch: ${batch.batchCode} (#${batch.id}) | Room: ${room.name} (#${room.id}) | Annur Batch: ${item.annurBatch.batchCode} (#${item.annurBatch.id}) | Total Bags: ${item.value.bagsAllocated}`;
+        const [adjustment] = await tx.insert(inventoryAdjustmentsTable).values({ materialId: growBagMaterial.id, locationId: annurLocation.id, quantityDelta: String(-item.value.bagsAllocated), reason: "production_consumption", notes: traceNotes, adjustedByUserId: userId }).returning();
+        await tx.insert(ootyGrowBagInventoryPostingsTable).values({ postingKey: `ooty-grow-bag-assignment:${batch.id}`, growingBatchId: batch.id, inventoryId: updatedStock.id, inventoryAdjustmentId: adjustment.id, warehouseId: annurWarehouse.id, allocatedBags: item.value.bagsAllocated });
+        await tx.update(ootyRoomsTable).set({ status: "active", currentGrowingBatchId: batch.id }).where(eq(ootyRoomsTable.id, room.id));
+        currentNames.add(key);
+        results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "created" });
+      }
+    });
+  }
+  if (roomOnly.length) await db.transaction(async (tx) => {
     const currentRooms = await tx.select().from(ootyRoomsTable).where(eq(ootyRoomsTable.locationId, loc.id));
     const currentNames = new Set(currentRooms.map((room) => normalizeGrowingRoomName(room.name)));
-    for (const item of pending) {
+    for (const item of roomOnly) {
       const key = normalizeGrowingRoomName(item.value.name);
-      if (currentNames.has(key)) { results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "skipped", reason: "Room already exists in Ooty Location B" }); continue; }
+      if (currentNames.has(key)) {
+        results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "skipped", reason: "Room already exists in Ooty Location B" });
+        continue;
+      }
       await insertGrowingRoom(tx, loc.id, item.value);
       currentNames.add(key);
       results.push({ rowNumber: item.rowNumber, name: item.value.name, status: "created" });
     }
   });
+
   results.sort((a, b) => a.rowNumber - b.rowNumber);
   return res.status(201).json({
     fileName: typeof fileName === "string" ? fileName.slice(0, 255) : null,

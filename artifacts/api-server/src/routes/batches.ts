@@ -72,7 +72,9 @@ function formatBatch(b: any, locationCode: string, createdByName: string) {
       b.nitrogenContent != null ? Number(b.nitrogenContent) : null,
     targetBags: b.targetBags,
     actualBags: b.actualBags,
+    preWettingChamberId: b.preWettingChamberId,
     turnChamberId: b.turnChamberId,
+    bulkChamberId: b.bulkChamberId,
     spawnEntryId: b.spawnEntryId,
     spawnBatchRef: b.spawnBatchRef,
     spawnBatchType: b.spawnBatchType,
@@ -140,18 +142,20 @@ router.get("/", async (req, res) => {
 
 // ── Create batch ──────────────────────────────────────────────────────────────
 router.post("/", async (req, res) => {
-  const { locationId, targetBags, notes, formulation } = req.body as {
-    locationId: number;
-    targetBags?: number | null;
-    notes?: string | null;
-    formulation?: Array<{
-      materialId?: number;
-      name: string;
-      wetWeightKg: number;
-      moisturePercent: number;
-      nitrogenPercent: number;
-    }>;
-  };
+  const { locationId, preWettingChamberId, targetBags, notes, formulation } =
+    req.body as {
+      locationId: number;
+      preWettingChamberId: number;
+      targetBags?: number | null;
+      notes?: string | null;
+      formulation?: Array<{
+        materialId?: number;
+        name: string;
+        wetWeightKg: number;
+        moisturePercent: number;
+        nitrogenPercent: number;
+      }>;
+    };
   const userId = (req.session as any)?.userId ?? null;
 
   if (!Array.isArray(formulation) || formulation.length === 0) {
@@ -163,6 +167,26 @@ router.post("/", async (req, res) => {
     .where(eq(locationsTable.id, locationId))
     .limit(1);
   if (!loc) return res.status(400).json({ error: "Location not found" });
+  const [preWettingChamber] = await db
+    .select()
+    .from(chambersTable)
+    .where(eq(chambersTable.id, Number(preWettingChamberId)))
+    .limit(1);
+  if (
+    !preWettingChamber ||
+    preWettingChamber.chamberType !== "pre_wetting" ||
+    preWettingChamber.locationId !== locationId
+  )
+    return res.status(400).json({
+      error: "Select a valid Pre-Wetting chamber for the Annur location",
+    });
+  if (
+    preWettingChamber.status !== "idle" ||
+    preWettingChamber.currentBatchId != null
+  )
+    return res.status(409).json({
+      error: "The selected Pre-Wetting chamber is no longer available",
+    });
 
   const date = new Date();
   const yy = String(date.getFullYear()).slice(-2);
@@ -191,11 +215,30 @@ router.post("/", async (req, res) => {
           currentStage: "PRE_WETTING",
           status: "active",
           targetBags: targetBags ?? null,
+          preWettingChamberId: preWettingChamber.id,
           notes: notes ?? null,
           createdByUserId: userId,
           stageEnteredAt: new Date(),
         })
         .returning();
+
+      const [reservedChamber] = await tx
+        .update(chambersTable)
+        .set({ currentBatchId: createdBatch.id, status: "active" })
+        .where(
+          and(
+            eq(chambersTable.id, preWettingChamber.id),
+            eq(chambersTable.status, "idle"),
+          ),
+        )
+        .returning();
+      if (
+        !reservedChamber ||
+        reservedChamber.currentBatchId !== createdBatch.id
+      )
+        throw new Error(
+          "The selected Pre-Wetting chamber is no longer available",
+        );
 
       for (const row of formulation) {
         if (
@@ -404,6 +447,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, batchId))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Batch not found" });
+  await db
+    .update(chambersTable)
+    .set({ currentBatchId: null, status: "idle" })
+    .where(eq(chambersTable.currentBatchId, batchId));
   // Stage logs cascade on delete (FK onDelete: cascade)
   await db
     .delete(batchMaterialsTable)
@@ -464,6 +511,10 @@ router.post("/:id/assign-chamber", requireAuth, async (req, res) => {
     return res
       .status(409)
       .json({ error: "The selected Bulk chamber is no longer available" });
+  await db
+    .update(batchesTable)
+    .set({ bulkChamberId: updated.id })
+    .where(eq(batchesTable.id, batchId));
   return res.json(updated);
 });
 // ── Advance stage ─────────────────────────────────────────────────────────────
@@ -599,6 +650,16 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
       if (!locked || locked.currentBatchId !== batchId)
         throw new Error("The selected Bulk chamber is no longer available");
     }
+    if (batch.currentStage === "PRE_WETTING" && nextStage !== "PRE_WETTING")
+      await tx
+        .update(chambersTable)
+        .set({ currentBatchId: null, status: "idle" })
+        .where(
+          and(
+            eq(chambersTable.currentBatchId, batchId),
+            eq(chambersTable.chamberType, "pre_wetting"),
+          ),
+        );
     await tx
       .update(stageLogsTable)
       .set({ exitedAt })
@@ -622,6 +683,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     };
     if (selectedTurnChamber)
       batchUpdates.turnChamberId = selectedTurnChamber.id;
+    if (selectedChamber) batchUpdates.bulkChamberId = selectedChamber.id;
     if (isDispatchCompletion && produced?.ok) {
       batchUpdates.status = "dispatched";
       batchUpdates.actualBags = produced.producedBags;

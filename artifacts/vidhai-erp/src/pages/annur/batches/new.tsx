@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   useCreateBatch,
+  useListChambers,
   useListLocations,
   useListMaterials,
 } from "@workspace/api-client-react";
@@ -73,9 +74,19 @@ export default function NewBatch() {
   );
 
   const createBatch = useCreateBatch();
+  const { data: chambers } = useListChambers();
+
+  const availablePreWettingChambers = (chambers ?? []).filter(
+    (chamber) =>
+      chamber.locationId === annurLoc?.id &&
+      chamber.chamberType === "pre_wetting" &&
+      chamber.status === "idle" &&
+      chamber.currentBatchId == null,
+  );
 
   const [targetBags, setTargetBags] = useState<string>("4500");
   const [notes, setNotes] = useState("");
+  const [preWettingChamberId, setPreWettingChamberId] = useState("");
 
   // Initialize from baseline (IDs resolved later via useEffect)
   const [formulation, setFormulation] = useState<FormulationRow[]>(() =>
@@ -193,14 +204,19 @@ export default function NewBatch() {
       toast.error("Materials are still loading. Please try again.");
       return;
     }
+    if (!preWettingChamberId) {
+      toast.error("Select an available Pre-Wetting chamber");
+      return;
+    }
 
     try {
       const batch = await createBatch.mutateAsync({
         data: {
           locationId: annurLoc.id,
+          preWettingChamberId: Number(preWettingChamberId),
           targetBags: targetBags ? Number(targetBags) : null,
           notes: notes || null,
-          formulation: formulation.map(row => ({
+          formulation: formulation.map((row) => ({
             materialId: row.materialId,
             name: row.name,
             wetWeightKg: row.wetWeightKg,
@@ -251,7 +267,7 @@ export default function NewBatch() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                     Location
@@ -259,6 +275,33 @@ export default function NewBatch() {
                   <div className="px-3 py-2 bg-muted rounded-md text-sm border font-medium">
                     {annurLoc?.name || "Annur (Location A)"}
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Pre-Wetting Chamber{" "}
+                    <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    required
+                    value={preWettingChamberId}
+                    onValueChange={setPreWettingChamberId}
+                  >
+                    <SelectTrigger className="rounded-md">
+                      <SelectValue placeholder="Select chamber" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availablePreWettingChambers.map((chamber) => (
+                        <SelectItem key={chamber.id} value={String(chamber.id)}>
+                          {chamber.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {availablePreWettingChambers.length === 0 && (
+                    <p className="text-xs text-destructive">
+                      No Pre-Wetting chamber is currently available.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -499,12 +542,14 @@ export default function NewBatch() {
           <div className="flex justify-end pt-4">
             <Button
               type="submit"
-              disabled={createBatch.isPending}
+              disabled={
+                createBatch.isPending ||
+                !preWettingChamberId ||
+                availablePreWettingChambers.length === 0
+              }
               className="rounded-md px-10 h-12 text-lg shadow-md"
             >
-              {createBatch.isPending
-                ? "Initiating..."
-                : "Initiate Batch"}
+              {createBatch.isPending ? "Initiating..." : "Initiate Batch"}
             </Button>
           </div>
         </form>

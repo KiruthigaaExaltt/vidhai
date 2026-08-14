@@ -23,7 +23,9 @@ export const batchesTable = mongoTable("batches", {
   nitrogenContent: numeric("nitrogen_content", { precision: 8, scale: 4 }),
   targetBags: integer("target_bags"),
   actualBags: integer("actual_bags"),
+  preWettingChamberId: integer("pre_wetting_chamber_id"),
   turnChamberId: integer("turn_chamber_id"),
+  bulkChamberId: integer("bulk_chamber_id"),
   spawnEntryId: integer("spawn_entry_id"),
   // For spawn mixing stage traceability
   spawnBatchRef: text("spawn_batch_ref"),

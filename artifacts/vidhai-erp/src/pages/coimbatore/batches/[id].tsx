@@ -924,8 +924,8 @@ export default function CoimbatoreBatchDetail() {
 
       {/* ── Lightbox ──────────────────────────────────────────────────────── */}
       <Dialog open={!!lightboxSrc} onOpenChange={open => !open && setLightboxSrc(null)}>
-        <DialogContent className="rounded-sm border-border max-w-2xl shadow-2xl p-2 bg-black/95">
-          {lightboxSrc && <img src={lightboxSrc} alt="" className="w-full h-auto max-h-[80vh] object-contain rounded-sm" />}
+        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
+          {lightboxSrc && <img src={lightboxSrc} alt="" className="w-full h-auto max-h-[80vh] object-contain" />}
           <button type="button" onClick={() => setLightboxSrc(null)}
             className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm">
             Close ✕

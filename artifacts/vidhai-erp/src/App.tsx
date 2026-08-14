@@ -6,6 +6,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { installImageFallback } from "@/lib/imageFallback";
 
 import Login from "@/pages/login";
 import Dashboard from "@/pages/dashboard";
@@ -451,6 +452,8 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => installImageFallback(), []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

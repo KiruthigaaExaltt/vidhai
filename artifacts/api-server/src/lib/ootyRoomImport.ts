@@ -10,6 +10,11 @@ export type ValidGrowingRoomInput = {
   capacity: number | null;
   notes: string | null;
 };
+export type ValidGrowingRoomImportInput = ValidGrowingRoomInput & {
+  annurBatchCode: string | null;
+  bagsAllocated: number | null;
+  spawnRunStartDate: string | null;
+};
 export type GrowingRoomValidation =
   | { ok: true; value: ValidGrowingRoomInput }
   | { ok: false; errors: string[] };
@@ -57,6 +62,72 @@ export function validateGrowingRoomInput(
     ? { ok: false, errors }
     : { ok: true, value: { name, capacity, notes: notes || null } };
 }
+export function validateGrowingRoomImportInput(
+  input: GrowingRoomInput & {
+    annurBatchCode?: unknown;
+    bagsAllocated?: unknown;
+    spawnRunStartDate?: unknown;
+  },
+):
+  | { ok: true; value: ValidGrowingRoomImportInput }
+  | { ok: false; errors: string[] } {
+  const room = validateGrowingRoomInput(input);
+  const errors = room.ok ? [] : [...room.errors];
+  const annurBatchCode =
+    typeof input.annurBatchCode === "string" ? input.annurBatchCode.trim() : "";
+  const rawBags = input.bagsAllocated;
+  const bagsAllocated =
+    typeof rawBags === "number"
+      ? rawBags
+      : Number(String(rawBags ?? "").trim());
+  const spawnRunStartDate =
+    typeof input.spawnRunStartDate === "string"
+      ? input.spawnRunStartDate.trim()
+      : "";
+
+  const hasAnnurBatch = annurBatchCode !== "";
+  const hasBags =
+    rawBags !== null && rawBags !== undefined && String(rawBags).trim() !== "";
+  const hasStartDate = spawnRunStartDate !== "";
+  const hasAnyAssignment = hasAnnurBatch || hasBags || hasStartDate;
+
+  if (hasAnyAssignment) {
+    if (!hasAnnurBatch)
+      errors.push("Annur Batch is required when assigning a batch");
+    if (!hasBags || !Number.isInteger(bagsAllocated) || bagsAllocated <= 0)
+      errors.push(
+        "Bags Allocated must be a positive whole number when assigning a batch",
+      );
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(spawnRunStartDate)) {
+      errors.push(
+        "Spawn Run Start Date must be a valid date in YYYY-MM-DD format when assigning a batch",
+      );
+    } else {
+      const [year, month, day] = spawnRunStartDate.split("-").map(Number);
+      const date = new Date(Date.UTC(year, month - 1, day));
+      if (
+        date.getUTCFullYear() !== year ||
+        date.getUTCMonth() !== month - 1 ||
+        date.getUTCDate() !== day
+      )
+        errors.push(
+          "Spawn Run Start Date must be a valid date in YYYY-MM-DD format when assigning a batch",
+        );
+    }
+  }
+  return errors.length || !room.ok
+    ? { ok: false, errors }
+    : {
+        ok: true,
+        value: {
+          ...room.value,
+          annurBatchCode: hasAnyAssignment ? annurBatchCode : null,
+          bagsAllocated: hasAnyAssignment ? bagsAllocated : null,
+          spawnRunStartDate: hasAnyAssignment ? spawnRunStartDate : null,
+        },
+      };
+}
+
 export type GrowingRoomImportResult = {
   rowNumber: number;
   name: string;
@@ -73,18 +144,23 @@ export function prepareGrowingRoomImport(
   );
   const workbookNames = new Set<string>();
   const results: GrowingRoomImportResult[] = [];
-  const pending: Array<{ rowNumber: number; value: ValidGrowingRoomInput }> =
-    [];
+  const pending: Array<{
+    rowNumber: number;
+    value: ValidGrowingRoomImportInput;
+  }> = [];
 
   rows.forEach((raw, index) => {
     const rowNumber =
       Number.isInteger(raw?.rowNumber) && raw.rowNumber > 1
         ? raw.rowNumber
         : index + 2;
-    const parsed = validateGrowingRoomInput({
+    const parsed = validateGrowingRoomImportInput({
       name: raw?.name,
       capacity: raw?.capacity,
       notes: raw?.notes,
+      annurBatchCode: raw?.annurBatchCode,
+      bagsAllocated: raw?.bagsAllocated,
+      spawnRunStartDate: raw?.spawnRunStartDate,
     });
     const displayName = typeof raw?.name === "string" ? raw.name.trim() : "";
     if (!parsed.ok) {
