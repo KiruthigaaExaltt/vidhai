@@ -3,6 +3,7 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { verifyPassword, hashPassword } from "../lib/password";
+import { revokeSessionGrants } from "../lib/moduleEncryption";
 
 const router = Router();
 
@@ -42,8 +43,12 @@ router.post("/login", async (req, res) => {
   });
 });
 
-router.post("/logout", (req, res) => {
-  req.session.destroy(() => {});
+router.post("/logout", async (req, res) => {
+  try {
+    await revokeSessionGrants(req.sessionID);
+  } finally {
+    req.session.destroy(() => {});
+  }
   res.json({ ok: true });
 });
 

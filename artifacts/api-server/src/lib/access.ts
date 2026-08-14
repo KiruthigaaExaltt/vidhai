@@ -23,7 +23,14 @@ export async function getAuthUser(req: Request): Promise<AuthUser | null> {
     .from(usersTable)
     .where(eq(usersTable.id, Number(userId)))
     .limit(1);
-  if (!user || user.isDeleted || user.isActive === false) return null;
+  if (
+    !user ||
+    user.isDeleted ||
+    user.isActive === false ||
+    Number((req.session as any)?.sessionVersion ?? 0) !==
+      Number(user.sessionVersion ?? 0)
+  )
+    return null;
   return user;
 }
 export async function effectivePermissions(user: AuthUser): Promise<string[]> {

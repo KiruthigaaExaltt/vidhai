@@ -6,6 +6,7 @@ import {
   Database,
   MapPin,
   Palette,
+  KeyRound,
   Settings as SettingsIcon,
   ShieldCheck,
   Users,
@@ -17,6 +18,7 @@ import Locations from "./locations";
 import AlertColors from "./alert-colors";
 import Departments from "./departments";
 import OrganizationDetails from "./OrganizationDetails";
+import ModuleEncryptionSettings from "./module-encryption";
 import { useAuth } from "@/lib/auth";
 
 type View =
@@ -29,7 +31,8 @@ type View =
   | "holiday"
   | "leave"
   | "alerts"
-  | "locations";
+  | "locations"
+  | "module-encryption";
 const templates: [View, string][] = [
   ["attendance", "Attendance Template"],
   ["work-pattern", "Work Pattern Template"],
@@ -38,13 +41,26 @@ const templates: [View, string][] = [
   ["leave", "Leave Template"],
 ];
 export default function Settings() {
+<<<<<<< Updated upstream
   const mobileNavRef = useRef<HTMLElement>(null);
   const { can } = useAuth();
+=======
+  const { can, isSuperAdmin } = useAuth();
+>>>>>>> Stashed changes
   const companyProfileAccess = can("settings.company_profile.view"),
     userAccess = can("settings.user_management.view"),
-    templateAccess = can("settings.templates.view");
+    templateAccess = can("settings.templates.view"),
+    encryptionAccess = isSuperAdmin || can("settings.module_encryption.view");
   const [view, setView] = useState<View>(
-      companyProfileAccess ? "general" : userAccess ? "users" : "attendance",
+      companyProfileAccess
+        ? "general"
+        : userAccess
+          ? "users"
+          : templateAccess
+            ? "attendance"
+            : encryptionAccess
+              ? "module-encryption"
+              : "attendance",
     ),
     [expanded, setExpanded] = useState(true),
     [mastersExpanded, setMastersExpanded] = useState(true);
@@ -135,6 +151,15 @@ export default function Settings() {
                 )}
               </>
             )}
+            {encryptionAccess && (
+              <Nav
+                active={view === "module-encryption"}
+                onClick={() => setView("module-encryption")}
+                icon={<KeyRound />}
+              >
+                Module Encryption
+              </Nav>
+            )}
             {templateAccess && (
               <>
                 <button
@@ -188,6 +213,9 @@ export default function Settings() {
               <OrganizationDetails />
             )}
             {view === "users" && userAccess && <UserManagement />}
+            {view === "module-encryption" && encryptionAccess && (
+              <ModuleEncryptionSettings />
+            )}
             {view === "departments" && userAccess && <Departments />}
             {templates.some(([k]) => k === view) && templateAccess && (
               <TemplateManager kind={view as any} />

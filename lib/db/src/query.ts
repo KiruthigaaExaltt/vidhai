@@ -166,6 +166,18 @@ export async function syncTableIndexes(table: MongoTable) {
   await connectMongo();
   await modelFor(table).syncIndexes();
 }
+export async function syncTableCustomIndexes(
+  table: MongoTable,
+  indexes: Array<{
+    key: Record<string, 1 | -1>;
+    name: string;
+    unique?: boolean;
+    expireAfterSeconds?: number;
+  }>,
+) {
+  await connectMongo();
+  await modelFor(table).collection.createIndexes(indexes as any);
+}
 
 async function nextId(table: MongoTable, session?: ClientSession) {
   const Counter =

@@ -7,6 +7,11 @@ import { logger } from "./lib/logger";
 import { configuredCorsOrigins, corsOriginHandler } from "./lib/cors";
 
 const app: Express = express();
+const production = process.env.NODE_ENV === "production";
+if (production && !process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET is required in production");
+}
+if (production) app.set("trust proxy", 1);
 app.disable("etag");
 const corsOrigins = configuredCorsOrigins();
 
@@ -47,8 +52,9 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      secure: production,
       httpOnly: true,
+      sameSite: "lax",
       maxAge: 8 * 60 * 60 * 1000,
     },
   }),

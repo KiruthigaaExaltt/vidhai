@@ -50,6 +50,7 @@ import PurchaseReturns from "@/pages/flex/purchase-returns";
 import Crew from "@/pages/crew";
 import CrewPay from "@/pages/crewpay";
 import Accounts from "@/pages/accounts";
+import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
 
 const queryClient = new QueryClient();
 
@@ -57,9 +58,10 @@ function ProtectedRoute({
   component: Component,
   adminOnly,
   permission,
+  moduleKey,
   ...rest
 }: any) {
-  const { user, isLoading, can } = useAuth();
+  const { user, isLoading, can, isModuleEnabled } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -79,6 +81,8 @@ function ProtectedRoute({
   }
 
   if (!user) return null;
+
+  if (moduleKey && !isModuleEnabled(moduleKey)) return <NotFound />;
 
   if (
     (adminOnly && user.role !== "admin") ||
@@ -132,7 +136,11 @@ const landingRoutes = [
     ],
   },
   { path: "/inventory", permissions: ["inventory.stock.view"] },
-  { path: "/accounts", permissions: ["accounts.finance_dashboard.view"] },
+  {
+    path: "/accounts",
+    permissions: ["accounts.finance_dashboard.view"],
+    moduleKey: "ledger",
+  },
   { path: "/reports", permissions: ["reports.view"] },
   {
     path: "/settings",
@@ -143,12 +151,13 @@ const landingRoutes = [
       "settings.master_settings.view",
       "settings.alert_colors.view",
       "settings.locations.view",
+      "settings.module_encryption.view",
     ],
   },
 ] as const;
 
 function LandingRoute() {
-  const { user, isLoading, can } = useAuth();
+  const { user, isLoading, can, isModuleEnabled } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -157,11 +166,13 @@ function LandingRoute() {
       setLocation("/login");
       return;
     }
-    const destination = landingRoutes.find(({ permissions }) =>
-      permissions.some((permission) => can(permission)),
+    const destination = landingRoutes.find(
+      ({ permissions, ...route }) =>
+        (!("moduleKey" in route) || isModuleEnabled(route.moduleKey)) &&
+        permissions.some((permission) => can(permission)),
     );
     setLocation(destination?.path ?? "/profile");
-  }, [isLoading, user, can, setLocation]);
+  }, [isLoading, user, can, isModuleEnabled, setLocation]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
@@ -169,6 +180,14 @@ function LandingRoute() {
     </div>
   );
 }
+function LedgerPage() {
+  return (
+    <ModuleEncryptionGate module="ledger" label="Ledger">
+      <Accounts />
+    </ModuleEncryptionGate>
+  );
+}
+
 function Router() {
   return (
     <Switch>
@@ -190,6 +209,7 @@ function Router() {
             "settings.master_settings.view",
             "settings.alert_colors.view",
             "settings.locations.view",
+            "settings.module_encryption.view",
           ]}
         />
       </Route>
@@ -371,8 +391,9 @@ function Router() {
 
       <Route path="/accounts">
         <ProtectedRoute
-          component={Accounts}
+          component={LedgerPage}
           permission="accounts.finance_dashboard.view"
+          moduleKey="ledger"
         />
       </Route>
 

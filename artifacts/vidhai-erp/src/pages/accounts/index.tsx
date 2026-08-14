@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
+import { notifyModuleLocked } from "@/components/security/ModuleEncryptionGate";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -30,6 +31,7 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
       headers: { "Content-Type": "application/json" },
       ...o,
     }).then(async (r) => {
+      if (r.status === 423) notifyModuleLocked("ledger");
       if (!r.ok)
         throw Error(
           (await r.json().catch(() => ({}))).error || "Request failed",
@@ -105,12 +107,16 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
-  const [listPaging, setListPaging] = useState<Record<"j" | "ap" | "ar", { page: number; size: number }>>({
+  const [listPaging, setListPaging] = useState<
+    Record<"j" | "ap" | "ar", { page: number; size: number }>
+  >({
     j: { page: 1, size: 10 },
     ap: { page: 1, size: 10 },
     ar: { page: 1, size: 10 },
   });
-  const [listMeta, setListMeta] = useState<Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>>({
+  const [listMeta, setListMeta] = useState<
+    Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>
+  >({
     j: { totalCount: 0, totalPages: 0 },
     ap: { totalCount: 0, totalPages: 0 },
     ar: { totalCount: 0, totalPages: 0 },
@@ -276,9 +282,18 @@ export default function Accounts() {
     const calls = [
       ["s", "/dashboard-summary"],
       ["c", "/coa"],
-      ["j", `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`],
-      ["ap", `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`],
-      ["ar", `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`],
+      [
+        "j",
+        `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`,
+      ],
+      [
+        "ap",
+        `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`,
+      ],
+      [
+        "ar",
+        `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+      ],
       ["cu", "/customer-ledger"],
       ["v", "/vendor-ledger"],
       ["f", "/financial-statements"],
@@ -313,13 +328,22 @@ export default function Accounts() {
       if (k === "v") setVendors(v as any[]);
       if (k === "f") setStatements(v);
     }
-    const reconciledAr = await api(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`).catch(() => null);
+    const reconciledAr = await api(
+      `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+    ).catch(() => null);
     if (reconciledAr) setAr(reconciledAr.items || []);
     setLoading(false);
   };
   useEffect(() => {
     void load();
-  }, [listPaging.j.page, listPaging.j.size, listPaging.ap.page, listPaging.ap.size, listPaging.ar.page, listPaging.ar.size]);
+  }, [
+    listPaging.j.page,
+    listPaging.j.size,
+    listPaging.ap.page,
+    listPaging.ap.size,
+    listPaging.ar.page,
+    listPaging.ar.size,
+  ]);
   const reconcile = async () => {
     setLoading(true);
     setError("");
@@ -615,16 +639,36 @@ export default function Accounts() {
         )}
         {showFooter && (
           <DataPagination
-            currentPage={serverKey ? listPaging[serverKey].page : clientPagination.currentPage}
-            pageSize={serverKey ? listPaging[serverKey].size : clientPagination.pageSize}
-            totalCount={serverKey ? listMeta[serverKey].totalCount : clientPagination.totalCount}
+            currentPage={
+              serverKey
+                ? listPaging[serverKey].page
+                : clientPagination.currentPage
+            }
+            pageSize={
+              serverKey ? listPaging[serverKey].size : clientPagination.pageSize
+            }
+            totalCount={
+              serverKey
+                ? listMeta[serverKey].totalCount
+                : clientPagination.totalCount
+            }
             totalPages={serverKey ? listMeta[serverKey].totalPages : undefined}
-            onPageChange={(page) => serverKey
-              ? setListPaging((current) => ({ ...current, [serverKey]: { ...current[serverKey], page } }))
-              : clientPagination.setCurrentPage(page)}
-            onPageSizeChange={(size) => serverKey
-              ? setListPaging((current) => ({ ...current, [serverKey]: { page: 1, size } }))
-              : clientPagination.setPageSize(size)}
+            onPageChange={(page) =>
+              serverKey
+                ? setListPaging((current) => ({
+                    ...current,
+                    [serverKey]: { ...current[serverKey], page },
+                  }))
+                : clientPagination.setCurrentPage(page)
+            }
+            onPageSizeChange={(size) =>
+              serverKey
+                ? setListPaging((current) => ({
+                    ...current,
+                    [serverKey]: { page: 1, size },
+                  }))
+                : clientPagination.setPageSize(size)
+            }
             loading={loading}
           />
         )}
