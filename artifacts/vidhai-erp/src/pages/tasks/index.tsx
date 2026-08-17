@@ -218,6 +218,7 @@ export default function Tasks() {
   const { data: timesheet, refetch: refetchTimesheet } = useQuery({
     queryKey: ["task-timesheet"],
     queryFn: () => api<Timesheet>("/tasks/timesheet"),
+    enabled: can("task.time_logs.view"),
   });
   const [tab, setTab] = useState<"tasks" | "timesheet">("tasks");
   const [form, setForm] = useState(emptyForm);
@@ -248,7 +249,7 @@ export default function Tasks() {
     await queryClient.invalidateQueries({
       predicate: (query) => JSON.stringify(query.queryKey).includes("tasks"),
     });
-    await refetchTimesheet();
+    if (can("task.time_logs.view")) await refetchTimesheet();
   };
   const createTask = useCreateTask({
     mutation: {
@@ -539,14 +540,16 @@ export default function Tasks() {
             <CheckSquare className="mr-2 h-4 w-4" />
             Tasks
           </Button>
-          <Button
-            size="sm"
-            variant={tab === "timesheet" ? "default" : "ghost"}
-            onClick={() => setTab("timesheet")}
-          >
-            <ClipboardList className="mr-2 h-4 w-4" />
-            Timesheet
-          </Button>
+          {can("task.time_logs.view") && (
+            <Button
+              size="sm"
+              variant={tab === "timesheet" ? "default" : "ghost"}
+              onClick={() => setTab("timesheet")}
+            >
+              <ClipboardList className="mr-2 h-4 w-4" />
+              Timesheet
+            </Button>
+          )}
         </div>
 
         {tab === "tasks" ? (
@@ -698,12 +701,14 @@ export default function Tasks() {
                                           Complete
                                         </DropdownMenuItem>
                                       )}
-                                    <DropdownMenuItem
-                                      onClick={() => setTab("timesheet")}
-                                    >
-                                      <ClipboardList className="mr-2 h-4 w-4" />
-                                      View timesheet
-                                    </DropdownMenuItem>
+                                    {can("task.time_logs.view") && (
+                                      <DropdownMenuItem
+                                        onClick={() => setTab("timesheet")}
+                                      >
+                                        <ClipboardList className="mr-2 h-4 w-4" />
+                                        View timesheet
+                                      </DropdownMenuItem>
+                                    )}
                                     {can("task.task_board.delete") && (
                                       <>
                                         <DropdownMenuSeparator />

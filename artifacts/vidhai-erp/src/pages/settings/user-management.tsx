@@ -55,6 +55,7 @@ type User = {
   employeeName?: string;
   employeeId?: number;
   department?: string;
+  avatarUrl?: string;
   isActive?: boolean;
   permissionOverrides?: string[];
   lastLogin?: string;
@@ -129,8 +130,29 @@ export default function UserManagement() {
       });
     }
   };
+  const refreshUsers = async () => {
+    try {
+      setUsers(await api(""));
+    } catch {
+      // Keep the current list during a transient background refresh failure.
+    }
+  };
   useEffect(() => {
     void load();
+    const refresh = () => void refreshUsers();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshUsers();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 3000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("profile-avatar-updated", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("profile-avatar-updated", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, []);
   const filtered = useMemo(
     () =>
@@ -457,8 +479,16 @@ export default function UserManagement() {
                 className="grid min-h-[106px] gap-4 rounded-lg border bg-card px-4 py-3 transition-colors hover:bg-muted/20 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center"
               >
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                    {u.displayName.charAt(0).toUpperCase()}
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                    {u.avatarUrl ? (
+                      <img
+                        src={u.avatarUrl}
+                        alt={`${u.displayName}'s profile`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      u.displayName.charAt(0).toUpperCase()
+                    )}
                   </span>
                   <div className="min-w-0 text-xs leading-[18px] text-muted-foreground">
                     <div className="flex flex-wrap items-center gap-2">
@@ -559,6 +589,29 @@ export default function UserManagement() {
             <DialogTitle>{editing ? "Edit User" : "Add New User"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-2">
+            {editing && (
+              <div className="flex items-center gap-3 rounded-md border bg-muted/20 p-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+                  {editing.avatarUrl ? (
+                    <img
+                      src={editing.avatarUrl}
+                      alt={`${editing.displayName}'s profile`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    editing.displayName.charAt(0).toUpperCase()
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {editing.displayName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Profile picture
+                  </div>
+                </div>
+              </div>
+            )}
             <Field label="Full Name">
               <Input
                 placeholder="e.g., Priya Sharma"

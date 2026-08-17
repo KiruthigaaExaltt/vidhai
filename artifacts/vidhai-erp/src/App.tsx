@@ -57,6 +57,33 @@ import { Shell } from "@/components/layout/Shell";
 
 const queryClient = new QueryClient();
 
+const ACCOUNT_VIEW_PERMISSIONS = [
+  "accounts.finance_dashboard.view",
+  "accounts.customer_ledger.view",
+  "accounts.vendor_ledger.view",
+  "accounts.chart_of_accounts.view",
+  "accounts.accounts_payable.view",
+  "accounts.accounts_receivable.view",
+  "accounts.journal_entries.view",
+  "accounts.financial_statements.view",
+];
+const INVENTORY_VIEW_PERMISSIONS = [
+  "inventory.stock.view",
+  "inventory.materials.view",
+  "inventory.categories.view",
+  "inventory.warehouses.view",
+  "inventory.assets.view",
+];
+const PROCUREMENT_VIEW_PERMISSIONS = [
+  "flex.dashboard.view",
+  "flex.purchase_requests.view",
+  "flex.purchase_orders.view",
+  "flex.goods_receipts.view",
+  "flex.purchase_invoices.view",
+  "flex.vendor_payments.view",
+  "flex.purchase_returns.view",
+];
+
 function ProtectedRoute({
   component: Component,
   adminOnly,
@@ -138,10 +165,10 @@ const landingRoutes = [
       "sales.returns.view",
     ],
   },
-  { path: "/inventory", permissions: ["inventory.stock.view"] },
+  { path: "/inventory", permissions: INVENTORY_VIEW_PERMISSIONS },
   {
     path: "/accounts",
-    permissions: ["accounts.finance_dashboard.view"],
+    permissions: ACCOUNT_VIEW_PERMISSIONS,
     moduleKey: "ledger",
   },
   { path: "/reports", permissions: ["reports.view"] },
@@ -229,7 +256,7 @@ function Router() {
       <Route path="/inventory">
         <ProtectedRoute
           component={Inventory}
-          permission="inventory.stock.view"
+          permission={INVENTORY_VIEW_PERMISSIONS}
         />
       </Route>
 
@@ -360,7 +387,7 @@ function Router() {
       <Route path="/flex">
         <ProtectedRoute
           component={FlexDashboard}
-          permission="flex.dashboard.view"
+          permission={PROCUREMENT_VIEW_PERMISSIONS}
         />
       </Route>
       <Route path="/flex/purchase-requests">
@@ -403,7 +430,7 @@ function Router() {
       <Route path="/accounts">
         <ProtectedRoute
           component={LedgerPage}
-          permission="accounts.finance_dashboard.view"
+          permission={ACCOUNT_VIEW_PERMISSIONS}
           moduleKey="ledger"
         />
       </Route>

@@ -32,6 +32,33 @@ import { Button } from "@/components/ui/button";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
 import { usePwa } from "@/pwa/PwaProvider";
 
+const ACCOUNT_VIEW_PERMISSIONS = [
+  "accounts.finance_dashboard.view",
+  "accounts.customer_ledger.view",
+  "accounts.vendor_ledger.view",
+  "accounts.chart_of_accounts.view",
+  "accounts.accounts_payable.view",
+  "accounts.accounts_receivable.view",
+  "accounts.journal_entries.view",
+  "accounts.financial_statements.view",
+];
+const INVENTORY_VIEW_PERMISSIONS = [
+  "inventory.stock.view",
+  "inventory.materials.view",
+  "inventory.categories.view",
+  "inventory.warehouses.view",
+  "inventory.assets.view",
+];
+const PROCUREMENT_VIEW_PERMISSIONS = [
+  "flex.dashboard.view",
+  "flex.purchase_requests.view",
+  "flex.purchase_orders.view",
+  "flex.goods_receipts.view",
+  "flex.purchase_invoices.view",
+  "flex.vendor_payments.view",
+  "flex.purchase_returns.view",
+];
+
 const VidhaiLogo = () => (
   <div className="flex items-center gap-3 px-4 py-4 mb-4">
     <img
@@ -61,6 +88,42 @@ export function Sidebar({
   const { user, logout: clearUser, can, isModuleEnabled } = useAuth();
   const logoutMutation = useLogout();
   const pwa = usePwa();
+  const hasAny = (permissions: string[]) => permissions.some(can);
+  const hasAnnurAccess = hasAny([
+    "production.batches.view",
+    "production.chambers.view",
+  ]);
+  const hasOperationsAccess = hasAny([
+    "crew.employees.view",
+    "crew.attendance.view",
+    "crew.leave.view",
+    "crew.claims.view",
+    "crew.overtime.view",
+    "crew.bonus.view",
+    "crew.deductions.view",
+    "crewpay.salary_slip.view",
+    "crewpay.payroll.view",
+    "sales.quotations.view",
+    "sales.proforma_invoices.view",
+    "sales.delivery_challans.view",
+    "sales.invoices.view",
+    "sales.payments.view",
+    "sales.returns.view",
+    ...ACCOUNT_VIEW_PERMISSIONS,
+    "fleet.vehicles.view",
+    "reports.view",
+    "traceability.view",
+    ...PROCUREMENT_VIEW_PERMISSIONS,
+  ]);
+  const hasSettingsAccess = hasAny([
+    "settings.company_profile.view",
+    "settings.user_management.view",
+    "settings.templates.view",
+    "settings.master_settings.view",
+    "settings.alert_colors.view",
+    "settings.locations.view",
+    "settings.module_encryption.view",
+  ]);
 
   const handleLogout = async () => {
     try {
@@ -177,6 +240,7 @@ export function Sidebar({
             href="/scheduling"
             icon={CalendarDays}
             label="Calendar"
+            permission="scheduling.calendar.view"
             exact
           />
           <NavItem
@@ -187,7 +251,7 @@ export function Sidebar({
           />
 
           {/* ── Location A — Annur ── */}
-          <SectionTitle>ANNUR · LOCATION A</SectionTitle>
+          {hasAnnurAccess && <SectionTitle>ANNUR · LOCATION A</SectionTitle>}
           <NavItem
             href="/annur/batches"
             icon={Box}
@@ -202,7 +266,9 @@ export function Sidebar({
           />
 
           {/* ── Location B — Ooty ── */}
-          <SectionTitle>OOTY · LOCATION B</SectionTitle>
+          {can("production.growing_rooms.view") && (
+            <SectionTitle>OOTY · LOCATION B</SectionTitle>
+          )}
           <NavItem
             href="/ooty"
             icon={Thermometer}
@@ -211,7 +277,9 @@ export function Sidebar({
           />
 
           {/* ── Location C — Coimbatore ── */}
-          <SectionTitle>COIMBATORE · LOCATION C</SectionTitle>
+          {can("production.casing_soil.view") && (
+            <SectionTitle>COIMBATORE · LOCATION C</SectionTitle>
+          )}
           <NavItem
             href="/coimbatore/batches"
             icon={Layers}
@@ -220,7 +288,9 @@ export function Sidebar({
           />
 
           {/* ── Location D — Lab ── */}
-          <SectionTitle>LAB · LOCATION D</SectionTitle>
+          {can("production.spawn_batches.view") && (
+            <SectionTitle>LAB · LOCATION D</SectionTitle>
+          )}
           <NavItem
             href="/lab/batches"
             icon={FlaskConical}
@@ -229,7 +299,7 @@ export function Sidebar({
           />
 
           {/* ── Cross-site operations ── */}
-          <SectionTitle>OPERATIONS</SectionTitle>
+          {hasOperationsAccess && <SectionTitle>OPERATIONS</SectionTitle>}
           {(can("crew.employees.view") ||
             can("crew.attendance.view") ||
             can("crew.leave.view") ||
@@ -255,10 +325,9 @@ export function Sidebar({
               "sales.returns.view",
             ]}
           />
-          {isModuleEnabled("ledger") &&
-            can("accounts.finance_dashboard.view") && (
-              <NavItem href="/accounts" icon={Landmark} label="Accounts" />
-            )}
+          {isModuleEnabled("ledger") && hasAny(ACCOUNT_VIEW_PERMISSIONS) && (
+            <NavItem href="/accounts" icon={Landmark} label="Accounts" />
+          )}
           <NavItem
             href="/fleet"
             icon={Truck}
@@ -282,35 +351,20 @@ export function Sidebar({
             href="/flex"
             icon={Box}
             label="Procurement"
-            permission={[
-              "flex.dashboard.view",
-              "flex.purchase_requests.view",
-              "flex.purchase_orders.view",
-              "flex.goods_receipts.view",
-              "flex.purchase_invoices.view",
-              "flex.vendor_payments.view",
-              "flex.purchase_returns.view",
-            ]}
+            permission={PROCUREMENT_VIEW_PERMISSIONS}
           />
 
           {/* ── System ── */}
-          <SectionTitle>SYSTEM</SectionTitle>
+          {(hasAny(INVENTORY_VIEW_PERMISSIONS) || hasSettingsAccess) && (
+            <SectionTitle>SYSTEM</SectionTitle>
+          )}
           <NavItem
             href="/inventory"
             icon={Layers}
             label="Inventory"
-            permission={[
-              "inventory.stock.view",
-              "inventory.materials.view",
-              "inventory.categories.view",
-              "inventory.warehouses.view",
-              "inventory.assets.view",
-            ]}
+            permission={INVENTORY_VIEW_PERMISSIONS}
           />
-          {(can("settings.company_profile.view") ||
-            can("settings.user_management.view") ||
-            can("settings.templates.view") ||
-            can("settings.module_encryption.view")) && (
+          {hasSettingsAccess && (
             <NavItem href="/settings" icon={SettingsIcon} label="Settings" />
           )}
         </div>

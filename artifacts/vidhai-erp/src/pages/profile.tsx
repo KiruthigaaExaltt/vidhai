@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -15,6 +15,9 @@ import {
   Camera,
   Briefcase,
   Lock,
+  Trash2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const ROLE_LABELS: Record<
@@ -44,8 +47,8 @@ async function changeOwnPassword(body: {
   if (!res.ok) throw new Error(result.error ?? "Failed to change password");
   return result;
 }
-async function patchUser(id: number, body: Record<string, unknown>) {
-  const res = await fetch(`${BASE}/api/users/${id}`, {
+async function patchProfile(body: Record<string, unknown>) {
+  const res = await fetch(`${BASE}/api/users/me/profile`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -59,14 +62,21 @@ async function patchUser(id: number, body: Record<string, unknown>) {
 }
 
 export default function Profile() {
-  const { user, login } = useAuth();
+  const { user, login, can, isSuperAdmin } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const pictureInputRef = useRef<HTMLInputElement>(null);
 
   // ── Phase 1: Profile details state ──
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [email, setEmail] = useState((user as any)?.email ?? "");
+  const [savedDetails, setSavedDetails] = useState({
+    displayName: user?.displayName ?? "",
+    email: (user as any)?.email ?? "",
+  });
   const [savingDetails, setSavingDetails] = useState(false);
+  const [savingPicture, setSavingPicture] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState((user as any)?.avatarUrl ?? "");
 
   // ── Phase 2: Employee details state (UI only for now — wired to backend later) ──
   const [department, setDepartment] = useState((user as any)?.department ?? "");
@@ -81,12 +91,49 @@ export default function Profile() {
   );
   const [dob, setDob] = useState((user as any)?.dob ?? "");
   const [savingEmployee, setSavingEmployee] = useState(false);
+  const [savedEmployeeDetails, setSavedEmployeeDetails] = useState({
+    department: (user as any)?.department ?? "",
+    designation: (user as any)?.designation ?? "",
+    phoneNumber: (user as any)?.phoneNumber ?? "",
+    workLocation: (user as any)?.workLocation ?? "",
+    dob: (user as any)?.dob ? String((user as any).dob).slice(0, 10) : "",
+  });
 
   // ── Phase 3: Password state ──
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setDisplayName(user.displayName ?? "");
+    setEmail((user as any).email ?? "");
+    setSavedDetails({
+      displayName: user.displayName ?? "",
+      email: (user as any).email ?? "",
+    });
+    setAvatarUrl((user as any).avatarUrl ?? "");
+    setDepartment((user as any).department ?? "");
+    setDesignation((user as any).designation ?? "");
+    setPhoneNumber((user as any).phoneNumber ?? "");
+    setWorkLocation((user as any).workLocation ?? "");
+    setDob(
+      (user as any).dob
+        ? String((user as any).dob).slice(0, 10)
+        : "",
+    );
+    setSavedEmployeeDetails({
+      department: (user as any).department ?? "",
+      designation: (user as any).designation ?? "",
+      phoneNumber: (user as any).phoneNumber ?? "",
+      workLocation: (user as any).workLocation ?? "",
+      dob: (user as any).dob ? String((user as any).dob).slice(0, 10) : "",
+    });
+  }, [user?.id]);
 
   if (!user) return null;
 
@@ -95,6 +142,22 @@ export default function Profile() {
     variant: "outline" as const,
   };
   const initial = user.displayName?.charAt(0)?.toUpperCase() ?? "U";
+  const normalizedDetails = {
+    displayName: displayName.trim(),
+    email: email.trim().toLowerCase(),
+  };
+  const detailsChanged =
+    normalizedDetails.displayName !== savedDetails.displayName.trim() ||
+    normalizedDetails.email !== savedDetails.email.trim().toLowerCase();
+  const canEditWorkDetails =
+    isSuperAdmin || can("settings.user_management.update");
+  const employeeDetailsChanged =
+    phoneNumber.trim() !== savedEmployeeDetails.phoneNumber.trim() ||
+    dob !== savedEmployeeDetails.dob ||
+    (canEditWorkDetails &&
+      (department.trim() !== savedEmployeeDetails.department.trim() ||
+        designation.trim() !== savedEmployeeDetails.designation.trim() ||
+        workLocation.trim() !== savedEmployeeDetails.workLocation.trim()));
 
   // ── Phase 1 handler ──
   const handleSaveDetails = async () => {
@@ -104,10 +167,17 @@ export default function Profile() {
     }
     setSavingDetails(true);
     try {
-      const updated = await patchUser(user.id, {
-        displayName: displayName.trim(),
+      const updated = await patchProfile({
+        displayName: normalizedDetails.displayName,
+        email: normalizedDetails.email,
       });
-      login({ ...user, displayName: updated.displayName });
+      setDisplayName(updated.displayName ?? normalizedDetails.displayName);
+      setEmail(updated.email ?? normalizedDetails.email);
+      setSavedDetails({
+        displayName: updated.displayName ?? normalizedDetails.displayName,
+        email: updated.email ?? normalizedDetails.email,
+      });
+      login({ ...user, ...updated });
       queryClient.invalidateQueries({ queryKey: ["get", "/api/auth/me"] });
       toast({
         title: "Profile updated",
@@ -124,22 +194,101 @@ export default function Profile() {
     }
   };
 
+  const handlePictureChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (
+      !(["image/jpeg", "image/png", "image/webp"] as string[]).includes(
+        file.type,
+      )
+    ) {
+      toast({
+        title: "Choose a JPEG, PNG, or WebP image",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Picture must be 5 MB or smaller", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const nextAvatar = String(reader.result ?? "");
+      setSavingPicture(true);
+      try {
+        const updated = await patchProfile({ avatarUrl: nextAvatar });
+        setAvatarUrl(updated.avatarUrl ?? "");
+        login({ ...user, ...updated });
+        window.dispatchEvent(
+          new CustomEvent("profile-avatar-updated", {
+            detail: { userId: user.id },
+          }),
+        );
+        await queryClient.invalidateQueries({
+          queryKey: ["get", "/api/auth/me"],
+        });
+        toast({ title: "Profile picture updated" });
+      } catch (e: any) {
+        toast({
+          title: "Picture update failed",
+          description: e.message,
+          variant: "destructive",
+        });
+      } finally {
+        setSavingPicture(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePicture = async () => {
+    setSavingPicture(true);
+    try {
+      const updated = await patchProfile({ avatarUrl: "" });
+      setAvatarUrl("");
+      login({ ...user, ...updated, avatarUrl: "" } as any);
+      window.dispatchEvent(
+        new CustomEvent("profile-avatar-updated", {
+          detail: { userId: user.id },
+        }),
+      );
+      await queryClient.invalidateQueries({
+        queryKey: ["get", "/api/auth/me"],
+      });
+      toast({ title: "Profile picture removed" });
+    } catch (e: any) {
+      toast({
+        title: "Picture removal failed",
+        description: e.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSavingPicture(false);
+    }
+  };
+
   // ── Phase 2 handler (UI only — backend wiring comes later) ──
   const handleSaveEmployee = async () => {
     setSavingEmployee(true);
 
     try {
-      console.log("Current user:", user);
-      console.log("User ID:", user.id);
-
-      const updated = await patchUser(user.id, {
-        department,
-        designation,
+      const updated = await patchProfile({
         phoneNumber,
-        workLocation,
         dob,
+        ...(canEditWorkDetails
+          ? { department, designation, workLocation }
+          : {}),
       });
 
+      setSavedEmployeeDetails({
+        department: updated.department ?? department,
+        designation: updated.designation ?? designation,
+        phoneNumber: updated.phoneNumber ?? phoneNumber,
+        workLocation: updated.workLocation ?? workLocation,
+        dob: updated.dob ? String(updated.dob).slice(0, 10) : "",
+      });
       login({ ...user, ...updated });
 
       queryClient.invalidateQueries({
@@ -192,6 +341,9 @@ export default function Profile() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
       toast({
         title: "Password changed",
         description: "Your password has been updated successfully.",
@@ -225,10 +377,16 @@ export default function Profile() {
           {/* Avatar card */}
           <Card className="rounded-md border-border shadow-md">
             <CardContent className="p-6 flex flex-col items-center text-center">
-              <div className="w-24 h-24 rounded-full bg-primary/15 flex items-center justify-center mb-4">
-                <span className="text-3xl font-bold text-primary">
-                  {initial}
-                </span>
+              <div className="w-24 h-24 rounded-full bg-primary/15 flex items-center justify-center mb-4 overflow-hidden">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt={`${user.displayName}'s profile`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="text-3xl font-bold text-primary">{initial}</span>
+                )}
               </div>
               <div className="text-lg font-bold tracking-tight">
                 {user.displayName}
@@ -244,9 +402,36 @@ export default function Profile() {
                 variant="outline"
                 size="sm"
                 className="mt-5 rounded-md gap-2 w-full"
+                onClick={() => pictureInputRef.current?.click()}
+                disabled={savingPicture}
               >
-                <Camera className="w-3.5 h-3.5" /> Change Picture
+                <Camera className="w-3.5 h-3.5" />
+                {savingPicture
+                  ? "Updating…"
+                  : avatarUrl
+                    ? "Edit Picture"
+                    : "Add Picture"}
               </Button>
+              <input
+                ref={pictureInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handlePictureChange}
+              />
+              {avatarUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 w-full gap-2 rounded-md text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={handleRemovePicture}
+                  disabled={savingPicture}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Remove Picture
+                </Button>
+              )}
               <p className="text-[11px] text-muted-foreground mt-2">
                 JPEG, PNG, or WebP. Maximum 5 MB.
               </p>
@@ -268,7 +453,15 @@ export default function Profile() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent>
+              <form
+                className="space-y-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (detailsChanged && !savingDetails)
+                    void handleSaveDetails();
+                }}
+              >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="displayName">Full Name</Label>
@@ -315,10 +508,8 @@ export default function Profile() {
 
               <div className="flex justify-end pt-2">
                 <Button
-                  onClick={handleSaveDetails}
-                  disabled={
-                    savingDetails || displayName.trim() === user.displayName
-                  }
+                  type="submit"
+                  disabled={savingDetails || !detailsChanged}
                   size="sm"
                   className="rounded-md gap-2"
                 >
@@ -326,6 +517,7 @@ export default function Profile() {
                   {savingDetails ? "Saving…" : "Save Changes"}
                 </Button>
               </div>
+              </form>
             </CardContent>
           </Card>
         </div>
@@ -361,8 +553,9 @@ export default function Profile() {
                   id="department"
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
+                  disabled={!canEditWorkDetails}
                   placeholder="e.g. Production"
-                  className="rounded-md"
+                  className="rounded-md disabled:bg-muted/50"
                 />
               </div>
               <div className="space-y-1.5">
@@ -379,8 +572,9 @@ export default function Profile() {
                   id="designation"
                   value={designation}
                   onChange={(e) => setDesignation(e.target.value)}
+                  disabled={!canEditWorkDetails}
                   placeholder="e.g. Full-Stack Developer"
-                  className="rounded-md"
+                  className="rounded-md disabled:bg-muted/50"
                 />
               </div>
               <div className="space-y-1.5">
@@ -405,8 +599,9 @@ export default function Profile() {
                   id="workLocation"
                   value={workLocation}
                   onChange={(e) => setWorkLocation(e.target.value)}
+                  disabled={!canEditWorkDetails}
                   placeholder="e.g. Coimbatore HQ"
-                  className="rounded-md"
+                  className="rounded-md disabled:bg-muted/50"
                 />
               </div>
               <div className="space-y-1.5">
@@ -443,7 +638,7 @@ export default function Profile() {
             <div className="flex justify-end pt-2">
               <Button
                 onClick={handleSaveEmployee}
-                disabled={savingEmployee}
+                disabled={savingEmployee || !employeeDetailsChanged}
                 size="sm"
                 className="rounded-md gap-2"
               >
@@ -472,40 +667,61 @@ export default function Profile() {
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="currentPassword">Old Password</Label>
-              <Input
-                id="currentPassword"
-                type="password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Enter your current password"
-                autoComplete="current-password"
-                className="rounded-md"
-              />
+              <div className="relative">
+                <Input
+                  id="currentPassword"
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter your current password"
+                  autoComplete="current-password"
+                  className="rounded-md pr-10"
+                />
+                <PasswordVisibilityButton
+                  visible={showCurrentPassword}
+                  onToggle={() => setShowCurrentPassword((value) => !value)}
+                  label="old password"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="newPassword">New Password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 8 characters"
-                  autoComplete="new-password"
-                  className="rounded-md"
-                />
+                <div className="relative">
+                  <Input
+                    id="newPassword"
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    autoComplete="new-password"
+                    className="rounded-md pr-10"
+                  />
+                  <PasswordVisibilityButton
+                    visible={showNewPassword}
+                    onToggle={() => setShowNewPassword((value) => !value)}
+                    label="new password"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter new password"
-                  autoComplete="new-password"
-                  className="rounded-md"
-                />
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                    autoComplete="new-password"
+                    className="rounded-md pr-10"
+                  />
+                  <PasswordVisibilityButton
+                    visible={showConfirmPassword}
+                    onToggle={() => setShowConfirmPassword((value) => !value)}
+                    label="confirmed password"
+                  />
+                </div>
                 {confirmPassword && newPassword !== confirmPassword && (
                   <p className="text-xs text-destructive">
                     Passwords do not match
@@ -542,5 +758,27 @@ export default function Profile() {
         </Card>
       </div>
     </Shell>
+  );
+}
+
+function PasswordVisibilityButton({
+  visible,
+  onToggle,
+  label,
+}: {
+  visible: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="absolute right-0 top-0 flex h-full w-10 items-center justify-center rounded-r-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      aria-label={`${visible ? "Hide" : "Show"} ${label}`}
+      aria-pressed={visible}
+    >
+      {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+    </button>
   );
 }

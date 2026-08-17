@@ -74,8 +74,14 @@ export function TopHeader({
             type="button"
             className="flex items-center gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-              {initial}
+            <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+              {(user as any)?.avatarUrl ? (
+                <img
+                  src={(user as any).avatarUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : initial}
             </span>
             <span className="hidden min-w-0 flex-col sm:flex">
               <span className="max-w-40 truncate text-sm font-medium leading-tight">
