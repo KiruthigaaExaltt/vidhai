@@ -1,11 +1,15 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import {
   getListVehiclesQueryKey,
   useCreateVehicle,
   useUpdateVehicle,
 } from "@workspace/api-client-react";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +24,18 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Truck, Plus, Pencil, ChevronRight } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Truck, Plus, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 type VehicleType = "truck" | "van" | "motorcycle" | "tractor" | "other";
 type VehicleStatus = "available" | "in_use" | "maintenance" | "retired";
@@ -64,13 +79,60 @@ const EMPTY_FORM = {
 };
 
 export default function FleetList() {
-  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const [deleteVehicle, setDeleteVehicle] = useState<any | null>(null);
 
   const refetch = () =>
     queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
   const createMut = useCreateVehicle({ mutation: { onSuccess: refetch } });
   const updateMut = useUpdateVehicle({ mutation: { onSuccess: refetch } });
+  const deleteMut = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await fetch(`/api/fleet/vehicles/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Unable to delete vehicle");
+      }
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({
+        queryKey: getListVehiclesQueryKey(),
+      });
+      const previous = queryClient.getQueriesData({
+        queryKey: getListVehiclesQueryKey(),
+      });
+      queryClient.setQueriesData(
+        { queryKey: getListVehiclesQueryKey() },
+        (current: any) => {
+          if (!current?.data) return current;
+          const data = current.data.filter((vehicle: any) => vehicle.id !== id);
+          if (data.length === current.data.length) return current;
+          const totalCount = Math.max(0, Number(current.totalCount || 0) - 1);
+          return {
+            ...current,
+            data,
+            totalCount,
+            totalPages: Math.ceil(totalCount / pageSize),
+          };
+        },
+      );
+      return { previous };
+    },
+    onSuccess: () => {
+      toast.success("Vehicle deleted");
+    },
+    onError: (error: Error, _id, context) => {
+      for (const [queryKey, data] of context?.previous ?? [])
+        queryClient.setQueryData(queryKey, data);
+      toast.error(error.message);
+    },
+    onSettled: () => {
+      void refetch();
+    },
+  });
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editVehicle, setEditVehicle] = useState<any | null>(null);
@@ -158,6 +220,10 @@ export default function FleetList() {
     }
   };
 
+  const handleDelete = (vehicle: any) => {
+    setDeleteVehicle(vehicle);
+  };
+
   const filtered = list;
 
   return (
@@ -228,8 +294,7 @@ export default function FleetList() {
                   {list.map((v: any) => (
                     <tr
                       key={v.id}
-                      className="h-[36px] hover:bg-muted/20 cursor-pointer"
-                      onClick={() => setLocation(`/fleet/${v.id}`)}
+                      className="h-[36px] hover:bg-muted/20"
                     >
                       <td className="px-4 font-semibold">{v.name}</td>
                       <td className="px-4 font-mono text-muted-foreground">
@@ -267,10 +332,12 @@ export default function FleetList() {
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => setLocation(`/fleet/${v.id}`)}
-                            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                            onClick={() => handleDelete(v)}
+                            disabled={deleteMut.isPending}
+                            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive disabled:opacity-50"
+                            title="Delete vehicle"
                           >
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -434,6 +501,45 @@ export default function FleetList() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog
+          open={Boolean(deleteVehicle)}
+          onOpenChange={(open) => {
+            if (!open && !deleteMut.isPending) setDeleteVehicle(null);
+          }}
+        >
+          <AlertDialogContent className="rounded-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete vehicle?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete {deleteVehicle?.name} and its
+                related fuel, maintenance, and usage logs.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                className="rounded-sm"
+                disabled={deleteMut.isPending}
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="rounded-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteMut.isPending}
+                onClick={() => {
+                  if (!deleteVehicle) return;
+                  const id = deleteVehicle.id;
+                  if (list.length === 1 && currentPage > 1)
+                    setCurrentPage(currentPage - 1);
+                  setDeleteVehicle(null);
+                  deleteMut.mutate(id);
+                }}
+              >
+                {deleteMut.isPending ? "Deleting&" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </Shell>
   );

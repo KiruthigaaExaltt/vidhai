@@ -22,7 +22,7 @@ export const rolesTable = mongoTable("roles", {
   organizationId: integer("organization_id").notNull().default(1),
   /** JSON string — permission matrix keyed by action → location[] */
   permissions: text("permissions").notNull().default("{}"),
-  /** System roles (admin, location_manager, operator, viewer) cannot be deleted */
+  /** System roles (SuperAdmin, location_manager, operator, viewer) cannot be deleted */
   isSystem: boolean("is_system").notNull().default(false),
   isSuperAdmin: boolean("is_super_admin").notNull().default(false),
   systemKey: text("system_key"),

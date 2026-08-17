@@ -151,9 +151,9 @@ export default function Accounts() {
       accountType: "Asset",
       entryType: type === "ap" ? "Bill" : "Invoice",
       amount: "",
-      paidAmount: "0",
-      receivedAmount: "0",
-      adjustedAmount: "0",
+      paidAmount: "",
+      receivedAmount: "",
+      adjustedAmount: "",
       debit: "",
       credit: "",
       ...seed,
@@ -1504,7 +1504,7 @@ export default function Accounts() {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={manual.paidAmount || "0"}
+                        value={manual.paidAmount || ""}
                         onChange={(e) =>
                           setManualField("paidAmount", e.target.value)
                         }
@@ -1516,7 +1516,7 @@ export default function Accounts() {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={manual.adjustedAmount || "0"}
+                        value={manual.adjustedAmount || ""}
                         onChange={(e) =>
                           setManualField("adjustedAmount", e.target.value)
                         }
@@ -1623,7 +1623,7 @@ export default function Accounts() {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={manual.receivedAmount || "0"}
+                        value={manual.receivedAmount || ""}
                         onChange={(e) =>
                           setManualField("receivedAmount", e.target.value)
                         }
@@ -1635,7 +1635,7 @@ export default function Accounts() {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={manual.adjustedAmount || "0"}
+                        value={manual.adjustedAmount || ""}
                         onChange={(e) =>
                           setManualField("adjustedAmount", e.target.value)
                         }

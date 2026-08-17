@@ -32,10 +32,10 @@ const safe = (u: any) => {
   };
 };
 const protectedUser = (u: any) =>
-  u.role === "admin" &&
-  (u.isSystemGenerated ||
-    u.systemKey ||
-    u.username === process.env.BOOTSTRAP_ADMIN_USERNAME);
+  u.systemKey === "SUPER_ADMIN" ||
+  (u.role === "super_admin" &&
+    (u.isSystemGenerated ||
+      u.username === process.env.BOOTSTRAP_ADMIN_USERNAME));
 
 async function syncEmployeeLink(
   org: number,
@@ -137,7 +137,7 @@ router.post(
         { username, email } = identity(req.body),
         name = String(req.body.name ?? req.body.displayName ?? "").trim();
       if (!name) return res.status(400).json({ error: "Name is required" });
-      if (req.body.role === "admin")
+      if (req.body.role === "super_admin")
         return res
           .status(403)
           .json({ error: "Super Admin cannot be assigned" });
@@ -251,7 +251,7 @@ router.put(
       return res.status(404).json({ error: "User not found" });
     if (protectedUser(u))
       return res.status(403).json({ error: "Protected user cannot be edited" });
-    if (req.body.role === "admin")
+    if (req.body.role === "super_admin")
       return res.status(403).json({ error: "Super Admin cannot be assigned" });
     const updates: any = { sessionVersion: Number(u.sessionVersion ?? 0) + 1 };
     for (const key of ["role", "employeeId", "employeeName", "department"])
@@ -315,7 +315,7 @@ router.patch(
         "department",
       ])
         if (req.body[key] !== undefined) updates[key] = req.body[key];
-      if (updates.role === "admin")
+      if (updates.role === "super_admin")
         return res
           .status(403)
           .json({ error: "Super Admin cannot be assigned" });

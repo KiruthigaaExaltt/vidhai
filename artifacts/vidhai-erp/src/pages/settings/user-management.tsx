@@ -70,7 +70,6 @@ const isAssignableRole = (role: any) => {
     role.isActive !== false &&
     !role.isSuperAdmin &&
     role.systemKey !== "SUPER_ADMIN" &&
-    slug !== "admin" &&
     slug !== "super_admin"
   );
 };
@@ -491,7 +490,7 @@ export default function UserManagement() {
                 <div className="flex items-center gap-6 md:justify-end">
                   <Badge
                     variant="secondary"
-                    className={`h-5 px-3 text-[10px] capitalize ${u.role.toLowerCase() === "admin" ? "bg-red-50 text-red-600" : ""}`}
+                    className={`h-5 px-3 text-[10px] capitalize ${u.role.toLowerCase() === "super_admin" ? "bg-red-50 text-red-600" : ""}`}
                   >
                     {u.role}
                   </Badge>

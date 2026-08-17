@@ -101,7 +101,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     permissionsLoading ||
     (!loggedOut && !!meData && !isError && user === null);
   const can = (permission: string) =>
-    String(user?.role).toLowerCase() === "admin" ||
     permissions.includes("*") ||
     permissions.includes(normalizePermission(permission));
   const isModuleEnabled = (moduleKey: string) =>
@@ -144,8 +143,8 @@ export function useAuth() {
   return context;
 }
 export function usePermission() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { user, isSuperAdmin } = useAuth();
+  const isAdmin = isSuperAdmin;
   const locationScope: string[] = Array.isArray((user as any)?.locationScope)
     ? (user as any).locationScope
     : [];
@@ -158,7 +157,7 @@ export function usePermission() {
     if (isAdmin) return true;
     if (action === "delete") return false;
     if (action === "approve") {
-      if (user.role !== "manager" && user.role !== "admin") return false;
+      if (user.role !== "manager" && !isSuperAdmin) return false;
       return !location
         ? hasAll || locationScope.length > 0
         : hasAll || locationScope.includes(location);

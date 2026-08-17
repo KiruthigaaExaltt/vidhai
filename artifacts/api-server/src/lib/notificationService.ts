@@ -69,8 +69,8 @@ export async function resolveNotificationRecipients(
       return false;
     const role = roleBySlug.get(slug(user.role));
     if (
-      slug(user.role) === "admin" ||
       slug(user.role) === "super_admin" ||
+      user.systemKey === "SUPER_ADMIN" ||
       role?.isSuperAdmin ||
       role?.systemKey === "SUPER_ADMIN"
     )

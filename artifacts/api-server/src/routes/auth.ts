@@ -91,12 +91,18 @@ export async function requireAdmin(req: any, res: any, next: any) {
   const userId = (req.session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "Not authenticated" });
   const [user] = await db
-    .select({ role: usersTable.role })
+    .select({ role: usersTable.role, systemKey: usersTable.systemKey })
     .from(usersTable)
     .where(eq(usersTable.id, userId))
     .limit(1);
-  if (!user || user.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" });
+  if (
+    !user ||
+    !(
+      user.systemKey === "SUPER_ADMIN" ||
+      String(user.role).trim().toLowerCase() === "super_admin"
+    )
+  ) {
+    return res.status(403).json({ error: "SuperAdmin access required" });
   }
   next();
 }

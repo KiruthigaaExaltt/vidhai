@@ -64,7 +64,7 @@ function ProtectedRoute({
   moduleKey,
   ...rest
 }: any) {
-  const { user, isLoading, can, isModuleEnabled } = useAuth();
+  const { user, isLoading, can, isModuleEnabled, isSuperAdmin } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -88,7 +88,7 @@ function ProtectedRoute({
   if (moduleKey && !isModuleEnabled(moduleKey)) return <NotFound />;
 
   if (
-    (adminOnly && user.role !== "admin") ||
+    (adminOnly && !isSuperAdmin) ||
     (permission &&
       !(Array.isArray(permission) ? permission.some(can) : can(permission)))
   ) {

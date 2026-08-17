@@ -2,7 +2,6 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { rolesTable, usersTable } from "@workspace/db";
 import { and, eq } from "@workspace/db";
-import { requireAuth, requireAdmin } from "./auth";
 import { organizationId, requirePermission } from "../lib/access";
 import { normalizePermissions } from "../lib/permissionCatalog";
 
@@ -29,19 +28,18 @@ const responseRole = (role: any) => {
     isSuperAdmin:
       Boolean(role.isSuperAdmin) ||
       role.systemKey === "SUPER_ADMIN" ||
-      slug === "admin" ||
       slug === "super_admin",
     permissions: permissionKeys,
     permissionKeys,
   };
 };
 
-/** Seed canonical roles only for an organization that has no roles yet. */
+/** Reconcile canonical roles and remove the legacy protected admin role. */
 export async function seedSystemRoles(org = 1) {
   const definitions = [
     {
-      name: "admin",
-      slug: "admin",
+      name: "SuperAdmin",
+      slug: "super_admin",
       description: "Full access to all locations and actions",
       permissions: {
         view: ALL_LOCATIONS,
@@ -50,6 +48,7 @@ export async function seedSystemRoles(org = 1) {
         delete: ALL_LOCATIONS,
       },
       isSuperAdmin: true,
+      systemKey: "SUPER_ADMIN",
     },
     {
       name: "location_manager",
@@ -62,6 +61,7 @@ export async function seedSystemRoles(org = 1) {
         delete: [],
       },
       isSuperAdmin: false,
+      systemKey: null,
     },
     {
       name: "operator",
@@ -74,6 +74,7 @@ export async function seedSystemRoles(org = 1) {
         delete: [],
       },
       isSuperAdmin: false,
+      systemKey: null,
     },
     {
       name: "viewer",
@@ -81,14 +82,35 @@ export async function seedSystemRoles(org = 1) {
       description: "Read-only access to assigned locations",
       permissions: { view: ALL_LOCATIONS, create: [], approve: [], delete: [] },
       isSuperAdmin: false,
+      systemKey: null,
     },
   ];
   const existing = await db
     .select()
     .from(rolesTable)
     .where(eq(rolesTable.organizationId, org));
-  if (existing.length) return;
   for (const role of definitions) {
+    const current = existing.find(
+      (item: any) =>
+        String(item.slug || item.name)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_") === role.slug,
+    );
+    if (current) {
+      if (role.systemKey === "SUPER_ADMIN")
+        await db
+          .update(rolesTable)
+          .set({
+            isSystem: true,
+            isSuperAdmin: true,
+            systemKey: "SUPER_ADMIN",
+            isActive: true,
+            updatedAt: new Date(),
+          })
+          .where(eq(rolesTable.id, current.id));
+      continue;
+    }
     try {
       await db.insert(rolesTable).values({
         ...role,
@@ -102,9 +124,21 @@ export async function seedSystemRoles(org = 1) {
       if (error?.code !== 11000) throw error;
     }
   }
+  const legacyAdmin = existing.find((role: any) => {
+    const roleSlug = String(role.slug || role.name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_");
+    return (
+      roleSlug === "admin" &&
+      (role.isSystem || role.isSuperAdmin || role.systemKey)
+    );
+  });
+  if (legacyAdmin)
+    await db.delete(rolesTable).where(eq(rolesTable.id, legacyAdmin.id));
 }
 
-// Seed the default organization at startup; an existing role set is never recreated.
+// Reconcile the default organization at startup.
 seedSystemRoles().catch(() => {});
 
 // GET /api/roles
@@ -233,12 +267,11 @@ router.delete(
     if (
       existing.isSuperAdmin ||
       existing.systemKey === "SUPER_ADMIN" ||
-      existingSlug === "admin" ||
       existingSlug === "super_admin"
     )
       return res
         .status(403)
-        .json({ error: "The administrator role is protected" });
+        .json({ error: "The SuperAdmin role is protected" });
     const assigned = (
       await db
         .select({ id: usersTable.id })

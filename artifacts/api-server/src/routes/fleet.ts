@@ -72,6 +72,18 @@ router.patch("/vehicles/:id", requireAuth, async (req, res) => {
 
 // ── Fuel Logs ─────────────────────────────────────────────────────────────────
 
+router.delete("/vehicles/:id", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id))
+    return res.status(400).json({ error: "Invalid vehicle id" });
+  const [row] = await db
+    .delete(vehiclesTable)
+    .where(eq(vehiclesTable.id, id))
+    .returning();
+  if (!row) return res.status(404).json({ error: "Vehicle not found" });
+  return res.status(204).send();
+});
+
 router.get("/fuel-logs", requireAuth, async (req, res) => {
   const rows = await db
     .select({

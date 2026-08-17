@@ -244,7 +244,6 @@ const RolesPage = forwardRef<
           const isProtected =
             Boolean(r.isSuperAdmin) ||
             r.systemKey === "SUPER_ADMIN" ||
-            roleSlug === "admin" ||
             roleSlug === "super_admin";
           const roleUsers = users.filter(
             (user) => user.role.toLowerCase() === r.name.toLowerCase(),
@@ -277,7 +276,7 @@ const RolesPage = forwardRef<
                     )}
                     title={
                       isProtected
-                        ? "Administrator role is protected"
+                        ? "SuperAdmin role is protected"
                         : "Edit role"
                     }
                     onClick={() => begin(r)}

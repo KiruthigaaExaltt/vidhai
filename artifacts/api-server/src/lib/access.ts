@@ -45,8 +45,8 @@ export async function effectivePermissions(user: AuthUser): Promise<string[]> {
       (slug(item.name) === userRole || slug(item.slug) === userRole),
   );
   if (
-    userRole === "admin" ||
     userRole === "super_admin" ||
+    user.systemKey === "SUPER_ADMIN" ||
     role?.isSuperAdmin ||
     role?.systemKey === "SUPER_ADMIN"
   )
