@@ -17,7 +17,16 @@ export function PwaProvider({children}:{children:ReactNode}) {
   const checkForUpdates=useCallback(async()=>{if(registration.current){await registration.current.update();inspect(registration.current)}},[inspect]);
   useEffect(()=>{
     if(!("serviceWorker" in navigator))return;
-    updateSW.current=registerSW({immediate:true,onNeedRefresh:()=>setUpdateAvailable(true),onRegisteredSW(_url,reg){registration.current=reg||null;inspect(reg);void reg?.update();reg?.addEventListener("updatefound",()=>{const worker=reg.installing;worker?.addEventListener("statechange",()=>{if(worker.state==="installed"&&navigator.serviceWorker.controller)setUpdateAvailable(true)})})},onRegisterError:error=>console.error("PWA registration failed",error)});
+
+    // The PWA plugin is intentionally disabled in development. Remove a
+    // worker left behind by an older local build so it cannot keep serving or
+    // repeatedly reporting updates while Vite is running.
+    if(import.meta.env.DEV){
+      void navigator.serviceWorker.getRegistration().then(item=>item?.unregister());
+      return;
+    }
+
+    updateSW.current=registerSW({immediate:true,onNeedRefresh:()=>setUpdateAvailable(true),onRegisteredSW(_url,reg){registration.current=reg||null;inspect(reg);reg?.addEventListener("updatefound",()=>{const worker=reg.installing;worker?.addEventListener("statechange",()=>{if(worker.state==="installed"&&navigator.serviceWorker.controller)setUpdateAvailable(true)})})},onRegisterError:error=>console.error("PWA registration failed",error)});
     const changed=()=>{if(!reloaded.current){reloaded.current=true;location.reload()}};navigator.serviceWorker.addEventListener("controllerchange",changed);return()=>navigator.serviceWorker.removeEventListener("controllerchange",changed);
   },[inspect]);
   useEffect(()=>{const before=(e:Event)=>{e.preventDefault();setPrompt(e as InstallPromptEvent)},installed=()=>{setPrompt(null);setStandalone(true);setShowIos(false)},on=()=>setOnline(true),off=()=>setOnline(false),display=()=>setStandalone(standaloneNow()),media=matchMedia("(display-mode: standalone)");addEventListener("beforeinstallprompt",before);addEventListener("appinstalled",installed);addEventListener("online",on);addEventListener("offline",off);media.addEventListener("change",display);return()=>{removeEventListener("beforeinstallprompt",before);removeEventListener("appinstalled",installed);removeEventListener("online",on);removeEventListener("offline",off);media.removeEventListener("change",display)}},[]);

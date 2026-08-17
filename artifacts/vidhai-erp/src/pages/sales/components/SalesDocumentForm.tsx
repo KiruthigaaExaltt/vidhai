@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   Send,
@@ -65,6 +65,7 @@ export function SalesDocumentForm({
   onSaved,
   documentId,
 }: SalesDocumentFormProps) {
+  const lineItemsScrollRef = useRef<HTMLDivElement>(null);
   const documentResource =
     type === "Proforma Invoice"
       ? "proforma-invoices"
@@ -88,6 +89,7 @@ export function SalesDocumentForm({
   const [viewDocumentId, setViewDocumentId] = useState<number | null>(
     documentId || null,
   );
+
   const [items, setItems] = useState<any[]>([
     {
       id: 1,
@@ -104,6 +106,10 @@ export function SalesDocumentForm({
       serviceId: null,
     },
   ]);
+
+  useEffect(() => {
+    lineItemsScrollRef.current?.scrollTo({ left: 0 });
+  }, [type, items.length]);
 
   const [transportCharges, setTransportCharges] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -1410,23 +1416,23 @@ export function SalesDocumentForm({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Top Action Bar */}
-      <div className="z-10 -mx-6 -mt-6 flex shrink-0 items-center justify-between border-b border-border bg-white p-4 shadow-sm md:-mx-8">
-        <div className="flex items-center gap-4">
+      <div className="z-10 -mx-4 -mt-4 flex shrink-0 flex-col items-stretch gap-3 border-b border-border bg-white p-4 shadow-sm sm:-mx-6 sm:-mt-6 md:-mx-8 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-4">
           <Button variant="ghost" size="icon" onClick={onCancel}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <div>
-            <h2 className="text-xl font-bold">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold leading-tight sm:text-xl">
               {documentId ? (isLocked ? "View" : "Edit") : "New"} {type}
             </h2>
             <p className="text-xs text-muted-foreground">{quotationNumber}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={onCancel}>
+        <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 md:w-auto md:overflow-visible md:pb-0 [&>button]:shrink-0">
+          <Button className="shrink-0" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="outline" onClick={() => void openPreview()}>
+          <Button className="shrink-0" variant="outline" onClick={() => void openPreview()}>
             <FileText className="w-4 h-4 mr-2" /> Preview
           </Button>
           {versions.length > 0 && (
@@ -1434,7 +1440,7 @@ export function SalesDocumentForm({
               value={String(viewDocumentId || savedDocumentId || "")}
               onValueChange={(value) => setViewDocumentId(Number(value))}
             >
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[180px] shrink-0">
                 <History className="w-4 h-4 mr-2 shrink-0" />
                 <SelectValue placeholder="Revision History" />
               </SelectTrigger>
@@ -1479,8 +1485,8 @@ export function SalesDocumentForm({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-1 pb-8 pt-6">
-        <fieldset disabled={isLocked} className="space-y-6">
+      <div className="sales-form-body min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto pb-8 pt-6 sm:px-1">
+        <fieldset disabled={isLocked} className="min-w-0 space-y-4 sm:space-y-6">
           {(status === "Sent" || (isReturn && status === "Confirmed")) && (
             <Card className="border-primary/20 bg-primary/5">
               <CardContent className="flex items-center justify-between gap-4 p-5">
@@ -1509,7 +1515,7 @@ export function SalesDocumentForm({
 
           {/* Sales document identity and customer details */}
           <Card className="border-border shadow-sm">
-            <CardContent className="space-y-5 p-6">
+            <CardContent className="space-y-5 p-4 sm:p-6">
               <section>
                 <Label className="mb-3 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   Billed By
@@ -1650,7 +1656,7 @@ export function SalesDocumentForm({
                         {quotationNumber}
                       </span>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="space-y-1.5">
                         <Label className="text-xs">
                           {isChallan
@@ -1754,7 +1760,7 @@ export function SalesDocumentForm({
 
           {isChallan && (
             <Card className="shadow-sm border-border bg-slate-50/30">
-              <CardContent className="p-6 space-y-4">
+              <CardContent className="space-y-4 p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 block">
                   Dispatch Details
                 </Label>
@@ -1787,7 +1793,7 @@ export function SalesDocumentForm({
 
           {(isProforma || isChallan || isInvoice) && (
             <Card className="shadow-sm border-border">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   {isInvoice
                     ? "Map Sales Document (Optional — choose one source type)"
@@ -2026,7 +2032,7 @@ export function SalesDocumentForm({
 
           {isReturn && (
             <Card className="shadow-sm border-border">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   Map Return Source (Required — choose one)
                 </Label>
@@ -2088,7 +2094,7 @@ export function SalesDocumentForm({
 
           {/* Line Items */}
           <Card className="shadow-sm border-border overflow-hidden">
-            <div className="p-4 border-b border-border flex justify-between items-center bg-slate-50/50">
+            <div className="flex flex-col items-stretch gap-3 border-b border-border bg-slate-50/50 p-4 sm:flex-row sm:items-center sm:justify-between">
               <Label className="text-xs font-bold text-foreground uppercase tracking-wider">
                 Line Items <span className="text-primary">*</span>
               </Label>
@@ -2096,13 +2102,19 @@ export function SalesDocumentForm({
                 variant="outline"
                 size="sm"
                 onClick={addItem}
-                className="h-8"
+                className="h-9 w-full sm:h-8 sm:w-auto"
               >
                 <Plus className="w-3.5 h-3.5 mr-1" /> Add blank row
               </Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground sm:hidden">
+              Swipe left to view tax and total fields.
+            </p>
+            <div
+              ref={lineItemsScrollRef}
+              className="line-items-scroll w-full max-w-full overflow-x-auto overscroll-x-contain"
+            >
+              <table className="w-full min-w-[1100px] text-sm">
                 <thead className="bg-slate-50 text-xs text-muted-foreground uppercase tracking-wider">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium w-64">
@@ -2127,22 +2139,22 @@ export function SalesDocumentForm({
                         Returned Qty
                       </th>
                     )}
-                    <th className="px-4 py-3 text-left font-medium w-24">
+                    <th className="w-32 min-w-32 px-4 py-3 text-left font-medium">
                       UOM
                     </th>
-                    <th className="px-4 py-3 text-left font-medium w-28">
+                    <th className="w-36 min-w-36 px-4 py-3 text-left font-medium">
                       Rate
                     </th>
                     {isInterState ? (
-                      <th className="px-4 py-3 text-left font-medium w-24">
+                      <th className="w-32 min-w-32 px-4 py-3 text-left font-medium">
                         IGST%
                       </th>
                     ) : (
                       <>
-                        <th className="px-4 py-3 text-left font-medium w-24">
+                        <th className="w-32 min-w-32 px-4 py-3 text-left font-medium">
                           CGST%
                         </th>
-                        <th className="px-4 py-3 text-left font-medium w-24">
+                        <th className="w-32 min-w-32 px-4 py-3 text-left font-medium">
                           SGST%
                         </th>
                       </>
@@ -2355,7 +2367,7 @@ export function SalesDocumentForm({
                             </Select>
                           </td>
                         )}
-                        <td className="px-4 py-3 align-top">
+                        <td className="min-w-32 px-4 py-3 align-top">
                           <Input
                             value={item.hsn}
                             onChange={(e) =>
@@ -2418,10 +2430,10 @@ export function SalesDocumentForm({
                             onChange={(e) =>
                               updateItem(item.id, "uom", e.target.value)
                             }
-                            className="h-8 text-sm"
+                            className="h-9 w-full min-w-24 text-sm"
                           />
                         </td>
-                        <td className="px-4 py-3 align-top">
+                        <td className="min-w-36 px-4 py-3 align-top">
                           <Input
                             type="number"
                             value={item.rate}
@@ -2432,11 +2444,11 @@ export function SalesDocumentForm({
                                 Number(e.target.value),
                               )
                             }
-                            className="h-8 text-sm"
+                            className="h-9 w-full min-w-28 text-sm"
                           />
                         </td>
                         {isInterState ? (
-                          <td className="px-4 py-3 align-top">
+                          <td className="min-w-32 px-4 py-3 align-top">
                             <Select
                               value={String(item.cgst + item.sgst)}
                               onValueChange={(v) =>
@@ -2446,7 +2458,7 @@ export function SalesDocumentForm({
                                 })
                               }
                             >
-                              <SelectTrigger className="h-8 text-sm">
+                              <SelectTrigger className="h-9 w-full min-w-24 text-sm">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -2460,14 +2472,14 @@ export function SalesDocumentForm({
                           </td>
                         ) : (
                           <>
-                            <td className="px-4 py-3 align-top">
+                            <td className="min-w-32 px-4 py-3 align-top">
                               <Select
                                 value={String(item.cgst)}
                                 onValueChange={(v) =>
                                   updateItem(item.id, "cgst", Number(v))
                                 }
                               >
-                                <SelectTrigger className="h-8 text-sm">
+                                <SelectTrigger className="h-9 w-full min-w-24 text-sm">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -2479,14 +2491,14 @@ export function SalesDocumentForm({
                                 </SelectContent>
                               </Select>
                             </td>
-                            <td className="px-4 py-3 align-top">
+                            <td className="min-w-32 px-4 py-3 align-top">
                               <Select
                                 value={String(item.sgst)}
                                 onValueChange={(v) =>
                                   updateItem(item.id, "sgst", Number(v))
                                 }
                               >
-                                <SelectTrigger className="h-8 text-sm">
+                                <SelectTrigger className="h-9 w-full min-w-24 text-sm">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -2554,7 +2566,7 @@ export function SalesDocumentForm({
                       onChange={(e) => setAccountNumber(e.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">
                         IFSC Code

@@ -334,7 +334,7 @@ export default function Sales() {
   if (creatingType) {
     return (
       <Shell>
-        <div className="h-[calc(100vh-72px)] w-full overflow-hidden bg-muted/30 p-6 md:p-8">
+        <div className="h-[calc(100svh-4rem)] min-w-0 w-full overflow-hidden bg-muted/30 p-4 sm:p-6 md:h-[calc(100vh-72px)] md:p-8">
           <SalesDocumentForm
             type={creatingType}
             documentId={editingId}

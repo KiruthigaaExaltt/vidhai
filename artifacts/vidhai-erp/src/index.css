@@ -250,4 +250,16 @@
   .settings-content > div > div:first-child:has(> button) > button {
     width: 100%;
   }
+
+  .sales-form-body > fieldset > * {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .sales-form-body :where([data-slot="card"], section) {
+    min-width: 0;
+    max-width: 100%;
+  }
 }
