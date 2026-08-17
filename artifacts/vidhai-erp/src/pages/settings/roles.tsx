@@ -162,6 +162,24 @@ const RolesPage = forwardRef<
         ? [...new Set([...current, ...rowKeys])]
         : current.filter((key) => !rowKeys.includes(key));
     });
+
+  const isMasterChecked = useMemo(() => {
+    if (catalog.length === 0) return false;
+    return catalog.every((row) =>
+      row.actions.every((action) => permissions.includes(`${row.key}.${action}`))
+    );
+  }, [catalog, permissions]);
+
+  const toggleMasterAll = () => {
+    if (isMasterChecked) {
+      setPermissions([]);
+    } else {
+      const allPerms = catalog.flatMap((row) =>
+        row.actions.map((action) => `${row.key}.${action}`)
+      );
+      setPermissions([...new Set(allPerms)]);
+    }
+  };
   const save = async () => {
     const duplicate = roles.find(
       (role) =>
@@ -356,7 +374,7 @@ const RolesPage = forwardRef<
                 <option value="">All modules</option>
                 {catalog.map((row) => (
                   <option key={row.key} value={row.key}>
-                    {row.module}
+                    {row.module.replace(/\uFFFD/g, " → ")}
                   </option>
                 ))}
               </select>
@@ -373,7 +391,28 @@ const RolesPage = forwardRef<
                         key={action}
                         className="px-3 py-3 text-center text-[11px] uppercase text-muted-foreground"
                       >
-                        {action.replaceAll("_", " ")}
+                        {action === "all" ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <span>ALL</span>
+                            {name.toLowerCase().includes("admin") && (
+                              <button
+                                type="button"
+                                onClick={toggleMasterAll}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                                  isMasterChecked ? "bg-primary" : "bg-muted"
+                                }`}
+                              >
+                                <span
+                                  className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                                    isMasterChecked ? "translate-x-[18px]" : "translate-x-0.5"
+                                  }`}
+                                />
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          action.replaceAll("_", " ")
+                        )}
                       </th>
                     ))}
                   </tr>
@@ -382,7 +421,7 @@ const RolesPage = forwardRef<
                   {filteredCatalog.map((row) => (
                     <tr key={row.key} className="border-t">
                       <td className="px-4 py-3">
-                        <p className="font-semibold">{row.module}</p>
+                        <p className="font-semibold">{row.module.replace(/\uFFFD/g, " → ")}</p>
                         <p className="text-[11px] text-muted-foreground">
                           {row.key.split(".")[0]}
                         </p>
@@ -437,7 +476,7 @@ const RolesPage = forwardRef<
                 key={row.key}
                 className="grid grid-cols-[220px_repeat(5,minmax(80px,1fr))] items-center border-b px-3 py-3 text-sm last:border-0"
               >
-                <span className="font-medium">{row.module}</span>
+                <span className="font-medium">{row.module.replace(/\uFFFD/g, " → ")}</span>
                 {["view", "create", "update", "delete"].map((action) => (
                   <span key={action}>
                     {row.actions.includes(action) ? (
