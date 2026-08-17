@@ -106,12 +106,20 @@ async function serializeTask(task: any) {
     .select()
     .from(taskTimeLogsTable)
     .where(eq(taskTimeLogsTable.taskId, Number(task.id)));
-  const closedMinutes = logs
-    .filter((log: any) => log.source !== "manual")
-    .reduce(
-      (sum: number, log: any) => sum + Number(log.durationMinutes ?? 0),
-      0,
-    );
+  const automaticLogs = logs.filter((log: any) => log.source !== "manual");
+  const closedMinutes = automaticLogs.reduce(
+    (sum: number, log: any) => sum + Number(log.durationMinutes ?? 0),
+    0,
+  );
+  const latestActiveTimer = [...activeTimers].sort(
+    (a: any, b: any) =>
+      new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+  )[0];
+  const latestClosedLog = [...automaticLogs].sort(
+    (a: any, b: any) =>
+      new Date(b.endTime ?? b.startTime).getTime() -
+      new Date(a.endTime ?? a.startTime).getTime(),
+  )[0];
   const legacyName = task.assigneeId
     ? (
         await db
@@ -129,6 +137,14 @@ async function serializeTask(task: any) {
       legacyName ||
       null,
     activeTimers,
+    latestStartedAt:
+      latestActiveTimer?.startedAt ?? latestClosedLog?.startTime ?? null,
+    latestEndedAt: latestActiveTimer
+      ? null
+      : (latestClosedLog?.endTime ?? null),
+    latestTimerStatus: latestActiveTimer
+      ? "active"
+      : (latestClosedLog?.status ?? null),
     actualMinutes: Math.round(closedMinutes * 100) / 100,
   };
 }
@@ -175,23 +191,44 @@ router.get("/timesheet", requireAuth, async (req, res) => {
     .from(taskTimeLogsTable)
     .where(eq(taskTimeLogsTable.employeeId, employeeId))
     .orderBy(desc(taskTimeLogsTable.startTime));
+  const activeTimers = await db
+    .select()
+    .from(taskActiveTimersTable)
+    .where(eq(taskActiveTimersTable.employeeId, employeeId));
   const tasks = await db.select().from(tasksTable);
-  const entries = logs
-    .filter(
-      (log: any) =>
-        log.source === "manual" && log.endTime && log.status !== "active",
-    )
-    .map((log: any) => {
-      const task = tasks.find(
-        (item: any) => Number(item.id) === Number(log.taskId),
-      );
-      return {
-        ...log,
-        taskTitle: task?.title ?? `Task #${log.taskId}`,
-        workOrder: task?.batchRef ?? null,
-      };
-    });
-  const totals = entries.reduce(
+  const withTask = (log: any) => {
+    const task = tasks.find(
+      (item: any) => Number(item.id) === Number(log.taskId),
+    );
+    return {
+      ...log,
+      taskTitle: task?.title ?? `Task #${log.taskId}`,
+      workOrder: task?.batchRef ?? null,
+    };
+  };
+  const closedEntries = logs
+    .filter((log: any) => log.endTime && log.status !== "active")
+    .map(withTask);
+  const runningEntries = activeTimers.map((timer: any) =>
+    withTask({
+      id: `active-${timer.id}`,
+      taskId: timer.taskId,
+      userId: timer.userId,
+      employeeId: timer.employeeId,
+      startTime: timer.startedAt,
+      endTime: null,
+      durationMinutes: minutesBetween(timer.startedAt, new Date()),
+      workDate: dateKey(new Date(timer.startedAt)),
+      source: "automatic",
+      status: "active",
+      notes: null,
+    }),
+  );
+  const entries = [...runningEntries, ...closedEntries].sort(
+    (a: any, b: any) =>
+      new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
+  );
+  const totals = closedEntries.reduce(
     (result: any, entry: any) => {
       const value = Number(entry.durationMinutes ?? 0);
       const day = entry.workDate || dateKey(new Date(entry.startTime));
@@ -247,7 +284,9 @@ router.get("/", requireAuth, async (req, res) => {
     const value = search.trim().toLowerCase();
     rows = rows.filter((task: any) =>
       [task.title, task.description, task.batchRef, task.notes].some((field) =>
-        String(field || "").toLowerCase().includes(value),
+        String(field || "")
+          .toLowerCase()
+          .includes(value),
       ),
     );
   }
@@ -500,7 +539,7 @@ async function closeOwnTimer(req: any, res: any, complete: boolean) {
         durationMinutes: String(minutesBetween(active.startedAt, now)),
         workDate: dateKey(new Date(active.startedAt)),
         source: "automatic",
-        status: "completed",
+        status: complete ? "completed" : "paused",
         notes: null,
       });
       await tx

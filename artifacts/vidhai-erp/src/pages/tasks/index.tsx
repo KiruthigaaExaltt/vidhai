@@ -140,6 +140,13 @@ const formatMinutes = (value: number) => {
   const total = Math.max(0, Math.round(Number(value || 0)));
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
+const formatDateTime = (value?: string | null) =>
+  value
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      }).format(new Date(value))
+    : "�";
 function StatusBadge({ status }: { status: string }) {
   const option = STATUS_OPTIONS.find((item) => item.value === status);
   return (
@@ -591,7 +598,9 @@ export default function Tasks() {
                           <th className="px-4 py-3.5">Work order</th>
                           <th className="px-4 py-3.5">Status</th>
                           <th className="px-4 py-3.5">Priority</th>
-                          <th className="px-4 py-3.5">Time</th>
+                          <th className="px-4 py-3.5">Start time</th>
+                          <th className="px-4 py-3.5">End / pause time</th>
+                          <th className="px-4 py-3.5">Duration</th>
                           <th className="w-10 px-4 py-3.5">Actions</th>
                         </tr>
                       </thead>
@@ -632,6 +641,14 @@ export default function Tasks() {
                               </td>
                               <td className="px-4 py-3.5 capitalize text-muted-foreground">
                                 {task.priority}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3.5 text-xs text-muted-foreground">
+                                {formatDateTime(task.latestStartedAt)}
+                              </td>
+                              <td className="whitespace-nowrap px-4 py-3.5 text-xs text-muted-foreground">
+                                {task.latestTimerStatus === "active"
+                                  ? "Still running"
+                                  : formatDateTime(task.latestEndedAt)}
                               </td>
                               <td className="whitespace-nowrap px-4 py-3.5 font-mono text-xs text-muted-foreground">
                                 <span className="inline-flex items-center gap-2">
@@ -963,26 +980,47 @@ function TimesheetPanel({ data }: { data?: Timesheet }) {
             <table className="w-full text-left text-sm">
               <thead className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Task</th>
                   <th className="px-4 py-3">Work order</th>
-                  <th className="px-4 py-3">Time</th>
+                  <th className="px-4 py-3">Started</th>
+                  <th className="px-4 py-3">Paused / stopped</th>
+                  <th className="px-4 py-3">Duration</th>
+                  <th className="px-4 py-3">Result</th>
                   <th className="px-4 py-3">Notes</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {pagination.paginatedRows.map((entry) => (
                   <tr key={entry.id}>
-                    <td className="px-4 py-3 font-mono text-xs">
-                      {entry.workDate ||
-                        new Date(entry.startTime).toISOString().slice(0, 10)}
-                    </td>
                     <td className="px-4 py-3 font-medium">{entry.taskTitle}</td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {entry.workOrder || "�"}
                     </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
+                      {entry.source === "manual"
+                        ? entry.workDate
+                        : formatDateTime(entry.startTime)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
+                      {entry.source === "manual"
+                        ? "Manual entry"
+                        : entry.status === "active"
+                          ? "Still running"
+                          : formatDateTime(entry.endTime)}
+                    </td>
                     <td className="px-4 py-3 font-mono">
                       {formatMinutes(entry.durationMinutes)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="whitespace-nowrap rounded-full border px-2 py-0.5 text-xs capitalize">
+                        {entry.source === "manual"
+                          ? "Manual"
+                          : entry.status === "active"
+                            ? "Running"
+                            : entry.status === "paused"
+                              ? "Paused"
+                              : "Stopped"}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {entry.notes || "�"}
@@ -992,7 +1030,7 @@ function TimesheetPanel({ data }: { data?: Timesheet }) {
                 {!entries.length && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="py-16 text-center text-muted-foreground"
                     >
                       No time has been logged yet.

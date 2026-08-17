@@ -35,14 +35,29 @@ router.get("/", async (req, res) => {
       : undefined,
   );
   const [contacts, totalCount, all, client, vendor, other] = await Promise.all([
-    db.select().from(contactsTable).where(filter).orderBy(desc(contactsTable.createdAt)).offset(pagination.skip).limit(pagination.limit),
+    db
+      .select()
+      .from(contactsTable)
+      .where(filter)
+      .orderBy(desc(contactsTable.createdAt))
+      .offset(pagination.skip)
+      .limit(pagination.limit),
     db.count(contactsTable, filter),
     db.count(contactsTable, searchFilter),
-    db.count(contactsTable, and(searchFilter, eq(contactsTable.type, "client"))),
-    db.count(contactsTable, and(searchFilter, eq(contactsTable.type, "vendor"))),
+    db.count(
+      contactsTable,
+      and(searchFilter, eq(contactsTable.type, "client")),
+    ),
+    db.count(
+      contactsTable,
+      and(searchFilter, eq(contactsTable.type, "vendor")),
+    ),
     db.count(contactsTable, and(searchFilter, eq(contactsTable.type, "other"))),
   ]);
-  res.json({ ...paginatedResponse(contacts, totalCount, pagination), counts: { all, client, vendor, other } });
+  res.json({
+    ...paginatedResponse(contacts, totalCount, pagination),
+    counts: { all, client, vendor, other },
+  });
 });
 
 router.post("/", async (req, res) => {
@@ -138,8 +153,11 @@ router.delete("/:id", async (req, res) => {
     .delete(contactsTable)
     .where(eq(contactsTable.id, Number(req.params.id)))
     .returning();
-  if (!contact) return res.status(404).json({ error: "Contact not found" });
-  return res.status(204).send();
+  return res.json({
+    success: true,
+    id: contact?.id ?? Number(req.params.id),
+    alreadyDeleted: !contact,
+  });
 });
 
 export default router;

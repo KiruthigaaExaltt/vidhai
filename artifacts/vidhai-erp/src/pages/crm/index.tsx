@@ -5,7 +5,11 @@ import {
   useDeleteContact,
   useUpdateContact,
 } from "@workspace/api-client-react";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
@@ -88,15 +92,33 @@ export default function CRMPage() {
   const { can } = useAuth();
   const [tab, setTab] = useState<ContactType | "all">("all");
   const [search, setSearch] = useState("");
-  const [paginationStates, setPaginationStates] = useState<Record<string, { page: number; size: number }>>({});
+  const [paginationStates, setPaginationStates] = useState<
+    Record<string, { page: number; size: number }>
+  >({});
   const paginationState = paginationStates[tab] ?? { page: 1, size: 10 };
   const setPagination = (next: Partial<typeof paginationState>) =>
-    setPaginationStates((current) => ({ ...current, [tab]: { ...(current[tab] ?? paginationState), ...next } }));
+    setPaginationStates((current) => ({
+      ...current,
+      [tab]: { ...(current[tab] ?? paginationState), ...next },
+    }));
   const contactsQuery = useQuery({
-    queryKey: [...getListContactsQueryKey(), tab, search, paginationState.page, paginationState.size],
+    queryKey: [
+      ...getListContactsQueryKey(),
+      tab,
+      search,
+      paginationState.page,
+      paginationState.size,
+    ],
     queryFn: async () => {
-      const params = new URLSearchParams({ type: tab, search, skip: String((paginationState.page - 1) * paginationState.size), limit: String(paginationState.size) });
-      const response = await fetch(`/api/contacts?${params}`, { credentials: "include" });
+      const params = new URLSearchParams({
+        type: tab,
+        search,
+        skip: String((paginationState.page - 1) * paginationState.size),
+        limit: String(paginationState.size),
+      });
+      const response = await fetch(`/api/contacts?${params}`, {
+        credentials: "include",
+      });
       if (!response.ok) throw new Error("Could not load contacts");
       return response.json();
     },
@@ -109,11 +131,17 @@ export default function CRMPage() {
   const [form, setForm] = useState<Omit<Contact, "id">>({ ...EMPTY_FORM });
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  const refreshContacts = () => {
-    queryClient.invalidateQueries({ queryKey: getListContactsQueryKey() });
-    queryClient.invalidateQueries({
-      queryKey: ["get", "/api/flex/master-data"],
-    });
+  const refreshContacts = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: getListContactsQueryKey(),
+        refetchType: "active",
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["get", "/api/flex/master-data"],
+        refetchType: "active",
+      }),
+    ]);
   };
   const createContact = useCreateContact({
     mutation: {
@@ -143,12 +171,15 @@ export default function CRMPage() {
   });
   const deleteContact = useDeleteContact({
     mutation: {
-      onSuccess: () => {
-        refreshContacts();
+      onSuccess: async () => {
+        await refreshContacts();
         setDeleteId(null);
         toast.success("Contact deleted");
       },
-      onError: () => toast.error("Could not delete contact"),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "Could not delete contact",
+        ),
     },
   });
 
@@ -234,24 +265,24 @@ export default function CRMPage() {
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
           <div className="w-full overflow-x-auto pb-1 sm:w-auto">
             <div className="flex min-w-max gap-1">
-            {TABS.map((t) => (
-              <button
-                key={t.value}
-                onClick={() => setTab(t.value)}
-                className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-                  tab === t.value
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "text-muted-foreground hover:bg-muted"
-                }`}
-              >
-                {t.label}
-                <span
-                  className={`text-[10px] font-mono rounded px-1 ${tab === t.value ? "bg-white/20" : "bg-muted-foreground/15"}`}
+              {TABS.map((t) => (
+                <button
+                  key={t.value}
+                  onClick={() => setTab(t.value)}
+                  className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                    tab === t.value
+                      ? "bg-primary text-primary-foreground shadow"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
                 >
-                  {counts[t.value]}
-                </span>
-              </button>
-            ))}
+                  {t.label}
+                  <span
+                    className={`text-[10px] font-mono rounded px-1 ${tab === t.value ? "bg-white/20" : "bg-muted-foreground/15"}`}
+                  >
+                    {counts[t.value]}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="relative w-full flex-1 sm:max-w-xs">

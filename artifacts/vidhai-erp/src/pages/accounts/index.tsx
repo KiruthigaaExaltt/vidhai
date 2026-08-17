@@ -867,7 +867,7 @@ export default function Accounts() {
   return (
     <Shell>
       <div className="min-h-full space-y-5 p-4 pt-16 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:pr-36">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <BookOpen />
