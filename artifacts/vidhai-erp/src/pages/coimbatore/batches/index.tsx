@@ -50,7 +50,7 @@ function stageLabel(stage: string, currentTurnNumber?: number | null) {
 }
 
 const DATE_INPUT_CLASS =
-  "h-8 rounded-md text-sm font-mono w-[140px] pl-2 pr-2 cursor-pointer " +
+  "h-8 w-full rounded-md text-sm font-mono pl-2 pr-2 cursor-pointer sm:w-[140px] " +
   "[&::-webkit-calendar-picker-indicator]:cursor-pointer " +
   "[&::-webkit-calendar-picker-indicator]:opacity-60 " +
   "[&::-webkit-calendar-picker-indicator]:hover:opacity-100 " +
@@ -276,7 +276,7 @@ export default function CoimbatoreBatches() {
           <CardContent className="p-3">
             <div className="grid grid-cols-1 items-end gap-3 sm:flex sm:flex-wrap">
               {/* Filter icon — invisible label spacer keeps it bottom-aligned with the input row */}
-              <div className="space-y-1">
+              <div className="hidden space-y-1 sm:block">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground opacity-0 select-none">
                   .
                 </Label>
@@ -286,7 +286,7 @@ export default function CoimbatoreBatches() {
               </div>
 
               {/* Search */}
-              <div className="space-y-1 min-w-[150px]">
+              <div className="w-full space-y-1 sm:min-w-[150px] sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Batch Code
                 </Label>
@@ -302,12 +302,12 @@ export default function CoimbatoreBatches() {
               </div>
 
               {/* Stage */}
-              <div className="space-y-1">
+              <div className="w-full space-y-1 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Stage
                 </Label>
                 <Select value={filterStage} onValueChange={setFilterStage}>
-                  <SelectTrigger className="h-8 rounded-md text-sm w-[150px]">
+                  <SelectTrigger className="h-8 w-full rounded-md text-sm sm:w-[150px]">
                     <SelectValue placeholder="All stages" />
                   </SelectTrigger>
                   <SelectContent>
@@ -322,12 +322,12 @@ export default function CoimbatoreBatches() {
               </div>
 
               {/* Status */}
-              <div className="space-y-1">
+              <div className="w-full space-y-1 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Status
                 </Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="h-8 rounded-md text-sm w-[130px]">
+                  <SelectTrigger className="h-8 w-full rounded-md text-sm sm:w-[130px]">
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -340,7 +340,7 @@ export default function CoimbatoreBatches() {
               </div>
 
               {/* Date From */}
-              <div className="space-y-1">
+              <div className="w-full space-y-1 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   From Date
                 </Label>
@@ -354,7 +354,7 @@ export default function CoimbatoreBatches() {
               </div>
 
               {/* Date To */}
-              <div className="space-y-1">
+              <div className="w-full space-y-1 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   To Date
                 </Label>

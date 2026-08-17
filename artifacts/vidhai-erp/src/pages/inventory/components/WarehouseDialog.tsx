@@ -78,7 +78,7 @@ export function WarehouseDialog({ open, onOpenChange, formState }: WarehouseDial
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto p-0 border-0 shadow-lg rounded-xl">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto p-0 border-0 shadow-lg rounded-xl [&>button.absolute]:z-20 [&>button.absolute]:flex [&>button.absolute]:h-9 [&>button.absolute]:w-9 [&>button.absolute]:items-center [&>button.absolute]:justify-center [&>button.absolute]:rounded-md [&>button.absolute]:hover:bg-muted">
         <DialogHeader className="px-6 py-4 border-b border-border/50 sticky top-0 bg-background z-10">
           <DialogTitle className="text-xl font-semibold">{isEditing ? "Edit Location" : "Add Location"}</DialogTitle>
           <DialogDescription>Manage physical warehouses, godowns and stores.</DialogDescription>

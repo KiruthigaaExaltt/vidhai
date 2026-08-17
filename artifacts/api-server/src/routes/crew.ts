@@ -31,6 +31,7 @@ import {
   effectivePermissions,
   getAuthUser,
   permissionSetHas,
+  resolveScopeFromPermissions,
 } from "../lib/access";
 import {
   crewUploadFolder,
@@ -151,9 +152,27 @@ async function ownEmployee(req: any) {
         eq(employeesTable.userId, uid),
       ),
     );
-  return (
-    rows.find((e: any) => !e.isDeleted && e.status !== "Offboarded") || null
+  const linked = rows.find(
+    (e: any) => !e.isDeleted && e.status !== "Offboarded",
   );
+  if (linked) return linked;
+
+  // Older employee records may predate the explicit userId/employeeId link.
+  // Use a unique organization-scoped email match as a safe fallback.
+  const email = String(req.crew.user.email || "").trim().toLowerCase();
+  if (!email) return null;
+  const matches = (
+    await db
+      .select()
+      .from(employeesTable)
+      .where(eq(employeesTable.organizationId, req.crew.org))
+  ).filter(
+    (e: any) =>
+      !e.isDeleted &&
+      e.status !== "Offboarded" &&
+      String(e.email || "").trim().toLowerCase() === email,
+  );
+  return matches.length === 1 ? matches[0] : null;
 }
 async function scopedEmployee(req: any, res: any, id: number, sub: string) {
   const [e] = await db
@@ -169,15 +188,17 @@ async function scopedEmployee(req: any, res: any, id: number, sub: string) {
     res.status(404).json({ error: "Employee not found" });
     return null;
   }
-  if (can(req, `crew.${sub}.forOthers`)) return e;
+  const scope = resolveScopeFromPermissions(req.crew.permissions, "crew", sub);
+  if (scope.canForOthers) return e;
   const own = await ownEmployee(req);
-  if (can(req, `crew.${sub}.forOwn`) && own?.id === e.id) return e;
+  if (scope.canForOwn && own?.id === e.id) return e;
   res.status(403).json({ error: "Employee is outside your permitted scope" });
   return null;
 }
 async function scopedRows(req: any, rows: any[], sub: string) {
-  if (can(req, `crew.${sub}.forOthers`)) return rows;
-  if (!can(req, `crew.${sub}.forOwn`)) return [];
+  const scope = resolveScopeFromPermissions(req.crew.permissions, "crew", sub);
+  if (scope.canForOthers) return rows;
+  if (!scope.canForOwn) return [];
   const own = await ownEmployee(req);
   return own
     ? rows.filter((r) => Number(r.employeeId ?? r.id) === Number(own.id))
@@ -338,11 +359,20 @@ router.get("/employees/next-code", async (req: any, res: any): Promise<any> => {
 router.get(
   "/employees/form-options",
   async (req: any, res: any): Promise<any> => {
-    if (
-      !need(req, res, "crew.employees.create") ||
-      !need(req, res, "crew.employees.forOthers")
-    )
-      return;
+    const scope = resolveScopeFromPermissions(
+      req.crew.permissions,
+      "crew",
+      "employees",
+    );
+    const mayCreateForOthers =
+      can(req, "crew.employees.create") && scope.canForOthers;
+    const mayUpdateInScope =
+      can(req, "crew.employees.update") &&
+      (scope.canForOwn || scope.canForOthers);
+    if (!mayCreateForOthers && !mayUpdateInScope)
+      return res.status(403).json({
+        error: "Missing scoped Crew employee create or update permission",
+      });
     const org = req.crew.org,
       employees = (
         await db
@@ -770,6 +800,39 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
     rows = rows.filter(
       (x: any) => x.attendanceDate <= String(req.query.endDate),
     );
+  const currentDate = today();
+  let visibleEmployees = (
+    await db
+      .select()
+      .from(employeesTable)
+      .where(eq(employeesTable.organizationId, req.crew.org))
+  ).filter((employee: any) => !employee.isDeleted && employee.status !== "Offboarded");
+  visibleEmployees = await scopedRows(req, visibleEmployees, "attendance");
+  for (const employee of visibleEmployees)
+    if (
+      !rows.some(
+        (row: any) =>
+          Number(row.employeeId) === Number(employee.id) &&
+          row.attendanceDate === currentDate,
+      )
+    )
+      rows.push({
+        id: `derived-${employee.id}-${currentDate}`,
+        employeeId: employee.id,
+        employeeName: employee.name,
+        employeeCode: employee.employeeCode,
+        department: employee.department,
+        attendanceDate: currentDate,
+        status: "Absent",
+        checkInTime: null,
+        checkOutTime: null,
+        locked: false,
+        notes: null,
+        derived: true,
+      });
+  rows.sort((a: any, b: any) =>
+    String(b.attendanceDate).localeCompare(String(a.attendanceDate)),
+  );
   res.json(rows.map((x: any) => ({ ...x, auditLogs: json(x.auditLogs) })));
 });
 router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
@@ -828,6 +891,14 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
           status: actual.status,
           derived: false,
           attendanceId: actual.id,
+          checkInTime: actual.checkInTime,
+          checkOutTime: actual.checkOutTime,
+          checkInPhoto: actual.checkInPhoto,
+          checkOutPhoto: actual.checkOutPhoto,
+          checkInLocation: actual.checkInLocation,
+          checkOutLocation: actual.checkOutLocation,
+          notes: actual.notes,
+          locked: actual.locked,
         };
       const leave = leaves.find(
         (item: any) =>
@@ -963,6 +1034,88 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
     res.status(400).json({ error: e.message });
   }
 });
+router.post("/attendance/override", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.attendance.update")) return;
+  if (!need(req, res, "crew.attendance.change_time")) return;
+  const reason = String(req.body.overrideReason || "").trim();
+  if (reason.length < 10)
+    return res.status(400).json({
+      error: "Attendance override reason must contain at least 10 characters",
+    });
+  if (!iso(req.body.attendanceDate))
+    return res.status(400).json({ error: "Valid attendance date is required" });
+  const employee = await scopedEmployee(
+    req,
+    res,
+    Number(req.body.employeeId),
+    "attendance",
+  );
+  if (!employee) return;
+  const allowedStatuses = new Set([
+    "Present", "Absent", "Late", "Half Day", "On Leave",
+    "Week Off", "Holiday", "Remote", "WFH",
+  ]);
+  if (!allowedStatuses.has(String(req.body.status)))
+    return res.status(400).json({ error: "Invalid attendance status" });
+  const existing = (
+    await db
+      .select()
+      .from(attendanceLogsTable)
+      .where(
+        and(
+          eq(attendanceLogsTable.organizationId, req.crew.org),
+          eq(attendanceLogsTable.employeeId, employee.id),
+        ),
+      )
+  ).find((row: any) => row.attendanceDate === req.body.attendanceDate);
+  const values: any = {
+    status: req.body.status,
+    checkInTime: req.body.checkInTime || null,
+    checkOutTime: req.body.checkOutTime || null,
+    notes: req.body.notes || null,
+    locked: Boolean(req.body.checkOutTime),
+    auditLogs: JSON.stringify([
+      ...json(existing?.auditLogs),
+      {
+        action: "attendance-override",
+        actor: req.crew.user.displayName,
+        at: new Date(),
+        reason,
+      },
+    ]),
+    updatedAt: new Date(),
+  };
+  const [row] = existing
+    ? await db
+        .update(attendanceLogsTable)
+        .set(values)
+        .where(eq(attendanceLogsTable.id, existing.id))
+        .returning()
+    : await db
+        .insert(attendanceLogsTable)
+        .values({
+          ...values,
+          organizationId: req.crew.org,
+          userId: employee.userId || null,
+          employeeId: employee.id,
+          employeeName: employee.name,
+          employeeCode: employee.employeeCode,
+          department: employee.department,
+          designation: employee.designation,
+          attendanceDate: req.body.attendanceDate,
+        })
+        .returning();
+  void audit(
+    req,
+    "attendance",
+    row.id,
+    employee.name,
+    "override",
+    existing || null,
+    row,
+  );
+  return res.json(row);
+});
 router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
   const isPunchOut = req.body.punchAction === "punchOut";
   if (isPunchOut) {
@@ -985,14 +1138,22 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
     );
   if (!old) return res.status(404).json({ error: "Attendance not found" });
   if (!(await scopedEmployee(req, res, old.employeeId, "attendance"))) return;
-  if (old.locked && !isPunchOut)
-    return res
-      .status(409)
-      .json({ error: "Attendance is locked after checkout" });
+  if (old.locked && !isPunchOut) {
+    if (!can(req, "crew.attendance.change_time"))
+      return res.status(403).json({
+        error: "Attendance override requires change-time permission",
+      });
+    if (String(req.body.overrideReason || "").trim().length < 10)
+      return res.status(400).json({
+        error: "Attendance override reason must contain at least 10 characters",
+      });
+  }
   try {
     const b: any = { ...req.body, updatedAt: new Date() };
+    const overrideReason = String(b.overrideReason || "").trim() || null;
     delete b.employeeId;
     delete b.attendanceDate;
+    delete b.overrideReason;
     if (
       (b.checkInTime || b.checkOutTime) &&
       !can(req, "crew.attendance.changeTime") &&
@@ -1099,7 +1260,7 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
         action: req.body.punchAction || "manual-edit",
         actor: req.crew.user.displayName,
         at: new Date(),
-        reason: req.body.overrideReason,
+        reason: overrideReason,
       },
     ]);
     const [row] = await db
@@ -1801,6 +1962,7 @@ router.patch("/overtime/:id", async (req: any, res: any): Promise<any> => {
     );
   if (!old || old.claimType !== "overtime")
     return res.status(404).json({ error: "Overtime request not found" });
+  if (!(await scopedEmployee(req, res, old.employeeId, "overtime"))) return;
   if (old.status !== "Pending")
     return res
       .status(409)

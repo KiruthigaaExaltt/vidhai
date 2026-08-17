@@ -67,7 +67,7 @@ export default function ReportBatchSummary() {
         {/* Filters */}
         <div className="grid grid-cols-1 items-end gap-3 sm:flex sm:flex-wrap">
           <div className="space-y-1">
-            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Location</Label>
+            <Label className="block text-[11px] uppercase tracking-wider text-muted-foreground">Location</Label>
             <select
               className="h-9 w-full rounded-sm border border-border bg-background px-3 text-sm sm:w-auto"
               value={locationCode}

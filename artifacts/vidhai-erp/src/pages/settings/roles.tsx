@@ -228,7 +228,7 @@ const RolesPage = forwardRef<
         />
       </div>
       <div className="overflow-hidden rounded-xl border">
-        <div className="hidden grid-cols-[minmax(0,2fr)_120px_120px_100px_90px] gap-3 bg-muted/40 px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[minmax(180px,2fr)_minmax(70px,1fr)_minmax(85px,1fr)_60px_70px] gap-3 bg-muted/40 px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground xl:grid">
           <span>Role</span>
           <span>Modules</span>
           <span>Permissions</span>
@@ -251,12 +251,12 @@ const RolesPage = forwardRef<
           return (
             <div
               key={r.id}
-              className="grid gap-3 border-t p-4 first:border-t-0 md:grid-cols-[minmax(0,2fr)_120px_120px_100px_90px] md:items-center"
+              className="grid gap-3 border-t p-4 first:border-t-0 xl:grid-cols-[minmax(180px,2fr)_minmax(70px,1fr)_minmax(85px,1fr)_60px_70px] xl:items-center"
             >
-              <div className="contents">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold">{r.name}</h3>
+              <div className="grid items-start gap-2 sm:grid-cols-[minmax(0,1fr)_auto] xl:contents">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h3 className="min-w-0 break-words text-sm font-semibold">{r.name}</h3>
                     {r.isSystem && <Badge variant="secondary">System</Badge>}
                     {r.isActive === false && (
                       <Badge variant="outline">Inactive</Badge>
@@ -266,7 +266,7 @@ const RolesPage = forwardRef<
                     {r.description || "No description"}
                   </p>
                 </div>
-                <div className="flex justify-end md:order-last">
+                <div className="flex justify-end gap-1 xl:order-last">
                   <Button
                     size="icon"
                     variant="ghost"
@@ -296,11 +296,18 @@ const RolesPage = forwardRef<
                     )}
                 </div>
               </div>
-              <span className="text-sm">
-                {new Set(p.map((k) => k.split(".")[0])).size}
-              </span>
-              <span className="text-sm">{p.length}</span>
-              <span className="text-sm">{roleUsers}</span>
+              <div className="flex items-center justify-between rounded-md bg-muted/30 px-3 py-2 text-sm xl:block xl:bg-transparent xl:p-0">
+                <span className="text-muted-foreground xl:hidden">Modules</span>
+                <span>{new Set(p.map((k) => k.split(".")[0])).size}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-muted/30 px-3 py-2 text-sm xl:block xl:bg-transparent xl:p-0">
+                <span className="text-muted-foreground xl:hidden">Permissions</span>
+                <span>{p.length}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md bg-muted/30 px-3 py-2 text-sm xl:block xl:bg-transparent xl:p-0">
+                <span className="text-muted-foreground xl:hidden">Users</span>
+                <span>{roleUsers}</span>
+              </div>
             </div>
           );
         })}

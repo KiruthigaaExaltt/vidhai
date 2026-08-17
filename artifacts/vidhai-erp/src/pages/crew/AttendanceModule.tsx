@@ -6,6 +6,7 @@ import {
   Camera,
   CheckCircle2,
   Clock3,
+  Eye,
   LocateFixed,
   Pencil,
   RefreshCw,
@@ -100,7 +101,11 @@ export function AttendanceModule({
 }) {
   const { toast } = useToast(),
     own = employees.find(
-      (employee) => Number(employee.id) === Number(user?.employeeId),
+      (employee) =>
+        Number(employee.id) === Number(user?.employeeId) ||
+        (user?.email &&
+          String(employee.email || "").trim().toLowerCase() ===
+            String(user.email).trim().toLowerCase()),
     ),
     today = isoToday(),
     todayRecord = logs.find(
@@ -127,7 +132,8 @@ export function AttendanceModule({
     [query, setQuery] = useState(""),
     [month, setMonth] = useState(today.slice(0, 7)),
     [register, setRegister] = useState<any>(null),
-    [registerLoading, setRegisterLoading] = useState(false);
+    [registerLoading, setRegisterLoading] = useState(false),
+    [details, setDetails] = useState<any>(null);
   const webcamRef = useRef<Webcam>(null),
     modelRef = useRef<blazeface.BlazeFaceModel | null>(null);
   useEffect(() => {
@@ -146,7 +152,7 @@ export function AttendanceModule({
         }),
       )
       .finally(() => setRegisterLoading(false));
-  }, [month, logs.length]);
+  }, [month, logs]);
   const acquireLocation = () => {
     setLocation(null);
     setLocationError("");
@@ -439,7 +445,19 @@ export function AttendanceModule({
                       {log.notes || "—"}
                     </td>
                     <td className="px-4 py-3">
-                      {can("crew.attendance.update") && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-8"
+                          aria-label="View attendance details"
+                          onClick={() => setDetails(log)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {can("crew.attendance.update") &&
+                          ((!log.locked && !log.derived) ||
+                            can("crew.attendance.change_time")) && (
                         <Button
                           size="icon"
                           variant="outline"
@@ -449,7 +467,8 @@ export function AttendanceModule({
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -547,12 +566,20 @@ export function AttendanceModule({
                       </td>
                       {row.days.map((cell: any) => (
                         <td key={cell.date} className="p-0.5">
-                          <span
+                          <button
+                            type="button"
+                            onClick={() => setDetails({
+                              ...cell,
+                              id: cell.attendanceId,
+                              employeeId: row.employeeId,
+                              employeeName: row.employeeName,
+                              attendanceDate: cell.date,
+                            })}
                             title={`${cell.date}: ${cell.status}`}
-                            className={`flex h-10 w-10 items-center justify-center rounded-md border font-semibold ${statusTone[cell.status] || "border-muted bg-muted/20"}`}
+                            className={`flex h-10 w-10 cursor-pointer items-center justify-center rounded-md border font-semibold hover:ring-2 hover:ring-primary/30 ${statusTone[cell.status] || "border-muted bg-muted/20"}`}
                           >
                             {statusCode[cell.status] || cell.status.slice(0, 2)}
-                          </span>
+                          </button>
                         </td>
                       ))}
                     </tr>
@@ -580,6 +607,43 @@ export function AttendanceModule({
           />
         </div>
       </section>
+      <Dialog open={!!details} onOpenChange={(open) => !open && setDetails(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Attendance details</DialogTitle>
+          </DialogHeader>
+          {details && (
+            <div className="space-y-4">
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 text-sm sm:grid-cols-2">
+                <p><span className="text-muted-foreground">Employee:</span> {details.employeeName}</p>
+                <p><span className="text-muted-foreground">Date:</span> {details.attendanceDate}</p>
+                <p><span className="text-muted-foreground">Status:</span> {details.status}</p>
+                <p><span className="text-muted-foreground">Record:</span> {details.locked ? "Locked" : "Open"}</p>
+                <p><span className="text-muted-foreground">Punch in:</span> {details.checkInTime || "—"}</p>
+                <p><span className="text-muted-foreground">Punch out:</span> {details.checkOutTime || "—"}</p>
+                <p><span className="text-muted-foreground">Punch-in location:</span> {formatLocation(details.checkInLocation)}</p>
+                <p><span className="text-muted-foreground">Punch-out location:</span> {formatLocation(details.checkOutLocation)}</p>
+                <p className="sm:col-span-2"><span className="text-muted-foreground">Notes:</span> {details.notes || "—"}</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <EvidencePhoto label="Punch-in photo" src={details.checkInPhoto} />
+                <EvidencePhoto label="Punch-out photo" src={details.checkOutPhoto} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            {details &&
+              can("crew.attendance.update") &&
+              ((!details.locked && !details.derived) ||
+                can("crew.attendance.change_time")) && (
+              <Button variant="outline" onClick={() => { const row = details; setDetails(null); edit(row); }}>
+                <Pencil className="mr-2 h-4 w-4" /> Edit / Override
+              </Button>
+            )}
+            <Button onClick={() => setDetails(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={dialog}
         onOpenChange={(open) => (open ? setDialog(true) : closePunch())}
@@ -708,4 +772,34 @@ export function AttendanceModule({
       </Dialog>
     </div>
   );
+}
+
+function EvidencePhoto({ label, src }: { label: string; src?: string | null }) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium">{label}</p>
+      {src ? (
+        <img
+          src={`${base}${src}`}
+          alt={label}
+          className="aspect-[4/3] w-full rounded-lg border object-cover"
+        />
+      ) : (
+        <div className="grid aspect-[4/3] place-items-center rounded-lg border bg-muted/20 text-sm text-muted-foreground">
+          No photo captured
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatLocation(value: unknown) {
+  if (!value) return "—";
+  try {
+    const location = typeof value === "string" ? JSON.parse(value) : value as any;
+    if (location.address) return location.address;
+    if (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude)))
+      return `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
+  } catch {}
+  return String(value);
 }

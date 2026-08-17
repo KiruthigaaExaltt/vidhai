@@ -208,6 +208,19 @@ export default function Crew() {
           method: editing ? "PUT" : "POST",
           body: JSON.stringify(form),
         });
+      else if (tab === "attendance" && editing)
+        await api(editing.derived ? "attendance/override" : `attendance/${editing.id}`, {
+          method: editing.derived ? "POST" : "PATCH",
+          body: JSON.stringify({
+            employeeId: editing.employeeId,
+            attendanceDate: editing.attendanceDate,
+            status: form.status,
+            checkInTime: form.checkInTime || null,
+            checkOutTime: form.checkOutTime || null,
+            notes: form.notes || null,
+            overrideReason: form.overrideReason || null,
+          }),
+        });
       else await api(tab, { method: "POST", body: JSON.stringify(form) });
       setOpen(false);
       await load();
@@ -929,6 +942,22 @@ function CrewForm({ tab, form: f, setForm: set, employees }: any) {
               onChange={(e) => field("checkInTime", e.target.value)}
             />
           </Field>
+          <Field label="Check-out">
+            <Input
+              type="time"
+              value={f.checkOutTime || ""}
+              onChange={(e) => field("checkOutTime", e.target.value)}
+            />
+          </Field>
+          {(f.locked || f.derived) && (
+            <Field label="Override reason">
+              <Textarea
+                value={f.overrideReason || ""}
+                onChange={(e) => field("overrideReason", e.target.value)}
+                placeholder="Explain why this locked attendance is being changed"
+              />
+            </Field>
+          )}
           <Field label="Notes">
             <Textarea
               value={f.notes || ""}

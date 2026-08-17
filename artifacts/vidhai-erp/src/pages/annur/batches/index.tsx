@@ -47,7 +47,7 @@ const FILTER_INPUT =
 
 const DATE_INPUT = [
   FILTER_INPUT,
-  "font-mono w-[160px] pl-3 pr-9",
+  "font-mono w-full pl-3 pr-9 sm:w-[160px]",
   "[&::-webkit-calendar-picker-indicator]:cursor-pointer",
   "[&::-webkit-calendar-picker-indicator]:absolute",
   "[&::-webkit-calendar-picker-indicator]:inset-0",
@@ -169,7 +169,7 @@ export default function Batches() {
               <Filter className="hidden w-4 h-4 text-muted-foreground mt-6 shrink-0 sm:block" />
 
               {/* Search */}
-              <div className="space-y-1.5 min-w-[180px] flex-1 sm:max-w-[220px]">
+              <div className="w-full space-y-1.5 sm:min-w-[180px] sm:flex-1 sm:max-w-[220px]">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Batch Code
                 </Label>
@@ -185,12 +185,12 @@ export default function Batches() {
               </div>
 
               {/* Stage */}
-              <div className="space-y-1.5">
+              <div className="w-full space-y-1.5 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Stage
                 </Label>
                 <Select value={filterStage} onValueChange={setFilterStage}>
-                  <SelectTrigger className={`${FILTER_INPUT} w-[160px]`}>
+                  <SelectTrigger className={`${FILTER_INPUT} w-full sm:w-[160px]`}>
                     <SelectValue placeholder="All stages" />
                   </SelectTrigger>
                   <SelectContent>
@@ -205,12 +205,12 @@ export default function Batches() {
               </div>
 
               {/* Status */}
-              <div className="space-y-1.5">
+              <div className="w-full space-y-1.5 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   Status
                 </Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className={`${FILTER_INPUT} w-[140px]`}>
+                  <SelectTrigger className={`${FILTER_INPUT} w-full sm:w-[140px]`}>
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -224,7 +224,7 @@ export default function Batches() {
               </div>
 
               {/* Date From */}
-              <div className="space-y-1.5">
+              <div className="w-full space-y-1.5 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   From Date
                 </Label>
@@ -243,7 +243,7 @@ export default function Batches() {
               </div>
 
               {/* Date To */}
-              <div className="space-y-1.5">
+              <div className="w-full space-y-1.5 sm:w-auto">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                   To Date
                 </Label>
