@@ -128,6 +128,94 @@ router.get(
     );
   },
 );
+
+router.patch("/me/profile", async (req, res) => {
+  const user = await getAuthUser(req);
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+
+  try {
+    const updates: Record<string, unknown> = {};
+    const requestedWorkDetails = [
+      "department",
+      "designation",
+      "workLocation",
+    ].filter((key) => req.body[key] !== undefined);
+    if (requestedWorkDetails.length) {
+      const permissions = await effectivePermissions(user);
+      if (
+        !permissions.includes("*") &&
+        !permissions.includes("settings.user_management.update")
+      )
+        return res.status(403).json({
+          error:
+            "Only an administrator can update department, designation, or work location",
+        });
+    }
+    if (req.body.displayName !== undefined) {
+      const displayName = String(req.body.displayName).trim();
+      if (!displayName)
+        return res.status(400).json({ error: "Full name is required" });
+      updates.displayName = displayName;
+      updates.name = displayName;
+    }
+    if (req.body.email !== undefined) {
+      const email = String(req.body.email).trim().toLowerCase();
+      if (email && !emailPattern.test(email))
+        return res.status(400).json({ error: "A valid email is required" });
+      const users = await activeUsers(Number(user.organizationId));
+      if (
+        email &&
+        users.some(
+          (item) =>
+            Number(item.id) !== Number(user.id) &&
+            String(item.email ?? "").toLowerCase() === email,
+        )
+      )
+        return res.status(400).json({ error: "Email already exists" });
+      updates.email = email || null;
+    }
+
+    for (const key of ["department", "designation", "phoneNumber", "workLocation"]) {
+      if (req.body[key] !== undefined)
+        updates[key] = String(req.body[key]).trim() || null;
+    }
+    if (req.body.dob !== undefined) {
+      const dob = String(req.body.dob).trim();
+      const parsedDob = dob ? new Date(`${dob}T00:00:00.000Z`) : null;
+      if (parsedDob && Number.isNaN(parsedDob.getTime()))
+        return res.status(400).json({ error: "Date of birth is invalid" });
+      updates.dob = parsedDob;
+    }
+    if (req.body.avatarUrl !== undefined) {
+      const avatarUrl = String(req.body.avatarUrl || "");
+      if (
+        avatarUrl &&
+        !/^data:image\/(jpeg|png|webp);base64,[a-z0-9+/=]+$/i.test(avatarUrl)
+      )
+        return res.status(400).json({ error: "Profile picture is invalid" });
+      if (avatarUrl.length > 7_000_000)
+        return res
+          .status(400)
+          .json({ error: "Profile picture must be 5 MB or smaller" });
+      updates.avatarUrl = avatarUrl || null;
+    }
+
+    if (!Object.keys(updates).length) return res.json(safe(user));
+    const [updated] = await db
+      .update(usersTable)
+      .set(updates)
+      .where(
+        and(
+          eq(usersTable.id, Number(user.id)),
+          eq(usersTable.organizationId, Number(user.organizationId)),
+        ),
+      )
+      .returning();
+    return res.json(safe(updated));
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
+});
 router.post(
   "/",
   requirePermission("settings.user_management.create"),

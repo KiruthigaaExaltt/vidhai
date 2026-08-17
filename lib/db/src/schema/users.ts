@@ -40,6 +40,7 @@ export const usersTable = mongoTable("users", {
   joiningDate: timestamp("joining_date", { withTimezone: true }),
   employmentType: text("employment_type").default("Full-time"),
   status: text("status").default("Active"),
+  avatarUrl: text("avatar_url"),
 });
 
 export const insertUserSchema = createInsertSchema(usersTable).omit({ id: true, createdAt: true });

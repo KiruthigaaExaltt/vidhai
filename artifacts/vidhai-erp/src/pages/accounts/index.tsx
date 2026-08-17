@@ -137,6 +137,16 @@ export default function Accounts() {
     reference: "",
     notes: "",
   });
+  const visibleAccountTabs = [
+    ["dashboard", "Finance Dashboard", "accounts.finance_dashboard.view"],
+    ["customers", "Customer Ledger", "accounts.customer_ledger.view"],
+    ["vendors", "Vendor Ledger", "accounts.vendor_ledger.view"],
+    ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view"],
+    ["ap", "AP", "accounts.accounts_payable.view"],
+    ["ar", "AR", "accounts.accounts_receivable.view"],
+    ["journals", "Journal Entries", "accounts.journal_entries.view"],
+    ["statements", "Financial Statements", "accounts.financial_statements.view"],
+  ].filter(([, , permission]) => can(permission));
   const today = new Date().toISOString().slice(0, 10);
   const openManual = (
     type: "account" | "journal" | "ap" | "ar",
@@ -280,24 +290,41 @@ export default function Accounts() {
     setLoading(true);
     setError("");
     const calls = [
-      ["s", "/dashboard-summary"],
-      ["c", "/coa"],
-      [
-        "j",
-        `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`,
-      ],
-      [
-        "ap",
-        `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`,
-      ],
-      [
-        "ar",
-        `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
-      ],
-      ["cu", "/customer-ledger"],
-      ["v", "/vendor-ledger"],
-      ["f", "/financial-statements"],
-    ] as const;
+      ...(can("accounts.finance_dashboard.view")
+        ? [["s", "/dashboard-summary"]]
+        : []),
+      ...(can("accounts.chart_of_accounts.view") ||
+      can("accounts.journal_entries.view")
+        ? [["c", "/coa"]]
+        : []),
+      ...(can("accounts.journal_entries.view")
+        ? [[
+            "j",
+            `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`,
+          ]]
+        : []),
+      ...(can("accounts.accounts_payable.view")
+        ? [[
+            "ap",
+            `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`,
+          ]]
+        : []),
+      ...(can("accounts.accounts_receivable.view")
+        ? [[
+            "ar",
+            `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+          ]]
+        : []),
+      ...(can("accounts.customer_ledger.view")
+        ? [["cu", "/customer-ledger"]]
+        : []),
+      ...(can("accounts.vendor_ledger.view")
+        ? [["v", "/vendor-ledger"]]
+        : []),
+      ...(can("accounts.financial_statements.view")
+        ? [["f", "/financial-statements"]]
+        : []),
+    ] as string[][];
     const out = await Promise.all(
       calls.map(async ([k, p]) => [
         k,
@@ -328,9 +355,11 @@ export default function Accounts() {
       if (k === "v") setVendors(v as any[]);
       if (k === "f") setStatements(v);
     }
-    const reconciledAr = await api(
-      `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
-    ).catch(() => null);
+    const reconciledAr = can("accounts.accounts_receivable.view")
+      ? await api(
+          `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+        ).catch(() => null)
+      : null;
     if (reconciledAr) setAr(reconciledAr.items || []);
     setLoading(false);
   };
@@ -344,6 +373,13 @@ export default function Accounts() {
     listPaging.ar.page,
     listPaging.ar.size,
   ]);
+  useEffect(() => {
+    if (
+      visibleAccountTabs.length &&
+      !visibleAccountTabs.some(([value]) => value === activeTab)
+    )
+      setActiveTab(visibleAccountTabs[0][0]);
+  }, [activeTab, visibleAccountTabs.map(([value]) => value).join("|")]);
   const reconcile = async () => {
     setLoading(true);
     setError("");
@@ -840,6 +876,7 @@ export default function Accounts() {
               Accounts
             </h1>
           </div>
+          {can("accounts.finance_dashboard.view") && (
           <div className="flex w-full gap-2 sm:w-auto">
             <Button
               className="w-full sm:w-auto"
@@ -853,12 +890,14 @@ export default function Accounts() {
               Reconcile
             </Button>
           </div>
+          )}
         </div>
         {error && (
           <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm">
             {error}
           </div>
         )}
+        {can("accounts.finance_dashboard.view") && (
         <div className="grid gap-3 md:grid-cols-5">
           {cards.map(([x, v]) => (
             <Card key={x}>
@@ -873,6 +912,7 @@ export default function Accounts() {
             </Card>
           ))}
         </div>
+        )}
         <Input
           placeholder="Search current view..."
           value={search}
@@ -880,14 +920,11 @@ export default function Accounts() {
         />
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border bg-white p-1 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
-            <TabsTrigger value="dashboard">Finance Dashboard</TabsTrigger>
-            <TabsTrigger value="customers">Customer Ledger</TabsTrigger>
-            <TabsTrigger value="vendors">Vendor Ledger</TabsTrigger>
-            <TabsTrigger value="coa">Chart of Accounts</TabsTrigger>
-            <TabsTrigger value="ap">AP</TabsTrigger>
-            <TabsTrigger value="ar">AR</TabsTrigger>
-            <TabsTrigger value="journals">Journal Entries</TabsTrigger>
-            <TabsTrigger value="statements">Financial Statements</TabsTrigger>
+            {visibleAccountTabs.map(([value, label]) => (
+              <TabsTrigger key={value} value={value}>
+                {label}
+              </TabsTrigger>
+            ))}
           </TabsList>
           <TabsContent value="dashboard">
             <Card>
