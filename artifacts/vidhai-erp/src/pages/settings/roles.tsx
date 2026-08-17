@@ -394,19 +394,21 @@ const RolesPage = forwardRef<
                         {action === "all" ? (
                           <div className="flex flex-col items-center gap-2">
                             <span>ALL</span>
-                            <button
-                              type="button"
-                              onClick={toggleMasterAll}
-                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                                isMasterChecked ? "bg-primary" : "bg-muted"
-                              }`}
-                            >
-                              <span
-                                className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                                  isMasterChecked ? "translate-x-[18px]" : "translate-x-0.5"
+                            {name.toLowerCase().includes("admin") && (
+                              <button
+                                type="button"
+                                onClick={toggleMasterAll}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                                  isMasterChecked ? "bg-primary" : "bg-muted"
                                 }`}
-                              />
-                            </button>
+                              >
+                                <span
+                                  className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                                    isMasterChecked ? "translate-x-[18px]" : "translate-x-0.5"
+                                  }`}
+                                />
+                              </button>
+                            )}
                           </div>
                         ) : (
                           action.replaceAll("_", " ")
