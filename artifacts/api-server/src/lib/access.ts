@@ -60,7 +60,14 @@ export async function effectivePermissions(user: AuthUser): Promise<string[]> {
 }
 export function requirePermission(permission: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const key = normalizePermissionKey(permission) ?? permission;
+    const key = normalizePermissionKey(permission);
+    if (!key) {
+      console.error(`Invalid RBAC permission generated: ${permission}`, {
+        method: req.method,
+        path: req.originalUrl,
+      });
+      return res.status(500).json({ error: "Permission configuration error" });
+    }
     const user = await getAuthUser(req);
     if (!user)
       return res.status(401).json({ error: "Authentication required" });

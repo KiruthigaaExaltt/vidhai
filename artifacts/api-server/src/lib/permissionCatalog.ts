@@ -186,7 +186,11 @@ export const permissionCatalog: PermissionCatalogRow[] = [
     key: "reports",
     actions: ["view", "export", "download"],
   },
-  { module: "Traceability", key: "traceability", actions: ["view", "export"] },
+  {
+    module: "Traceability",
+    key: "traceability",
+    actions: ["view", "create", "export"],
+  },
   { module: "Flex � Dashboard", key: "flex.dashboard", actions: ["view"] },
   {
     module: "Flex � Purchase Requests",

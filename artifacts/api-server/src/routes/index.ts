@@ -58,6 +58,7 @@ const salesScope = (req: any) => {
 const flexScope = (req: any) =>
   ({
     "purchase-requests": "flex.purchase_requests",
+    "vendor-availability": "flex.purchase_requests",
     "purchase-orders": "flex.purchase_orders",
     "goods-receipts": "flex.goods_receipts",
     "purchase-invoices": "flex.purchase_invoices",
@@ -83,6 +84,9 @@ const accountsScope = (req: any) =>
   ({
     coa: "accounts.chart_of_accounts",
     "journal-entries": "accounts.journal_entries",
+    ap: "accounts.accounts_payable",
+    ar: "accounts.accounts_receivable",
+    reconcile: "accounts.journal_entries",
     "customer-ledger": "accounts.customer_ledger",
     "vendor-ledger": "accounts.vendor_ledger",
     "accounts-payable": "accounts.accounts_payable",
@@ -95,7 +99,11 @@ router.use("/auth", authRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/users", usersRouter);
 router.use("/settings/users", usersRouter);
-router.use("/locations", locationsRouter);
+router.use(
+  "/locations",
+  requireModulePermission("settings.locations"),
+  locationsRouter,
+);
 router.use(
   "/alert-colors",
   requireModulePermission("settings.alert_colors"),
@@ -176,7 +184,11 @@ router.use(
   requireModulePermission("crm.contacts"),
   contactsRouter,
 );
-router.use("/departments", departmentsRouter);
+router.use(
+  "/departments",
+  requireModulePermission("settings.master_settings"),
+  departmentsRouter,
+);
 router.use(templatesRouter);
 router.use("/settings", templatesRouter);
 router.use(permissionsRouter);
