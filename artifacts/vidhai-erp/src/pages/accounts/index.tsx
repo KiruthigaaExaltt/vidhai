@@ -24,6 +24,8 @@ import {
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
 import { notifyModuleLocked } from "@/components/security/ModuleEncryptionGate";
+import { FinancialStatements } from "./FinancialStatements";
+import { FinanceDashboard } from "./FinanceDashboard";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -83,7 +85,6 @@ export default function Accounts() {
     [ar, setAr] = useState<any[]>([]),
     [customers, setCustomers] = useState<any[]>([]),
     [vendors, setVendors] = useState<any[]>([]),
-    [statements, setStatements] = useState<any>({}),
     [activeTab, setActiveTab] = useState("ap"),
     [search, setSearch] = useState(""),
     [apStatusFilter, setApStatusFilter] = useState("All"),
@@ -296,7 +297,6 @@ export default function Accounts() {
       ],
       ["cu", "/customer-ledger"],
       ["v", "/vendor-ledger"],
-      ["f", "/financial-statements"],
     ] as const;
     const out = await Promise.all(
       calls.map(async ([k, p]) => [
@@ -326,7 +326,6 @@ export default function Accounts() {
       }
       if (k === "cu") setCustomers(v as any[]);
       if (k === "v") setVendors(v as any[]);
-      if (k === "f") setStatements(v);
     }
     const reconciledAr = await api(
       `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
@@ -675,13 +674,6 @@ export default function Accounts() {
       </div>
     );
   };
-  const cards = [
-    ["Cash & Bank", summary.cash],
-    ["Receivables", summary.receivables],
-    ["Payables", summary.payables],
-    ["Income", summary.income],
-    ["Expenses", summary.expenses],
-  ];
   const apBills = ap.filter((entry) => entry.entryType !== "Debit Note");
   const apDebitNotes = ap.filter((entry) => entry.entryType === "Debit Note");
   const filterAp = (rows: any[]) =>
@@ -832,7 +824,7 @@ export default function Accounts() {
   };
   return (
     <Shell>
-      <div className="min-h-full space-y-5 p-4 sm:p-6">
+      <div className="min-h-full space-y-5 p-4 pt-16 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
@@ -840,7 +832,7 @@ export default function Accounts() {
               Accounts
             </h1>
           </div>
-          <div className="flex w-full gap-2 sm:w-auto">
+          <div className="flex w-full gap-2 sm:w-auto sm:pr-36">
             <Button
               className="w-full sm:w-auto"
               variant="outline"
@@ -859,20 +851,6 @@ export default function Accounts() {
             {error}
           </div>
         )}
-        <div className="grid gap-3 md:grid-cols-5">
-          {cards.map(([x, v]) => (
-            <Card key={x}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs text-muted-foreground">
-                  {x}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-lg font-semibold">
-                {inr(v)}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
         <Input
           placeholder="Search current view..."
           value={search}
@@ -890,15 +868,7 @@ export default function Accounts() {
             <TabsTrigger value="statements">Financial Statements</TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard">
-            <Card>
-              <CardHeader>
-                <CardTitle>Accounting overview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                Canonical balances are reconciled from posted journal lines
-                whenever Accounts loads.
-              </CardContent>
-            </Card>
+            <FinanceDashboard request={api} summary={summary} receivables={ar} payables={ap} can={can} />
           </TabsContent>
           <TabsContent value="customers">
             <Table
@@ -1220,33 +1190,7 @@ export default function Accounts() {
             />
           </TabsContent>
           <TabsContent value="statements">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profit & Loss</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  Net income: <b>{inr(statements?.profitAndLoss?.netIncome)}</b>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Balance Sheet</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  Current earnings:{" "}
-                  <b>{inr(statements?.balanceSheet?.currentPeriodEarnings)}</b>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Trial Balance</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {statements?.trialBalance?.length || 0} accounts
-                </CardContent>
-              </Card>
-            </div>
+            <FinancialStatements request={api} can={can} />
           </TabsContent>
         </Tabs>
         <Dialog

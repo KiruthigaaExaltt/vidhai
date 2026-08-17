@@ -42,6 +42,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 
 // ── Stage sequence with lead-time durations ───────────────────────────────────
 const STAGE_SEQ = [
@@ -696,7 +697,8 @@ export default function BatchDetail() {
                                         title="Click to enlarge"
                                       >
                                         <img
-                                          src={img}
+                                          src={apiAssetUrl(img)}
+                                          crossOrigin="use-credentials"
                                           className="w-full h-full object-cover"
                                           alt={`Verification ${i + 1}`}
                                         />
@@ -779,7 +781,8 @@ export default function BatchDetail() {
                                     title="Click to enlarge"
                                   >
                                     <img
-                                      src={img}
+                                      src={apiAssetUrl(img)}
+                                      crossOrigin="use-credentials"
                                       className="w-full h-full object-cover"
                                       alt=""
                                     />
@@ -823,7 +826,8 @@ export default function BatchDetail() {
         <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
           {lightboxSrc && (
             <img
-              src={lightboxSrc}
+              src={apiAssetUrl(lightboxSrc)}
+              crossOrigin="use-credentials"
               alt="Verification photo"
               className="w-full h-auto max-h-[80vh] object-contain"
             />

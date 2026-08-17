@@ -10,8 +10,10 @@ import {
   eq,
   journalEntriesTable,
   journalLinesTable,
+  inventoryTable,
   purchaseInvoicesTable,
   salesInvoicesTable,
+  salesPaymentsTable,
 } from "@workspace/db";
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
@@ -97,9 +99,14 @@ async function coa(org: number) {
       .from(journalLinesTable)
       .where(eq(journalLinesTable.organizationId, org));
   for (const a of rows) {
+    const accountLines = lines.filter(
+      (l: any) =>
+        String(l.accountId ?? "") === String(a.id) ||
+        String(l.accountCode ?? "") === String(a.accountCode),
+    );
+    if (!accountLines.length) continue;
     const b = m(
-      lines
-        .filter((l: any) => l.accountId === a.id)
+      accountLines
         .reduce(
           (s: number, l: any) => s + Number(l.debit) - Number(l.credit),
           0,
@@ -1332,11 +1339,26 @@ router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
       Math.max(
         0,
         m(Number(x.amount) - Number(x[p]) - Number(x.adjustedAmount)),
-      );
+      ),
+    today = new Date(),
+    age = (rows: any[], paidField: string, closed: string[]) => {
+      const result = { days30: 0, days60: 0, days90: 0 };
+      for (const row of rows) {
+        if (closed.includes(String(row.status))) continue;
+        const outstanding = out(row, paidField);
+        if (!outstanding) continue;
+        const due = new Date(`${row.dueDate}T00:00:00`);
+        const days = Math.floor((today.getTime() - due.getTime()) / 86400000);
+        if (days > 90) result.days90 = m(result.days90 + outstanding);
+        else if (days > 60) result.days60 = m(result.days60 + outstanding);
+        else if (days > 30) result.days30 = m(result.days30 + outstanding);
+      }
+      return result;
+    };
   s.json({
     cash: m(
       a
-        .filter((x: any) => ["1020", "1030"].includes(x.accountCode))
+        .filter((x: any) => x.accountType === "Asset")
         .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
     ),
     receivables: m(
@@ -1355,46 +1377,201 @@ router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
         .filter((x: any) => x.accountType === "Expense")
         .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
     ),
+    netIncome: m(
+      a
+        .filter((x: any) => x.accountType === "Revenue")
+        .reduce((q: number, x: any) => q - Number(x.currentBalance), 0) -
+        a
+          .filter((x: any) => x.accountType === "Expense")
+          .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
+    ),
+    arAging: age(ar, "receivedAmount", ["Received", "Settled", "Cancelled"]),
+    apAging: age(ap, "paidAmount", ["Paid"]),
   });
+});
+router.get("/business-dashboard", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.finance_dashboard.view")) return;
+  try {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const dateKey = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+    const now = new Date();
+    const today = dateKey(now);
+    const requested = String(r.query.range || "month");
+    let from = today;
+    let to = today;
+    if (requested === "week") {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 6);
+      from = dateKey(start);
+    } else if (requested === "month") {
+      from = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+    } else if (requested === "custom" && r.query.dateFrom && r.query.dateTo) {
+      from = String(r.query.dateFrom);
+      to = String(r.query.dateTo);
+    } else if (requested === "custom") {
+      from = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+    }
+
+    const [sales, purchases, payments, ap, ar, inventory] = await Promise.all([
+      db.select().from(salesInvoicesTable),
+      db.select().from(purchaseInvoicesTable),
+      db.select().from(salesPaymentsTable),
+      db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
+      db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
+      db.select().from(inventoryTable),
+    ]);
+    const inRange = (value: any, start = from, end = to) => {
+      const key = String(value || "").slice(0, 10);
+      return key >= start && key <= end;
+    };
+    const outstanding = (row: any, paidField: string) => {
+      const total = Math.max(0, m(row.amount));
+      const covered = Math.min(total, Math.max(0, m(row[paidField])) + Math.max(0, m(row.adjustedAmount)));
+      return m(Math.max(0, total - covered));
+    };
+    const periodSales = sales.filter((row: any) => inRange(row.invoiceDate));
+    const periodPurchases = purchases.filter((row: any) => inRange(row.invoiceDate));
+    const totalSales = m(periodSales.reduce((sum: number, row: any) => sum + m(row.grandTotal), 0));
+    const totalPurchase = m(periodPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0));
+    const receivables = m(ar.filter((row: any) => row.entryType === "Invoice").reduce((sum: number, row: any) => sum + outstanding(row, "receivedAmount"), 0));
+    const payables = m(ap.filter((row: any) => row.entryType === "Bill").reduce((sum: number, row: any) => sum + outstanding(row, "paidAmount"), 0));
+    const inventoryValue = m(inventory.reduce((sum: number, row: any) => sum + m(row.quantityOnHand) * m(row.costBasis), 0));
+    const cashIncome = m(payments.filter((row: any) => inRange(row.paymentDate)).reduce((sum: number, row: any) => sum + m(row.amount), 0));
+    const cashExpenses = m(ap.filter((row: any) => row.entryType === "Bill" && m(row.paidAmount) > 0 && inRange(row.updatedAt)).reduce((sum: number, row: any) => sum + m(row.paidAmount), 0));
+
+    const groupPending = (rows: any[], nameField: string, paidField: string, entryType: string) => {
+      const grouped = new Map<string, number>();
+      for (const row of rows.filter((item: any) => item.entryType === entryType)) {
+        const name = String(row[nameField] || "").trim();
+        if (!name) continue;
+        grouped.set(name, m((grouped.get(name) || 0) + outstanding(row, paidField)));
+      }
+      return [...grouped.entries()].filter(([, value]) => value > 0).sort((left, right) => right[1] - left[1]).slice(0, 5).map(([name, value]) => ({ name, outstanding: value }));
+    };
+    const endMonth = new Date(`${to}T12:00:00`);
+    const trendStart = new Date(endMonth.getFullYear(), endMonth.getMonth() - 5, 1);
+    const trend = Array.from({ length: 6 }, (_, index) => {
+      const month = new Date(trendStart.getFullYear(), trendStart.getMonth() + index, 1);
+      const key = `${month.getFullYear()}-${pad(month.getMonth() + 1)}`;
+      return {
+        key,
+        month: month.toLocaleDateString("en-IN", { month: "short" }),
+        sales: m(sales.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.grandTotal), 0)),
+        purchase: m(purchases.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0)),
+      };
+    });
+    return s.json({
+      range: { from, to, selected: requested },
+      totalSales,
+      totalPurchase,
+      grossProfit: m(totalSales - totalPurchase),
+      receivables,
+      payables,
+      inventoryValue,
+      cashFlow: { income: cashIncome, expenses: cashExpenses, net: m(cashIncome - cashExpenses) },
+      trend,
+      topCustomers: groupPending(ar, "clientName", "receivedAmount", "Invoice"),
+      topVendors: groupPending(ap, "vendorName", "paidAmount", "Bill"),
+    });
+  } catch (error) {
+    console.error("Failed to load business dashboard", error);
+    return s.status(500).json({ error: "Failed to load business dashboard" });
+  }
 });
 router.post("/reconcile", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.finance_dashboard.view")) return;
   await automate(r.acc.org);
   return s.json({ success: true, reconciledAt: new Date().toISOString() });
 });
+async function financialStatementData(org: number, query: any) {
+  const dateFrom = String(query?.dateFrom || "").trim();
+  const dateTo = String(query?.dateTo || "").trim();
+  if (dateFrom && dateTo && dateFrom > dateTo)
+    throw Object.assign(new Error("From date must be on or before To date"), {
+      status: 400,
+    });
+
+  const [accounts, entries, lines] = await Promise.all([
+    coa(org),
+    db
+      .select()
+      .from(journalEntriesTable)
+      .where(eq(journalEntriesTable.organizationId, org)),
+    db
+      .select()
+      .from(journalLinesTable)
+      .where(eq(journalLinesTable.organizationId, org)),
+  ]);
+  const hasDateFilter = Boolean(dateFrom || dateTo);
+  const entryIds = new Set(
+    entries
+      .filter((entry: any) => {
+        const entryDate = String(entry.entryDate || "").slice(0, 10);
+        return (
+          String(entry.status || "Posted").toLowerCase() === "posted" &&
+          (!dateFrom || entryDate >= dateFrom) &&
+          (!dateTo || entryDate <= dateTo)
+        );
+      })
+      .map((entry: any) => String(entry.id)),
+  );
+  const activity = new Map<string, { debit: number; credit: number }>();
+  for (const line of lines) {
+    if (!entryIds.has(String(line.journalEntryId))) continue;
+    const account = accounts.find(
+      (candidate: any) =>
+        String(candidate.id) === String(line.accountId ?? "") ||
+        String(candidate.accountCode) === String(line.accountCode ?? ""),
+    );
+    if (!account) continue;
+    const key = String(account.id);
+    const total = activity.get(key) || { debit: 0, credit: 0 };
+    total.debit = m(total.debit + m(line.debit));
+    total.credit = m(total.credit + m(line.credit));
+    activity.set(key, total);
+  }
+  return {
+    dateFrom: dateFrom || null,
+    dateTo: dateTo || null,
+    accounts: accounts.map((account: any) => {
+      const period = activity.get(String(account.id));
+      const periodDebit = m(period?.debit ?? 0);
+      const periodCredit = m(period?.credit ?? 0);
+      return {
+        ...account,
+        periodDebit,
+        periodCredit,
+        periodBalance:
+          !hasDateFilter && !period
+            ? m(account.currentBalance)
+            : m(periodDebit - periodCredit),
+      };
+    }),
+  };
+}
 router.get("/financial-statements", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.financial_statements.view")) return;
-  const a = await coa(r.acc.org),
-    v = (x: any) =>
-      m(
-        ["Liability", "Equity", "Revenue"].includes(x.accountType)
-          ? -Number(x.currentBalance)
-          : Number(x.currentBalance),
-      ),
-    g = (t: string) =>
-      a
-        .filter((x: any) => x.accountType === t)
-        .map((x: any) => ({ ...x, balance: v(x) })),
-    revenue = g("Revenue"),
-    expenses = g("Expense"),
-    netIncome = m(
-      revenue.reduce((q: number, x: any) => q + x.balance, 0) -
-        expenses.reduce((q: number, x: any) => q + x.balance, 0),
-    );
-  s.json({
-    profitAndLoss: { revenue, expenses, netIncome },
-    balanceSheet: {
-      assets: g("Asset"),
-      liabilities: g("Liability"),
-      equity: g("Equity"),
-      currentPeriodEarnings: netIncome,
-    },
-    trialBalance: a.map((x: any) => ({
-      ...x,
-      debit: Math.max(0, Number(x.currentBalance)),
-      credit: Math.max(0, -Number(x.currentBalance)),
-    })),
-  });
+  try {
+    return s.json(await financialStatementData(r.acc.org, r.query));
+  } catch (error: any) {
+    return s.status(error?.status || 500).json({ error: error?.message || "Failed to prepare financial statements" });
+  }
+});
+router.get("/financial-statements/export", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.financial_statements.export")) return;
+  try {
+    return s.json(await financialStatementData(r.acc.org, r.query));
+  } catch (error: any) {
+    return s.status(error?.status || 500).json({ error: error?.message || "Failed to export financial statements" });
+  }
+});
+router.get("/financial-statements/download", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.financial_statements.download")) return;
+  try {
+    return s.json(await financialStatementData(r.acc.org, r.query));
+  } catch (error: any) {
+    return s.status(error?.status || 500).json({ error: error?.message || "Failed to download financial statements" });
+  }
 });
 router.get("/customer-ledger", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.customer_ledger.view")) return;
