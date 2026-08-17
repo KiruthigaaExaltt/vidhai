@@ -46,7 +46,7 @@ function defaultTurnSchedule(totalTurns: number): { turnNumber: number; interval
 
 // ── List Coimbatore batches ────────────────────────────────────────────────────
 router.get("/batches", requireAuth, async (req, res) => {
-  const batches = await db
+  const batchRows = await db
     .select({
       id: batchesTable.id,
       batchCode: batchesTable.batchCode,
@@ -65,6 +65,26 @@ router.get("/batches", requireAuth, async (req, res) => {
     .leftJoin(usersTable, eq(batchesTable.createdByUserId, usersTable.id))
     .where(eq(locationsTable.code, "C"))
     .orderBy(desc(batchesTable.createdAt));
+  const turns = await db
+    .select({
+      batchId: coimbatoreTurnsTable.batchId,
+      turnNumber: coimbatoreTurnsTable.turnNumber,
+    })
+    .from(coimbatoreTurnsTable);
+  const latestTurnByBatch = new Map<number, number>();
+  for (const turn of turns) {
+    latestTurnByBatch.set(
+      turn.batchId,
+      Math.max(latestTurnByBatch.get(turn.batchId) ?? 0, turn.turnNumber),
+    );
+  }
+  const batches = batchRows.map((batch: any) => ({
+    ...batch,
+    currentTurnNumber:
+      batch.currentStage === "TURNING"
+        ? (latestTurnByBatch.get(batch.id) ?? 0) + 1
+        : null,
+  }));
   if (req.query.skip === undefined && req.query.limit === undefined) return res.json(batches);
   let filtered = batches;
   const { search, stage, status, from, to } = req.query as Record<string, string | undefined>;

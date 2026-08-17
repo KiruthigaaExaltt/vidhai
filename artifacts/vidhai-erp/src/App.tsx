@@ -53,6 +53,7 @@ import Accounts from "@/pages/accounts";
 import NotificationsPage from "@/pages/notifications";
 import { NotificationProvider } from "@/notifications/NotificationProvider";
 import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
+import { Shell } from "@/components/layout/Shell";
 
 const queryClient = new QueryClient();
 
@@ -184,7 +185,11 @@ function LandingRoute() {
 }
 function LedgerPage() {
   return (
-    <ModuleEncryptionGate module="ledger" label="Ledger">
+    <ModuleEncryptionGate
+      module="ledger"
+      label="Ledger"
+      lockedLayout={(content) => <Shell>{content}</Shell>}
+    >
       <Accounts />
     </ModuleEncryptionGate>
   );

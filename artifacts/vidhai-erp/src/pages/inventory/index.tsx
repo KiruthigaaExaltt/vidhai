@@ -330,7 +330,7 @@ export default function InventoryModule() {
       const state = masterPaging.items;
       return (
         await fetch(
-          `/api/vault/item-names?coreOnly=true&skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+          `/api/vault/item-names?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
         )
       ).json();
     },
@@ -513,6 +513,27 @@ export default function InventoryModule() {
     onSuccess: () => {
       refreshMaterials();
       toast.success("Item deleted");
+    },
+  });
+
+  const deleteItemName = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/vault/item-names/${id}`, {
+        method: "DELETE",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || "Failed to delete item name");
+      }
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["item-names-lookup"] });
+      queryClient.invalidateQueries({ queryKey: ["item-names-paged"] });
+      toast.success("Item name deleted");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to delete item name");
     },
   });
 
@@ -3253,8 +3274,10 @@ export default function InventoryModule() {
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the{" "}
-              {itemToDelete?.type === "material" ? "item" : "service"} from the
-              system.
+              {itemToDelete?.type === "item-name"
+                ? "item name"
+                : itemToDelete?.type ?? "item"}{" "}
+              from the system.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -3267,8 +3290,15 @@ export default function InventoryModule() {
                   deleteMaterial.mutate(itemToDelete.id);
                 } else if (itemToDelete?.type === "service") {
                   deleteService.mutate(itemToDelete.id);
+                } else if (itemToDelete?.type === "category") {
+                  deleteCategoryMutation.mutate(itemToDelete.id);
+                } else if (itemToDelete?.type === "warehouse") {
+                  deleteWarehouse.mutate(itemToDelete.id);
+                } else if (itemToDelete?.type === "item-name") {
+                  deleteItemName.mutate(itemToDelete.id);
                 }
                 setDeleteConfirmOpen(false);
+                setItemToDelete(null);
               }}
               className="rounded-sm h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

@@ -42,7 +42,10 @@ import { toast } from "sonner";
 
 const ALL_STAGES = ["FORMULATION", "TURNING", "QC_PENDING", "COMPLETED"];
 
-function stageLabel(stage: string) {
+function stageLabel(stage: string, currentTurnNumber?: number | null) {
+  if (stage === "TURNING" && currentTurnNumber) {
+    return `TURNING ${currentTurnNumber}`;
+  }
   return stage.replace(/_/g, " ");
 }
 
@@ -428,7 +431,10 @@ export default function CoimbatoreBatches() {
                         <td className="px-4 text-center">
                           <StatusBadge
                             status={b.currentStage}
-                            label={stageLabel(b.currentStage)}
+                            label={stageLabel(
+                              b.currentStage,
+                              b.currentTurnNumber,
+                            )}
                           />
                         </td>
                         <td className="px-4 text-center">

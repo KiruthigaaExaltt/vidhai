@@ -16,10 +16,12 @@ export default function ModuleEncryptionGate({
   module,
   label,
   children,
+  lockedLayout,
 }: {
   module: "ledger" | "contracta";
   label: string;
   children: ReactNode;
+  lockedLayout?: (content: ReactNode) => ReactNode;
 }) {
   const [gateState, setGateState] = useState<GateState>("checking");
   const [password, setPassword] = useState("");
@@ -128,8 +130,8 @@ export default function ModuleEncryptionGate({
     );
   }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
+  const lockedContent = (
+    <div className="flex min-h-[calc(100svh-4rem)] items-center justify-center bg-muted/30 p-6 lg:min-h-[calc(100svh-72px)]">
       <div className="w-full max-w-md rounded-xl border bg-card p-7 text-center shadow-sm">
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
           {gateState === "checking" ? (
@@ -185,4 +187,6 @@ export default function ModuleEncryptionGate({
       </div>
     </div>
   );
+
+  return lockedLayout ? <>{lockedLayout(lockedContent)}</> : lockedContent;
 }
