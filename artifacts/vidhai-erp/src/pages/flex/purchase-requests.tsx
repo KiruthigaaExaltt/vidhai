@@ -1433,7 +1433,7 @@ export default function PurchaseRequestsPage() {
 
         {/* ── CREATE PURCHASE REQUEST MODAL DIALOG ──────────────────────────── */}
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+          <DialogContent className="max-h-[calc(100svh-1rem)] max-w-3xl overflow-x-hidden overflow-y-auto p-4 sm:max-h-[90vh] sm:p-6">
             <DialogHeader className="pb-2 border-b border-border">
               <DialogTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
                 <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
@@ -1462,7 +1462,7 @@ export default function PurchaseRequestsPage() {
 
               {/* 2. VENDOR SELECTION */}
               <div className="border border-border/80 rounded-lg p-3.5 space-y-2.5 bg-background shadow-2xs">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <Label className="text-xs font-semibold text-foreground">
                     {FLEX_TEXT.vendorSelection}{" "}
                     <span className="text-primary">*</span>
@@ -1613,7 +1613,7 @@ export default function PurchaseRequestsPage() {
                   <span className="text-xs font-bold text-foreground">
                     {FLEX_TEXT.lineItems}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-1 gap-2 min-[390px]:grid-cols-2 sm:flex sm:items-center">
                     <Button
                       type="button"
                       size="sm"
@@ -1634,7 +1634,7 @@ export default function PurchaseRequestsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 overflow-x-auto pb-1 [&>.grid]:min-w-[560px]">
                   <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-muted-foreground px-1">
                     <div className="col-span-4">{FLEX_TEXT.itemProduct}</div>
                     <div className="col-span-4">{FLEX_TEXT.description2}</div>

@@ -265,7 +265,7 @@ export default function ScheduleSuggest() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-8 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:space-y-8 md:p-8">
 
         {/* ── Back ─────────────────────────────────────────────────────────── */}
         <Button
@@ -286,13 +286,13 @@ export default function ScheduleSuggest() {
 
         {/* ── Plan Parameters ──────────────────────────────────────────────── */}
         <Card className="rounded-xl border-border/60 shadow-sm ring-1 ring-black/[0.03] overflow-hidden">
-          <CardHeader className="pb-4 pt-5 px-6 border-b border-border/60 bg-muted/30">
+          <CardHeader className="border-b border-border/60 bg-muted/30 px-4 pb-4 pt-5 sm:px-6">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
               <CalendarClock className="w-3.5 h-3.5" />
               Plan Parameters
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-end">
               {/* Ooty Room */}
               <div className="space-y-2">
@@ -360,7 +360,7 @@ export default function ScheduleSuggest() {
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 px-1">
             Lead Time Reference
           </p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
             {LOC_ORDER.map((loc) => {
               const m = LOC_META[loc];
               const Icon = m.icon;
@@ -395,7 +395,7 @@ export default function ScheduleSuggest() {
                 <Button
                   onClick={handleSaveAll}
                   disabled={createMut.isPending}
-                  className="rounded-lg h-10 px-5 font-semibold shadow-sm hover:shadow-md transition-all"
+                  className="h-10 w-full rounded-lg px-5 font-semibold shadow-sm transition-all hover:shadow-md sm:w-auto"
                 >
                   <CalendarDays className="w-4 h-4 mr-2" />
                   {createMut.isPending ? "Saving…" : "Save All as Events"}
@@ -436,7 +436,7 @@ export default function ScheduleSuggest() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="px-6 py-5">
+              <CardContent className="px-4 py-5 sm:px-6">
                 {/* Timeline with connecting spine */}
                 <div className="relative">
                   <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
@@ -444,7 +444,7 @@ export default function ScheduleSuggest() {
                     {milestones.map((m: any, i) => (
                       <div
                         key={i}
-                        className={`relative flex items-start gap-4 pl-0 pr-3 py-3 rounded-lg transition-colors ${
+                        className={`relative grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-1 py-3 pr-2 sm:flex sm:gap-4 sm:pr-3 rounded-lg transition-colors ${
                           m.isKey ? "bg-muted/40" : "hover:bg-muted/20"
                         }`}
                       >
@@ -453,7 +453,7 @@ export default function ScheduleSuggest() {
                           <div className={`w-3.5 h-3.5 rounded-full ${m.dotColor} ring-4 ring-background shadow-sm`} />
                         </div>
                         {/* Date */}
-                        <div className="w-28 shrink-0 pt-0.5">
+                        <div className="min-w-0 pt-0.5 sm:w-28 sm:shrink-0">
                           <p className={`text-sm font-mono font-bold ${m.isKey ? "text-foreground" : "text-foreground/75"}`}>
                             {fmtShort(m.date)}
                             {m.dateEnd && m.dateEnd !== m.date && (
@@ -462,13 +462,13 @@ export default function ScheduleSuggest() {
                           </p>
                         </div>
                         {/* Badge */}
-                        <div className="shrink-0 pt-0.5">
+                        <div className="col-start-2 shrink-0 pt-0.5 sm:col-auto">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold tracking-wide ${BADGE_COLORS[m.badge]}`}>
                             {m.badge}
                           </span>
                         </div>
                         {/* Label + note */}
-                        <div className="min-w-0 pt-0.5">
+                        <div className="col-start-2 min-w-0 pt-0.5 sm:col-auto">
                           <p className={`text-sm font-semibold leading-snug ${m.isKey ? "text-foreground" : "text-foreground/90"}`}>
                             {m.emoji && <span className="mr-1">{m.emoji}</span>}
                             {m.label}

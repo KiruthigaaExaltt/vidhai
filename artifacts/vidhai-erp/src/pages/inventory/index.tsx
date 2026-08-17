@@ -811,13 +811,13 @@ export default function InventoryModule() {
           className="flex-1 flex flex-col"
         >
           {/* Horizontal tab bar */}
-          <div className="border-b bg-card px-6 w-full">
-            <TabsList className="w-full justify-start rounded-none bg-transparent p-0 h-auto flex-wrap gap-1">
+          <div className="w-full overflow-x-auto border-b bg-card px-4 sm:px-6">
+            <TabsList className="flex h-auto min-w-max justify-start gap-1 rounded-none bg-transparent p-0">
               {NAV.map(({ id, icon: Icon, label }) => (
                 <TabsTrigger
                   key={id}
                   value={id}
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-4 py-4 font-medium text-sm text-muted-foreground hover:text-foreground flex items-center gap-2 shrink-0"
+                  className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 py-4 text-sm font-medium text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary sm:px-4"
                 >
                   <Icon className="w-4 h-4" />
                   {label}
@@ -826,7 +826,7 @@ export default function InventoryModule() {
             </TabsList>
           </div>
 
-          <div className="min-w-0 w-full flex-1 p-6 md:p-8">
+          <div className="min-w-0 w-full flex-1 p-4 sm:p-6 md:p-8">
             {/* ── DASHBOARD ── */}
             <TabsContent
               value="dashboard"
@@ -837,7 +837,7 @@ export default function InventoryModule() {
                   Inventory Overview
                 </h1>
               </div>
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-7">
+              <div className="grid grid-cols-1 gap-4 min-[400px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
                 <SummaryCard
                   icon={IndianRupee}
                   label="Total Inventory Value"
@@ -970,13 +970,13 @@ export default function InventoryModule() {
               value="products"
               className="outline-none mt-0 space-y-6"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight font-display">
                     Item & Product Master
                   </h1>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                   <Button
                     variant="outline"
                     className="rounded-sm h-9 px-3 text-sm gap-2"
@@ -2296,7 +2296,7 @@ export default function InventoryModule() {
           }
         }}
       >
-        <DialogContent className="rounded-sm shadow-xl max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[calc(100svh-1rem)] max-w-xl overflow-x-hidden overflow-y-auto rounded-sm shadow-xl sm:max-h-[85vh]">
           <DialogHeader>
             <DialogTitle>
               {viewMode
@@ -2312,7 +2312,7 @@ export default function InventoryModule() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddProduct} className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2 col-span-2">
                 <Label className="text-sm font-medium text-foreground">
                   Item Name <span className="text-destructive">*</span>
@@ -2777,7 +2777,7 @@ export default function InventoryModule() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   Quantity
@@ -2871,7 +2871,7 @@ export default function InventoryModule() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   From
@@ -2985,7 +2985,7 @@ export default function InventoryModule() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   Requested Qty
@@ -3062,7 +3062,7 @@ export default function InventoryModule() {
                 className="rounded-sm h-10"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   SKU (auto if blank)

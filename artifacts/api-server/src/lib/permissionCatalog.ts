@@ -260,6 +260,11 @@ export const permissionCatalog: PermissionCatalogRow[] = [
     key: "settings.alert_colors",
     actions: crud,
   },
+  {
+    module: "Settings - Module Encryption",
+    key: "settings.module_encryption",
+    actions: ["view", "manage_settings"],
+  },
   { module: "Settings � Locations", key: "settings.locations", actions: crud },
 ];
 const notificationScopes = new Set([

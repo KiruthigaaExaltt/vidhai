@@ -98,7 +98,7 @@ export default function Traceability() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <GitBranch className="w-6 h-6 text-primary" /> Batch Traceability
@@ -108,12 +108,12 @@ export default function Traceability() {
 
         {/* Picker */}
         <Card className="rounded-sm border-border shadow-none">
-          <CardContent className="p-4 flex flex-wrap items-center gap-3">
+          <CardContent className="flex min-w-0 flex-col items-stretch gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-center">
             <label className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
               Ooty Growing Batch
             </label>
             <select
-              className="h-9 rounded-sm border border-border bg-background px-3 text-sm font-mono min-w-[260px]"
+              className="h-9 min-w-0 w-full rounded-sm border border-border bg-background px-3 text-sm font-mono sm:w-auto sm:min-w-[260px]"
               value={batchId ?? ""}
               onChange={(e) =>
                 setLocation(e.target.value ? `/traceability?batchId=${e.target.value}` : "/traceability")

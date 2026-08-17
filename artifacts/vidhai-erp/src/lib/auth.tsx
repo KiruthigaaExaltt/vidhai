@@ -6,6 +6,9 @@ interface AuthContextType {
   login: (user: User) => void;
   logout: () => void;
   permissions: string[];
+  enabledModuleKeys: string[];
+  isSuperAdmin: boolean;
+  isModuleEnabled: (moduleKey: string) => boolean;
   can: (permission: string) => boolean;
   hasScopedPermission: (
     moduleKey: string,
@@ -40,6 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
     [permissions, setPermissions] = useState<string[]>([]),
+    [enabledModuleKeys, setEnabledModuleKeys] = useState<string[]>(["ledger"]),
+    [isSuperAdmin, setIsSuperAdmin] = useState(false),
     [permissionsLoading, setPermissionsLoading] = useState(false);
   const { data: meData, isLoading: meLoading, isError } = useGetMe();
   useEffect(() => {
@@ -49,13 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshPermissions = async () => {
     if (!user) {
       setPermissions([]);
-      return;
-    }
-    if (
-      String(user.role).toLowerCase() === "admin" ||
-      String(user.role).toLowerCase() === "super admin"
-    ) {
-      setPermissions(["*"]);
       return;
     }
     setPermissionsLoading(true);
@@ -70,8 +68,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? data.permissions.map(normalizePermission)
           : [],
       );
+      setIsSuperAdmin(data.isSuperAdmin === true);
+      setEnabledModuleKeys(
+        Array.isArray(data.enabledModuleKeys)
+          ? data.enabledModuleKeys
+          : ["ledger"],
+      );
     } catch {
       setPermissions([]);
+      setIsSuperAdmin(false);
+      setEnabledModuleKeys(["ledger"]);
     } finally {
       setPermissionsLoading(false);
     }
@@ -87,6 +93,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoggedOut(true);
     setUser(null);
     setPermissions([]);
+    setIsSuperAdmin(false);
+    setEnabledModuleKeys(["ledger"]);
   };
   const isLoading =
     meLoading ||
@@ -96,6 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     String(user?.role).toLowerCase() === "admin" ||
     permissions.includes("*") ||
     permissions.includes(normalizePermission(permission));
+  const isModuleEnabled = (moduleKey: string) =>
+    enabledModuleKeys.includes(moduleKey);
   const hasScopedPermission = (
     moduleKey: string,
     submoduleKey: string | null | undefined,
@@ -116,6 +126,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         permissions,
+        enabledModuleKeys,
+        isSuperAdmin,
+        isModuleEnabled,
         can,
         hasScopedPermission,
         refreshPermissions,

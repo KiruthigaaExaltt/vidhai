@@ -298,7 +298,7 @@ export default function SchedulingCalendar() {
 
   return (
     <Shell>
-      <div className="flex h-[calc(100vh-4rem)] min-w-0 w-full flex-col space-y-6 p-6 md:p-8">
+      <div className="flex min-h-[calc(100svh-4rem)] min-w-0 w-full flex-col space-y-5 p-4 sm:p-6 md:h-[calc(100vh-4rem)] md:space-y-6 md:p-8">
         {/* Header & Controls */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
           <div>
@@ -307,17 +307,17 @@ export default function SchedulingCalendar() {
               Calendar
             </h1>
           </div>
-          <div className="flex gap-3">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:gap-3">
             <Button
               variant="outline"
-              className="rounded-lg shadow-sm h-10 px-4 font-medium hover:shadow-md transition-all"
+              className="h-10 min-w-0 rounded-lg px-2 font-medium shadow-sm transition-all hover:shadow-md sm:px-4"
               onClick={() => setLocation("/scheduling/suggest")}
             >
               <CalendarCheck className="w-4 h-4 mr-2 text-amber-500" /> Plan
               Schedule
             </Button>
             <Button
-              className="rounded-lg shadow-sm h-10 px-4 font-medium hover:shadow-md transition-all"
+              className="h-10 min-w-0 rounded-lg px-2 font-medium shadow-sm transition-all hover:shadow-md sm:px-4"
               onClick={() => openNew()}
             >
               <Plus className="w-4 h-4 mr-2" /> Add Event
@@ -326,8 +326,9 @@ export default function SchedulingCalendar() {
         </div>
 
         {/* Filter + View toggle bar */}
-        <div className="flex flex-wrap gap-2 items-center shrink-0 pb-1">
-          <div className="flex rounded-lg bg-white shadow-sm border border-border/60 p-0.5">
+        <div className="min-w-0 shrink-0 space-y-2 pb-1">
+          <div className="w-full overflow-x-auto pb-1">
+          <div className="flex min-w-max rounded-lg bg-white shadow-sm border border-border/60 p-0.5">
             {LOCATIONS.map((l) => (
               <button
                 key={l.code}
@@ -341,14 +342,14 @@ export default function SchedulingCalendar() {
                 {l.label}
               </button>
             ))}
-          </div>
+          </div></div>
 
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="flex w-full flex-col items-stretch gap-2 pb-1 sm:flex-row sm:items-center sm:overflow-x-auto">
             {/* View mode toggle */}
-            <div className="flex items-center bg-white border border-border/60 rounded-lg shadow-sm overflow-hidden">
+            <div className="flex w-full items-center overflow-hidden rounded-lg border border-border/60 bg-white shadow-sm sm:w-auto">
               <button
                 onClick={() => setViewMode("calendar")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors ${
+                className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors sm:flex-none ${
                   viewMode === "calendar"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted"
@@ -358,7 +359,7 @@ export default function SchedulingCalendar() {
               </button>
               <button
                 onClick={() => setViewMode("plans")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors border-l border-border/60 ${
+                className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors border-l border-border/60 sm:flex-none ${
                   viewMode === "plans"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted"
@@ -369,7 +370,7 @@ export default function SchedulingCalendar() {
             </div>
 
             {viewMode === "calendar" && (
-              <>
+              <div className="flex w-full items-center gap-2 overflow-x-auto sm:w-auto">
                 <Button
                   variant="outline"
                   size="sm"
@@ -378,14 +379,14 @@ export default function SchedulingCalendar() {
                 >
                   Today
                 </Button>
-                <div className="flex items-center bg-white border border-border/60 rounded-lg shadow-sm overflow-hidden">
+                <div className="flex shrink-0 items-center bg-white border border-border/60 rounded-lg shadow-sm overflow-hidden">
                   <button
                     onClick={prevMonth}
                     className="p-2 hover:bg-muted/50 transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <div className="w-40 text-center font-semibold uppercase tracking-wider text-sm">
+                  <div className="w-32 text-center font-semibold uppercase tracking-wider text-sm sm:w-40">
                     {currentDate.toLocaleString("default", {
                       month: "long",
                       year: "numeric",
@@ -398,16 +399,16 @@ export default function SchedulingCalendar() {
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
 
         {/* ── CALENDAR VIEW ──────────────────────────────────────────────────── */}
         {viewMode === "calendar" && (
-          <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
+          <div className="flex min-h-0 min-w-0 flex-1 gap-6 overflow-hidden">
             {/* Grid */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden rounded-xl border border-border/60 shadow-sm ring-1 ring-black/[0.03]">
+            <div className={`${selectedDateStr ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col h-full overflow-hidden rounded-xl border border-border/60 shadow-sm ring-1 ring-black/[0.03]`}>
               <div className="grid grid-cols-7 bg-white shrink-0">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
                   (day) => (
@@ -495,7 +496,7 @@ export default function SchedulingCalendar() {
 
             {/* Side Panel */}
             {selectedDateStr && (
-              <Card className="w-80 shrink-0 border-border/60 shadow-xl flex flex-col h-full rounded-xl overflow-hidden ring-1 ring-black/[0.03] animate-in slide-in-from-right-8 duration-300">
+              <Card className="flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden rounded-xl border-border/60 shadow-xl ring-1 ring-black/[0.03] animate-in slide-in-from-right-8 duration-300 md:w-80">
                 <div className="p-4 border-b border-border/60 bg-muted/30 flex items-center justify-between">
                   <div>
                     <h3 className="font-bold text-foreground font-display text-lg">

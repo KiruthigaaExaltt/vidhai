@@ -485,7 +485,7 @@ export function AddMemberDialog({
       <>
         <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
           <DialogContent onInteractOutside={(e) => e.preventDefault()} className="flex h-[min(94vh,900px)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
-            <DialogHeader className="shrink-0 border-b px-6 py-5">
+            <DialogHeader className="shrink-0 border-b px-4 py-4 sm:px-6 sm:py-5">
               <DialogTitle>{"Add Member"}</DialogTitle>
             </DialogHeader>
             <div className="flex-1 space-y-7 overflow-y-auto px-6 py-6">
@@ -570,7 +570,7 @@ export function AddMemberDialog({
                     items={["Male", "Female", "Other", "Prefer not to say"]}
                   />
                   <div className="md:col-span-2 rounded-xl border bg-muted/20 p-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
                       <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-xl font-bold text-primary-foreground">
                         {preview ? (
                           <img
@@ -848,7 +848,7 @@ export function AddMemberDialog({
                 </div>
               </Section>
             </div>
-            <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
+            <DialogFooter className="shrink-0 border-t bg-background px-4 py-4 sm:px-6">
               <Button
                 variant="outline"
                 disabled={saving}

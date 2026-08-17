@@ -58,7 +58,7 @@ export function Sidebar({
   onMobileClose?: () => void;
 }) {
   const [location] = useLocation();
-  const { user, logout: clearUser, can } = useAuth();
+  const { user, logout: clearUser, can, isModuleEnabled } = useAuth();
   const logoutMutation = useLogout();
   const pwa = usePwa();
 
@@ -255,9 +255,10 @@ export function Sidebar({
               "sales.returns.view",
             ]}
           />
-          {can("accounts.finance_dashboard.view") && (
-            <NavItem href="/accounts" icon={Landmark} label="Accounts" />
-          )}
+          {isModuleEnabled("ledger") &&
+            can("accounts.finance_dashboard.view") && (
+              <NavItem href="/accounts" icon={Landmark} label="Accounts" />
+            )}
           <NavItem
             href="/fleet"
             icon={Truck}
@@ -308,7 +309,8 @@ export function Sidebar({
           />
           {(can("settings.company_profile.view") ||
             can("settings.user_management.view") ||
-            can("settings.templates.view")) && (
+            can("settings.templates.view") ||
+            can("settings.module_encryption.view")) && (
             <NavItem href="/settings" icon={SettingsIcon} label="Settings" />
           )}
         </div>

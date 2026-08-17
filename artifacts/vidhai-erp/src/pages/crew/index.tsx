@@ -332,13 +332,13 @@ export default function Crew() {
   return (
     <Shell>
       <div className="min-h-[calc(100vh-72px)] bg-muted/30">
-        <div className="border-b bg-card px-6">
-          <div className="flex gap-1 overflow-x-auto">
+        <div className="border-b bg-card px-4 sm:px-6">
+          <div className="flex gap-1 overflow-x-auto overscroll-x-contain pb-px">
             {allowed.map(([key, label, Icon]) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
-                className={`flex items-center gap-2 border-b-2 px-4 py-4 text-sm font-medium ${tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-4 text-sm font-medium sm:px-4 ${tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
               >
                 <Icon className="h-4 w-4" />
                 {label}
@@ -346,7 +346,7 @@ export default function Crew() {
             ))}
           </div>
         </div>
-        <div className="space-y-6 p-6">
+        <div className="space-y-6 p-4 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold">Crew Management</h1>

@@ -326,7 +326,7 @@ export function AttendanceModule({
   const registerPagination = useClientPagination(registerRows, month);
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border bg-card p-5 shadow-sm">
+      <section className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold">Attendance</h2>
@@ -486,7 +486,7 @@ export function AttendanceModule({
           </div>
           <Input
             type="month"
-            className="w-44"
+            className="w-full sm:w-44"
             value={month}
             onChange={(event) => setMonth(event.target.value)}
           />
@@ -503,7 +503,7 @@ export function AttendanceModule({
               </span>
             ))}
         </div>
-        <div className="overflow-hidden rounded-lg border">
+        <div className="min-w-0 overflow-hidden rounded-lg border">
           <div className="overflow-x-auto">
             <table className="min-w-max border-separate border-spacing-1 text-xs">
               <thead>

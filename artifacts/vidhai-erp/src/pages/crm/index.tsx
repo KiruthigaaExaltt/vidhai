@@ -214,7 +214,7 @@ export default function CRMPage() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -225,14 +225,15 @@ export default function CRMPage() {
               </h1>
             </div>
           </div>
-          <Button onClick={openNew}>
+          <Button className="w-full sm:w-auto" onClick={openNew}>
             <Plus className="w-4 h-4 mr-2" /> Add Contact
           </Button>
         </div>
 
         {/* Tab bar + search */}
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          <div className="flex gap-1 ">
+          <div className="w-full overflow-x-auto pb-1 sm:w-auto">
+            <div className="flex min-w-max gap-1">
             {TABS.map((t) => (
               <button
                 key={t.value}
@@ -251,8 +252,9 @@ export default function CRMPage() {
                 </span>
               </button>
             ))}
+            </div>
           </div>
-          <div className="relative flex-1 sm:max-w-xs">
+          <div className="relative w-full flex-1 sm:max-w-xs">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
 
             <Input

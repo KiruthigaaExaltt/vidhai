@@ -468,12 +468,12 @@ export default function Sales() {
     <Shell>
       <div className="min-h-[calc(100vh-72px)] bg-muted/30">
         <div className="border-b bg-card px-6">
-          <div className="flex gap-1 overflow-x-auto">
+          <div className="flex gap-1 overflow-x-auto overscroll-x-contain pb-px">
             {SALES_SUBMODULES.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex items-center gap-2 border-b-2 px-4 py-4 text-sm font-medium ${
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-4 text-sm font-medium sm:px-4 ${
                   activeTab === id
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -486,7 +486,7 @@ export default function Sales() {
           </div>
         </div>
 
-        <div className="space-y-6 p-6">
+        <div className="space-y-6 p-4 sm:p-6">
           {/* Header */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -497,6 +497,7 @@ export default function Sales() {
             <div className="flex gap-2">
               {canCreate && (
                 <Button
+                  className="w-full sm:w-auto"
                   onClick={() => {
                     setEditingId(null);
                     setCreatingType(activeTab);

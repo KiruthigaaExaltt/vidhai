@@ -125,14 +125,14 @@ export default function CrewPay() {
   return (
     <Shell>
       <div className="min-w-0 flex-1 bg-muted/20">
-        <div className="border-b bg-background px-6">
-          <nav className="flex gap-2 py-2">
+        <div className="border-b bg-background px-4 sm:px-6">
+          <nav className="flex gap-2 overflow-x-auto py-2">
             <Tab active onClick={() => setSelected(null)} icon={FileText}>
               Salary Slips
             </Tab>
           </nav>
         </div>
-        <main className="space-y-6 p-6">
+        <main className="space-y-6 p-4 sm:p-6">
           {selected ? (
             <SalaryDetail
               slip={selected}
@@ -147,9 +147,9 @@ export default function CrewPay() {
                 <div>
                   <h1 className="text-2xl font-bold">CrewPay</h1>
                 </div>
-                <div className="flex gap-2">
+                <div className="grid w-full grid-cols-1 gap-2 min-[380px]:grid-cols-2 sm:flex sm:w-auto">
                   <Input
-                    className="w-40 bg-card"
+                    className="w-full bg-card sm:w-40"
                     type="month"
                     value={period}
                     onChange={(e) => setPeriod(e.target.value)}
@@ -195,7 +195,7 @@ export default function CrewPay() {
                 <Amount label="Total deductions" value={totals.deductions} />
                 <Amount label="Net salary" value={totals.net} />
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input

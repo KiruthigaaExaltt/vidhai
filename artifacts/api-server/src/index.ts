@@ -16,7 +16,13 @@ import {
   pushSubscriptionsTable,
   db,
   eq,
+  moduleEncryptionSettingsTable,
+  productModuleAccessTable,
+  moduleUnlockGrantsTable,
+  moduleEncryptionAttemptsTable,
+  moduleEncryptionAuditTable,
   syncTableIndexes,
+  syncTableCustomIndexes,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
 import { getUploadRoot } from "./lib/uploadStorage";
@@ -80,6 +86,60 @@ for (const legacy of legacyNotifications as any[]) {
 }
 await syncTableIndexes(notificationsTable);
 await syncTableIndexes(pushSubscriptionsTable);
+await syncTableCustomIndexes(productModuleAccessTable, [
+  {
+    key: { organizationId: 1, moduleKey: 1 },
+    name: "product_module_access_org_module_unique",
+    unique: true,
+  },
+]);
+await syncTableCustomIndexes(moduleEncryptionSettingsTable, [
+  {
+    key: { organizationId: 1, moduleKey: 1 },
+    name: "module_encryption_org_module_unique",
+    unique: true,
+  },
+]);
+await syncTableCustomIndexes(moduleUnlockGrantsTable, [
+  {
+    key: {
+      organizationId: 1,
+      userId: 1,
+      authenticationSessionId: 1,
+      moduleKey: 1,
+    },
+    name: "module_unlock_identity_unique",
+    unique: true,
+  },
+  {
+    key: { absoluteExpiresAt: 1 },
+    name: "module_unlock_absolute_ttl",
+    expireAfterSeconds: 0,
+  },
+  {
+    key: { organizationId: 1, moduleKey: 1, revokedAt: 1 },
+    name: "module_unlock_revocation_lookup",
+  },
+]);
+await syncTableCustomIndexes(moduleEncryptionAttemptsTable, [
+  {
+    key: {
+      organizationId: 1,
+      userId: 1,
+      authenticationSessionId: 1,
+      moduleKey: 1,
+      ipHash: 1,
+    },
+    name: "module_encryption_attempt_identity_unique",
+    unique: true,
+  },
+]);
+await syncTableCustomIndexes(moduleEncryptionAuditTable, [
+  {
+    key: { organizationId: 1, moduleKey: 1, createdAt: -1 },
+    name: "module_encryption_audit_lookup",
+  },
+]);
 const uploadRoot = getUploadRoot();
 await mkdir(uploadRoot, { recursive: true });
 logger.info({ uploadRoot }, "Upload storage ready");

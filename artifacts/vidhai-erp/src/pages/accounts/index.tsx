@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
+import { notifyModuleLocked } from "@/components/security/ModuleEncryptionGate";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
     fetch(`${base}/api/accounts${p}`, {
@@ -30,6 +31,7 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
       headers: { "Content-Type": "application/json" },
       ...o,
     }).then(async (r) => {
+      if (r.status === 423) notifyModuleLocked("ledger");
       if (!r.ok)
         throw Error(
           (await r.json().catch(() => ({}))).error || "Request failed",
@@ -105,12 +107,16 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
-  const [listPaging, setListPaging] = useState<Record<"j" | "ap" | "ar", { page: number; size: number }>>({
+  const [listPaging, setListPaging] = useState<
+    Record<"j" | "ap" | "ar", { page: number; size: number }>
+  >({
     j: { page: 1, size: 10 },
     ap: { page: 1, size: 10 },
     ar: { page: 1, size: 10 },
   });
-  const [listMeta, setListMeta] = useState<Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>>({
+  const [listMeta, setListMeta] = useState<
+    Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>
+  >({
     j: { totalCount: 0, totalPages: 0 },
     ap: { totalCount: 0, totalPages: 0 },
     ar: { totalCount: 0, totalPages: 0 },
@@ -276,9 +282,18 @@ export default function Accounts() {
     const calls = [
       ["s", "/dashboard-summary"],
       ["c", "/coa"],
-      ["j", `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`],
-      ["ap", `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`],
-      ["ar", `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`],
+      [
+        "j",
+        `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`,
+      ],
+      [
+        "ap",
+        `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`,
+      ],
+      [
+        "ar",
+        `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+      ],
       ["cu", "/customer-ledger"],
       ["v", "/vendor-ledger"],
       ["f", "/financial-statements"],
@@ -313,13 +328,22 @@ export default function Accounts() {
       if (k === "v") setVendors(v as any[]);
       if (k === "f") setStatements(v);
     }
-    const reconciledAr = await api(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`).catch(() => null);
+    const reconciledAr = await api(
+      `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+    ).catch(() => null);
     if (reconciledAr) setAr(reconciledAr.items || []);
     setLoading(false);
   };
   useEffect(() => {
     void load();
-  }, [listPaging.j.page, listPaging.j.size, listPaging.ap.page, listPaging.ap.size, listPaging.ar.page, listPaging.ar.size]);
+  }, [
+    listPaging.j.page,
+    listPaging.j.size,
+    listPaging.ap.page,
+    listPaging.ap.size,
+    listPaging.ar.page,
+    listPaging.ar.size,
+  ]);
   const reconcile = async () => {
     setLoading(true);
     setError("");
@@ -615,16 +639,36 @@ export default function Accounts() {
         )}
         {showFooter && (
           <DataPagination
-            currentPage={serverKey ? listPaging[serverKey].page : clientPagination.currentPage}
-            pageSize={serverKey ? listPaging[serverKey].size : clientPagination.pageSize}
-            totalCount={serverKey ? listMeta[serverKey].totalCount : clientPagination.totalCount}
+            currentPage={
+              serverKey
+                ? listPaging[serverKey].page
+                : clientPagination.currentPage
+            }
+            pageSize={
+              serverKey ? listPaging[serverKey].size : clientPagination.pageSize
+            }
+            totalCount={
+              serverKey
+                ? listMeta[serverKey].totalCount
+                : clientPagination.totalCount
+            }
             totalPages={serverKey ? listMeta[serverKey].totalPages : undefined}
-            onPageChange={(page) => serverKey
-              ? setListPaging((current) => ({ ...current, [serverKey]: { ...current[serverKey], page } }))
-              : clientPagination.setCurrentPage(page)}
-            onPageSizeChange={(size) => serverKey
-              ? setListPaging((current) => ({ ...current, [serverKey]: { page: 1, size } }))
-              : clientPagination.setPageSize(size)}
+            onPageChange={(page) =>
+              serverKey
+                ? setListPaging((current) => ({
+                    ...current,
+                    [serverKey]: { ...current[serverKey], page },
+                  }))
+                : clientPagination.setCurrentPage(page)
+            }
+            onPageSizeChange={(size) =>
+              serverKey
+                ? setListPaging((current) => ({
+                    ...current,
+                    [serverKey]: { page: 1, size },
+                  }))
+                : clientPagination.setPageSize(size)
+            }
             loading={loading}
           />
         )}
@@ -788,16 +832,17 @@ export default function Accounts() {
   };
   return (
     <Shell>
-      <div className="min-h-full space-y-5 p-6">
-        <div className="flex items-center justify-between">
+      <div className="min-h-full space-y-5 p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold flex items-center gap-2">
               <BookOpen />
               Accounts
             </h1>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full gap-2 sm:w-auto">
             <Button
+              className="w-full sm:w-auto"
               variant="outline"
               onClick={() => void reconcile()}
               disabled={loading}
@@ -834,7 +879,7 @@ export default function Accounts() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex h-auto w-full flex-wrap justify-start rounded-lg border bg-white p-1">
+          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border bg-white p-1 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
             <TabsTrigger value="dashboard">Finance Dashboard</TabsTrigger>
             <TabsTrigger value="customers">Customer Ledger</TabsTrigger>
             <TabsTrigger value="vendors">Vendor Ledger</TabsTrigger>
@@ -899,12 +944,13 @@ export default function Accounts() {
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
             {can("accounts.accounts_payable.create") && (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button onClick={() => openManual("ap", { entryType: "Bill" })}>
+              <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                <Button className="w-full sm:w-auto" onClick={() => openManual("ap", { entryType: "Bill" })}>
                   <Plus className="mr-2 h-4 w-4" /> Add Bill
                 </Button>
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={() => openManual("ap", { entryType: "Debit Note" })}
                 >
                   <Plus className="mr-2 h-4 w-4" /> Add Debit Note

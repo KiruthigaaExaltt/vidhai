@@ -497,7 +497,7 @@ export default function Tasks() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-6 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-6 p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <CheckSquare className="h-6 w-6 text-primary" />
@@ -507,7 +507,7 @@ export default function Tasks() {
               </h1>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full gap-2 sm:w-auto [&>button]:w-full sm:[&>button]:w-auto">
             {tab === "tasks" ? (
               <Button
                 disabled={!can("task.task_board.create")}
@@ -530,7 +530,7 @@ export default function Tasks() {
             )}
           </div>
         </div>
-        <div className="inline-flex rounded-lg border bg-muted/40 p-1">
+        <div className="flex w-full overflow-x-auto rounded-lg border bg-muted/40 p-1 sm:w-fit">
           <Button
             size="sm"
             variant={tab === "tasks" ? "default" : "ghost"}

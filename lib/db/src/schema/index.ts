@@ -1,4 +1,4 @@
-﻿export * from "./dsl";
+export * from "./dsl";
 export * from "./users";
 export * from "./locations";
 export * from "./alertColors";
@@ -31,3 +31,5 @@ export * from "./crew";
 export * from "./assets";
 export * from "./accounts";
 export * from "./notifications";
+export * from "./moduleEncryption";
+export * from "./productModuleAccess";

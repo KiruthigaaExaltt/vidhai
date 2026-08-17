@@ -37,7 +37,11 @@ import accountsRouter from "./accounts";
 import workOrdersRouter from "./workOrders";
 import organizationSettingsRouter from "./organizationSettings";
 import notificationsRouter from "./notifications";
+import moduleAccessRouter from "./moduleAccess";
+import moduleEncryptionRouter from "./moduleEncryption";
 import { requireModulePermission } from "../lib/access";
+import { requireProductModule } from "../lib/productModules";
+import { requireModuleUnlock } from "../lib/moduleEncryption";
 
 const segment = (path: string, index = 0) =>
   path.split("/").filter(Boolean)[index] ?? "";
@@ -153,6 +157,8 @@ router.use(
   schedulingRouter,
 );
 router.use("/organization-settings", organizationSettingsRouter);
+router.use(moduleAccessRouter);
+router.use(moduleEncryptionRouter);
 router.use("/sales", requireModulePermission(salesScope), salesRouter);
 router.use("/fleet", requireModulePermission("fleet.vehicles"), fleetRouter);
 router.use("/reports", requireModulePermission("reports"), reportsRouter);
@@ -207,7 +213,13 @@ router.use(
   requireModulePermission("inventory.assets"),
   assetsRouter,
 );
-router.use("/accounts", requireModulePermission(accountsScope), accountsRouter);
+router.use(
+  "/accounts",
+  requireProductModule("ledger"),
+  requireModulePermission(accountsScope),
+  requireModuleUnlock("ledger"),
+  accountsRouter,
+);
 router.use(
   "/work-orders",
   requireModulePermission("task.task_board"),

@@ -821,7 +821,7 @@ export default function GoodsReceipts() {
 
         {/* ── LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) ── */}
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogContent className="w-[calc(100vw-2rem)] max-w-[940px] max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+          <DialogContent className="w-[calc(100vw-1rem)] max-w-[940px] max-h-[calc(100svh-1rem)] overflow-x-hidden overflow-y-auto p-4 sm:w-[calc(100vw-2rem)] sm:max-h-[90vh] sm:p-6">
             <form onSubmit={handleCreateGRN}>
               <DialogHeader className="pb-2 border-b border-border">
                 <DialogTitle className="flex items-center gap-2.5 text-xl font-bold text-foreground">

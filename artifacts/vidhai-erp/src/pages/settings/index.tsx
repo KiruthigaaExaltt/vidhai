@@ -6,6 +6,7 @@ import {
   Database,
   MapPin,
   Palette,
+  KeyRound,
   Settings as SettingsIcon,
   ShieldCheck,
   Users,
@@ -17,6 +18,7 @@ import Locations from "./locations";
 import AlertColors from "./alert-colors";
 import Departments from "./departments";
 import OrganizationDetails from "./OrganizationDetails";
+import ModuleEncryptionSettings from "./module-encryption";
 import { useAuth } from "@/lib/auth";
 
 type View =
@@ -29,7 +31,8 @@ type View =
   | "holiday"
   | "leave"
   | "alerts"
-  | "locations";
+  | "locations"
+  | "module-encryption";
 const templates: [View, string][] = [
   ["attendance", "Attendance Template"],
   ["work-pattern", "Work Pattern Template"],
@@ -38,13 +41,14 @@ const templates: [View, string][] = [
   ["leave", "Leave Template"],
 ];
 export default function Settings() {
-  const { can } = useAuth();
+  const { can, isSuperAdmin } = useAuth();
   const companyProfileAccess = can("settings.company_profile.view"),
     userAccess = can("settings.user_management.view"),
     masterAccess = can("settings.master_settings.view"),
     templateAccess = can("settings.templates.view"),
     alertAccess = can("settings.alert_colors.view"),
-    locationAccess = can("settings.locations.view");
+    locationAccess = can("settings.locations.view"),
+    encryptionAccess = isSuperAdmin || can("settings.module_encryption.view");
   const accessibleViews = new Set<View>([
     ...(companyProfileAccess ? (["general"] as View[]) : []),
     ...(userAccess ? (["users"] as View[]) : []),
@@ -52,6 +56,7 @@ export default function Settings() {
     ...(templateAccess ? templates.map(([key]) => key) : []),
     ...(alertAccess ? (["alerts"] as View[]) : []),
     ...(locationAccess ? (["locations"] as View[]) : []),
+    ...(encryptionAccess ? (["module-encryption"] as View[]) : []),
   ]);
   const fallbackView = accessibleViews.values().next().value as View;
   const requestedView = new URLSearchParams(window.location.search).get(
@@ -86,12 +91,13 @@ export default function Settings() {
   const mobileOptions = [
     ...(companyProfileAccess ? [["general", "General"]] : []),
     ...(userAccess ? [["users", "User Management"]] : []),
-    ...(masterAccess ? [["departments", "Master Settings — Departments"]] : []),
+    ...(masterAccess ? [["departments", "Master Settings � Departments"]] : []),
     ...(templateAccess
-      ? templates.map(([key, label]) => [key, `Templates — ${label}`])
+      ? templates.map(([key, label]) => [key, `Templates � ${label}`])
       : []),
     ...(alertAccess ? [["alerts", "Alert Colors"]] : []),
     ...(locationAccess ? [["locations", "Locations"]] : []),
+    ...(encryptionAccess ? [["module-encryption", "Module Encryption"]] : []),
   ] as [View, string][];
   return (
     <Shell>
@@ -172,6 +178,15 @@ export default function Settings() {
                 )}
               </>
             )}
+            {encryptionAccess && (
+              <Nav
+                active={view === "module-encryption"}
+                onClick={() => selectView("module-encryption")}
+                icon={<KeyRound />}
+              >
+                Module Encryption
+              </Nav>
+            )}{" "}
             {templateAccess && (
               <>
                 <button
@@ -228,6 +243,9 @@ export default function Settings() {
               <OrganizationDetails />
             )}
             {view === "users" && userAccess && <UserManagement />}
+            {view === "module-encryption" && encryptionAccess && (
+              <ModuleEncryptionSettings />
+            )}{" "}
             {view === "departments" && masterAccess && <Departments />}
             {templates.some(([k]) => k === view) && templateAccess && (
               <TemplateManager kind={view as any} />

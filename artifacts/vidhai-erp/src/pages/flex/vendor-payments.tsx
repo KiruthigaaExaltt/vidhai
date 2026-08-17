@@ -428,7 +428,7 @@ export default function VendorPayments() {
 
         {/* Record Vendor Payment Dialog */}
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogContent className="max-w-md max-h-[92vh] overflow-y-auto p-6 bg-background rounded-2xl border border-border shadow-2xl">
+          <DialogContent className="max-h-[calc(100svh-1rem)] max-w-md overflow-x-hidden overflow-y-auto rounded-xl border border-border bg-background p-4 shadow-2xl sm:max-h-[92vh] sm:rounded-2xl sm:p-6">
             <form onSubmit={handleRecordPayment}>
               <DialogHeader className="pb-3 border-border">
                 <DialogTitle className="flex items-center gap-2.5 text-lg font-bold text-foreground">

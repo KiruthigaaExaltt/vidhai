@@ -403,13 +403,13 @@ export default function UserManagement() {
       <Tabs value={tab} onValueChange={setTab}>
         <div className="mb-5 space-y-4">
           <h2 className="text-lg font-semibold">User Management</h2>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button size="sm" variant="outline" onClick={() => void sync()}>
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+            <Button className="w-full sm:w-auto" size="sm" variant="outline" onClick={() => void sync()}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Sync users and roles
             </Button>
             {tab === "users" && can("settings.user_management.create") && (
-              <Button size="sm" onClick={() => begin()}>
+              <Button className="w-full sm:w-auto" size="sm" onClick={() => begin()}>
                 <Plus className="mr-2 h-4 w-4" />
                 New User
               </Button>
@@ -417,6 +417,7 @@ export default function UserManagement() {
             {tab === "roles" &&
               can("settings.user_management.manage_settings") && (
                 <Button
+                  className="w-full sm:w-auto"
                   size="sm"
                   onClick={() => rolesPageRef.current?.beginCreate()}
                 >

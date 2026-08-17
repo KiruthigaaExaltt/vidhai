@@ -327,12 +327,12 @@ export function LeaveModule({
         </div>
       </section>
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b p-4">
+        <div className="flex flex-col items-stretch gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="font-semibold">Recent leave requests</h3>
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
             <Input
-              className="w-64 pl-9"
+              className="w-full pl-9 sm:w-64"
               placeholder="Search leave requests..."
               value={query}
               onChange={(event) => setQuery(event.target.value)}

@@ -206,9 +206,9 @@ export default function CoimbatoreBatches() {
 
   return (
     <Shell>
-      <div className="min-w-0 w-full space-y-5 p-6 md:p-8">
+      <div className="min-w-0 w-full space-y-5 p-4 sm:p-6 md:p-8">
         {/* Header */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Leaf className="w-5 h-5 text-primary" />
@@ -220,7 +220,7 @@ export default function CoimbatoreBatches() {
 
           <Dialog open={batchOpen} onOpenChange={setBatchOpen}>
             <DialogTrigger asChild>
-              <Button className="rounded-md shadow-md h-9 px-4 shrink-0">
+              <Button className="h-9 w-full shrink-0 rounded-md px-4 shadow-md sm:w-auto">
                 <Plus className="w-4 h-4 mr-2" /> New Batch
               </Button>
             </DialogTrigger>
@@ -271,7 +271,7 @@ export default function CoimbatoreBatches() {
         {/* Filter bar */}
         <Card className="rounded-md border-border shadow-md">
           <CardContent className="p-3">
-            <div className="flex flex-wrap items-end gap-3">
+            <div className="grid grid-cols-1 items-end gap-3 sm:flex sm:flex-wrap">
               {/* Filter icon — invisible label spacer keeps it bottom-aligned with the input row */}
               <div className="space-y-1">
                 <Label className="text-[10px] uppercase tracking-wider text-muted-foreground opacity-0 select-none">

@@ -60,7 +60,7 @@ export default function AlertColors() {
 
   return (
     <div className="w-full space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             Alert Colors
@@ -68,7 +68,7 @@ export default function AlertColors() {
         </div>
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <Button className="rounded-sm font-medium h-9">
+            <Button className="h-9 w-full rounded-sm font-medium sm:w-auto">
               <Plus className="w-4 h-4 mr-2" /> Add Color
             </Button>
           </DialogTrigger>
