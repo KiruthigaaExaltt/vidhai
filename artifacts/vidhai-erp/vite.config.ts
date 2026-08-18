@@ -40,9 +40,10 @@ return {
       injectRegister: false, registerType: "prompt",
       includeAssets: ["favicon.png", "apple-touch-icon.png"],
       injectManifest: { globPatterns: ["**/*.{html,js,css,svg,png,webp,woff2,jpg}"], globIgnores: ["**/opengraph.jpg"], maximumFileSizeToCacheInBytes: 5 * 1024 * 1024 },
-      // A development service worker changes with Vite's module graph and can
-      // therefore look like a new app version on every local refresh.
-      devOptions: { enabled: false },
+      // Web Push requires an active service worker. Keep the same
+      // inject-manifest worker available on localhost so external notification
+      // subscriptions can be tested in development as well as production.
+      devOptions: { enabled: true, type: "module" },
       manifest: {
         name: "Vidhai ERP Production Control Center", short_name: "Vidhai ERP",
         description: "Multi-site production control for Nilgiri Farm Produce.",

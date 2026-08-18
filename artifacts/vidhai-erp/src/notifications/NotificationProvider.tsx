@@ -30,7 +30,9 @@ const configuredApiOrigin = String(import.meta.env.VITE_API_BASE || "")
 const apiUrl = (path: string) =>
   `${configuredApiOrigin}${base}/api/notifications${path}`;
 const pushSupported =
-  "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  "serviceWorker" in navigator &&
+  "PushManager" in window &&
+  "Notification" in window;
 function decodeVapidKey(value: string) {
   const padded = `${value}${"=".repeat((4 - (value.length % 4)) % 4)}`;
   const raw = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
@@ -45,9 +47,9 @@ export function NotificationProvider({
     [unreadCount, setUnreadCount] = useState(0),
     [latest, setLatest] = useState<any | null>(null),
     [pushEnabled, setPushEnabled] = useState(false),
-    [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
-      pushSupported ? Notification.permission : "unsupported",
-    );
+    [pushPermission, setPushPermission] = useState<
+      NotificationPermission | "unsupported"
+    >(pushSupported ? Notification.permission : "unsupported");
   const receivedIds = useRef(new Set<number>());
   const unreadCountRef = useRef(0);
   const refresh = useCallback(async () => {
@@ -75,11 +77,12 @@ export function NotificationProvider({
       method: "PATCH",
       credentials: "include",
     });
-    if (r.ok) setUnreadCount((n) => {
-      const next = Math.max(0, n - 1);
-      unreadCountRef.current = next;
-      return next;
-    });
+    if (r.ok)
+      setUnreadCount((n) => {
+        const next = Math.max(0, n - 1);
+        unreadCountRef.current = next;
+        return next;
+      });
   }, []);
   const markAllRead = useCallback(async () => {
     const r = await fetch(apiUrl("/read-all"), {
@@ -92,9 +95,12 @@ export function NotificationProvider({
     }
   }, []);
   const subscribeForExternalNotifications = useCallback(async () => {
-    if (!user || !pushSupported || Notification.permission !== "granted") return false;
+    if (!user || !pushSupported || Notification.permission !== "granted")
+      return false;
     try {
-      const keyResponse = await fetch(apiUrl("/push/public-key"), { credentials: "include" });
+      const keyResponse = await fetch(apiUrl("/push/public-key"), {
+        credentials: "include",
+      });
       if (!keyResponse.ok) {
         setPushEnabled(false);
         return false;
@@ -152,8 +158,23 @@ export function NotificationProvider({
         unreadCountRef.current = next;
         return next;
       });
-      if (document.visibilityState === "visible")
+      if (document.visibilityState === "visible") {
         toast(item.title, { description: item.message });
+        if (pushSupported && Notification.permission === "granted") {
+          void navigator.serviceWorker.ready.then((registration) =>
+            registration.showNotification(item.title || "Vidhai ERP", {
+              body: item.message || "You have a new notification.",
+              icon: `${base}/pwa-192x192.png`,
+              badge: `${base}/pwa-192x192.png`,
+              tag: `notification-${item.id}`,
+              data: {
+                notificationId: item.id,
+                navigationUrl: item.navigationUrl || "/notifications",
+              },
+            }),
+          );
+        }
+      }
     });
     socket.on("connect", () => void refresh());
     socket.on("connect_error", (error) => {
