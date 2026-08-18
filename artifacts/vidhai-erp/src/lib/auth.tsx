@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useGetMe, User } from "@workspace/api-client-react";
+import { setAccessToken } from "./authTokens";
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (user: User) => void;
+  login: (user: User, accessToken?: string) => void;
   logout: () => void;
   permissions: string[];
   enabledModuleKeys: string[];
@@ -51,6 +52,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (meData && !isError) setUser(meData);
     else if (isError) setUser(null);
   }, [meData, isError]);
+  useEffect(() => {
+    const expired = () => logout();
+    window.addEventListener("auth:expired", expired);
+    return () => window.removeEventListener("auth:expired", expired);
+  }, []);
   const refreshPermissions = async () => {
     if (!user) {
       setPermissions([]);
@@ -85,11 +91,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refreshPermissions();
   }, [user]);
-  const login = (newUser: User) => {
+  const login = (newUser: User, token?: string) => {
+    if (token) setAccessToken(token);
     setLoggedOut(false);
     setUser(newUser);
   };
   const logout = () => {
+    setAccessToken(null);
     setLoggedOut(true);
     setUser(null);
     setPermissions([]);

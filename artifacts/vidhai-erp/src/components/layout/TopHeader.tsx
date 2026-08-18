@@ -35,9 +35,11 @@ export function TopHeader({
   const handleLogout = async () => {
     try {
       await logoutMutation.mutateAsync();
-      clearUser();
     } catch (error) {
       console.error(error);
+    } finally {
+      clearUser();
+      navigate("/login");
     }
   };
 
@@ -81,7 +83,9 @@ export function TopHeader({
                   alt=""
                   className="h-full w-full object-cover"
                 />
-              ) : initial}
+              ) : (
+                initial
+              )}
             </span>
             <span className="hidden min-w-0 flex-col sm:flex">
               <span className="max-w-40 truncate text-sm font-medium leading-tight">

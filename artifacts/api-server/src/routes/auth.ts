@@ -5,6 +5,14 @@ import { logger } from "../lib/logger";
 import { verifyPassword, hashPassword } from "../lib/password";
 import { revokeSessionGrants } from "../lib/moduleEncryption";
 import {
+  accessToken,
+  authenticateAccessToken,
+  clearRefreshCookie,
+  createRefreshSession,
+  revokeCurrentRefresh,
+  rotateRefreshSession,
+} from "../lib/jwtAuth";
+import {
   createLoginKeyPair,
   decryptLoginPassword,
 } from "../lib/loginEncryption";
@@ -56,12 +64,14 @@ router.post("/login", async (req, res) => {
   }
   (req.session as any).userId = user.id;
   (req.session as any).sessionVersion = user.sessionVersion ?? 0;
+  await createRefreshSession(req, res, user);
   await db
     .update(usersTable)
     .set({ lastLogin: new Date() })
     .where(eq(usersTable.id, user.id));
   const { passwordHash: _ph, ...safeUser } = user;
   return res.json({
+    accessToken: accessToken(user),
     user: {
       ...safeUser,
       locationScope: JSON.parse(user.locationScope ?? "[]"),
@@ -71,14 +81,26 @@ router.post("/login", async (req, res) => {
 
 router.post("/logout", async (req, res) => {
   try {
+    await revokeCurrentRefresh(req);
     await revokeSessionGrants(req.sessionID);
   } finally {
+    clearRefreshCookie(res);
     req.session.destroy(() => {});
   }
   res.json({ ok: true });
 });
 
-router.get("/me", async (req, res) => {
+router.post("/refresh", async (req, res) => {
+  try {
+    const result = await rotateRefreshSession(req, res);
+    return res.json({ accessToken: result.accessToken });
+  } catch {
+    clearRefreshCookie(res);
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+});
+
+router.get("/me", authenticateAccessToken, async (req, res) => {
   const userId = (req.session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "Not authenticated" });
   const [user] = await db

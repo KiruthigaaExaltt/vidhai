@@ -12,6 +12,7 @@ import {
   temporaryPassword,
   verifyPassword,
 } from "../lib/password";
+import { revokeUserRefreshSessions } from "../lib/jwtAuth";
 
 const router = Router();
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -529,6 +530,7 @@ router.post(
         sessionVersion: Number(u.sessionVersion ?? 0) + 1,
       })
       .where(eq(usersTable.id, id));
+    await revokeUserRefreshSessions(id);
     return res.json({ success: true });
   },
 );
@@ -556,6 +558,7 @@ router.post("/me/password", async (req, res) => {
       sessionVersion: nextSessionVersion,
     })
     .where(eq(usersTable.id, u.id));
+  await revokeUserRefreshSessions(u.id);
   (req.session as any).sessionVersion = nextSessionVersion;
   return res.json({ success: true, passwordUpdatedAt });
 });

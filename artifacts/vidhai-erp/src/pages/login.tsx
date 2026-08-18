@@ -31,7 +31,7 @@ export default function Login() {
           passwordEncoding: "rsa-oaep-256",
         },
       });
-      login(res.user);
+      login(res.user, res.accessToken);
       setLocation("/");
     } catch (err: any) {
       toast({

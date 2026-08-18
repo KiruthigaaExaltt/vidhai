@@ -1862,8 +1862,9 @@ components:
 
     AuthResponse:
       type: object
-      required: [user]
+      required: [accessToken, user]
       properties:
+        accessToken: { type: string }
         user:
           $ref: "#/components/schemas/User"
 

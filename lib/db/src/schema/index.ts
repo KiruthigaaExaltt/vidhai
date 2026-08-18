@@ -32,4 +32,5 @@ export * from "./assets";
 export * from "./accounts";
 export * from "./notifications";
 export * from "./moduleEncryption";
+export * from "./refreshSessions";
 export * from "./productModuleAccess";

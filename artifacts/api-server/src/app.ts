@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
@@ -46,6 +47,7 @@ app.use(
 );
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(cookieParser());
 
 export const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET ?? "vidhai-dev-secret-2024",
