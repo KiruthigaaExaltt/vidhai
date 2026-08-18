@@ -19,6 +19,9 @@ if (
 ) {
   throw new Error("SESSION_COOKIE_MAX_AGE_MS must be a positive integer");
 }
+const sessionSameSite = (process.env.SESSION_COOKIE_SAME_SITE ||
+  process.env.JWT_COOKIE_SAME_SITE ||
+  "lax") as "lax" | "strict" | "none";
 if (production && !process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET is required in production");
 }
@@ -64,9 +67,9 @@ export const sessionMiddleware = session({
   saveUninitialized: false,
   rolling: true,
   cookie: {
-    secure: production,
+    secure: production || sessionSameSite === "none",
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: sessionSameSite,
     maxAge: sessionCookieMaxAgeMs,
   },
 });

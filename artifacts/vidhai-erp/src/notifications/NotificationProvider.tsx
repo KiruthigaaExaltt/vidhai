@@ -9,6 +9,7 @@ import React, {
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { getAccessToken } from "@/lib/authTokens";
 
 type NotificationContextValue = {
   unreadCount: number;
@@ -22,6 +23,11 @@ type NotificationContextValue = {
 };
 const Context = createContext<NotificationContextValue | undefined>(undefined);
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+const configuredApiOrigin = String(import.meta.env.VITE_API_BASE || "")
+  .replace(/\/+$/, "")
+  .replace(/\/api$/, "");
+const apiUrl = (path: string) =>
+  `${configuredApiOrigin}${base}/api/notifications${path}`;
 const pushSupported =
   "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 function decodeVapidKey(value: string) {
@@ -47,21 +53,23 @@ export function NotificationProvider({
       return;
     }
     try {
-      const r = await fetch(`${base}/api/notifications/count`, {
+      const r = await fetch(apiUrl("/count"), {
         credentials: "include",
       });
       if (r.ok) setUnreadCount(Number((await r.json()).unreadCount) || 0);
-    } catch {}
+    } catch (error) {
+      console.error("Unable to load notification count", error);
+    }
   }, [user]);
   const markRead = useCallback(async (id: number) => {
-    const r = await fetch(`${base}/api/notifications/${id}/read`, {
+    const r = await fetch(apiUrl(`/${id}/read`), {
       method: "PATCH",
       credentials: "include",
     });
     if (r.ok) setUnreadCount((n) => Math.max(0, n - 1));
   }, []);
   const markAllRead = useCallback(async () => {
-    const r = await fetch(`${base}/api/notifications/read-all`, {
+    const r = await fetch(apiUrl("/read-all"), {
       method: "POST",
       credentials: "include",
     });
@@ -70,7 +78,7 @@ export function NotificationProvider({
   const subscribeForExternalNotifications = useCallback(async () => {
     if (!user || !pushSupported || Notification.permission !== "granted") return false;
     try {
-      const keyResponse = await fetch(`${base}/api/notifications/push/public-key`, { credentials: "include" });
+      const keyResponse = await fetch(apiUrl("/push/public-key"), { credentials: "include" });
       if (!keyResponse.ok) return false;
       const { publicKey } = await keyResponse.json();
       const registration = await navigator.serviceWorker.ready;
@@ -80,7 +88,7 @@ export function NotificationProvider({
           userVisibleOnly: true,
           applicationServerKey: decodeVapidKey(publicKey),
         }));
-      const response = await fetch(`${base}/api/notifications/push/subscriptions`, {
+      const response = await fetch(apiUrl("/push/subscriptions"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -104,9 +112,13 @@ export function NotificationProvider({
   useEffect(() => {
     void refresh();
     if (!user) return;
-    const socket: Socket = io({
+    const socket: Socket = io(configuredApiOrigin || undefined, {
       path: `${base}/api/socket.io`,
       withCredentials: true,
+      auth: { accessToken: getAccessToken() },
+    });
+    socket.io.on("reconnect_attempt", () => {
+      socket.auth = { accessToken: getAccessToken() };
     });
     socket.on("notification:new", (item) => {
       const id = Number(item?.id);
@@ -118,6 +130,9 @@ export function NotificationProvider({
         toast(item.title, { description: item.message });
     });
     socket.on("connect", () => void refresh());
+    socket.on("connect_error", (error) => {
+      console.error("Notification socket connection failed", error.message);
+    });
     return () => {
       socket.disconnect();
     };

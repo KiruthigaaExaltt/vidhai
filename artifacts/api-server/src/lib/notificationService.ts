@@ -31,7 +31,13 @@ export async function resolveNotificationRecipients(organizationId: number, perm
     if (directIds.has(Number(user.id))) return true;
     if (allowedIds && !allowedIds.has(Number(user.id))) return false;
     const role = roleBySlug.get(slug(user.role)) as any;
-    if (slug(user.role) === "super_admin" || user.systemKey === "SUPER_ADMIN" || role?.isSuperAdmin || role?.systemKey === "SUPER_ADMIN") return true;
+    if (
+      ["admin", "super_admin"].includes(slug(user.role)) ||
+      ["ADMIN", "SUPER_ADMIN"].includes(String(user.systemKey || "")) ||
+      role?.isSuperAdmin ||
+      ["ADMIN", "SUPER_ADMIN"].includes(String(role?.systemKey || ""))
+    )
+      return true;
     const permissions = new Set(normalizePermissions(role?.permissions));
     for (const override of normalizeOverrides(user.permissionOverrides)) override.allowed ? permissions.add(override.permissionKey) : permissions.delete(override.permissionKey);
     return permissions.has(permissionKey);

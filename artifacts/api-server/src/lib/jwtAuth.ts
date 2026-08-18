@@ -222,3 +222,25 @@ export async function authenticateAccessToken(
     return res.status(401).json({ error: "Not authenticated" });
   }
 }
+
+export async function authenticateAccessTokenValue(token: unknown) {
+  if (typeof token !== "string" || !token) return null;
+  try {
+    const claims = verify(token, "access");
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, Number(claims.sub)))
+      .limit(1);
+    if (
+      !user ||
+      user.isDeleted ||
+      user.isActive === false ||
+      Number(user.sessionVersion ?? 0) !== claims.sv
+    )
+      return null;
+    return user;
+  } catch {
+    return null;
+  }
+}

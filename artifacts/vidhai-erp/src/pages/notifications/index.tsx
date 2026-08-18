@@ -5,13 +5,17 @@ import { Shell } from "@/components/layout/Shell";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNotifications } from "@/notifications/NotificationProvider";
+import { useAuth } from "@/lib/auth";
+import { toast } from "sonner";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 export default function NotificationsPage() {
   const [tab, setTab] = useState("unread"),
     [items, setItems] = useState<any[]>([]),
-    [loading, setLoading] = useState(true);
+    [loading, setLoading] = useState(true),
+    [testing, setTesting] = useState(false);
   const [, navigate] = useLocation();
   const notifications = useNotifications();
+  const { isSuperAdmin } = useAuth();
   const load = async () => {
     setLoading(true);
     try {
@@ -36,6 +40,21 @@ export default function NotificationsPage() {
     await notifications.markAllRead();
     await load();
   };
+  const testNotification = async () => {
+    setTesting(true);
+    try {
+      const response = await fetch(`${base}/api/notifications/test`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error((await response.json()).error || "Test failed");
+      toast.success("Notification test queued");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to test notifications");
+    } finally {
+      setTesting(false);
+    }
+  };
   return (
     <Shell>
       <div className="mx-auto w-full max-w-5xl p-4 sm:p-6 lg:p-8">
@@ -47,6 +66,12 @@ export default function NotificationsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {isSuperAdmin && (
+              <Button variant="outline" disabled={testing} onClick={() => void testNotification()}>
+                <Bell className="mr-2 h-4 w-4" />
+                {testing ? "Testing…" : "Test notification"}
+              </Button>
+            )}
             {notifications.pushSupported && notifications.pushPermission !== "granted" && (
               <Button
                 variant="outline"
