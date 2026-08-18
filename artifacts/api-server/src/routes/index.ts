@@ -42,6 +42,7 @@ import moduleEncryptionRouter from "./moduleEncryption";
 import { requireModulePermission } from "../lib/access";
 import { requireProductModule } from "../lib/productModules";
 import { requireModuleUnlock } from "../lib/moduleEncryption";
+import { authenticateAccessToken } from "../lib/jwtAuth";
 
 const segment = (path: string, index = 0) =>
   path.split("/").filter(Boolean)[index] ?? "";
@@ -96,6 +97,7 @@ const accountsScope = (req: any) =>
 const router: IRouter = Router();
 router.use(healthRouter);
 router.use("/auth", authRouter);
+router.use(authenticateAccessToken);
 router.use("/notifications", notificationsRouter);
 router.use("/users", usersRouter);
 router.use("/settings/users", usersRouter);

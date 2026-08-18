@@ -11,6 +11,8 @@ import {
   or,
 } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { organizationId } from "../lib/access";
+import { publishNotification } from "../lib/notificationService";
 
 const router = Router();
 const statuses = new Set([
@@ -275,6 +277,11 @@ router.post(
           )
           .limit(1);
         if (!asset) throw new Error("Asset not found");
+        const [employee] = await tx
+          .select()
+          .from(employeesTable)
+          .where(eq(employeesTable.id, allocation.employeeId))
+          .limit(1);
         const quantity = Number(allocation.quantity),
           allocated = Number(asset.allocatedQuantity),
           available = Number(asset.availableQuantity),
@@ -304,8 +311,31 @@ router.post(
           })
           .where(eq(assetAllocationsTable.id, allocationId))
           .returning();
+        await publishNotification(
+          {
+            organizationId: organizationId(req),
+            actorId: Number((req.session as any).userId),
+            permissionKey: "inventory.assets.notification",
+            eventType: "ASSET_DEALLOCATED",
+            eventKey: `asset-allocation:${allocation.id}:deallocated`,
+            sourceModule: "inventory",
+            targetModule: "inventory",
+            submodule: "assets",
+            title: "Asset deallocated",
+            message: `${asset.name} (${asset.sku}) was returned by ${employee?.name || "an employee"}.`,
+            sourceEntityType: "asset_allocation",
+            sourceEntityId: allocation.id,
+            sourceReference: asset.sku,
+            navigationUrl: "/inventory",
+            metadata: { assetId: asset.id, employeeId: allocation.employeeId, quantity },
+            directRecipientUserIds: employee?.userId ? [Number(employee.userId)] : [],
+          },
+          tx,
+          true,
+        );
         return { updated, deallocated };
       });
+      res.locals.notificationHandled = true;
       res.json({
         asset: assetJson(result.updated),
         allocation: {
@@ -379,8 +409,31 @@ router.post("/:id/allocate", async (req, res): Promise<any> => {
         })
         .where(eq(assetsTable.id, id))
         .returning();
+      await publishNotification(
+        {
+          organizationId: organizationId(req),
+          actorId: Number((req.session as any).userId),
+          permissionKey: "inventory.assets.notification",
+          eventType: "ASSET_ALLOCATED",
+          eventKey: `asset-allocation:${allocation.id}:allocated`,
+          sourceModule: "inventory",
+          targetModule: "inventory",
+          submodule: "assets",
+          title: "Asset allocated",
+          message: `${asset.name} (${asset.sku}) was allocated to ${employee.name}.`,
+          sourceEntityType: "asset_allocation",
+          sourceEntityId: allocation.id,
+          sourceReference: asset.sku,
+          navigationUrl: "/inventory",
+          metadata: { assetId: asset.id, employeeId: employee.id, quantity },
+          directRecipientUserIds: employee.userId ? [Number(employee.userId)] : [],
+        },
+        tx,
+        true,
+      );
       return { allocation, updated, employee };
     });
+    res.locals.notificationHandled = true;
     res
       .status(201)
       .json({

@@ -1,21 +1,17 @@
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { createHash } from "node:crypto";
+import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(password, salt, 64).toString("hex");
-  return `scrypt:${salt}:${hash}`;
+const PASSWORD_SALT_ROUNDS = 10;
+
+export function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, PASSWORD_SALT_ROUNDS);
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
-  if (stored.startsWith("scrypt:")) {
-    const [, salt, expected] = stored.split(":");
-    const actual = scryptSync(password, salt, 64);
-    const expectedBuffer = Buffer.from(expected, "hex");
-    return actual.length === expectedBuffer.length && timingSafeEqual(actual, expectedBuffer);
-  }
-  const legacy = createHash("sha256").update(password + "vidhai-salt-2024").digest("hex");
-  return legacy === stored;
+export function verifyPassword(
+  password: string,
+  stored: string,
+): Promise<boolean> {
+  return bcrypt.compare(password, stored);
 }
 
 export function temporaryPassword(): string {

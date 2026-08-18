@@ -11,6 +11,7 @@
     "sync-indexes": "tsx ./src/sync-indexes.ts"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "mongoose": "^8.19.4",
     "zod": "catalog:"
   },

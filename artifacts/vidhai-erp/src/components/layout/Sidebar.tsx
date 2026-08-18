@@ -128,9 +128,10 @@ export function Sidebar({
   const handleLogout = async () => {
     try {
       await logoutMutation.mutateAsync();
-      clearUser();
     } catch (error) {
       console.error(error);
+    } finally {
+      clearUser();
     }
   };
 

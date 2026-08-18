@@ -3,6 +3,10 @@ import { createServer } from "node:http";
 import app, { sessionMiddleware } from "./app";
 import { initializeNotificationGateway } from "./lib/notificationGateway";
 import { startChamberReminderScheduler } from "./lib/chamberReminderScheduler";
+import {
+  startNotificationWorker,
+  stopNotificationWorker,
+} from "./lib/notificationWorker";
 import { logger } from "./lib/logger";
 import {
   ootyHarvestInventoryPostingsTable,
@@ -23,6 +27,8 @@ import {
   moduleEncryptionAuditTable,
   syncTableIndexes,
   syncTableCustomIndexes,
+  notificationOutboxTable,
+  refreshSessionsTable,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
 import { getUploadRoot } from "./lib/uploadStorage";
@@ -86,6 +92,24 @@ for (const legacy of legacyNotifications as any[]) {
 }
 await syncTableIndexes(notificationsTable);
 await syncTableIndexes(pushSubscriptionsTable);
+await syncTableIndexes(notificationOutboxTable);
+await syncTableCustomIndexes(refreshSessionsTable, [
+  { key: { tokenHash: 1 }, name: "refresh_token_hash_unique", unique: true },
+  { key: { userId: 1, revokedAt: 1 }, name: "refresh_user_revocation" },
+  { key: { expiresAt: 1 }, name: "refresh_expiry_ttl", expireAfterSeconds: 0 },
+]);
+await syncTableCustomIndexes(notificationsTable, [
+  {
+    key: { organizationId: 1, recipientUserId: 1, isRead: 1, createdAt: -1 },
+    name: "notification_inbox",
+  },
+]);
+await syncTableCustomIndexes(notificationOutboxTable, [
+  {
+    key: { status: 1, nextAttemptAt: 1, priorityRank: 1, createdAt: 1 },
+    name: "notification_queue_claim",
+  },
+]);
 await syncTableCustomIndexes(productModuleAccessTable, [
   {
     key: { organizationId: 1, moduleKey: 1 },
@@ -152,7 +176,17 @@ logger.info(defaultVaultItems, "Default Vault items ready");
 
 const server = createServer(app);
 initializeNotificationGateway(server, sessionMiddleware);
+startNotificationWorker();
 startChamberReminderScheduler();
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, async () => {
+    logger.info({ signal }, "Graceful shutdown started");
+    await stopNotificationWorker();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+  });
+}

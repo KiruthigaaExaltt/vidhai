@@ -12,16 +12,16 @@ export interface HealthStatus {
 export interface LoginInput {
   username: string;
   password: string;
+  passwordEncoding: "rsa-oaep-256";
 }
 
-export type UserRole = typeof UserRole[keyof typeof UserRole];
-
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 export const UserRole = {
-  admin: 'admin',
-  manager: 'manager',
-  operator: 'operator',
-  viewer: 'viewer',
+  admin: "admin",
+  manager: "manager",
+  operator: "operator",
+  viewer: "viewer",
 } as const;
 
 export interface User {
@@ -34,17 +34,17 @@ export interface User {
 }
 
 export interface AuthResponse {
+  accessToken: string;
   user: User;
 }
 
-export type UserInputRole = typeof UserInputRole[keyof typeof UserInputRole];
-
+export type UserInputRole = (typeof UserInputRole)[keyof typeof UserInputRole];
 
 export const UserInputRole = {
-  admin: 'admin',
-  manager: 'manager',
-  operator: 'operator',
-  viewer: 'viewer',
+  admin: "admin",
+  manager: "manager",
+  operator: "operator",
+  viewer: "viewer",
 } as const;
 
 export interface UserInput {
@@ -55,14 +55,14 @@ export interface UserInput {
   locationScope: string[];
 }
 
-export type UserUpdateRole = typeof UserUpdateRole[keyof typeof UserUpdateRole];
-
+export type UserUpdateRole =
+  (typeof UserUpdateRole)[keyof typeof UserUpdateRole];
 
 export const UserUpdateRole = {
-  admin: 'admin',
-  manager: 'manager',
-  operator: 'operator',
-  viewer: 'viewer',
+  admin: "admin",
+  manager: "manager",
+  operator: "operator",
+  viewer: "viewer",
 } as const;
 
 export interface UserUpdate {
@@ -176,13 +176,12 @@ export interface MaterialUpdate {
   active?: boolean;
 }
 
-export type ContactType = typeof ContactType[keyof typeof ContactType];
-
+export type ContactType = (typeof ContactType)[keyof typeof ContactType];
 
 export const ContactType = {
-  client: 'client',
-  vendor: 'vendor',
-  other: 'other',
+  client: "client",
+  vendor: "vendor",
+  other: "other",
 } as const;
 
 export interface Contact {
@@ -200,13 +199,13 @@ export interface Contact {
   createdAt: string;
 }
 
-export type ContactInputType = typeof ContactInputType[keyof typeof ContactInputType];
-
+export type ContactInputType =
+  (typeof ContactInputType)[keyof typeof ContactInputType];
 
 export const ContactInputType = {
-  client: 'client',
-  vendor: 'vendor',
-  other: 'other',
+  client: "client",
+  vendor: "vendor",
+  other: "other",
 } as const;
 
 export interface ContactInput {
@@ -223,13 +222,13 @@ export interface ContactInput {
   notes?: string;
 }
 
-export type ContactUpdateType = typeof ContactUpdateType[keyof typeof ContactUpdateType];
-
+export type ContactUpdateType =
+  (typeof ContactUpdateType)[keyof typeof ContactUpdateType];
 
 export const ContactUpdateType = {
-  client: 'client',
-  vendor: 'vendor',
-  other: 'other',
+  client: "client",
+  vendor: "vendor",
+  other: "other",
 } as const;
 
 export interface ContactUpdate {
@@ -319,13 +318,13 @@ export interface InventoryMovementInput {
   notes?: string | null;
 }
 
-export type SpawnEntryStatus = typeof SpawnEntryStatus[keyof typeof SpawnEntryStatus];
-
+export type SpawnEntryStatus =
+  (typeof SpawnEntryStatus)[keyof typeof SpawnEntryStatus];
 
 export const SpawnEntryStatus = {
-  available: 'available',
-  consumed: 'consumed',
-  expired: 'expired',
+  available: "available",
+  consumed: "consumed",
+  expired: "expired",
 } as const;
 
 export interface SpawnEntry {
@@ -352,30 +351,29 @@ export interface SpawnEntryInput {
   notes?: string | null;
 }
 
-export type BatchCurrentStage = typeof BatchCurrentStage[keyof typeof BatchCurrentStage];
-
+export type BatchCurrentStage =
+  (typeof BatchCurrentStage)[keyof typeof BatchCurrentStage];
 
 export const BatchCurrentStage = {
-  PRE_WETTING: 'PRE_WETTING',
-  T1: 'T1',
-  T2: 'T2',
-  T3: 'T3',
-  T4: 'T4',
-  BULK_CHAMBER: 'BULK_CHAMBER',
-  QUALITY_CHECK: 'QUALITY_CHECK',
-  SPAWN_MIXING: 'SPAWN_MIXING',
-  DISPATCH: 'DISPATCH',
-  COMPLETED: 'COMPLETED',
+  PRE_WETTING: "PRE_WETTING",
+  T1: "T1",
+  T2: "T2",
+  T3: "T3",
+  T4: "T4",
+  BULK_CHAMBER: "BULK_CHAMBER",
+  QUALITY_CHECK: "QUALITY_CHECK",
+  SPAWN_MIXING: "SPAWN_MIXING",
+  DISPATCH: "DISPATCH",
+  COMPLETED: "COMPLETED",
 } as const;
 
-export type BatchStatus = typeof BatchStatus[keyof typeof BatchStatus];
-
+export type BatchStatus = (typeof BatchStatus)[keyof typeof BatchStatus];
 
 export const BatchStatus = {
-  active: 'active',
-  on_hold: 'on_hold',
-  completed: 'completed',
-  failed: 'failed',
+  active: "active",
+  on_hold: "on_hold",
+  completed: "completed",
+  failed: "failed",
 } as const;
 
 export interface Batch {
@@ -415,30 +413,30 @@ export interface Batch {
   alertLevel?: string | null;
 }
 
-export type BatchDetailCurrentStage = typeof BatchDetailCurrentStage[keyof typeof BatchDetailCurrentStage];
-
+export type BatchDetailCurrentStage =
+  (typeof BatchDetailCurrentStage)[keyof typeof BatchDetailCurrentStage];
 
 export const BatchDetailCurrentStage = {
-  PRE_WETTING: 'PRE_WETTING',
-  T1: 'T1',
-  T2: 'T2',
-  T3: 'T3',
-  T4: 'T4',
-  BULK_CHAMBER: 'BULK_CHAMBER',
-  QUALITY_CHECK: 'QUALITY_CHECK',
-  SPAWN_MIXING: 'SPAWN_MIXING',
-  DISPATCH: 'DISPATCH',
-  COMPLETED: 'COMPLETED',
+  PRE_WETTING: "PRE_WETTING",
+  T1: "T1",
+  T2: "T2",
+  T3: "T3",
+  T4: "T4",
+  BULK_CHAMBER: "BULK_CHAMBER",
+  QUALITY_CHECK: "QUALITY_CHECK",
+  SPAWN_MIXING: "SPAWN_MIXING",
+  DISPATCH: "DISPATCH",
+  COMPLETED: "COMPLETED",
 } as const;
 
-export type BatchDetailStatus = typeof BatchDetailStatus[keyof typeof BatchDetailStatus];
-
+export type BatchDetailStatus =
+  (typeof BatchDetailStatus)[keyof typeof BatchDetailStatus];
 
 export const BatchDetailStatus = {
-  active: 'active',
-  on_hold: 'on_hold',
-  completed: 'completed',
-  failed: 'failed',
+  active: "active",
+  on_hold: "on_hold",
+  completed: "completed",
+  failed: "failed",
 } as const;
 
 export interface BatchMaterial {
@@ -521,14 +519,14 @@ export interface BatchInput {
   }>;
 }
 
-export type BatchUpdateStatus = typeof BatchUpdateStatus[keyof typeof BatchUpdateStatus];
-
+export type BatchUpdateStatus =
+  (typeof BatchUpdateStatus)[keyof typeof BatchUpdateStatus];
 
 export const BatchUpdateStatus = {
-  active: 'active',
-  on_hold: 'on_hold',
-  completed: 'completed',
-  failed: 'failed',
+  active: "active",
+  on_hold: "on_hold",
+  completed: "completed",
+  failed: "failed",
 } as const;
 
 export interface BatchUpdate {
@@ -545,28 +543,29 @@ export interface BatchUpdate {
   notes?: string | null;
 }
 
-export type StageAdvanceInputNextStage = typeof StageAdvanceInputNextStage[keyof typeof StageAdvanceInputNextStage];
-
+export type StageAdvanceInputNextStage =
+  (typeof StageAdvanceInputNextStage)[keyof typeof StageAdvanceInputNextStage];
 
 export const StageAdvanceInputNextStage = {
-  PRE_WETTING: 'PRE_WETTING',
-  T1: 'T1',
-  T2: 'T2',
-  T3: 'T3',
-  T4: 'T4',
-  BULK_CHAMBER: 'BULK_CHAMBER',
-  QUALITY_CHECK: 'QUALITY_CHECK',
-  SPAWN_MIXING: 'SPAWN_MIXING',
-  DISPATCH: 'DISPATCH',
-  COMPLETED: 'COMPLETED',
+  PRE_WETTING: "PRE_WETTING",
+  T1: "T1",
+  T2: "T2",
+  T3: "T3",
+  T4: "T4",
+  BULK_CHAMBER: "BULK_CHAMBER",
+  QUALITY_CHECK: "QUALITY_CHECK",
+  SPAWN_MIXING: "SPAWN_MIXING",
+  DISPATCH: "DISPATCH",
+  COMPLETED: "COMPLETED",
 } as const;
 
-export type StageAdvanceInputSpawnBatchType = typeof StageAdvanceInputSpawnBatchType[keyof typeof StageAdvanceInputSpawnBatchType] | null;
-
+export type StageAdvanceInputSpawnBatchType =
+  | (typeof StageAdvanceInputSpawnBatchType)[keyof typeof StageAdvanceInputSpawnBatchType]
+  | null;
 
 export const StageAdvanceInputSpawnBatchType = {
-  internal: 'internal',
-  external: 'external',
+  internal: "internal",
+  external: "external",
 } as const;
 
 export interface StageAdvanceInput {
@@ -595,22 +594,21 @@ export interface BatchMaterialUpdate {
   nitrogenPercent?: number;
 }
 
-export type ChamberChamberType = typeof ChamberChamberType[keyof typeof ChamberChamberType];
-
+export type ChamberChamberType =
+  (typeof ChamberChamberType)[keyof typeof ChamberChamberType];
 
 export const ChamberChamberType = {
-  pre_wetting: 'pre_wetting',
-  turn: 'turn',
-  bulk: 'bulk',
+  pre_wetting: "pre_wetting",
+  turn: "turn",
+  bulk: "bulk",
 } as const;
 
-export type ChamberStatus = typeof ChamberStatus[keyof typeof ChamberStatus];
-
+export type ChamberStatus = (typeof ChamberStatus)[keyof typeof ChamberStatus];
 
 export const ChamberStatus = {
-  idle: 'idle',
-  active: 'active',
-  maintenance: 'maintenance',
+  idle: "idle",
+  active: "active",
+  maintenance: "maintenance",
 } as const;
 
 export interface Chamber {
@@ -642,13 +640,13 @@ export interface Chamber {
   notes?: string | null;
 }
 
-export type ChamberInputChamberType = typeof ChamberInputChamberType[keyof typeof ChamberInputChamberType];
-
+export type ChamberInputChamberType =
+  (typeof ChamberInputChamberType)[keyof typeof ChamberInputChamberType];
 
 export const ChamberInputChamberType = {
-  pre_wetting: 'pre_wetting',
-  turn: 'turn',
-  bulk: 'bulk',
+  pre_wetting: "pre_wetting",
+  turn: "turn",
+  bulk: "bulk",
 } as const;
 
 export interface ChamberInput {
@@ -667,22 +665,22 @@ export interface ChamberInput {
   notes?: string | null;
 }
 
-export type ChamberUpdateChamberType = typeof ChamberUpdateChamberType[keyof typeof ChamberUpdateChamberType];
-
+export type ChamberUpdateChamberType =
+  (typeof ChamberUpdateChamberType)[keyof typeof ChamberUpdateChamberType];
 
 export const ChamberUpdateChamberType = {
-  pre_wetting: 'pre_wetting',
-  turn: 'turn',
-  bulk: 'bulk',
+  pre_wetting: "pre_wetting",
+  turn: "turn",
+  bulk: "bulk",
 } as const;
 
-export type ChamberUpdateStatus = typeof ChamberUpdateStatus[keyof typeof ChamberUpdateStatus];
-
+export type ChamberUpdateStatus =
+  (typeof ChamberUpdateStatus)[keyof typeof ChamberUpdateStatus];
 
 export const ChamberUpdateStatus = {
-  idle: 'idle',
-  active: 'active',
-  maintenance: 'maintenance',
+  idle: "idle",
+  active: "active",
+  maintenance: "maintenance",
 } as const;
 
 export interface ChamberUpdate {
@@ -818,12 +816,12 @@ export interface CoimbatoreTurn {
   recordedAt?: string | null;
 }
 
-export type QcDecisionDecision = typeof QcDecisionDecision[keyof typeof QcDecisionDecision];
-
+export type QcDecisionDecision =
+  (typeof QcDecisionDecision)[keyof typeof QcDecisionDecision];
 
 export const QcDecisionDecision = {
-  approve: 'approve',
-  reject: 'reject',
+  approve: "approve",
+  reject: "reject",
 } as const;
 
 export interface QcDecision {
@@ -903,12 +901,12 @@ export interface CoimbatoreTurnInput {
   notes?: string | null;
 }
 
-export type QcDecisionInputDecision = typeof QcDecisionInputDecision[keyof typeof QcDecisionInputDecision];
-
+export type QcDecisionInputDecision =
+  (typeof QcDecisionInputDecision)[keyof typeof QcDecisionInputDecision];
 
 export const QcDecisionInputDecision = {
-  approve: 'approve',
-  reject: 'reject',
+  approve: "approve",
+  reject: "reject",
 } as const;
 
 export interface QcDecisionInput {
@@ -917,20 +915,20 @@ export interface QcDecisionInput {
   notes?: string | null;
 }
 
-export type LabBatchCurrentStage = typeof LabBatchCurrentStage[keyof typeof LabBatchCurrentStage];
-
+export type LabBatchCurrentStage =
+  (typeof LabBatchCurrentStage)[keyof typeof LabBatchCurrentStage];
 
 export const LabBatchCurrentStage = {
-  MEDIA_PREP: 'MEDIA_PREP',
-  MOTHER_CULTURE: 'MOTHER_CULTURE',
-  MILLET_1: 'MILLET_1',
-  MILLET_2: 'MILLET_2',
-  MOISTURE: 'MOISTURE',
-  AUTOCLAVE: 'AUTOCLAVE',
-  INOCULATION: 'INOCULATION',
-  SHAKING_1: 'SHAKING_1',
-  SHAKING_2: 'SHAKING_2',
-  COMPLETED: 'COMPLETED',
+  MEDIA_PREP: "MEDIA_PREP",
+  MOTHER_CULTURE: "MOTHER_CULTURE",
+  MILLET_1: "MILLET_1",
+  MILLET_2: "MILLET_2",
+  MOISTURE: "MOISTURE",
+  AUTOCLAVE: "AUTOCLAVE",
+  INOCULATION: "INOCULATION",
+  SHAKING_1: "SHAKING_1",
+  SHAKING_2: "SHAKING_2",
+  COMPLETED: "COMPLETED",
 } as const;
 
 export interface LabBatch {
@@ -951,13 +949,13 @@ export interface LabBatch {
   createdByName?: string | null;
 }
 
-export type LabSpawnOutputStatus = typeof LabSpawnOutputStatus[keyof typeof LabSpawnOutputStatus];
-
+export type LabSpawnOutputStatus =
+  (typeof LabSpawnOutputStatus)[keyof typeof LabSpawnOutputStatus];
 
 export const LabSpawnOutputStatus = {
-  available: 'available',
-  consumed: 'consumed',
-  allocated: 'allocated',
+  available: "available",
+  consumed: "consumed",
+  allocated: "allocated",
 } as const;
 
 export interface LabSpawnOutput {
@@ -1004,19 +1002,19 @@ export interface LabBatchUpdate {
   notes?: string | null;
 }
 
-export type LabStageAdvanceInputNextStage = typeof LabStageAdvanceInputNextStage[keyof typeof LabStageAdvanceInputNextStage];
-
+export type LabStageAdvanceInputNextStage =
+  (typeof LabStageAdvanceInputNextStage)[keyof typeof LabStageAdvanceInputNextStage];
 
 export const LabStageAdvanceInputNextStage = {
-  MOTHER_CULTURE: 'MOTHER_CULTURE',
-  MILLET_1: 'MILLET_1',
-  MILLET_2: 'MILLET_2',
-  MOISTURE: 'MOISTURE',
-  AUTOCLAVE: 'AUTOCLAVE',
-  INOCULATION: 'INOCULATION',
-  SHAKING_1: 'SHAKING_1',
-  SHAKING_2: 'SHAKING_2',
-  COMPLETED: 'COMPLETED',
+  MOTHER_CULTURE: "MOTHER_CULTURE",
+  MILLET_1: "MILLET_1",
+  MILLET_2: "MILLET_2",
+  MOISTURE: "MOISTURE",
+  AUTOCLAVE: "AUTOCLAVE",
+  INOCULATION: "INOCULATION",
+  SHAKING_1: "SHAKING_1",
+  SHAKING_2: "SHAKING_2",
+  COMPLETED: "COMPLETED",
 } as const;
 
 export interface LabStageAdvanceInput {
@@ -1034,13 +1032,13 @@ export interface LabSpawnOutputInput {
   notes?: string | null;
 }
 
-export type SpawnTransactionTransactionType = typeof SpawnTransactionTransactionType[keyof typeof SpawnTransactionTransactionType];
-
+export type SpawnTransactionTransactionType =
+  (typeof SpawnTransactionTransactionType)[keyof typeof SpawnTransactionTransactionType];
 
 export const SpawnTransactionTransactionType = {
-  purchase: 'purchase',
-  sale: 'sale',
-  internal_transfer: 'internal_transfer',
+  purchase: "purchase",
+  sale: "sale",
+  internal_transfer: "internal_transfer",
 } as const;
 
 export interface SpawnTransaction {
@@ -1060,13 +1058,13 @@ export interface SpawnTransaction {
   createdAt: string;
 }
 
-export type SpawnTransactionInputTransactionType = typeof SpawnTransactionInputTransactionType[keyof typeof SpawnTransactionInputTransactionType];
-
+export type SpawnTransactionInputTransactionType =
+  (typeof SpawnTransactionInputTransactionType)[keyof typeof SpawnTransactionInputTransactionType];
 
 export const SpawnTransactionInputTransactionType = {
-  purchase: 'purchase',
-  sale: 'sale',
-  internal_transfer: 'internal_transfer',
+  purchase: "purchase",
+  sale: "sale",
+  internal_transfer: "internal_transfer",
 } as const;
 
 export interface SpawnTransactionInput {
@@ -1084,13 +1082,13 @@ export interface SpawnTransactionInput {
   labSpawnOutputId?: number | null;
 }
 
-export type OotyRoomStatus = typeof OotyRoomStatus[keyof typeof OotyRoomStatus];
-
+export type OotyRoomStatus =
+  (typeof OotyRoomStatus)[keyof typeof OotyRoomStatus];
 
 export const OotyRoomStatus = {
-  idle: 'idle',
-  active: 'active',
-  maintenance: 'maintenance',
+  idle: "idle",
+  active: "active",
+  maintenance: "maintenance",
 } as const;
 
 export type OotyRoomCurrentBatch = { [key: string]: unknown } | null;
@@ -1110,15 +1108,15 @@ export interface OotyRoom {
   alertLevel?: string;
 }
 
-export type OotyGrowingBatchCurrentPhase = typeof OotyGrowingBatchCurrentPhase[keyof typeof OotyGrowingBatchCurrentPhase];
-
+export type OotyGrowingBatchCurrentPhase =
+  (typeof OotyGrowingBatchCurrentPhase)[keyof typeof OotyGrowingBatchCurrentPhase];
 
 export const OotyGrowingBatchCurrentPhase = {
-  SPAWN_RUN: 'SPAWN_RUN',
-  CASING_RUN: 'CASING_RUN',
-  DF: 'DF',
-  COOKOUT: 'COOKOUT',
-  COMPLETED: 'COMPLETED',
+  SPAWN_RUN: "SPAWN_RUN",
+  CASING_RUN: "CASING_RUN",
+  DF: "DF",
+  COOKOUT: "COOKOUT",
+  COMPLETED: "COMPLETED",
 } as const;
 
 export interface OotyGrowingBatch {
@@ -1277,14 +1275,14 @@ export interface OotyGrowingBatchUpdate {
   substrateWeightKg?: number | null;
 }
 
-export type OotyPhaseAdvanceInputNextPhase = typeof OotyPhaseAdvanceInputNextPhase[keyof typeof OotyPhaseAdvanceInputNextPhase];
-
+export type OotyPhaseAdvanceInputNextPhase =
+  (typeof OotyPhaseAdvanceInputNextPhase)[keyof typeof OotyPhaseAdvanceInputNextPhase];
 
 export const OotyPhaseAdvanceInputNextPhase = {
-  CASING_RUN: 'CASING_RUN',
-  DF: 'DF',
-  COOKOUT: 'COOKOUT',
-  COMPLETED: 'COMPLETED',
+  CASING_RUN: "CASING_RUN",
+  DF: "DF",
+  COOKOUT: "COOKOUT",
+  COMPLETED: "COMPLETED",
 } as const;
 
 export interface OotyPhaseAdvanceInput {
@@ -1318,12 +1316,12 @@ export interface OotyHarvestInput {
   flushNumber?: number;
 }
 
-export type PhaseApprovalInputDecision = typeof PhaseApprovalInputDecision[keyof typeof PhaseApprovalInputDecision];
-
+export type PhaseApprovalInputDecision =
+  (typeof PhaseApprovalInputDecision)[keyof typeof PhaseApprovalInputDecision];
 
 export const PhaseApprovalInputDecision = {
-  approve: 'approve',
-  reject: 'reject',
+  approve: "approve",
+  reject: "reject",
 } as const;
 
 export interface PhaseApprovalInput {
@@ -1441,21 +1439,21 @@ export interface ScheduleSuggestion {
   notes?: string | null;
 }
 
-export type SalesOrderProductType = typeof SalesOrderProductType[keyof typeof SalesOrderProductType];
-
+export type SalesOrderProductType =
+  (typeof SalesOrderProductType)[keyof typeof SalesOrderProductType];
 
 export const SalesOrderProductType = {
-  grow_bag: 'grow_bag',
-  mushroom: 'mushroom',
-  manure: 'manure',
+  grow_bag: "grow_bag",
+  mushroom: "mushroom",
+  manure: "manure",
 } as const;
 
-export type SalesOrderSaleType = typeof SalesOrderSaleType[keyof typeof SalesOrderSaleType];
-
+export type SalesOrderSaleType =
+  (typeof SalesOrderSaleType)[keyof typeof SalesOrderSaleType];
 
 export const SalesOrderSaleType = {
-  external: 'external',
-  internal_transfer: 'internal_transfer',
+  external: "external",
+  internal_transfer: "internal_transfer",
 } as const;
 
 export interface SalesOrder {
@@ -1487,21 +1485,21 @@ export interface SalesOrder {
   createdByName?: string | null;
 }
 
-export type SalesOrderInputProductType = typeof SalesOrderInputProductType[keyof typeof SalesOrderInputProductType];
-
+export type SalesOrderInputProductType =
+  (typeof SalesOrderInputProductType)[keyof typeof SalesOrderInputProductType];
 
 export const SalesOrderInputProductType = {
-  grow_bag: 'grow_bag',
-  mushroom: 'mushroom',
-  manure: 'manure',
+  grow_bag: "grow_bag",
+  mushroom: "mushroom",
+  manure: "manure",
 } as const;
 
-export type SalesOrderInputSaleType = typeof SalesOrderInputSaleType[keyof typeof SalesOrderInputSaleType];
-
+export type SalesOrderInputSaleType =
+  (typeof SalesOrderInputSaleType)[keyof typeof SalesOrderInputSaleType];
 
 export const SalesOrderInputSaleType = {
-  external: 'external',
-  internal_transfer: 'internal_transfer',
+  external: "external",
+  internal_transfer: "internal_transfer",
 } as const;
 
 export interface SalesOrderInput {
@@ -1543,25 +1541,24 @@ export interface SalesOrderUpdate {
   saleType?: string;
 }
 
-export type VehicleVehicleType = typeof VehicleVehicleType[keyof typeof VehicleVehicleType];
-
+export type VehicleVehicleType =
+  (typeof VehicleVehicleType)[keyof typeof VehicleVehicleType];
 
 export const VehicleVehicleType = {
-  truck: 'truck',
-  van: 'van',
-  motorcycle: 'motorcycle',
-  tractor: 'tractor',
-  other: 'other',
+  truck: "truck",
+  van: "van",
+  motorcycle: "motorcycle",
+  tractor: "tractor",
+  other: "other",
 } as const;
 
-export type VehicleStatus = typeof VehicleStatus[keyof typeof VehicleStatus];
-
+export type VehicleStatus = (typeof VehicleStatus)[keyof typeof VehicleStatus];
 
 export const VehicleStatus = {
-  available: 'available',
-  in_use: 'in_use',
-  maintenance: 'maintenance',
-  retired: 'retired',
+  available: "available",
+  in_use: "in_use",
+  maintenance: "maintenance",
+  retired: "retired",
 } as const;
 
 export interface Vehicle {
@@ -1778,24 +1775,22 @@ export interface ReportBatchCosting {
   coimMaterials: ReportBatchCostingCoimMaterialsItem[];
 }
 
-export type TaskStatus = typeof TaskStatus[keyof typeof TaskStatus];
-
+export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
 
 export const TaskStatus = {
-  todo: 'todo',
-  in_progress: 'in_progress',
-  done: 'done',
-  cancelled: 'cancelled',
+  todo: "todo",
+  in_progress: "in_progress",
+  done: "done",
+  cancelled: "cancelled",
 } as const;
 
-export type TaskPriority = typeof TaskPriority[keyof typeof TaskPriority];
-
+export type TaskPriority = (typeof TaskPriority)[keyof typeof TaskPriority];
 
 export const TaskPriority = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  urgent: 'urgent',
+  low: "low",
+  medium: "medium",
+  high: "high",
+  urgent: "urgent",
 } as const;
 
 export interface Task {
@@ -1928,13 +1923,13 @@ export interface TaskTimeLogInput {
   notes?: string | null;
 }
 
-export type CasingSoilTransactionTransactionType = typeof CasingSoilTransactionTransactionType[keyof typeof CasingSoilTransactionTransactionType];
-
+export type CasingSoilTransactionTransactionType =
+  (typeof CasingSoilTransactionTransactionType)[keyof typeof CasingSoilTransactionTransactionType];
 
 export const CasingSoilTransactionTransactionType = {
-  buy: 'buy',
-  sell: 'sell',
-  produce: 'produce',
+  buy: "buy",
+  sell: "sell",
+  produce: "produce",
 } as const;
 
 export interface CasingSoilTransaction {
@@ -1957,13 +1952,13 @@ export interface CasingSoilTransaction {
   createdAt: string;
 }
 
-export type CasingSoilTransactionInputTransactionType = typeof CasingSoilTransactionInputTransactionType[keyof typeof CasingSoilTransactionInputTransactionType];
-
+export type CasingSoilTransactionInputTransactionType =
+  (typeof CasingSoilTransactionInputTransactionType)[keyof typeof CasingSoilTransactionInputTransactionType];
 
 export const CasingSoilTransactionInputTransactionType = {
-  buy: 'buy',
-  sell: 'sell',
-  produce: 'produce',
+  buy: "buy",
+  sell: "sell",
+  produce: "produce",
 } as const;
 
 export interface CasingSoilTransactionInput {
@@ -1983,66 +1978,65 @@ export interface CasingSoilTransactionInput {
 }
 
 export type ListBatchesParams = {
-/**
- * @nullable
- */
-locationId?: number | null;
-/**
- * @nullable
- */
-stage?: string | null;
-/**
- * @nullable
- */
-status?: string | null;
+  /**
+   * @nullable
+   */
+  locationId?: number | null;
+  /**
+   * @nullable
+   */
+  stage?: string | null;
+  /**
+   * @nullable
+   */
+  status?: string | null;
 };
 
 export type ListChambersParams = {
-/**
- * @nullable
- */
-locationId?: number | null;
+  /**
+   * @nullable
+   */
+  locationId?: number | null;
 };
 
 export type ListScheduleEventsParams = {
-locationCode?: string;
-from?: string;
-to?: string;
+  locationCode?: string;
+  from?: string;
+  to?: string;
 };
 
 export type GetReportBatchSummaryParams = {
-locationCode?: string;
-from?: string;
-to?: string;
+  locationCode?: string;
+  from?: string;
+  to?: string;
 };
 
 export type GetReportMonthlyProductionParams = {
-year?: number;
+  year?: number;
 };
 
 export type GetReportQualityTrendParams = {
-from?: string;
-to?: string;
+  from?: string;
+  to?: string;
 };
 
 export type GetReportVehicleUtilizationParams = {
-from?: string;
-to?: string;
+  from?: string;
+  to?: string;
 };
 
 export type GetReportFuelConsumptionParams = {
-from?: string;
-to?: string;
+  from?: string;
+  to?: string;
 };
 
 export type ListTasksParams = {
-status?: string;
-assigneeId?: number;
-locationId?: number;
+  status?: string;
+  assigneeId?: number;
+  locationId?: number;
 };
 
 export type GetReportBatchCostingParams = {
-batchId?: number;
-locationCode?: string;
+  batchId?: number;
+  locationCode?: string;
 };
-

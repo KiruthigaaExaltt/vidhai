@@ -662,6 +662,9 @@ importers:
 
   lib/db:
     dependencies:
+      bcryptjs:
+        specifier: ^3.0.3
+        version: 3.0.3
       mongoose:
         specifier: ^8.19.4
         version: 8.24.2

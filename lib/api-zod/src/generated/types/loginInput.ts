@@ -9,4 +9,5 @@
 export interface LoginInput {
   username: string;
   password: string;
+  passwordEncoding: "rsa-oaep-256";
 }

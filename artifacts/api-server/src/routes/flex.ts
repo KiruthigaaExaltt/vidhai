@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { publishNotification } from "../lib/notificationService";
 import { db, eq, desc, and } from "@workspace/db";
 import {
   purchaseRequestsTable,
@@ -49,21 +50,18 @@ const FLEX_API_MESSAGES = {
   vendorNameRequired: "Vendor name is required",
 } as const;
 
-function requireAuth(req: any, _res: any, next: any) {
-  if (!(req.session as any)?.userId) {
-    (req.session as any) = (req.session as any) || {};
-    (req.session as any).userId = 1;
-    (req.session as any).organizationId = 1;
-  }
-  next();
+function requireAuth(req: any, res: any, next: any) {
+  if (!(req.session as any)?.userId || !req.authUser)
+    return res.status(401).json({ error: "Authentication required" });
+  return next();
 }
 
 function orgId(req: any): number {
-  return Number((req.session as any)?.organizationId ?? 1);
+  return Number(req.authUser.organizationId);
 }
 
 function currentUserId(req: any): number {
-  return Number((req.session as any)?.userId ?? 1);
+  return Number(req.authUser.id);
 }
 
 // Helper to look up user display names
@@ -992,6 +990,27 @@ router.patch("/purchase-orders/:id", requireAuth, async (req, res) => {
       ),
     )
     .returning();
+
+  if (updates.status === "Sent" && updated) {
+    await publishNotification({
+      organizationId: org,
+      actorId: currentUserId(req),
+      permissionKey: "flex.purchase_orders.notification",
+      eventType: "PURCHASE_ORDER_SENT",
+      eventKey: `purchase-order:${updated.id}:sent`,
+      sourceModule: "flex",
+      targetModule: "flex",
+      submodule: "purchase_orders",
+      title: "Purchase order sent",
+      message: `${updated.poNumber || `Purchase order ${updated.id}`} was sent to ${updated.vendorName || "the vendor"}.`,
+      sourceEntityType: "purchase_order",
+      sourceEntityId: updated.id,
+      sourceReference: updated.poNumber,
+      navigationUrl: "/flex/purchase-orders",
+      metadata: { vendorId: updated.vendorId },
+    });
+    res.locals.notificationHandled = true;
+  }
 
   return res.json(updated);
 });

@@ -510,6 +510,7 @@ export function notificationEventMiddleware(
     if (
       res.statusCode < 200 ||
       res.statusCode >= 300 ||
+      res.locals.notificationHandled === true ||
       !["POST", "PUT", "PATCH"].includes(req.method)
     )
       return;
@@ -527,10 +528,13 @@ export function notificationEventMiddleware(
         await publishNotification({
           ...data,
           organizationId: Number(user.organizationId ?? 1),
+          actorId: userId,
           eventKey: `${data.eventType}:${data.sourceEntityId || req.path}:${keyPart || state(responseBody, req)}`,
         });
       }
-    })();
+    })().catch((error) => {
+      req.log?.error({ err: error }, "Notification event publication failed");
+    });
   });
   next();
 }

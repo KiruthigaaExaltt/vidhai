@@ -4,16 +4,50 @@ import { eq } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { verifyPassword, hashPassword } from "../lib/password";
 import { revokeSessionGrants } from "../lib/moduleEncryption";
+import {
+  accessToken,
+  authenticateAccessToken,
+  clearRefreshCookie,
+  createRefreshSession,
+  revokeCurrentRefresh,
+  rotateRefreshSession,
+} from "../lib/jwtAuth";
+import {
+  createLoginKeyPair,
+  decryptLoginPassword,
+} from "../lib/loginEncryption";
 
 const router = Router();
+const loginKeys = createLoginKeyPair();
+
+router.get("/login-key", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.json({ publicKey: loginKeys.publicKey });
+});
 
 router.post("/login", async (req, res) => {
-  const { username, password } = req.body as {
+  const {
+    username,
+    password: encryptedPassword,
+    passwordEncoding,
+  } = req.body as {
     username: string;
     password: string;
+    passwordEncoding?: string;
   };
-  if (!username || !password) {
+  if (!username || !encryptedPassword) {
     return res.status(400).json({ error: "username and password required" });
+  }
+  if (passwordEncoding !== "rsa-oaep-256") {
+    return res
+      .status(400)
+      .json({ error: "RSA-OAEP password encryption required" });
+  }
+  let password: string;
+  try {
+    password = decryptLoginPassword(encryptedPassword, loginKeys.privateKey);
+  } catch {
+    return res.status(400).json({ error: "Invalid encrypted credential" });
   }
   const [user] = await db
     .select()
@@ -24,18 +58,20 @@ router.post("/login", async (req, res) => {
     !user ||
     user.isDeleted ||
     user.isActive === false ||
-    !verifyPassword(password, user.passwordHash)
+    !(await verifyPassword(password, user.passwordHash))
   ) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
   (req.session as any).userId = user.id;
   (req.session as any).sessionVersion = user.sessionVersion ?? 0;
+  await createRefreshSession(req, res, user);
   await db
     .update(usersTable)
     .set({ lastLogin: new Date() })
     .where(eq(usersTable.id, user.id));
   const { passwordHash: _ph, ...safeUser } = user;
   return res.json({
+    accessToken: accessToken(user),
     user: {
       ...safeUser,
       locationScope: JSON.parse(user.locationScope ?? "[]"),
@@ -45,14 +81,26 @@ router.post("/login", async (req, res) => {
 
 router.post("/logout", async (req, res) => {
   try {
+    await revokeCurrentRefresh(req);
     await revokeSessionGrants(req.sessionID);
   } finally {
+    clearRefreshCookie(res);
     req.session.destroy(() => {});
   }
   res.json({ ok: true });
 });
 
-router.get("/me", async (req, res) => {
+router.post("/refresh", async (req, res) => {
+  try {
+    const result = await rotateRefreshSession(req, res);
+    return res.json({ accessToken: result.accessToken });
+  } catch {
+    clearRefreshCookie(res);
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+});
+
+router.get("/me", authenticateAccessToken, async (req, res) => {
   const userId = (req.session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "Not authenticated" });
   const [user] = await db
@@ -75,7 +123,7 @@ router.get("/me", async (req, res) => {
   });
 });
 
-export function hashPasswordExport(pw: string) {
+export async function hashPasswordExport(pw: string) {
   return hashPassword(pw);
 }
 

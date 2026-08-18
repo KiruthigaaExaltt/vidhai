@@ -46,9 +46,10 @@ export function initializeNotificationGateway(
   logger.info("Authenticated notification Socket.IO gateway ready");
 }
 
-export function emitNotification(notification: any) {
-  if (!io) return;
-  io.to(
-    `org:${notification.organizationId}:user:${notification.recipientUserId}`,
-  ).emit("notification:new", notification);
+export async function emitNotification(notification: any) {
+  if (!io) return false;
+  const room = `org:${notification.organizationId}:user:${notification.recipientUserId}`;
+  const connected = (await io.in(room).fetchSockets()).length > 0;
+  if (connected) io.to(room).emit("notification:new", notification);
+  return connected;
 }
