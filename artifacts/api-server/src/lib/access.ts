@@ -149,11 +149,13 @@ export function requireModulePermission(
   return async (req: Request, res: Response, next: NextFunction) => {
     const scope =
       typeof resolveScope === "function" ? resolveScope(req) : resolveScope;
-    return requirePermission(`${scope}.${permissionAction(req)}`)(
-      req,
-      res,
-      next,
-    );
+    const action = permissionAction(req);
+    const requestedPermission = `${scope}.${action}`;
+    const permission =
+      normalizePermissionKey(requestedPermission) || action !== "approve"
+        ? requestedPermission
+        : `${scope}.update`;
+    return requirePermission(permission)(req, res, next);
   };
 }
 export function organizationId(req: Request): number {
