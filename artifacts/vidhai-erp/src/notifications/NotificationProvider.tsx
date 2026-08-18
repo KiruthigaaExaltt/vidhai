@@ -19,6 +19,7 @@ type NotificationContextValue = {
   markAllRead: () => Promise<void>;
   pushSupported: boolean;
   pushPermission: NotificationPermission | "unsupported";
+  pushEnabled: boolean;
   enableExternalNotifications: () => Promise<boolean>;
 };
 const Context = createContext<NotificationContextValue | undefined>(undefined);
@@ -43,10 +44,12 @@ export function NotificationProvider({
   const { user } = useAuth(),
     [unreadCount, setUnreadCount] = useState(0),
     [latest, setLatest] = useState<any | null>(null),
+    [pushEnabled, setPushEnabled] = useState(false),
     [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
       pushSupported ? Notification.permission : "unsupported",
     );
   const receivedIds = useRef(new Set<number>());
+  const unreadCountRef = useRef(0);
   const refresh = useCallback(async () => {
     if (!user) {
       setUnreadCount(0);
@@ -56,7 +59,13 @@ export function NotificationProvider({
       const r = await fetch(apiUrl("/count"), {
         credentials: "include",
       });
-      if (r.ok) setUnreadCount(Number((await r.json()).unreadCount) || 0);
+      if (r.ok) {
+        const nextCount = Number((await r.json()).unreadCount) || 0;
+        if (nextCount > unreadCountRef.current)
+          setLatest({ source: "poll", receivedAt: Date.now() });
+        unreadCountRef.current = nextCount;
+        setUnreadCount(nextCount);
+      }
     } catch (error) {
       console.error("Unable to load notification count", error);
     }
@@ -66,20 +75,30 @@ export function NotificationProvider({
       method: "PATCH",
       credentials: "include",
     });
-    if (r.ok) setUnreadCount((n) => Math.max(0, n - 1));
+    if (r.ok) setUnreadCount((n) => {
+      const next = Math.max(0, n - 1);
+      unreadCountRef.current = next;
+      return next;
+    });
   }, []);
   const markAllRead = useCallback(async () => {
     const r = await fetch(apiUrl("/read-all"), {
       method: "POST",
       credentials: "include",
     });
-    if (r.ok) setUnreadCount(0);
+    if (r.ok) {
+      unreadCountRef.current = 0;
+      setUnreadCount(0);
+    }
   }, []);
   const subscribeForExternalNotifications = useCallback(async () => {
     if (!user || !pushSupported || Notification.permission !== "granted") return false;
     try {
       const keyResponse = await fetch(apiUrl("/push/public-key"), { credentials: "include" });
-      if (!keyResponse.ok) return false;
+      if (!keyResponse.ok) {
+        setPushEnabled(false);
+        return false;
+      }
       const { publicKey } = await keyResponse.json();
       const registration = await navigator.serviceWorker.ready;
       const subscription =
@@ -94,8 +113,11 @@ export function NotificationProvider({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription.toJSON()),
       });
+      setPushEnabled(response.ok);
       return response.ok;
-    } catch {
+    } catch (error) {
+      console.error("Unable to register browser push notifications", error);
+      setPushEnabled(false);
       return false;
     }
   }, [user]);
@@ -125,7 +147,11 @@ export function NotificationProvider({
       if (id && receivedIds.current.has(id)) return;
       if (id) receivedIds.current.add(id);
       setLatest(item);
-      setUnreadCount((n) => n + 1);
+      setUnreadCount((n) => {
+        const next = n + 1;
+        unreadCountRef.current = next;
+        return next;
+      });
       if (document.visibilityState === "visible")
         toast(item.title, { description: item.message });
     });
@@ -135,6 +161,18 @@ export function NotificationProvider({
     });
     return () => {
       socket.disconnect();
+    };
+  }, [user, refresh]);
+  useEffect(() => {
+    if (!user) return;
+    const poll = window.setInterval(() => void refresh(), 5_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [user, refresh]);
   return (
@@ -147,6 +185,7 @@ export function NotificationProvider({
         markAllRead,
         pushSupported,
         pushPermission,
+        pushEnabled,
         enableExternalNotifications,
       }}
     >

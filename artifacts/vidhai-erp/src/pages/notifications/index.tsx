@@ -72,16 +72,21 @@ export default function NotificationsPage() {
                 {testing ? "Testing…" : "Test notification"}
               </Button>
             )}
-            {notifications.pushSupported && notifications.pushPermission !== "granted" && (
+            {notifications.pushSupported && !notifications.pushEnabled && (
               <Button
                 variant="outline"
                 disabled={notifications.pushPermission === "denied"}
-                onClick={() => void notifications.enableExternalNotifications()}
+                onClick={() => void notifications.enableExternalNotifications().then((enabled) => {
+                  if (enabled) toast.success("External notifications enabled");
+                  else toast.error("Could not register this browser for external notifications");
+                })}
               >
                 <BellRing className="mr-2 h-4 w-4" />
                 {notifications.pushPermission === "denied"
                   ? "External notifications blocked"
-                  : "Enable external notifications"}
+                  : notifications.pushPermission === "granted"
+                    ? "Retry external notifications"
+                    : "Enable external notifications"}
               </Button>
             )}
             {tab === "unread" && items.length > 0 && (
