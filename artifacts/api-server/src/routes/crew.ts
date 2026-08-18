@@ -26,6 +26,8 @@ import {
   crewClaimsTable,
   crewDeductionsTable,
   crewAuditLogsTable,
+  salarySlipsTable,
+  payrollTable,
 } from "@workspace/db";
 import {
   effectivePermissions,
@@ -745,6 +747,34 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
           department: row.department,
         })
         .where(eq(usersTable.id, row.userId));
+
+    const syncFields = {
+      employeeName: row.name,
+      employeeCode: row.employeeCode,
+      department: row.department,
+      designation: row.designation,
+    };
+
+    await Promise.all([
+      db.update(salarySlipsTable).set({
+        ...syncFields,
+        workLocation: row.location,
+        location: row.location,
+        panNumber: row.panNumber,
+        uan: row.uan,
+        pfNumber: row.pfNumber,
+        esiNumber: row.esiNumber,
+        bankName: row.bankName,
+        accountNumber: row.accountNumber,
+        joinDate: row.joinDate,
+      }).where(eq(salarySlipsTable.employeeId, row.id)),
+      db.update(payrollTable).set({ employeeName: row.name }).where(eq(payrollTable.employeeId, row.id)),
+      db.update(attendanceLogsTable).set(syncFields).where(eq(attendanceLogsTable.employeeId, row.id)),
+      db.update(leaveRequestsTable).set({ employeeName: row.name }).where(eq(leaveRequestsTable.employeeId, row.id)),
+      db.update(crewClaimsTable).set({ employeeName: row.name }).where(eq(crewClaimsTable.employeeId, row.id)),
+      db.update(crewDeductionsTable).set({ employeeName: row.name }).where(eq(crewDeductionsTable.employeeId, row.id)),
+    ]);
+
     void audit(req, "employee", row.id, row.name, "update", old, row);
     res.json(row);
   } catch (e: any) {
