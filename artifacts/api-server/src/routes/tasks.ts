@@ -14,6 +14,7 @@ import {
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { publishNotification } from "../lib/notificationService";
 
 const router = Router();
 
@@ -30,6 +31,33 @@ const minutesBetween = (start: Date | string, end: Date) =>
       100,
   );
 const dateKey = (value: Date) => value.toISOString().slice(0, 10);
+
+async function publishTimesheetCreated(
+  req: any,
+  task: any,
+  log: any,
+  recipientUserId: number,
+  organizationId: number,
+) {
+  if (!Number.isInteger(recipientUserId) || recipientUserId <= 0) return;
+  await publishNotification({
+    organizationId,
+    actorId: Number(req.session.userId),
+    permissionKey: "task.time_logs.notification",
+    eventType: "TIMESHEET_CREATED",
+    eventKey: `TIMESHEET_CREATED:time_log:${log.id}`,
+    sourceModule: "task",
+    targetModule: "task",
+    submodule: "time_logs",
+    title: "Timesheet created",
+    message: `A ${Number(log.durationMinutes)} minute timesheet was created for ${task.title}.`,
+    sourceEntityType: "task_time_log",
+    sourceEntityId: log.id,
+    sourceReference: task.title,
+    navigationUrl: "/tasks",
+    directRecipientUserIds: [recipientUserId],
+  });
+}
 
 async function context(req: any) {
   const user = await getAuthUser(req);
@@ -442,7 +470,32 @@ router.patch("/:id/assignments", requireAuth, async (req, res) => {
     .from(tasksTable)
     .where(eq(tasksTable.id, id))
     .limit(1);
-  return res.json(await serializeTask(updated));
+  const serialized = await serializeTask(updated);
+  const actorId = Number(ctx.user.id);
+  const assignedUserIds = employees
+    .map((employee: any) => Number(employee.userId))
+    .filter((userId) => Number.isInteger(userId) && userId > 0);
+  res.locals.notificationHandled = true;
+  if (assignedUserIds.length) {
+    await publishNotification({
+      organizationId: Number(ctx.user.organizationId ?? 1),
+      actorId,
+      permissionKey: "task.task_board.notification",
+      eventType: "TASK_ASSIGNED",
+      eventKey: `TASK_ASSIGNED:task:${id}:${Date.now()}:${assignedUserIds.join("-")}`,
+      sourceModule: "task",
+      targetModule: "task",
+      submodule: "task_board",
+      title: "Task assigned",
+      message: `${task.title} was assigned to you.`,
+      sourceEntityType: "task",
+      sourceEntityId: id,
+      sourceReference: task.title,
+      navigationUrl: "/tasks",
+      directRecipientUserIds: assignedUserIds,
+    });
+  }
+  return res.json(serialized);
 });
 
 router.post("/:id/time-logs/start", requireAuth, async (req, res) => {
@@ -520,6 +573,7 @@ async function closeOwnTimer(req: any, res: any, complete: boolean) {
   if (task.status === "done")
     return res.status(409).json({ error: "Task is already completed" });
   const now = new Date();
+  const createdLogs: any[] = [];
   await db.transaction(async (tx) => {
     const timersToClose = complete
       ? await tx
@@ -530,18 +584,22 @@ async function closeOwnTimer(req: any, res: any, complete: boolean) {
         ? [timer]
         : [];
     for (const active of timersToClose) {
-      await tx.insert(taskTimeLogsTable).values({
-        taskId: id,
-        userId: Number(active.userId),
-        employeeId: Number(active.employeeId),
-        startTime: new Date(active.startedAt),
-        endTime: now,
-        durationMinutes: String(minutesBetween(active.startedAt, now)),
-        workDate: dateKey(new Date(active.startedAt)),
-        source: "automatic",
-        status: complete ? "completed" : "paused",
-        notes: null,
-      });
+      const [createdLog] = await tx
+        .insert(taskTimeLogsTable)
+        .values({
+          taskId: id,
+          userId: Number(active.userId),
+          employeeId: Number(active.employeeId),
+          startTime: new Date(active.startedAt),
+          endTime: now,
+          durationMinutes: String(minutesBetween(active.startedAt, now)),
+          workDate: dateKey(new Date(active.startedAt)),
+          source: "automatic",
+          status: complete ? "completed" : "paused",
+          notes: null,
+        })
+        .returning();
+      createdLogs.push(createdLog);
       await tx
         .delete(taskActiveTimersTable)
         .where(eq(taskActiveTimersTable.id, active.id));
@@ -568,6 +626,18 @@ async function closeOwnTimer(req: any, res: any, complete: boolean) {
     .from(tasksTable)
     .where(eq(tasksTable.id, id))
     .limit(1);
+  res.locals.notificationHandled = true;
+  await Promise.all(
+    createdLogs.map((log) =>
+      publishTimesheetCreated(
+        req,
+        task,
+        log,
+        Number(log.userId),
+        Number(access.ctx!.user.organizationId ?? 1),
+      ),
+    ),
+  );
   return res.json(await serializeTask(updated));
 }
 
@@ -636,6 +706,18 @@ router.post("/:id/time-logs", requireAuth, async (req, res) => {
       notes,
     })
     .returning();
+  res.locals.notificationHandled = true;
+  await publishTimesheetCreated(
+    req,
+    (await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1))[0],
+    log,
+    Number(access.ctx.user.id),
+    Number(access.ctx.user.organizationId ?? 1),
+  );
   return res.status(201).json(log);
 });
 
