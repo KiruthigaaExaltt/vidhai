@@ -583,7 +583,12 @@ paths:
       tags: [batchMaterials]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
-        - { name: materialRowId, in: path, required: true, schema: { type: integer } }
+        - {
+            name: materialRowId,
+            in: path,
+            required: true,
+            schema: { type: integer },
+          }
       requestBody:
         required: true
         content:
@@ -602,7 +607,12 @@ paths:
       tags: [batchMaterials]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
-        - { name: materialRowId, in: path, required: true, schema: { type: integer } }
+        - {
+            name: materialRowId,
+            in: path,
+            required: true,
+            schema: { type: integer },
+          }
       responses:
         "204":
           description: Deleted
@@ -840,7 +850,8 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/CoimbatoreBatchMaterialInput" }
+            schema:
+              { $ref: "#/components/schemas/CoimbatoreBatchMaterialInput" }
       responses:
         "201":
           description: Added
@@ -854,7 +865,12 @@ paths:
       tags: [coimbatore]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
-        - { name: materialId, in: path, required: true, schema: { type: integer } }
+        - {
+            name: materialId,
+            in: path,
+            required: true,
+            schema: { type: integer },
+          }
       responses:
         "204":
           description: Deleted
@@ -1316,7 +1332,12 @@ paths:
       operationId: traceGrowingBatch
       tags: [traceability]
       parameters:
-        - { name: ootyGrowingBatchId, in: path, required: true, schema: { type: integer } }
+        - {
+            name: ootyGrowingBatchId,
+            in: path,
+            required: true,
+            schema: { type: integer },
+          }
       responses:
         "200":
           description: Full traceability chain
@@ -1831,10 +1852,13 @@ components:
 
     LoginInput:
       type: object
-      required: [username, password]
+      required: [username, password, passwordEncoding]
       properties:
         username: { type: string }
-        password: { type: string }
+        password:
+          type: string
+          description: RSA-OAEP SHA-256 ciphertext encoded as base64
+        passwordEncoding: { type: string, enum: [rsa-oaep-256] }
 
     AuthResponse:
       type: object
@@ -1977,7 +2001,20 @@ components:
 
     Contact:
       type: object
-      required: [id, type, name, company, phone, whatsappNumber, gstin, email, address, notes, createdAt]
+      required:
+        [
+          id,
+          type,
+          name,
+          company,
+          phone,
+          whatsappNumber,
+          gstin,
+          email,
+          address,
+          notes,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         type: { type: string, enum: [client, vendor, other] }
@@ -2023,7 +2060,8 @@ components:
 
     InventoryItem:
       type: object
-      required: [id, materialId, materialName, unit, quantityOnHand, lastUpdated]
+      required:
+        [id, materialId, materialName, unit, quantityOnHand, lastUpdated]
       properties:
         id: { type: integer }
         materialId: { type: integer }
@@ -2107,7 +2145,17 @@ components:
 
     Batch:
       type: object
-      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, createdByName]
+      required:
+        [
+          id,
+          batchCode,
+          locationId,
+          locationCode,
+          currentStage,
+          status,
+          createdAt,
+          createdByName,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2115,7 +2163,19 @@ components:
         locationCode: { type: string }
         currentStage:
           type: string
-          enum: [PRE_WETTING, T1, T2, T3, T4, BULK_CHAMBER, QUALITY_CHECK, SPAWN_MIXING, DISPATCH, COMPLETED]
+          enum:
+            [
+              PRE_WETTING,
+              T1,
+              T2,
+              T3,
+              T4,
+              BULK_CHAMBER,
+              QUALITY_CHECK,
+              SPAWN_MIXING,
+              DISPATCH,
+              COMPLETED,
+            ]
         status:
           type: string
           enum: [active, on_hold, completed, failed]
@@ -2137,7 +2197,19 @@ components:
 
     BatchDetail:
       type: object
-      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, createdByName, materials, stageLogs]
+      required:
+        [
+          id,
+          batchCode,
+          locationId,
+          locationCode,
+          currentStage,
+          status,
+          createdAt,
+          createdByName,
+          materials,
+          stageLogs,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2145,7 +2217,19 @@ components:
         locationCode: { type: string }
         currentStage:
           type: string
-          enum: [PRE_WETTING, T1, T2, T3, T4, BULK_CHAMBER, QUALITY_CHECK, SPAWN_MIXING, DISPATCH, COMPLETED]
+          enum:
+            [
+              PRE_WETTING,
+              T1,
+              T2,
+              T3,
+              T4,
+              BULK_CHAMBER,
+              QUALITY_CHECK,
+              SPAWN_MIXING,
+              DISPATCH,
+              COMPLETED,
+            ]
         status:
           type: string
           enum: [active, on_hold, completed, failed]
@@ -2209,7 +2293,19 @@ components:
       properties:
         nextStage:
           type: string
-          enum: [PRE_WETTING, T1, T2, T3, T4, BULK_CHAMBER, QUALITY_CHECK, SPAWN_MIXING, DISPATCH, COMPLETED]
+          enum:
+            [
+              PRE_WETTING,
+              T1,
+              T2,
+              T3,
+              T4,
+              BULK_CHAMBER,
+              QUALITY_CHECK,
+              SPAWN_MIXING,
+              DISPATCH,
+              COMPLETED,
+            ]
         notes: { type: ["string", "null"] }
         nh3Ppm: { type: ["number", "null"] }
         temperatureCelsius: { type: ["number", "null"] }
@@ -2225,7 +2321,17 @@ components:
 
     BatchMaterial:
       type: object
-      required: [id, batchId, materialId, materialName, unit, wetWeightKg, moisturePercent, nitrogenPercent]
+      required:
+        [
+          id,
+          batchId,
+          materialId,
+          materialName,
+          unit,
+          wetWeightKg,
+          moisturePercent,
+          nitrogenPercent,
+        ]
       properties:
         id: { type: integer }
         batchId: { type: integer }
@@ -2351,7 +2457,16 @@ components:
 
     DashboardSummary:
       type: object
-      required: [activeBatches, bagsProducedThisMonth, pendingQualityChecks, chamberOccupancy, stageBreakdown, spawnStockKg, rawMaterialAlerts]
+      required:
+        [
+          activeBatches,
+          bagsProducedThisMonth,
+          pendingQualityChecks,
+          chamberOccupancy,
+          stageBreakdown,
+          spawnStockKg,
+          rawMaterialAlerts,
+        ]
       properties:
         activeBatches: { type: integer }
         bagsProducedThisMonth: { type: integer }
@@ -2389,7 +2504,16 @@ components:
     # ── COIMBATORE ──────────────────────────────────────────────────────────────
     CoimbatoreBatch:
       type: object
-      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt]
+      required:
+        [
+          id,
+          batchCode,
+          locationId,
+          locationCode,
+          currentStage,
+          status,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2405,7 +2529,18 @@ components:
 
     CoimbatoreBatchDetail:
       type: object
-      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, materials, turns]
+      required:
+        [
+          id,
+          batchCode,
+          locationId,
+          locationCode,
+          currentStage,
+          status,
+          createdAt,
+          materials,
+          turns,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2421,7 +2556,8 @@ components:
         materials:
           type: array
           items: { $ref: "#/components/schemas/CoimbatoreBatchMaterial" }
-        config: { $ref: "#/components/schemas/CoimbatoreConfig", nullable: true }
+        config:
+          { $ref: "#/components/schemas/CoimbatoreConfig", nullable: true }
         turns:
           type: array
           items: { $ref: "#/components/schemas/CoimbatoreTurn" }
@@ -2531,7 +2667,16 @@ components:
     # ── LAB ──────────────────────────────────────────────────────────────────────
     LabBatch:
       type: object
-      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt]
+      required:
+        [
+          id,
+          batchCode,
+          locationId,
+          locationCode,
+          currentStage,
+          status,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2539,7 +2684,19 @@ components:
         locationCode: { type: string }
         currentStage:
           type: string
-          enum: [MEDIA_PREP, MOTHER_CULTURE, MILLET_1, MILLET_2, MOISTURE, AUTOCLAVE, INOCULATION, SHAKING_1, SHAKING_2, COMPLETED]
+          enum:
+            [
+              MEDIA_PREP,
+              MOTHER_CULTURE,
+              MILLET_1,
+              MILLET_2,
+              MOISTURE,
+              AUTOCLAVE,
+              INOCULATION,
+              SHAKING_1,
+              SHAKING_2,
+              COMPLETED,
+            ]
         status: { type: string }
         notes: { type: ["string", "null"] }
         alertLevel: { type: ["string", "null"] }
@@ -2549,7 +2706,18 @@ components:
 
     LabBatchDetail:
       type: object
-      required: [id, batchCode, locationId, locationCode, currentStage, status, createdAt, stageLogs, spawnOutputs]
+      required:
+        [
+          id,
+          batchCode,
+          locationId,
+          locationCode,
+          currentStage,
+          status,
+          createdAt,
+          stageLogs,
+          spawnOutputs,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2586,7 +2754,18 @@ components:
       properties:
         nextStage:
           type: string
-          enum: [MOTHER_CULTURE, MILLET_1, MILLET_2, MOISTURE, AUTOCLAVE, INOCULATION, SHAKING_1, SHAKING_2, COMPLETED]
+          enum:
+            [
+              MOTHER_CULTURE,
+              MILLET_1,
+              MILLET_2,
+              MOISTURE,
+              AUTOCLAVE,
+              INOCULATION,
+              SHAKING_1,
+              SHAKING_2,
+              COMPLETED,
+            ]
         notes: { type: ["string", "null"] }
 
     LabSpawnOutput:
@@ -2615,7 +2794,15 @@ components:
 
     SpawnTransaction:
       type: object
-      required: [id, transactionType, strainName, quantityKg, transactionDate, createdAt]
+      required:
+        [
+          id,
+          transactionType,
+          strainName,
+          quantityKg,
+          transactionDate,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         transactionType:
@@ -2761,7 +2948,19 @@ components:
 
     OotyGrowingBatchDetail:
       type: object
-      required: [id, batchCode, roomId, currentPhase, status, createdAt, dayInPhase, observations, harvests, approvals]
+      required:
+        [
+          id,
+          batchCode,
+          roomId,
+          currentPhase,
+          status,
+          createdAt,
+          dayInPhase,
+          observations,
+          harvests,
+          approvals,
+        ]
       properties:
         id: { type: integer }
         batchCode: { type: string }
@@ -2820,7 +3019,8 @@ components:
 
     OotyObservation:
       type: object
-      required: [id, growingBatchId, observationDate, observationType, createdAt]
+      required:
+        [id, growingBatchId, observationDate, observationType, createdAt]
       properties:
         id: { type: integer }
         growingBatchId: { type: integer }
@@ -2841,7 +3041,8 @@ components:
 
     OotyHarvest:
       type: object
-      required: [id, growingBatchId, harvestDate, weightKg, flushNumber, createdAt]
+      required:
+        [id, growingBatchId, harvestDate, weightKg, flushNumber, createdAt]
       properties:
         id: { type: integer }
         growingBatchId: { type: integer }
@@ -2929,7 +3130,17 @@ components:
     # ── SCHEDULING ───────────────────────────────────────────────────────────────
     ScheduleEvent:
       type: object
-      required: [id, locationCode, entityType, eventType, plannedDate, isManualOverride, isSuggestion, createdAt]
+      required:
+        [
+          id,
+          locationCode,
+          entityType,
+          eventType,
+          plannedDate,
+          isManualOverride,
+          isSuggestion,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         locationCode: { type: string }
@@ -2975,7 +3186,15 @@ components:
 
     ScheduleSuggestion:
       type: object
-      required: [locationCode, entityType, eventType, plannedDate, isSuggestion, planCode]
+      required:
+        [
+          locationCode,
+          entityType,
+          eventType,
+          plannedDate,
+          isSuggestion,
+          planCode,
+        ]
       properties:
         locationCode: { type: string }
         entityType: { type: string }
@@ -2989,7 +3208,17 @@ components:
     # ── SALES ────────────────────────────────────────────────────────────────────
     SalesOrder:
       type: object
-      required: [id, orderCode, productType, saleType, transactionDate, qtyKg, unit, createdAt]
+      required:
+        [
+          id,
+          orderCode,
+          productType,
+          saleType,
+          transactionDate,
+          qtyKg,
+          unit,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         orderCode: { type: string }
@@ -3087,7 +3316,8 @@ components:
 
     FuelLog:
       type: object
-      required: [id, vehicleId, vehicleName, vehicleRegNo, fuelDate, litres, createdAt]
+      required:
+        [id, vehicleId, vehicleName, vehicleRegNo, fuelDate, litres, createdAt]
       properties:
         id: { type: integer }
         vehicleId: { type: integer }
@@ -3120,7 +3350,16 @@ components:
 
     MaintenanceLog:
       type: object
-      required: [id, vehicleId, vehicleName, vehicleRegNo, serviceDate, description, createdAt]
+      required:
+        [
+          id,
+          vehicleId,
+          vehicleName,
+          vehicleRegNo,
+          serviceDate,
+          description,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         vehicleId: { type: integer }
@@ -3147,7 +3386,16 @@ components:
 
     VehicleUsageLog:
       type: object
-      required: [id, vehicleId, vehicleName, vehicleRegNo, usageDate, workType, createdAt]
+      required:
+        [
+          id,
+          vehicleId,
+          vehicleName,
+          vehicleRegNo,
+          usageDate,
+          workType,
+          createdAt,
+        ]
       properties:
         id: { type: integer }
         vehicleId: { type: integer }
@@ -3206,7 +3454,15 @@ components:
 
     ReportQualityTrend:
       type: object
-      required: [totalHarvests, avgMushroomWeightG, totalKg, meetsQualityStandard, qualityPercent, harvests]
+      required:
+        [
+          totalHarvests,
+          avgMushroomWeightG,
+          totalKg,
+          meetsQualityStandard,
+          qualityPercent,
+          harvests,
+        ]
       properties:
         totalHarvests: { type: integer }
         avgMushroomWeightG: { type: number }

@@ -1,6 +1,6 @@
 import { connectMongo } from "./query";
 import { createDatabase, eq, type Database } from "./query";
-import { createHash } from "node:crypto";
+import bcrypt from "bcryptjs";
 import { usersTable } from "./schema/users";
 await connectMongo();
 export const db: Database = createDatabase();
@@ -17,10 +17,6 @@ async function bootstrapAdmin() {
     );
   }
 
-  const passwordHash = createHash("sha256")
-    .update(password + "vidhai-salt-2024")
-    .digest("hex");
-
   const [existing] = await db
     .select()
     .from(usersTable)
@@ -31,7 +27,13 @@ async function bootstrapAdmin() {
   // Synchronizing it on startup means a staging/production credential change
   // takes effect after a restart even when the database already has the user.
   if (existing) {
-    const passwordChanged = existing.passwordHash !== passwordHash;
+    const passwordChanged = !(await bcrypt.compare(
+      password,
+      existing.passwordHash,
+    ));
+    const passwordHash = passwordChanged
+      ? await bcrypt.hash(password, 10)
+      : existing.passwordHash;
     await db
       .update(usersTable)
       .set({
@@ -51,6 +53,7 @@ async function bootstrapAdmin() {
   }
 
   try {
+    const passwordHash = await bcrypt.hash(password, 10);
     await db.insert(usersTable).values({
       username,
       passwordHash,

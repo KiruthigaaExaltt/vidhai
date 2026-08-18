@@ -175,7 +175,12 @@ router.patch("/me/profile", async (req, res) => {
       updates.email = email || null;
     }
 
-    for (const key of ["department", "designation", "phoneNumber", "workLocation"]) {
+    for (const key of [
+      "department",
+      "designation",
+      "phoneNumber",
+      "workLocation",
+    ]) {
       if (req.body[key] !== undefined)
         updates[key] = String(req.body[key]).trim() || null;
     }
@@ -248,7 +253,7 @@ router.post(
         .values({
           username,
           email: email || null,
-          passwordHash: hashPassword(password),
+          passwordHash: await hashPassword(password),
           displayName: name,
           name,
           role: req.body.role || "viewer",
@@ -520,7 +525,7 @@ router.post(
     await db
       .update(usersTable)
       .set({
-        passwordHash: hashPassword(password),
+        passwordHash: await hashPassword(password),
         sessionVersion: Number(u.sessionVersion ?? 0) + 1,
       })
       .where(eq(usersTable.id, id));
@@ -531,7 +536,9 @@ router.post("/me/password", async (req, res) => {
   const u = await getAuthUser(req);
   if (!u) return res.status(401).json({ error: "Not authenticated" });
   const next = String(req.body.newPassword ?? "");
-  if (!verifyPassword(String(req.body.oldPassword ?? ""), u.passwordHash))
+  if (
+    !(await verifyPassword(String(req.body.oldPassword ?? ""), u.passwordHash))
+  )
     return res.status(400).json({ error: "Current password is incorrect" });
   if (next.length < 8)
     return res
@@ -544,7 +551,7 @@ router.post("/me/password", async (req, res) => {
   await db
     .update(usersTable)
     .set({
-      passwordHash: hashPassword(next),
+      passwordHash: await hashPassword(next),
       passwordUpdatedAt,
       sessionVersion: nextSessionVersion,
     })

@@ -4,16 +4,42 @@ import { eq } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { verifyPassword, hashPassword } from "../lib/password";
 import { revokeSessionGrants } from "../lib/moduleEncryption";
+import {
+  createLoginKeyPair,
+  decryptLoginPassword,
+} from "../lib/loginEncryption";
 
 const router = Router();
+const loginKeys = createLoginKeyPair();
+
+router.get("/login-key", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  return res.json({ publicKey: loginKeys.publicKey });
+});
 
 router.post("/login", async (req, res) => {
-  const { username, password } = req.body as {
+  const {
+    username,
+    password: encryptedPassword,
+    passwordEncoding,
+  } = req.body as {
     username: string;
     password: string;
+    passwordEncoding?: string;
   };
-  if (!username || !password) {
+  if (!username || !encryptedPassword) {
     return res.status(400).json({ error: "username and password required" });
+  }
+  if (passwordEncoding !== "rsa-oaep-256") {
+    return res
+      .status(400)
+      .json({ error: "RSA-OAEP password encryption required" });
+  }
+  let password: string;
+  try {
+    password = decryptLoginPassword(encryptedPassword, loginKeys.privateKey);
+  } catch {
+    return res.status(400).json({ error: "Invalid encrypted credential" });
   }
   const [user] = await db
     .select()
@@ -24,7 +50,7 @@ router.post("/login", async (req, res) => {
     !user ||
     user.isDeleted ||
     user.isActive === false ||
-    !verifyPassword(password, user.passwordHash)
+    !(await verifyPassword(password, user.passwordHash))
   ) {
     return res.status(401).json({ error: "Invalid credentials" });
   }
@@ -75,7 +101,7 @@ router.get("/me", async (req, res) => {
   });
 });
 
-export function hashPasswordExport(pw: string) {
+export async function hashPasswordExport(pw: string) {
   return hashPassword(pw);
 }
 
