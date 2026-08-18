@@ -28,6 +28,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { publishNotification } from "../lib/notificationService";
 import {
   cancelInvoiceAccounting,
   deletePaymentAccounting,
@@ -213,6 +214,42 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
+async function publishSalesCreatedNotification(
+  req: any,
+  res: any,
+  input: {
+    permissionKey: string;
+    viewPermissionKey: string;
+    eventType: string;
+    title: string;
+    message: string;
+    entityType: string;
+    entityId: number;
+    reference: string;
+  },
+) {
+  const actorId = Number((req.session as any).userId);
+  await publishNotification({
+    organizationId: Number(req.authUser?.organizationId ?? 1),
+    actorId,
+    permissionKey: input.permissionKey,
+    additionalPermissionKeys: [input.viewPermissionKey],
+    directRecipientUserIds: [actorId],
+    eventType: input.eventType,
+    eventKey: `${input.entityType}:${input.entityId}:created`,
+    sourceModule: "sales",
+    targetModule: "sales",
+    submodule: input.entityType,
+    title: input.title,
+    message: input.message,
+    sourceEntityType: input.entityType,
+    sourceEntityId: input.entityId,
+    sourceReference: input.reference,
+    navigationUrl: "/sales",
+  });
+  res.locals.notificationHandled = true;
+}
+
 function orderCode(seq: number) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
@@ -267,6 +304,14 @@ router.post("/", requireAuth, async (req, res) => {
     totalValue: totalValue ? String(totalValue) : null,
     notes: notes ?? null, createdByUserId: userId,
   }).returning();
+  await publishNotification({
+    organizationId: Number((req as any).authUser?.organizationId ?? 1), actorId: Number(userId),
+    permissionKey: "sales.quotations.notification", eventType: "SALES_ORDER_CREATED",
+    eventKey: `sales-order:${row.id}:created`, sourceModule: "sales", targetModule: "sales", submodule: "sales_orders",
+    title: "Sales order created", message: `${row.orderCode || `Sales order ${row.id}`} was created.`,
+    sourceEntityType: "sales_order", sourceEntityId: row.id, sourceReference: row.orderCode, navigationUrl: "/sales",
+  });
+  res.locals.notificationHandled = true;
   return res.status(201).json(row);
 });
 
@@ -615,6 +660,12 @@ router.post("/quotations", requireAuth, async (req, res) => {
   }
 
   const savedItems = await db.select().from(quotationItemsTable).where(eq(quotationItemsTable.quoteId, doc.id));
+  await publishSalesCreatedNotification(req, res, {
+    permissionKey: "sales.quotations.notification", viewPermissionKey: "sales.quotations.view",
+    eventType: "SALES_QUOTATIONS_DRAFT", title: "Quotation created",
+    message: `${doc.quoteNumber || `Quotation ${doc.id}`} was created for ${doc.clientName || "the customer"}.`,
+    entityType: "quotation", entityId: Number(doc.id), reference: doc.quoteNumber || String(doc.id),
+  });
   return res.status(201).json({ ...serializeQuotation(doc), items: savedItems.map(serializeQuotationItem) });
 });
 
@@ -1255,6 +1306,12 @@ router.post("/challans", requireAuth, async (req, res) => {
     const [doc] = await db.insert(deliveryChallansTable).values({ dcNumber, ...challanData(req.body), status: "Draft", stockDeducted: false }).returning();
     await saveChallanItems(Number(doc.id), req.body.items || []);
     const items = await db.select().from(deliveryChallanItemsTable).where(eq(deliveryChallanItemsTable.dcId, doc.id));
+    await publishSalesCreatedNotification(req, res, {
+      permissionKey: "sales.delivery_challans.notification", viewPermissionKey: "sales.delivery_challans.view",
+      eventType: "SALES_CHALLANS_DRAFT", title: "Delivery challan created",
+      message: `${doc.dcNumber || `Delivery challan ${doc.id}`} was created for ${doc.clientName || "the customer"}.`,
+      entityType: "delivery_challan", entityId: Number(doc.id), reference: doc.dcNumber || String(doc.id),
+    });
     return res.status(201).json({ ...serializeProforma(doc), items: items.map(serializeQuotationItem) });
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
@@ -1699,7 +1756,14 @@ router.post("/returns", requireAuth, async (req, res) => {
     const linkedInvoice = !req.body.invoiceId && req.body.dcId ? await linkedInvoiceForChallan(Number(req.body.dcId)) : null;
     const returnNumber = returnCode((await db.select().from(salesReturnsTable)).length + 1);
     const [doc] = await db.insert(salesReturnsTable).values({ returnNumber, ...salesReturnData({ ...req.body, invoiceId: req.body.invoiceId || linkedInvoice?.id || null }), status: "Draft", restocked: false }).returning();
-    await saveSalesReturnItems(Number(doc.id), items); return res.status(201).json(await salesReturnWithItems(doc));
+    await saveSalesReturnItems(Number(doc.id), items);
+    await publishSalesCreatedNotification(req, res, {
+      permissionKey: "sales.returns.notification", viewPermissionKey: "sales.returns.view",
+      eventType: "SALES_RETURNS_DRAFT", title: "Sales return created",
+      message: `${doc.returnNumber || `Sales return ${doc.id}`} was created for ${doc.clientName || "the customer"}.`,
+      entityType: "sales_return", entityId: Number(doc.id), reference: doc.returnNumber || String(doc.id),
+    });
+    return res.status(201).json(await salesReturnWithItems(doc));
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
 
@@ -1877,6 +1941,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
   if (notes !== undefined) updates.notes = notes;
   if (saleType !== undefined) updates.saleType = saleType;
   const [row] = await db.update(salesOrdersTable).set(updates).where(eq(salesOrdersTable.id, id)).returning();
+  await publishNotification({
+    organizationId: Number((req as any).authUser?.organizationId ?? 1), actorId: Number((req.session as any).userId),
+    permissionKey: "sales.quotations.notification", eventType: "SALES_ORDER_UPDATED",
+    eventKey: `sales-order:${row.id}:updated:${new Date(row.updatedAt || Date.now()).toISOString()}`,
+    sourceModule: "sales", targetModule: "sales", submodule: "sales_orders",
+    title: "Sales order updated", message: `${row.orderCode || `Sales order ${row.id}`} was updated.`,
+    sourceEntityType: "sales_order", sourceEntityId: row.id, sourceReference: row.orderCode, navigationUrl: "/sales",
+  });
+  res.locals.notificationHandled = true;
   return res.json(row);
 });
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
+import { publishNotification } from "../lib/notificationService";
 import {
   and,
   asc,
@@ -655,6 +656,32 @@ router.post(
             ),
           );
       void audit(req, "employee", row.id, row.name, "create", null, row);
+      const actorId = Number(req.crew.user.id);
+      await publishNotification({
+        organizationId: org,
+        actorId,
+        permissionKey: "crew.employees.notification",
+        additionalPermissionKeys: ["crew.employees.view"],
+        directRecipientUserIds: [
+          ...new Set([
+            actorId,
+            ...(row.userId ? [Number(row.userId)] : []),
+          ]),
+        ],
+        eventType: "CREW_EMPLOYEE_CREATED",
+        eventKey: `crew-employee:${row.id}:created`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "employees",
+        title: "New employee added",
+        message: `${row.name} (${row.employeeCode}) was added to ${row.department}.`,
+        sourceEntityType: "employee",
+        sourceEntityId: row.id,
+        sourceReference: row.employeeCode,
+        navigationUrl: "/crew",
+        metadata: { employeeUserId: row.userId, department: row.department },
+      });
+      res.locals.notificationHandled = true;
       return res.status(201).json(row);
     } catch (e: any) {
       if (stored?.full) await unlink(stored.full).catch(() => {});
@@ -1659,6 +1686,69 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
       })
       .returning();
     void audit(req, "leave", row.id, employee.name, "create", null, row);
+    const [reportingManager] = employee.reportingManager
+      ? await db
+          .select()
+          .from(employeesTable)
+          .where(
+            and(
+              eq(employeesTable.id, Number(employee.reportingManager)),
+              eq(employeesTable.organizationId, req.crew.org),
+            ),
+          )
+          .limit(1)
+      : [null];
+    const organizationUsers = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.organizationId, req.crew.org));
+    const adminUserIds = organizationUsers
+      .filter((user: any) => {
+        const role = String(user.role || "").trim().toLowerCase();
+        return (
+          !user.isDeleted &&
+          user.isActive !== false &&
+          (role === "admin" ||
+            role === "super_admin" ||
+            user.systemKey === "ADMIN" ||
+            user.systemKey === "SUPER_ADMIN")
+        );
+      })
+      .map((user: any) => Number(user.id));
+    const recipientUserIds = [
+      ...new Set([
+        ...adminUserIds,
+        ...(reportingManager?.userId
+          ? [Number(reportingManager.userId)]
+          : []),
+      ]),
+    ].filter((id) => Number.isInteger(id) && id > 0);
+    if (recipientUserIds.length) {
+      await publishNotification({
+        organizationId: req.crew.org,
+        actorId: Number(req.crew.user.id),
+        permissionKey: "crew.leave.notification",
+        recipientUserIds: [],
+        directRecipientUserIds: recipientUserIds,
+        eventType: "CREW_LEAVES_REQUESTED",
+        eventKey: `crew-leave:${row.id}:requested`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "leave",
+        title: "Leave requested",
+        message: `${employee.name} requested ${row.leaveType} leave from ${row.startDate} to ${row.endDate}.`,
+        sourceEntityType: "leave_request",
+        sourceEntityId: row.id,
+        sourceReference: employee.employeeCode,
+        navigationUrl: "/crew",
+        metadata: {
+          employeeId: employee.id,
+          reportingManagerId: employee.reportingManager,
+          status: row.status,
+        },
+      });
+    }
+    res.locals.notificationHandled = true;
     return res.status(201).json(row);
   } catch (error: any) {
     return res

@@ -39,6 +39,7 @@ export const notificationEventSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   recipientUserIds: z.array(z.number().int().positive()).optional(),
   directRecipientUserIds: z.array(z.number().int().positive()).optional(),
+  additionalPermissionKeys: z.array(z.string().min(1)).optional(),
   actorId: z.number().int().positive().optional(),
   priority: notificationPrioritySchema.optional(),
 });
@@ -49,6 +50,7 @@ export async function resolveNotificationRecipients(
   permissionKey: string,
   restrictedUserIds?: number[],
   directRecipientUserIds: number[] = [],
+  additionalPermissionKeys: string[] = [],
 ) {
   const [users, roles] = await Promise.all([
     db
@@ -89,7 +91,7 @@ export async function resolveNotificationRecipients(
       override.allowed
         ? permissions.add(override.permissionKey)
         : permissions.delete(override.permissionKey);
-    return permissions.has(permissionKey);
+    return [permissionKey, ...additionalPermissionKeys].some((key) => permissions.has(key));
   });
 }
 
