@@ -109,6 +109,42 @@ async function publishFlexRecordNotification(
   res.locals.notificationHandled = true;
 }
 
+async function publishAccountsPayableEntryNotification(
+  req: any,
+  entry: any,
+) {
+  const isDebitNote = entry.entryType === "Debit Note";
+  const reference = String(entry.billNumber || `AP entry ${entry.id}`);
+  await publishNotification({
+    organizationId: orgId(req),
+    actorId: currentUserId(req),
+    permissionKey: "accounts.accounts_payable.notification",
+    additionalPermissionKeys: ["accounts.accounts_payable.view"],
+    eventType: isDebitNote
+      ? "ACCOUNTS_PAYABLE_DEBIT_NOTE_CREATED"
+      : "ACCOUNTS_PAYABLE_PENDING_BILL_CREATED",
+    eventKey: `accounts-payable:${entry.id}:${isDebitNote ? "debit-note" : "pending-bill"}:created`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_payable",
+    title: isDebitNote ? "AP debit note created" : "AP pending bill created",
+    message: isDebitNote
+      ? `${reference} created a debit note for ${entry.vendorName || "the vendor"}.`
+      : `${reference} was added to AP pending bills for ${entry.vendorName || "the vendor"}.`,
+    sourceEntityType: isDebitNote ? "ap_debit_note" : "ap_pending_bill",
+    sourceEntityId: entry.id,
+    sourceReference: reference,
+    navigationUrl: "/accounts",
+    metadata: {
+      entryType: entry.entryType,
+      status: entry.status,
+      amount: Number(entry.amount || 0),
+      sourceType: entry.sourceType,
+      sourceId: entry.sourceId,
+    },
+  });
+}
+
 // Helper to look up user display names
 async function getUserMap(org: number) {
   const users = await db
@@ -2375,22 +2411,20 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     keySuffix: "created",
     additionalPermissionKeys: ["flex.purchase_invoices.view"],
   });
-  await publishNotification({
-    organizationId: org,
-    actorId: userId,
-    permissionKey: "accounts.accounts_payable.notification",
-    eventType: "ACCOUNTS_PAYABLE_CREATED",
-    eventKey: `purchase-invoice:${notificationInvoice.id}:accounts-payable-created`,
-    sourceModule: "accounts",
-    targetModule: "accounts",
-    submodule: "accounts_payable",
-    title: "Accounts payable created",
-    message: `${notificationInvoice.invoiceNumber || `Purchase invoice ${notificationInvoice.id}`} created an Accounts Payable entry for ${notificationInvoice.vendorName || "the vendor"}.`,
-    sourceEntityType: "purchase_invoice",
-    sourceEntityId: notificationInvoice.id,
-    sourceReference: notificationInvoice.invoiceNumber,
-    navigationUrl: "/accounts",
-  });
+  if (posted) {
+    const [payableBill] = await db
+      .select()
+      .from(accountsPayableTable)
+      .where(
+        and(
+          eq(accountsPayableTable.organizationId, org),
+          eq(accountsPayableTable.billNumber, notificationInvoice.invoiceNumber),
+        ),
+      )
+      .limit(1);
+    if (payableBill)
+      await publishAccountsPayableEntryNotification(req, payableBill);
+  }
   return res.status(201).json(notificationInvoice);
 });
 
@@ -2990,7 +3024,7 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
           ? 0
           : Math.min(invoiceAmount, returnAmount);
         debitNoteAmount = invoicePaid ? returnAmount : 0;
-        await db.insert(accountsPayableTable).values({
+        const [createdBill] = await db.insert(accountsPayableTable).values({
           organizationId: org,
           vendorName,
           billNumber: againstBillNumber,
@@ -3011,12 +3045,13 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
           notes: `From invoice ${againstBillNumber}`,
           sourceType: "Purchase Invoice",
           sourceId: linkedInvoice.id,
-        });
+        }).returning();
+        await publishAccountsPayableEntryNotification(req, createdBill);
       }
     }
 
     if (debitNoteAmount > 0) {
-      await db.insert(accountsPayableTable).values({
+      const [debitNote] = await db.insert(accountsPayableTable).values({
         organizationId: org,
         vendorName,
         billNumber: created.returnNumber,
@@ -3037,7 +3072,8 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
         notes: `Purchase return ${created.returnNumber}: ${reason}`,
         sourceType: "Purchase Return",
         sourceId: created.id,
-      });
+      }).returning();
+      await publishAccountsPayableEntryNotification(req, debitNote);
     }
   }
 
@@ -3242,6 +3278,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
             sourceId: linkedInvoice.id,
           })
           .returning();
+        await publishAccountsPayableEntryNotification(req, bill);
       }
 
       if (bill) {
@@ -3262,7 +3299,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               Number(entry.sourceId) === Number(existingReturn.id),
           );
           if (!alreadyPosted) {
-            await db.insert(accountsPayableTable).values({
+            const [debitNote] = await db.insert(accountsPayableTable).values({
               organizationId: org,
               vendorName: existingReturn.vendorName,
               billNumber: existingReturn.returnNumber,
@@ -3283,7 +3320,8 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               notes: `Purchase return ${existingReturn.returnNumber}: ${existingReturn.reason}`,
               sourceType: "Purchase Return",
               sourceId: existingReturn.id,
-            });
+            }).returning();
+            await publishAccountsPayableEntryNotification(req, debitNote);
           }
         } else {
           const outstanding = Math.max(

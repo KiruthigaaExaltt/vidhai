@@ -2612,7 +2612,34 @@ router.post("/deductions", async (req: any, res: any): Promise<any> => {
     })
     .returning();
   void audit(req, "deduction", row.id, e.name, "create", null, row);
-  res.status(201).json(row);
+  if (e.userId) {
+    await publishNotification({
+      organizationId: req.crew.org,
+      actorId: Number(req.crew.user.id),
+      permissionKey: "crew.deductions.notification",
+      recipientUserIds: [],
+      directRecipientUserIds: [Number(e.userId)],
+      eventType: "CREW_DEDUCTION_ADDED",
+      eventKey: `crew-deduction:${row.id}:added`,
+      sourceModule: "crew",
+      targetModule: "crew",
+      submodule: "deductions",
+      title: "Deduction added",
+      message: `A deduction of ₹${Number(row.amount).toLocaleString("en-IN")} was added to your salary for ${row.date}.`,
+      sourceEntityType: "crew_deduction",
+      sourceEntityId: row.id,
+      sourceReference: e.employeeCode,
+      navigationUrl: "/crew",
+      metadata: {
+        employeeId: e.id,
+        date: row.date,
+        amount: Number(row.amount),
+        source: row.source,
+      },
+    });
+  }
+  res.locals.notificationHandled = true;
+  return res.status(201).json(row);
 });
 router.patch("/deductions/:id/status", (req: any, res: any) =>
   decision(req, res, crewDeductionsTable, "deductions"),

@@ -250,6 +250,34 @@ async function publishSalesCreatedNotification(
   res.locals.notificationHandled = true;
 }
 
+async function publishAccountsReceivableEntryNotification(req: any, entry: any) {
+  const reference = String(entry.invoiceNumber || `AR entry ${entry.id}`);
+  await publishNotification({
+    organizationId: Number(req.authUser?.organizationId ?? 1),
+    actorId: Number((req.session as any).userId),
+    permissionKey: "accounts.accounts_receivable.notification",
+    additionalPermissionKeys: ["accounts.accounts_receivable.view"],
+    eventType: "ACCOUNTS_RECEIVABLE_PENDING_INVOICE_CREATED",
+    eventKey: `accounts-receivable:${entry.id}:pending-invoice:created`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_receivable",
+    title: "AR pending invoice created",
+    message: `${reference} was added to Accounts Receivable for ${entry.clientName || "the customer"}.`,
+    sourceEntityType: "ar_pending_invoice",
+    sourceEntityId: entry.id,
+    sourceReference: reference,
+    navigationUrl: "/accounts",
+    metadata: {
+      entryType: entry.entryType,
+      status: entry.status,
+      amount: Number(entry.amount || 0),
+      sourceType: entry.sourceType,
+      sourceId: entry.sourceId,
+    },
+  });
+}
+
 function orderCode(seq: number) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
@@ -1419,6 +1447,16 @@ router.post("/invoices", requireAuth, async (req, res) => {
     const invoicePayload = invoiceData(req.body);
     const [doc] = await db.insert(salesInvoicesTable).values({ invoiceNumber, rootInvoiceNumber: invoiceNumber, ...invoicePayload, amountPaid: "0", balanceDue: invoicePayload.grandTotal, paymentStatus: "Unpaid", status: "Draft", versionSeries: "Draft", versionNumber: 1, versionLabel: "Draft V1", isLatestVersion: true, isLocked: false }).returning();
     await saveInvoiceItems(Number(doc.id), req.body.items);
+    await publishSalesCreatedNotification(req, res, {
+      permissionKey: "sales.invoices.notification",
+      viewPermissionKey: "sales.invoices.view",
+      eventType: "SALES_INVOICE_CREATED",
+      title: "Sales invoice created",
+      message: `${doc.invoiceNumber} was created as a draft.`,
+      entityType: "sales_invoice",
+      entityId: Number(doc.id),
+      reference: doc.invoiceNumber,
+    });
     return res.status(201).json(await invoiceWithItems(doc));
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
@@ -1483,7 +1521,28 @@ router.post("/invoices/:id/customer-response", requireAuth, async (req, res) => 
   if (status === "Approved") {
     try {
       const context = await accountingContext(req);
-      await triggerInvoiceApproved(id, context.organizationId, context.userId);
+      const accounting = await triggerInvoiceApproved(id, context.organizationId, context.userId);
+      if (accounting?.ar)
+        await publishAccountsReceivableEntryNotification(req, accounting.ar);
+      await publishNotification({
+        organizationId: context.organizationId,
+        actorId: context.userId,
+        permissionKey: "sales.invoices.notification",
+        additionalPermissionKeys: ["sales.invoices.view"],
+        eventType: "SALES_INVOICE_APPROVED",
+        eventKey: `sales-invoice:${id}:approved`,
+        sourceModule: "sales",
+        targetModule: "sales",
+        submodule: "invoices",
+        title: "Sales invoice approved",
+        message: `${updated.invoiceNumber} was approved and posted to Accounts Receivable.`,
+        sourceEntityType: "sales_invoice",
+        sourceEntityId: id,
+        sourceReference: updated.invoiceNumber,
+        navigationUrl: "/sales",
+        metadata: { status: "Approved", accountsReceivableId: accounting?.ar?.id },
+      });
+      res.locals.notificationHandled = true;
     } catch (error: any) {
       await db.update(salesInvoicesTable).set({ status: "Sent", isLocked: false, customerResponseAt: null, confirmedByUserId: null }).where(eq(salesInvoicesTable.id, id));
       return res.status(500).json({ error: `Invoice approval accounting failed: ${error.message}` });
