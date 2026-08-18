@@ -10,6 +10,15 @@ import { notificationEventMiddleware } from "./lib/notificationEvents";
 
 const app: Express = express();
 const production = process.env.NODE_ENV === "production";
+const sessionCookieMaxAgeMs = Number(
+  process.env.SESSION_COOKIE_MAX_AGE_MS ?? "604800000",
+);
+if (
+  !Number.isSafeInteger(sessionCookieMaxAgeMs) ||
+  sessionCookieMaxAgeMs <= 0
+) {
+  throw new Error("SESSION_COOKIE_MAX_AGE_MS must be a positive integer");
+}
 if (production && !process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET is required in production");
 }
@@ -53,11 +62,12 @@ export const sessionMiddleware = session({
   secret: process.env.SESSION_SECRET ?? "vidhai-dev-secret-2024",
   resave: false,
   saveUninitialized: false,
+  rolling: true,
   cookie: {
     secure: production,
     httpOnly: true,
     sameSite: "lax",
-    maxAge: 8 * 60 * 60 * 1000,
+    maxAge: sessionCookieMaxAgeMs,
   },
 });
 app.use(sessionMiddleware);
