@@ -753,13 +753,13 @@ export default function OotyRoomDetail() {
                       <SelectValue placeholder="Select Coimbatore casing batch…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {(coimBatches as any[])?.filter((b: any) => b.status !== "archived").map((cb: any) => (
+                      {(coimBatches as any[])?.filter((b: any) => String(b.status).toLowerCase() === "completed" && b.currentStage === "COMPLETED").map((cb: any) => (
                         <SelectItem key={cb.id} value={cb.batchCode}>
                           {cb.batchCode} — {cb.status}
                         </SelectItem>
                       ))}
-                      {(!coimBatches || (coimBatches as any[]).length === 0) && (
-                        <SelectItem value="__none__" disabled>No Coimbatore batches found</SelectItem>
+                      {(!coimBatches || !(coimBatches as any[]).some((b: any) => String(b.status).toLowerCase() === "completed" && b.currentStage === "COMPLETED")) && (
+                        <SelectItem value="__none__" disabled>No completed casing soil batches found</SelectItem>
                       )}
                     </SelectContent>
                   </Select>
