@@ -20,7 +20,7 @@ import {
   ootyCookoutInventoryPostingsTable,
   ootyGrowBagInventoryPostingsTable,
 } from "@workspace/db";
-import { eq, desc, inArray, isNull, and, ilike } from "@workspace/db";
+import { eq, desc, inArray, isNull, and } from "@workspace/db";
 import {
   flushNumberForStage,
   harvestInventoryPostingKey,
@@ -1064,7 +1064,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     [mushroomMaterial] = await db
       .select()
       .from(materialsTable)
-      .where(ilike(materialsTable.name, "Mushroom"))
+      .where(eq(materialsTable.sku, "VLT-FP-MUSHROOM"))
       .limit(1);
     if (!mushroomMaterial)
       return res
