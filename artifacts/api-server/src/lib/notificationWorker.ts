@@ -86,6 +86,7 @@ async function processJob(job: any) {
     event.permissionKey,
     event.recipientUserIds,
     event.directRecipientUserIds,
+    event.additionalPermissionKeys,
   );
   if (!recipients.length) {
     await db.update(notificationOutboxTable).set({
