@@ -12,12 +12,19 @@ else logger.warn("VAPID keys are not configured; external push notifications are
 
 export const getPushPublicKey = () => publicKey ?? null;
 
-export async function sendExternalNotification(notification: any) {
-  if (!enabled) return;
-  const subscriptions = await db.select().from(pushSubscriptionsTable).where(and(
+export class PushDeliveryError extends Error {
+  constructor(public readonly deliveredEndpoints: string[]) {
+    super("One or more push deliveries failed");
+  }
+}
+
+export async function sendExternalNotification(notification: any, previouslyDelivered: string[] = []) {
+  if (!enabled) return { status: "SKIPPED" as const, deliveredEndpoints: previouslyDelivered };
+  const delivered = new Set(previouslyDelivered);
+  const subscriptions = (await db.select().from(pushSubscriptionsTable).where(and(
     eq(pushSubscriptionsTable.organizationId, notification.organizationId),
     eq(pushSubscriptionsTable.userId, notification.recipientUserId),
-  ));
+  ))).filter((row: any) => !delivered.has(row.endpoint));
   const payload = JSON.stringify({
     notificationId: notification.id,
     title: notification.title,
@@ -26,6 +33,9 @@ export async function sendExternalNotification(notification: any) {
     tag: notification.eventRecipientKey,
     createdAt: notification.createdAt,
   });
+  if (!subscriptions.length)
+    return { status: previouslyDelivered.length ? "SUCCESS" as const : "SKIPPED" as const, deliveredEndpoints: [...delivered] };
+  const failures: Error[] = [];
   await Promise.all((subscriptions as any[]).map(async (row) => {
     try {
       await webpush.sendNotification(
@@ -33,12 +43,16 @@ export async function sendExternalNotification(notification: any) {
         payload,
         { TTL: 60 * 60, urgency: "normal" },
       );
+      delivered.add(row.endpoint);
     } catch (error: any) {
       if (error?.statusCode === 404 || error?.statusCode === 410) {
         await db.delete(pushSubscriptionsTable).where(eq(pushSubscriptionsTable.endpoint, row.endpoint));
         return;
       }
       logger.warn({ err: error, subscriptionId: row.id }, "External push delivery failed");
+      failures.push(error instanceof Error ? error : new Error("Push delivery failed"));
     }
   }));
+  if (failures.length) throw new PushDeliveryError([...delivered]);
+  return { status: "SUCCESS" as const, deliveredEndpoints: [...delivered] };
 }

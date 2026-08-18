@@ -25,9 +25,36 @@ export const notificationsTable = mongoTable("notifications", {
   sourceReference: text("source_reference"),
   navigationUrl: text("navigation_url"),
   metadata: json("metadata").notNull().default({}),
+  channelStatus: json("channel_status").notNull().default({}),
+  deliveryAttempts: integer("delivery_attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  deliveredAt: timestamp("delivered_at"),
+  failedAt: timestamp("failed_at"),
+  failureReason: text("failure_reason"),
   isRead: boolean("is_read").notNull().default(false),
   readAt: timestamp("read_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const notificationOutboxTable = mongoTable("notification_outbox", {
+  id: serial("id").primaryKey(),
+  eventKey: text("event_key").notNull().unique(),
+  eventType: text("event_type").notNull(),
+  organizationId: integer("organization_id").notNull(),
+  actorId: integer("actor_id"),
+  priority: text("priority").notNull().default("NORMAL"),
+  priorityRank: integer("priority_rank").notNull().default(3),
+  payload: json("payload").notNull(),
+  status: text("status").notNull().default("PENDING"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  lockedAt: timestamp("locked_at"),
+  lockedBy: text("locked_by"),
+  processedAt: timestamp("processed_at"),
+  failedAt: timestamp("failed_at"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const pushSubscriptionsTable = mongoTable("push_subscriptions", {

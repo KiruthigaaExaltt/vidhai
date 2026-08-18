@@ -8,18 +8,16 @@ import {
   purchaseRequestsTable,
   vendorAvailabilityTable,
 } from "@workspace/db";
+import { publishNotification } from "../lib/notificationService";
 
 const router = Router();
-function requireAuth(req: any, _res: any, next: any) {
-  if (!(req.session as any)?.userId) {
-    (req.session as any) = (req.session as any) || {};
-    (req.session as any).userId = 1;
-    (req.session as any).organizationId = 1;
-  }
-  next();
+function requireAuth(req: any, res: any, next: any) {
+  if (!(req.session as any)?.userId || !req.authUser)
+    return res.status(401).json({ error: "Authentication required" });
+  return next();
 }
-const orgId = (req: any) => Number((req.session as any)?.organizationId ?? 1);
-const userId = (req: any) => Number((req.session as any)?.userId ?? 1);
+const orgId = (req: any) => Number(req.authUser.organizationId);
+const userId = (req: any) => Number(req.authUser.id);
 const confirmationInProgress = new Set<number>();
 
 router.get("/vendor-availability", requireAuth, async (req, res) => {
@@ -121,6 +119,28 @@ router.patch("/vendor-availability/:id/send", requireAuth, async (req, res) => {
     })
     .where(eq(vendorAvailabilityTable.id, id))
     .returning();
+  const [[request], [vendor]] = await Promise.all([
+    db.select().from(purchaseRequestsTable).where(eq(purchaseRequestsTable.id, updated.purchaseRequestId)).limit(1),
+    db.select().from(contactsTable).where(eq(contactsTable.id, Number(updated.vendorId))).limit(1),
+  ]);
+  await publishNotification({
+    organizationId: org,
+    actorId: userId(req),
+    permissionKey: "flex.purchase_requests.notification",
+    eventType: "PURCHASE_REQUEST_SENT_TO_VENDOR",
+    eventKey: `vendor-availability:${updated.id}:sent`,
+    sourceModule: "flex",
+    targetModule: "flex",
+    submodule: "purchase_requests",
+    title: "Purchase request sent to vendor",
+    message: `${request?.prNumber || `Purchase request ${updated.purchaseRequestId}`} was sent to ${vendor?.name || "the vendor"}.`,
+    sourceEntityType: "vendor_availability",
+    sourceEntityId: updated.id,
+    sourceReference: request?.prNumber,
+    navigationUrl: "/flex/purchase-requests",
+    metadata: { purchaseRequestId: updated.purchaseRequestId, vendorId: updated.vendorId },
+  });
+  res.locals.notificationHandled = true;
   return res.json(updated);
 });
 
@@ -308,6 +328,25 @@ router.post(
         .returning();
       if (!updatedRequest)
         throw new Error("Unable to update the purchase request");
+
+      await publishNotification({
+        organizationId: org,
+        actorId: userId(req),
+        permissionKey: "flex.purchase_requests.notification",
+        eventType: "PURCHASE_REQUEST_VENDOR_CONFIRMED",
+        eventKey: `vendor-availability:${confirmedAvailability.id}:confirmed`,
+        sourceModule: "flex",
+        targetModule: "flex",
+        submodule: "purchase_requests",
+        title: "Purchase request vendor confirmed",
+        message: `${request.prNumber} was confirmed with ${vendor.name}.`,
+        sourceEntityType: "vendor_availability",
+        sourceEntityId: confirmedAvailability.id,
+        sourceReference: request.prNumber,
+        navigationUrl: "/flex/purchase-requests",
+        metadata: { purchaseRequestId: request.id, vendorId: vendor.id },
+      });
+      res.locals.notificationHandled = true;
 
       return res.json({
         success: true,

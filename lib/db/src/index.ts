@@ -69,6 +69,7 @@ async function bootstrapAdmin() {
 await bootstrapAdmin();
 export {
   connectMongo,
+  modelFor,
   syncTableIndexes,
   syncTableCustomIndexes,
   eq,

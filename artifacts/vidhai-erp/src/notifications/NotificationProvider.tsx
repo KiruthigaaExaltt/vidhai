@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { io, type Socket } from "socket.io-client";
@@ -39,6 +40,7 @@ export function NotificationProvider({
     [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
       pushSupported ? Notification.permission : "unsupported",
     );
+  const receivedIds = useRef(new Set<number>());
   const refresh = useCallback(async () => {
     if (!user) {
       setUnreadCount(0);
@@ -107,6 +109,9 @@ export function NotificationProvider({
       withCredentials: true,
     });
     socket.on("notification:new", (item) => {
+      const id = Number(item?.id);
+      if (id && receivedIds.current.has(id)) return;
+      if (id) receivedIds.current.add(id);
       setLatest(item);
       setUnreadCount((n) => n + 1);
       if (document.visibilityState === "visible")
