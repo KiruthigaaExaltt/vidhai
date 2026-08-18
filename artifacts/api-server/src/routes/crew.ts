@@ -2223,6 +2223,32 @@ router.post("/bonus", async (req: any, res: any): Promise<any> => {
       null,
       row,
     );
+    if (employee.userId) {
+      await publishNotification({
+        organizationId: req.crew.org,
+        actorId: Number(req.crew.user.id),
+        permissionKey: "crew.bonus.notification",
+        recipientUserIds: [],
+        directRecipientUserIds: [Number(employee.userId)],
+        eventType: "CREW_BONUS_ADDED",
+        eventKey: `crew-bonus:${row.id}:added`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "bonus",
+        title: "Bonus added",
+        message: `A bonus of ₹${amount.toLocaleString("en-IN")} was added to your salary for ${payrollMonth}.`,
+        sourceEntityType: "crew_bonus",
+        sourceEntityId: row.id,
+        sourceReference: employee.employeeCode,
+        navigationUrl: "/crew",
+        metadata: {
+          employeeId: employee.id,
+          payrollMonth,
+          amount,
+        },
+      });
+    }
+    res.locals.notificationHandled = true;
     return res.status(201).json(row);
   } catch (error: any) {
     return res
@@ -2341,7 +2367,31 @@ for (const type of ["claims"]) {
       })
       .returning();
     void audit(req, type.slice(0, -1), row.id, e.name, "create", null, row);
-    res.status(201).json(row);
+    {
+      await publishNotification({
+        organizationId: req.crew.org,
+        actorId: Number(req.crew.user.id),
+        permissionKey: "crew.claims.notification",
+        eventType: "CREW_CLAIMS_REQUESTED",
+        eventKey: `crew-claim:${row.id}:requested`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "claims",
+        title: "Claim submitted",
+        message: `${e.name} submitted ${String(row.claimType).replace(/_/g, " ")} claim ${row.title} for ₹${Number(row.amount).toLocaleString("en-IN")}.`,
+        sourceEntityType: "crew_claim",
+        sourceEntityId: row.id,
+        sourceReference: row.title,
+        navigationUrl: "/crew",
+        metadata: {
+          employeeId: e.id,
+          reportingManagerId: e.reportingManager,
+          status: row.status,
+        },
+      });
+    }
+    res.locals.notificationHandled = true;
+    return res.status(201).json(row);
   });
   router.patch(`/${type}/:id/status`, (req: any, res: any) =>
     decision(
