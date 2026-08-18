@@ -2203,7 +2203,7 @@ export function SalesDocumentForm({
                                   setFeedback({
                                     title: "Duplicate line item",
                                     message:
-                                      "This product or service is already present in the quotation.",
+                                      "This inventory item is already present in the document.",
                                   });
                                   return;
                                 }
@@ -2261,7 +2261,7 @@ export function SalesDocumentForm({
                               }}
                             >
                               <SelectTrigger className="h-8 text-sm">
-                                <SelectValue placeholder="Select Product / Service" />
+                                <SelectValue placeholder="Select inventory item" />
                               </SelectTrigger>
                               <SelectContent>
                                 {inventoryItems.map((entry) => (
@@ -2281,19 +2281,6 @@ export function SalesDocumentForm({
                                     [Inventory] {entry.materialName} —{" "}
                                     {entry.locationName || "Unassigned"} (
                                     {entry.quantityOnHand} {entry.unit})
-                                  </SelectItem>
-                                ))}
-                                {services.map((s) => (
-                                  <SelectItem
-                                    key={`ser-${s.id}`}
-                                    value={`ser-${s.id}`}
-                                    disabled={items.some(
-                                      (row) =>
-                                        row.id !== item.id &&
-                                        row.serviceId === s.id,
-                                    )}
-                                  >
-                                    [Service] {s.name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

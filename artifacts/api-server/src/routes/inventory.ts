@@ -102,7 +102,8 @@ router.get("/", requireAuth, async (req, res) => {
 // Adjust inventory stock
 router.post("/", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
-  const { materialId, locationId, quantityDelta, reason, notes } = req.body;
+  const { materialId, locationId, quantityDelta, reason, reference, notes } =
+    req.body;
 
   // Validate material exists
   const [material] = await db
@@ -144,6 +145,7 @@ router.post("/", requireAuth, async (req, res) => {
     locationId: locationId ?? null,
     quantityDelta: String(quantityDelta),
     reason,
+    reference: reference ?? null,
     notes: notes ?? null,
     adjustedByUserId: userId,
   });
@@ -161,49 +163,106 @@ router.post("/", requireAuth, async (req, res) => {
   });
 });
 
-// List inventory movements (inter-location transfers)
+// List the complete stock ledger: manual adjustments and inter-location transfers.
 router.get("/movements", requireAuth, async (req, res) => {
-  const rows = await db
-    .select({
-      mov: inventoryMovementsTable,
-      materialName: materialsTable.name,
-      createdByName: usersTable.displayName,
-    })
-    .from(inventoryMovementsTable)
-    .innerJoin(
-      materialsTable,
-      eq(inventoryMovementsTable.materialId, materialsTable.id),
-    )
-    .leftJoin(
-      usersTable,
-      eq(inventoryMovementsTable.createdByUserId, usersTable.id),
-    )
-    .orderBy(desc(inventoryMovementsTable.createdAt));
-
-  let data = rows.map((r) => ({
-    id: r.mov.id,
-    materialId: r.mov.materialId,
-    materialName: r.materialName,
-    fromLocationId: r.mov.fromLocationId,
-    toLocationId: r.mov.toLocationId,
-    quantityKg: Number(r.mov.quantityKg),
-    reason: r.mov.reason,
-    notes: r.mov.notes,
-    createdByName: r.createdByName ?? null,
-    createdAt: r.mov.createdAt,
-  }));
-  if (String(req.query.coreOnly || "").toLowerCase() === "true")
-    data = data.filter((row) => isCoreProductMasterItem(row.materialName));
+  const [transferRows, adjustmentRows, locations] = await Promise.all([
+    db
+      .select({
+        mov: inventoryMovementsTable,
+        materialName: materialsTable.name,
+        unit: materialsTable.unit,
+        createdByName: usersTable.displayName,
+      })
+      .from(inventoryMovementsTable)
+      .innerJoin(
+        materialsTable,
+        eq(inventoryMovementsTable.materialId, materialsTable.id),
+      )
+      .leftJoin(
+        usersTable,
+        eq(inventoryMovementsTable.createdByUserId, usersTable.id),
+      ),
+    db
+      .select({
+        adjustment: inventoryAdjustmentsTable,
+        materialName: materialsTable.name,
+        unit: materialsTable.unit,
+        createdByName: usersTable.displayName,
+      })
+      .from(inventoryAdjustmentsTable)
+      .innerJoin(
+        materialsTable,
+        eq(inventoryAdjustmentsTable.materialId, materialsTable.id),
+      )
+      .leftJoin(
+        usersTable,
+        eq(inventoryAdjustmentsTable.adjustedByUserId, usersTable.id),
+      ),
+    db.select().from(inventoryLocationsTable),
+  ]);
+  const locationNames = new Map(
+    locations.map((location: any) => [location.id, location.locationName]),
+  );
+  let data = [
+    ...transferRows.map((row: any) => ({
+      id: `transfer-${row.mov.id}`,
+      materialId: row.mov.materialId,
+      materialName: row.materialName,
+      unit: row.unit,
+      type: "transfer",
+      fromLocationId: row.mov.fromLocationId,
+      fromLocationName:
+        locationNames.get(row.mov.fromLocationId) ?? null,
+      toLocationId: row.mov.toLocationId,
+      toLocationName: locationNames.get(row.mov.toLocationId) ?? null,
+      quantityKg: Math.abs(Number(row.mov.quantityKg)),
+      reason: row.mov.reason,
+      reference: row.mov.reason,
+      notes: row.mov.notes,
+      createdByName: row.createdByName ?? null,
+      createdAt: row.mov.createdAt,
+    })),
+    ...adjustmentRows.map((row: any) => {
+      const quantity = Number(row.adjustment.quantityDelta);
+      const locationName =
+        locationNames.get(row.adjustment.locationId) ?? null;
+      return {
+        id: `adjustment-${row.adjustment.id}`,
+        materialId: row.adjustment.materialId,
+        materialName: row.materialName,
+        unit: row.unit,
+        type: quantity < 0 ? "outward" : "inward",
+        fromLocationId: quantity < 0 ? row.adjustment.locationId : null,
+        fromLocationName: quantity < 0 ? locationName : null,
+        toLocationId: quantity < 0 ? null : row.adjustment.locationId,
+        toLocationName: quantity < 0 ? null : locationName,
+        quantityKg: Math.abs(quantity),
+        reason: row.adjustment.reason,
+        reference: row.adjustment.reference ?? null,
+        notes: row.adjustment.notes,
+        createdByName: row.createdByName ?? null,
+        createdAt: row.adjustment.createdAt,
+      };
+    }),
+  ].sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
   const search = String(req.query.search || "")
     .trim()
     .toLowerCase();
   if (search)
     data = data.filter((row) =>
-      [row.materialName, row.reason, row.notes, row.createdByName].some(
-        (value) =>
-          String(value || "")
-            .toLowerCase()
-            .includes(search),
+      [
+        row.materialName,
+        row.reason,
+        row.reference,
+        row.notes,
+        row.createdByName,
+      ].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(search),
       ),
     );
   if (req.query.skip === undefined && req.query.limit === undefined)

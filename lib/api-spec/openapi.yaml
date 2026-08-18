@@ -2088,6 +2088,7 @@ components:
         locationId: { type: ["integer", "null"] }
         quantityDelta: { type: number }
         reason: { type: string }
+        reference: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
 
     InventoryMovement:

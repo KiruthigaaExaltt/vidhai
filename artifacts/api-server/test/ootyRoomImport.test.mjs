@@ -94,7 +94,7 @@ test("reports invalid rows while retaining valid rows", () => {
     [
       { rowNumber: 2, name: "", capacity: 1000, ...assignment },
       { rowNumber: 3, name: "Room 03", capacity: "abc", ...assignment },
-      { rowNumber: 4, name: "Room 04", capacity: 800, ...assignment },
+      { rowNumber: 4, name: "Room 04", capacity: 1200, ...assignment },
     ],
     [],
   );
@@ -136,5 +136,19 @@ test("rejects partially filled or invalid batch assignments", () => {
       spawnRunStartDate: "2026-02-30",
     }).ok,
     false,
+  );
+});
+test("rejects an allocation above the room capacity", () => {
+  const parsed = validateGrowingRoomImportInput({
+    name: "Room 06",
+    capacity: 1200,
+    ...assignment,
+    bagsAllocated: 2000,
+  });
+  assert.equal(parsed.ok, false);
+  assert.ok(
+    parsed.errors.includes(
+      "Bags Allocated cannot exceed room capacity of 1200",
+    ),
   );
 });

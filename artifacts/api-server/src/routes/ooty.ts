@@ -85,6 +85,41 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
+async function markFullyAllocatedAnnurBatchesFinished(
+  tx: any,
+  annurBatchIds: number[],
+) {
+  for (const annurBatchId of new Set(annurBatchIds.map(Number))) {
+    const [annurBatch] = await tx
+      .select({ actualBags: batchesTable.actualBags })
+      .from(batchesTable)
+      .where(eq(batchesTable.id, annurBatchId))
+      .limit(1);
+    const producedBags = Number(annurBatch?.actualBags || 0);
+    if (producedBags <= 0) continue;
+    const allocations = await tx
+      .select({ bagCount: ootyBatchSourcesTable.bagCount })
+      .from(ootyBatchSourcesTable)
+      .where(eq(ootyBatchSourcesTable.annurBatchId, annurBatchId));
+    const allocatedBags = allocations.reduce(
+      (sum: number, allocation: any) =>
+        sum + Number(allocation.bagCount || 0),
+      0,
+    );
+    if (allocatedBags < producedBags) continue;
+    await tx
+      .update(batchesTable)
+      .set({ status: "finished" })
+      .where(
+        and(
+          eq(batchesTable.id, annurBatchId),
+          eq(batchesTable.currentStage, "COMPLETED"),
+          eq(batchesTable.status, "dispatched"),
+        ),
+      );
+  }
+}
+
 function daysSince(date: Date | string | null) {
   if (!date) return null;
   return Math.floor((Date.now() - new Date(date).getTime()) / 86400000);
@@ -511,6 +546,9 @@ router.post(
                 annurBatchId: item.annurBatch.id,
                 bagCount: item.value.bagsAllocated,
               });
+            await markFullyAllocatedAnnurBatchesFinished(tx, [
+              item.annurBatch.id,
+            ]);
             const traceNotes = `Ooty Growing Room Excel import | Growing Batch: ${batch.batchCode} (#${batch.id}) | Room: ${room.name} (#${room.id}) | Annur Batch: ${item.annurBatch.batchCode} (#${item.annurBatch.id}) | Total Bags: ${item.value.bagsAllocated}`;
             const [adjustment] = await tx
               .insert(inventoryAdjustmentsTable)
@@ -770,6 +808,10 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     (sum, source) => sum + Number(source.bagCount || 0),
     0,
   );
+  if (room.capacity && totalAllocatedBags > room.capacity)
+    return res.status(400).json({
+      error: `${room.name} capacity is ${room.capacity} bags. You cannot allocate ${totalAllocatedBags} bags.`,
+    });
   const [growBagMaterial] = await db
     .select()
     .from(materialsTable)
@@ -846,6 +888,10 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
         });
       }
     }
+    await markFullyAllocatedAnnurBatchesFinished(
+      tx,
+      sources.map((source) => Number(source.annurBatchId)),
+    );
 
     // Consume assigned grow bags from Annur Vault in the same transaction.
     const [stock] = await tx
@@ -992,7 +1038,7 @@ router.patch("/growing-batches/:id", requireAuth, async (req, res) => {
 });
 
 // Advance stage — stage-based, requires 2 verification images
-// Accepts: nextStage, verificationImages[], notes, casingBatchRef, harvestData, cookoutDate, substrateWeightKg, manureKg
+// Accepts: nextStage, verificationImages[], notes, casingSourceType, casingBatchRef, harvestData, cookoutDate, substrateWeightKg, manureKg
 router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const userId = (req.session as any).userId;
@@ -1000,6 +1046,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     nextStage,
     verificationImages,
     notes,
+    casingSourceType,
     casingBatchRef,
     harvestData,
     cookoutDate,
@@ -1027,6 +1074,14 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       : phaseToStage(batch.currentPhase);
   const isCookoutCompletion =
     effectiveCurrentStage === "COOKOUT" && targetStage === "COMPLETED";
+  const isSpawnRunCompletion =
+    effectiveCurrentStage === "SPAWN_RUN" && targetStage === "CASING_RUN";
+  if (isSpawnRunCompletion) {
+    if (!casingBatchRef)
+      return res.status(400).json({ error: "Casing soil reference is required" });
+    if (casingSourceType !== "internal" && casingSourceType !== "external")
+      return res.status(400).json({ error: "Valid casing soil source is required" });
+  }
 
   // Keep the existing two-photo requirement for Cookout completion.
   const imgs: string[] = Array.isArray(verificationImages)
@@ -1178,6 +1233,35 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   const phaseChanged = nextPhaseValue !== stageToPhase(effectiveCurrentStage);
 
   const updated = await db.transaction(async (tx) => {
+    if (isSpawnRunCompletion && casingSourceType === "internal") {
+      const [casingBatch] = await tx
+        .select({ id: batchesTable.id })
+        .from(batchesTable)
+        .innerJoin(
+          locationsTable,
+          eq(batchesTable.locationId, locationsTable.id),
+        )
+        .where(
+          and(
+            eq(batchesTable.batchCode, String(casingBatchRef)),
+            eq(locationsTable.code, "C"),
+          ),
+        )
+        .limit(1);
+      if (!casingBatch) return null;
+      const [usedCasingBatch] = await tx
+        .update(batchesTable)
+        .set({ status: "used" })
+        .where(
+          and(
+            eq(batchesTable.id, casingBatch.id),
+            eq(batchesTable.currentStage, "COMPLETED"),
+            eq(batchesTable.status, "completed"),
+          ),
+        )
+        .returning();
+      if (!usedCasingBatch) return null;
+    }
     // Close the current stage log
     await tx
       .update(ootyStageLogsTable)
@@ -1390,6 +1474,10 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     return row;
   });
 
+  if (!updated)
+    return res.status(409).json({
+      error: "This casing soil batch has already been used or is not completed",
+    });
   return res.json({ ...updated, completedStage: batch.currentStage });
 });
 

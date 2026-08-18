@@ -13,5 +13,7 @@ export interface InventoryAdjustmentInput {
   quantityDelta: number;
   reason: string;
   /** @nullable */
+  reference?: string | null;
+  /** @nullable */
   notes?: string | null;
 }

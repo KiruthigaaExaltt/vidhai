@@ -22,6 +22,7 @@ export const inventoryAdjustmentsTable = mongoTable("inventory_adjustments", {
   locationId: integer("location_id").references(() => locationsTable.id),
   quantityDelta: numeric("quantity_delta", { precision: 12, scale: 4 }).notNull(),
   reason: text("reason").notNull(),
+  reference: text("reference"),
   notes: text("notes"),
   adjustedByUserId: integer("adjusted_by_user_id").references(() => usersTable.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

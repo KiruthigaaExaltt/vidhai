@@ -175,7 +175,7 @@ export default function InventoryModule() {
     queryFn: async () => {
       const state = masterPaging.inventory;
       const response = await fetch(
-        `/api/inventory?coreOnly=true&skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        `/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
         { credentials: "include" },
       );
       if (!response.ok) throw new Error("Unable to load inventory items");
@@ -197,6 +197,11 @@ export default function InventoryModule() {
     },
   });
   const inventory: any[] = inventoryQuery.data ?? [];
+  const inventoryItemOptions: any[] = Array.from(
+    new Map(
+      inventory.map((item) => [Number(item.materialId), item]),
+    ).values(),
+  );
   const warehouseQuery = useQuery({
     queryKey: [
       "vault-locations-paged",
@@ -236,6 +241,8 @@ export default function InventoryModule() {
 
   const refreshMaterials = () => {
     queryClient.invalidateQueries({ queryKey: getListMaterialsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    queryClient.invalidateQueries({ queryKey: getListInventoryQueryKey() });
     queryClient.invalidateQueries({
       queryKey: ["get", "/api/flex/master-data"],
     });
@@ -266,6 +273,9 @@ export default function InventoryModule() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ["inventory"] });
         queryClient.invalidateQueries({ queryKey: ["inventory-master-paged"] });
+        queryClient.invalidateQueries({
+          queryKey: ["inventory-movements-paged"],
+        });
         setMovOpen(false);
         setMovForm(EMPTY_MOV);
         toast.success("Stock movement recorded");
@@ -508,12 +518,20 @@ export default function InventoryModule() {
 
   const deleteMaterial = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`/api/materials/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/materials/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to delete inventory item");
+      }
     },
     onSuccess: () => {
       refreshMaterials();
       toast.success("Item deleted");
     },
+    onError: (error: any) =>
+      toast.error(error?.message || "Failed to delete inventory item"),
   });
 
   const deleteItemName = useMutation({
@@ -718,11 +736,16 @@ export default function InventoryModule() {
     createAdjustment.mutate({
       data: {
         materialId: Number(movForm.materialId),
+        locationId:
+          inventoryItemOptions.find(
+            (item) => Number(item.materialId) === Number(movForm.materialId),
+          )?.locationId ?? null,
         quantityDelta:
           movForm.type === "outward"
             ? -Math.abs(Number(movForm.quantityDelta))
             : Math.abs(Number(movForm.quantityDelta)),
         reason: movForm.reason,
+        reference: movForm.reference || null,
         notes: movForm.notes || null,
       },
     });
@@ -971,7 +994,7 @@ export default function InventoryModule() {
                             </p>
                           </div>
                           <span className="font-mono text-sm font-semibold">
-                            {m.quantityKg} kg
+                            {m.quantityKg} {m.unit || "kg"}
                           </span>
                         </div>
                       ))}
@@ -2035,9 +2058,9 @@ export default function InventoryModule() {
                                         : "bg-green-50 text-green-700 border-green-200"
                                   }`}
                                 >
-                                  {m.fromLocationName && m.toLocationName
+                                  {m.type === "transfer"
                                     ? "Transfer"
-                                    : m.fromLocationName
+                                    : m.type === "outward"
                                       ? "Outward"
                                       : "Inward"}
                                 </span>
@@ -2052,10 +2075,10 @@ export default function InventoryModule() {
                                 {m.toLocationName || "—"}
                               </td>
                               <td className="px-4 text-right font-mono font-semibold">
-                                {m.quantityKg} kg
+                                {m.quantityKg} {m.unit || "kg"}
                               </td>
                               <td className="px-4 text-muted-foreground text-xs">
-                                {m.reason || "—"}
+                                {m.reference || m.reason || "—"}
                               </td>
                             </tr>
                           ))
@@ -2790,9 +2813,12 @@ export default function InventoryModule() {
                   <SelectValue placeholder="Select item" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(materials ?? []).map((m) => (
-                    <SelectItem key={m.id} value={m.id.toString()}>
-                      {m.name}
+                  {inventoryItemOptions.map((item) => (
+                    <SelectItem
+                      key={item.materialId}
+                      value={String(item.materialId)}
+                    >
+                      {item.materialName}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2884,9 +2910,12 @@ export default function InventoryModule() {
                   <SelectValue placeholder="Select item" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(materials ?? []).map((m) => (
-                    <SelectItem key={m.id} value={m.id.toString()}>
-                      {m.name}
+                  {inventoryItemOptions.map((item) => (
+                    <SelectItem
+                      key={item.materialId}
+                      value={String(item.materialId)}
+                    >
+                      {item.materialName}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2998,9 +3027,12 @@ export default function InventoryModule() {
                   <SelectValue placeholder="Select item" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(materials ?? []).map((m) => (
-                    <SelectItem key={m.id} value={m.name}>
-                      {m.name}
+                  {inventoryItemOptions.map((item) => (
+                    <SelectItem
+                      key={item.materialId}
+                      value={item.materialName}
+                    >
+                      {item.materialName}
                     </SelectItem>
                   ))}
                 </SelectContent>

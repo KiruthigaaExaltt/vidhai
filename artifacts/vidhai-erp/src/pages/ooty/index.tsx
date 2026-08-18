@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   useListOotyRooms,
   getListOotyRoomsQueryKey,
+  getListBatchesQueryKey,
   useCreateOotyRoom,
   useUpdateOotyRoom,
   useDeleteOotyRoom,
@@ -109,8 +110,10 @@ export default function OotyRooms() {
         Number(batch.actualBags) > 0,
     ) ?? [];
 
-  const refetch = () =>
+  const refetch = () => {
     queryClient.invalidateQueries({ queryKey: getListOotyRoomsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListBatchesQueryKey() });
+  };
 
   // ── Create room ──
   const [roomOpen, setRoomOpen] = useState(false);
@@ -223,10 +226,21 @@ export default function OotyRooms() {
     notes: "",
   });
   const [assignPending, setAssignPending] = useState(false);
+  const assignedBagCount = Number(assignForm.bagCount || 0);
+  const assignmentExceedsRoomCapacity =
+    !!assignRoom?.capacity && assignedBagCount > Number(assignRoom.capacity);
 
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignRoom) return;
+    if (assignmentExceedsRoomCapacity) {
+      toast({
+        title: "Room capacity exceeded",
+        description: `${assignRoom.name} can hold only ${assignRoom.capacity} bags.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setAssignPending(true);
     try {
       const res = await fetch("/api/ooty/growing-batches", {
@@ -384,6 +398,16 @@ export default function OotyRooms() {
                     ) : batch ? (
                       <div className="space-y-1.5">
                         <p className="font-mono text-sm font-bold text-foreground">{batch.batchCode}</p>
+                        {batch.batchSources?.length > 0 && (
+                          <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
+                            {batch.batchSources.map((source: any) => (
+                              <span key={source.id} className="font-mono">
+                                Annur: {source.batchCode ?? `#${source.annurBatchId}`}
+                                {source.bagCount ? ` - ${source.bagCount} bags` : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between text-xs">
                           <span className={`font-semibold uppercase tracking-wider ${c.text}`}>
                             {PHASE_LABEL[batch.currentPhase] ?? batch.currentPhase}
@@ -581,12 +605,18 @@ export default function OotyRooms() {
               <Input
                 type="number"
                 min="1"
+                max={assignRoom?.capacity ?? undefined}
                 placeholder="e.g. 500 bags"
                 value={assignForm.bagCount}
                 onChange={(e) => setAssignForm({ ...assignForm, bagCount: e.target.value })}
                 className="rounded-md font-mono"
               />
               <p className="text-[11px] text-muted-foreground">How many bags from this Annur batch are going into {assignRoom?.name}?</p>
+              {assignmentExceedsRoomCapacity && (
+                <p className="text-xs text-destructive">
+                  Room capacity is {assignRoom?.capacity} bags. Reduce the allocation from {assignedBagCount} bags.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Spawn Run Start Date</Label>
@@ -607,7 +637,7 @@ export default function OotyRooms() {
               />
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={assignPending} className="w-full rounded-md">
+              <Button type="submit" disabled={assignPending || assignmentExceedsRoomCapacity} className="w-full rounded-md">
                 {assignPending ? "Starting..." : "Start Spawn Run"}
               </Button>
             </DialogFooter>

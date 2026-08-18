@@ -307,6 +307,9 @@ export default function Batches() {
                         Target Bags
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
+                        Produced Bags
+                      </th>
+                      <th className="px-4 py-3 font-semibold text-center">
                         Created
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
@@ -336,6 +339,9 @@ export default function Batches() {
                         </td>
                         <td className="px-4 font-mono text-right">
                           {b.targetBags ?? "â€”"}
+                        </td>
+                        <td className="px-4 font-mono text-right">
+                          {b.actualBags ?? "—"}
                         </td>
                         <td className="px-4 font-mono text-xs text-muted-foreground">
                           {new Date(b.createdAt).toLocaleDateString("en-IN")}

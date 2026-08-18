@@ -273,7 +273,14 @@ router.get("/vendors", requireAuth, async (_req, res) => {
 
 router.get("/master-data", requireAuth, async (req, res) => {
   const org = orgId(req);
-  const [vendors, users, items, warehouses, departments, purchaseOrders] =
+  const [
+    vendors,
+    users,
+    inventoryItems,
+    warehouses,
+    departments,
+    purchaseOrders,
+  ] =
     await Promise.all([
       db
         .select()
@@ -282,8 +289,12 @@ router.get("/master-data", requireAuth, async (req, res) => {
         .orderBy(contactsTable.name),
       db.select().from(usersTable).where(eq(usersTable.organizationId, org)),
       db
-        .select()
-        .from(materialsTable)
+        .select({ item: materialsTable })
+        .from(inventoryTable)
+        .innerJoin(
+          materialsTable,
+          eq(inventoryTable.materialId, materialsTable.id),
+        )
         .where(eq(materialsTable.active, true))
         .orderBy(materialsTable.name),
       db
@@ -316,6 +327,11 @@ router.get("/master-data", requireAuth, async (req, res) => {
         .filter(Boolean),
     ),
   ).sort();
+  const items = Array.from(
+    new Map(
+      inventoryItems.map(({ item }: any) => [Number(item.id), item]),
+    ).values(),
+  );
   return res.json({
     vendors: vendors.map((vendor: any) => ({
       id: String(vendor.id),

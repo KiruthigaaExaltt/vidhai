@@ -192,6 +192,7 @@ export default function OotyRoomDetail() {
     },
     onSuccess: () => {
       refetch();
+      queryClient.invalidateQueries({ queryKey: ["coimbatore-batches"] });
       toast.success("Stage completed");
       closeDialog();
     },
@@ -218,7 +219,10 @@ export default function OotyRoomDetail() {
       verificationImages: stageImages.filter(Boolean),
       notes: completeDialog.notes || null,
     };
-    if (isSpawnRun) payload.casingBatchRef = completeDialog.casingBatchRef;
+    if (isSpawnRun) {
+      payload.casingSourceType = completeDialog.casingSourceType;
+      payload.casingBatchRef = completeDialog.casingBatchRef;
+    }
     if (isHarvestStage) {
       payload.harvestData = {
         harvestDate: completeDialog.harvestDate,

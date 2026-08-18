@@ -11,16 +11,6 @@ import {
 } from "@workspace/db";
 
 export const PROTECTED_VAULT_ITEM_NAMES = new Set([
-  "paddy straw",
-  "sugarcane",
-  "chicken manure",
-  "castor doc",
-  "urea",
-  "can",
-  "gypsum",
-  "coir pith",
-  "press mud",
-  "limestone",
   "mushroom",
   "manure",
   "grow bag",
@@ -45,76 +35,6 @@ const DEFAULT_WAREHOUSES = {
 } as const;
 
 const DEFAULT_VAULT_ITEMS = [
-  {
-    name: "Paddy Straw",
-    sku: "VLT-RM-PADDY-STRAW",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "Sugarcane",
-    sku: "VLT-RM-SUGARCANE",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "Chicken Manure",
-    sku: "VLT-RM-CHICKEN-MANURE",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "Castor DOC",
-    sku: "VLT-RM-CASTOR-DOC",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "Urea",
-    sku: "VLT-RM-UREA",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "CAN",
-    sku: "VLT-RM-CAN",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "Gypsum",
-    sku: "VLT-RM-GYPSUM",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "ANNUR",
-  },
-  {
-    name: "Coir Pith",
-    sku: "VLT-RM-COIR-PITH",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "COIMBATORE",
-  },
-  {
-    name: "Press Mud",
-    sku: "VLT-RM-PRESS-MUD",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "COIMBATORE",
-  },
-  {
-    name: "Limestone",
-    sku: "VLT-RM-LIMESTONE",
-    unit: "kg",
-    itemType: "Raw Material",
-    warehouse: "COIMBATORE",
-  },
   {
     name: "Mushroom",
     sku: "VLT-FP-MUSHROOM",
@@ -281,10 +201,7 @@ export async function ensureDefaultVaultItems() {
               ),
             )
         : [];
-    const consolidationRows =
-      item.name === "Chicken Manure"
-        ? stockRows.filter((row) => row.locationId !== warehouses.OOTY.id)
-        : stockRows;
+    const consolidationRows = stockRows;
     const targetStock = consolidationRows.find(
       (row) => row.locationId === targetLocation.id,
     );

@@ -98,6 +98,15 @@ export function validateGrowingRoomImportInput(
       errors.push(
         "Bags Allocated must be a positive whole number when assigning a batch",
       );
+    if (
+      room.ok &&
+      room.value.capacity !== null &&
+      Number.isInteger(bagsAllocated) &&
+      bagsAllocated > room.value.capacity
+    )
+      errors.push(
+        `Bags Allocated cannot exceed room capacity of ${room.value.capacity}`,
+      );
     if (!/^\d{4}-\d{2}-\d{2}$/.test(spawnRunStartDate)) {
       errors.push(
         "Spawn Run Start Date must be a valid date in YYYY-MM-DD format when assigning a batch",
