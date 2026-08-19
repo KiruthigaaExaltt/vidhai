@@ -2126,16 +2126,16 @@ export function SalesDocumentForm({
                       </th>
                     )}
                     <th className="px-4 py-3 text-left font-medium">HSN/SAC</th>
-                    <th className="px-4 py-3 text-left font-medium w-20">
+                    <th className="w-36 min-w-36 px-4 py-3 text-left font-medium">
                       {isReturn ? "Invoiced Qty" : "QTY"}
                     </th>
                     {isReturn && (
-                      <th className="px-4 py-3 text-left font-medium w-24">
+                      <th className="w-36 min-w-36 px-4 py-3 text-left font-medium">
                         Already Returned
                       </th>
                     )}
                     {isReturn && (
-                      <th className="px-4 py-3 text-left font-medium w-24">
+                      <th className="w-36 min-w-36 px-4 py-3 text-left font-medium">
                         Returned Qty
                       </th>
                     )}
@@ -2364,31 +2364,36 @@ export function SalesDocumentForm({
                             placeholder="9983"
                           />
                         </td>
-                        <td className="px-4 py-3 align-top">
+                        <td className="min-w-36 px-4 py-3 align-top">
                           <Input
                             type="number"
-                            value={item.qty}
+                            min={0}
+                            step="any"
+                            value={item.qty || ""}
+                            placeholder="0"
                             onChange={(e) =>
                               updateItem(item.id, "qty", Number(e.target.value))
                             }
-                            className="h-8 text-sm"
+                            className="h-9 w-full min-w-28 text-sm"
                             disabled={isReturn}
                           />
                         </td>
                         {isReturn && (
-                          <td className="px-4 py-3 align-top">
+                          <td className="min-w-36 px-4 py-3 align-top">
                             <div className="flex h-8 items-center rounded-md border bg-muted/35 px-3 text-sm">
                               {item.alreadyReturnedQty || 0}
                             </div>
                           </td>
                         )}
                         {isReturn && (
-                          <td className="px-4 py-3 align-top">
+                          <td className="min-w-36 px-4 py-3 align-top">
                             <Input
                               type="number"
                               min={0}
+                              step="any"
                               max={item.returnableQty ?? item.qty}
-                              value={item.returnedQty}
+                              value={item.returnedQty || ""}
+                              placeholder="0"
                               onChange={(e) =>
                                 updateItem(
                                   item.id,
@@ -2399,7 +2404,7 @@ export function SalesDocumentForm({
                                   ),
                                 )
                               }
-                              className="h-8 text-sm"
+                              className="h-9 w-full min-w-28 text-sm"
                               disabled={
                                 Number(item.returnableQty ?? item.qty) <= 0
                               }
@@ -2423,7 +2428,10 @@ export function SalesDocumentForm({
                         <td className="min-w-36 px-4 py-3 align-top">
                           <Input
                             type="number"
-                            value={item.rate}
+                            min={0}
+                            step="any"
+                            value={item.rate || ""}
+                            placeholder="0"
                             onChange={(e) =>
                               updateItem(
                                 item.id,
@@ -2617,7 +2625,10 @@ export function SalesDocumentForm({
                       </span>
                       <Input
                         type="number"
-                        value={transportCharges}
+                        min={0}
+                        step="any"
+                        value={transportCharges || ""}
+                        placeholder="0"
                         onChange={(e) =>
                           setTransportCharges(Number(e.target.value))
                         }
@@ -2632,7 +2643,10 @@ export function SalesDocumentForm({
                       </span>
                       <Input
                         type="number"
-                        value={discountAmount}
+                        min={0}
+                        step="any"
+                        value={discountAmount || ""}
+                        placeholder="0"
                         onChange={(e) =>
                           setDiscountAmount(Number(e.target.value))
                         }
@@ -2666,7 +2680,10 @@ export function SalesDocumentForm({
                       </span>
                       <Input
                         type="number"
-                        value={amountPaid}
+                        min={0}
+                        step="any"
+                        value={amountPaid || ""}
+                        placeholder="0"
                         onChange={(e) => setAmountPaid(Number(e.target.value))}
                         className="h-7 w-24 text-right"
                       />

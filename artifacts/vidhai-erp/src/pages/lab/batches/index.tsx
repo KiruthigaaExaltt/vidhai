@@ -161,7 +161,18 @@ export default function LabBatches() {
                           />
                         </td>
                         <td className="px-4">
-                          <StatusBadge status={b.status} />
+                          <StatusBadge
+                            status={
+                              String(b.status).toLowerCase() === "completed"
+                                ? "used"
+                                : b.status
+                            }
+                            label={
+                              String(b.status).toLowerCase() === "completed"
+                                ? "Used"
+                                : undefined
+                            }
+                          />
                         </td>
                         <td className="px-4 font-mono text-muted-foreground">
                           {new Date(b.createdAt).toLocaleDateString()}

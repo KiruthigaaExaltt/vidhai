@@ -76,13 +76,28 @@ router.get("/batches", requireAuth, async (req, res) => {
     .leftJoin(usersTable, eq(batchesTable.createdByUserId, usersTable.id))
     .where(eq(locationsTable.code, "D"))
     .orderBy(desc(batchesTable.createdAt));
+  const usedSpawnReferences = new Set(
+    (await db.select().from(batchesTable))
+      .filter(
+        (batch: any) =>
+          batch.spawnBatchRef &&
+          String(batch.spawnBatchType || "internal") === "internal",
+      )
+      .map((batch: any) => String(batch.spawnBatchRef)),
+  );
+  const displayRows = rows.map((row: any) => ({
+    ...row,
+    status: usedSpawnReferences.has(String(row.batchCode))
+      ? "used"
+      : row.status,
+  }));
   if (req.query.skip === undefined && req.query.limit === undefined)
-    return res.json(rows);
+    return res.json(displayRows);
   const pagination = paginateQuery(req.query);
   return res.json(
     paginatedResponse(
-      rows.slice(pagination.skip, pagination.skip + pagination.limit),
-      rows.length,
+      displayRows.slice(pagination.skip, pagination.skip + pagination.limit),
+      displayRows.length,
       pagination,
     ),
   );
@@ -163,7 +178,19 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .from(labSpawnOutputTable)
     .where(eq(labSpawnOutputTable.batchId, id));
 
-  return res.json({ ...batch, materials, stageLogs, spawnOutputs });
+  const isUsed = (await db.select().from(batchesTable)).some(
+    (candidate: any) =>
+      String(candidate.spawnBatchRef || "") === String(batch.batchCode) &&
+      String(candidate.spawnBatchType || "internal") === "internal",
+  );
+
+  return res.json({
+    ...batch,
+    status: isUsed ? "used" : batch.status,
+    materials,
+    stageLogs,
+    spawnOutputs,
+  });
 });
 
 // ── Update Lab batch ──────────────────────────────────────────────────────────
@@ -428,12 +455,23 @@ router.get("/available-spawn", requireAuth, async (req, res) => {
     .innerJoin(batchesTable, eq(labSpawnOutputTable.batchId, batchesTable.id))
     .where(eq(labSpawnOutputTable.status, "available"))
     .orderBy(desc(labSpawnOutputTable.producedAt));
+  const usedSpawnReferences = new Set(
+    (await db.select().from(batchesTable))
+      .filter(
+        (batch: any) =>
+          batch.spawnBatchRef &&
+          String(batch.spawnBatchType || "internal") === "internal",
+      )
+      .map((batch: any) => String(batch.spawnBatchRef)),
+  );
   return res.json(
-    rows.map((r) => ({
-      ...r.output,
-      quantityKg: Number(r.output.quantityKg),
-      batchCode: r.batchCode,
-    })),
+    rows
+      .filter((r) => !usedSpawnReferences.has(String(r.batchCode)))
+      .map((r) => ({
+        ...r.output,
+        quantityKg: Number(r.output.quantityKg),
+        batchCode: r.batchCode,
+      })),
   );
 });
 

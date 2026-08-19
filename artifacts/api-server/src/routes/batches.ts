@@ -15,6 +15,7 @@ import {
   inventoryLocationsTable,
   inventoryAdjustmentsTable,
   annurDispatchInventoryPostingsTable,
+  labSpawnOutputTable,
 } from "@workspace/db";
 import { eq, and, desc, ilike } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
@@ -545,6 +546,33 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     });
   }
 
+  let selectedLabSpawnBatch: any;
+  let selectedLabSpawnOutput: any;
+  if (
+    nextStage === "SPAWN_MIXING" &&
+    String(spawnBatchType ?? "internal") === "internal"
+  ) {
+    [selectedLabSpawnBatch] = await db
+      .select()
+      .from(batchesTable)
+      .where(eq(batchesTable.batchCode, String(spawnBatchRef)))
+      .limit(1);
+    if (!selectedLabSpawnBatch)
+      return res.status(404).json({ error: "Selected Lab spawn batch was not found" });
+    const outputs = await db
+      .select()
+      .from(labSpawnOutputTable)
+      .where(eq(labSpawnOutputTable.batchId, selectedLabSpawnBatch.id));
+    selectedLabSpawnOutput = outputs.find(
+      (output: any) => String(output.status).toLowerCase() !== "used",
+    );
+    if (
+      String(selectedLabSpawnBatch.status).toLowerCase() === "used" ||
+      !selectedLabSpawnOutput
+    )
+      return res.status(409).json({ error: "Selected Lab spawn batch has already been used" });
+  }
+
   let selectedTurnChamber: typeof chambersTable.$inferSelect | undefined;
   if (batch.currentStage === "PRE_WETTING" && nextStage === "T1") {
     if (!turnChamberId)
@@ -622,6 +650,24 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
 
   const exitedAt = new Date();
   const updated = await db.transaction(async (tx) => {
+    if (selectedLabSpawnBatch && selectedLabSpawnOutput) {
+      const [consumedOutput] = await tx
+        .update(labSpawnOutputTable)
+        .set({ status: "used" })
+        .where(
+          and(
+            eq(labSpawnOutputTable.id, selectedLabSpawnOutput.id),
+            eq(labSpawnOutputTable.status, selectedLabSpawnOutput.status),
+          ),
+        )
+        .returning();
+      if (!consumedOutput)
+        throw new Error("Selected Lab spawn batch has already been used");
+      await tx
+        .update(batchesTable)
+        .set({ status: "used" })
+        .where(eq(batchesTable.id, selectedLabSpawnBatch.id));
+    }
     if (selectedTurnChamber) {
       const [locked] = await tx
         .update(chambersTable)

@@ -85,7 +85,7 @@ export default function Accounts() {
     [ar, setAr] = useState<any[]>([]),
     [customers, setCustomers] = useState<any[]>([]),
     [vendors, setVendors] = useState<any[]>([]),
-    [activeTab, setActiveTab] = useState("ap"),
+    [activeTab, setActiveTab] = useState("dashboard"),
     [search, setSearch] = useState(""),
     [apStatusFilter, setApStatusFilter] = useState("All"),
     [apApprovalFilter, setApApprovalFilter] = useState("All"),
