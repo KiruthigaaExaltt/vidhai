@@ -2,11 +2,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = __dirname;
-const envFile = [".env.prod", ".env.staging", ".env.demo", ".env"]
-  .find((name) => fs.existsSync(path.join(root, name)));
+const envFile = [".env.production", ".env.staging", ".env.demo", ".env"].find(
+  (name) => fs.existsSync(path.join(root, name)),
+);
 
 if (!envFile) {
-  throw new Error("No runtime environment file was found beside ecosystem.config.cjs");
+  throw new Error(
+    "No runtime environment file was found beside ecosystem.config.cjs",
+  );
 }
 
 module.exports = {
@@ -24,7 +27,8 @@ module.exports = {
       max_memory_restart: "1G",
       time: true,
       env: {
-        NODE_ENV: envFile === ".env.prod" ? "production" : envFile.slice(5),
+        NODE_ENV:
+          envFile === ".env.production" ? "production" : envFile.slice(5),
       },
     },
   ],

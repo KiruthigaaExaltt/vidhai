@@ -9,8 +9,8 @@
     "demo:data:clear": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.demo --import tsx ./src/mushroom-production-data.ts clear --confirm-production",
     "staging:data:seed": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.staging --import tsx ./src/mushroom-production-data.ts seed --confirm-production",
     "staging:data:clear": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.staging --import tsx ./src/mushroom-production-data.ts clear --confirm-production",
-    "production:data:seed": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env --import tsx ./src/mushroom-production-data.ts seed --confirm-production",
-    "production:data:clear": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env --import tsx ./src/mushroom-production-data.ts clear --confirm-production",
+    "production:data:seed": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.production --import tsx ./src/mushroom-production-data.ts seed --confirm-production",
+    "production:data:clear": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.production --import tsx ./src/mushroom-production-data.ts clear --confirm-production",
     "migrate:mongodb": "tsx ./migrate-postgresql-to-mongodb.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

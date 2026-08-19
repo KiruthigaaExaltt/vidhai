@@ -131,7 +131,7 @@ export function verifyEcosystemText(text, environment) {
   const expected = `.env.${environment}`;
   if (!text.includes(`--env-file=${expected}`))
     fail(`PM2 config does not explicitly load ${expected}`);
-  for (const other of ["demo", "staging", "prod"].filter(
+  for (const other of ["demo", "staging", "production"].filter(
     (value) => value !== environment,
   )) {
     if (text.includes(`--env-file=.env.${other}`))

@@ -96,6 +96,7 @@ test("accepts environment-specific PM2 config", () =>
   ));
 test("rejects staging PM2 config loading production env", () =>
   assert.throws(
-    () => verifyEcosystemText('node_args: "--env-file=.env.prod"', "staging"),
+    () =>
+      verifyEcosystemText('node_args: "--env-file=.env.production"', "staging"),
     /\.env\.staging/i,
   ));

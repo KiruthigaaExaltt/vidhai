@@ -35,7 +35,8 @@ if (!["demo", "staging", "prod"].includes(environment)) {
 if (clientOnly && serverOnly)
   throw new Error("Choose either --client-only or --server-only, not both.");
 
-const envFileName = `.env.${environment}`;
+const environmentName = environment === "prod" ? "production" : environment;
+const envFileName = `.env.${environmentName}`;
 const frontendEnv = path.join(frontendDir, envFileName);
 const backendEnv = path.join(backendDir, envFileName);
 const label = environment === "prod" ? "production" : environment;
@@ -229,7 +230,7 @@ async function packageBackend() {
     path.join(target.directory, "ecosystem.config.cjs"),
     ecosystem,
   );
-  verifyEcosystemText(ecosystem, environment);
+  verifyEcosystemText(ecosystem, environmentName);
   const sourcePackage = JSON.parse(
     await readFile(path.join(backendDir, "package.json"), "utf8"),
   );
@@ -244,8 +245,8 @@ async function packageBackend() {
       start: `node --env-file=${envFileName} --enable-source-maps ./dist/index.mjs`,
       "data:seed": `${seedCommand} seed --confirm-production`,
       "data:clear": `${seedCommand} clear --confirm-production`,
-      [`${environment}:data:seed`]: `${seedCommand} seed --confirm-production`,
-      [`${environment}:data:clear`]: `${seedCommand} clear --confirm-production`,
+      [`${environmentName}:data:seed`]: `${seedCommand} seed --confirm-production`,
+      [`${environmentName}:data:clear`]: `${seedCommand} clear --confirm-production`,
     },
     engines: { node: ">=20.19.0" },
   };
@@ -256,7 +257,7 @@ async function packageBackend() {
   const readme = `# Vidhai ERP API\n\nEnvironment: ${label}\nBuild: ${target.number}\nGenerated: ${new Date().toISOString()}\n\nStart with \`npm start\` or \`pm2 start ecosystem.config.cjs\`. The runtime configuration is loaded from \`${envFileName}\`. Protect that file because it may contain secrets. Keep the \`uploads/\` directory persistent between deployments.\n\nFrom this extracted backend directory, seed the configured database with \`npm run data:seed\`. Remove only the seeded dataset with \`npm run data:clear\`. Both commands load \`${envFileName}\`.\n`;
   await writeFile(path.join(target.directory, "README.md"), readme);
   await zipDirectory(target.directory, target.zip);
-  await verifyZip(target.zip, "backend", environment);
+  await verifyZip(target.zip, "backend", environmentName);
   console.log(
     `Created ${path.relative(root, target.directory)} and ${path.relative(root, target.zip)}`,
   );
@@ -279,7 +280,7 @@ if (!serverOnly) {
     "--config",
     "vite.config.ts",
     "--mode",
-    environment,
+    environmentName,
   ]);
   for (const name of [".htaccess", "web.config"]) {
     const source = path.join(frontendDir, name);
