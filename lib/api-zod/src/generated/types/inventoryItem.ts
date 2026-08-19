@@ -17,6 +17,8 @@ export interface InventoryItem {
   categoryId?: number | null;
   unit: string;
   quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
   /** @nullable */
   locationId?: number | null;
   /** @nullable */

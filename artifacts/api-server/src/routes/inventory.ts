@@ -6,6 +6,7 @@ import {
   inventoryMovementsTable,
   materialsTable,
   inventoryLocationsTable,
+  salesWorkOrdersTable,
   usersTable,
 } from "@workspace/db";
 import { eq, desc } from "@workspace/db";
@@ -23,19 +24,44 @@ function requireAuth(req: any, res: any, next: any) {
 
 // List inventory (unified product catalog with stock levels)
 router.get("/", requireAuth, async (req, res) => {
-  const rows = await db
-    .select({
-      inv: inventoryTable,
-      material: materialsTable,
-      locationName: inventoryLocationsTable.locationName,
-    })
-    .from(inventoryTable)
-    .innerJoin(materialsTable, eq(inventoryTable.materialId, materialsTable.id))
-    .leftJoin(
-      inventoryLocationsTable,
-      eq(inventoryTable.locationId, inventoryLocationsTable.id),
+  const [rows, workOrders] = await Promise.all([
+    db
+      .select({
+        inv: inventoryTable,
+        material: materialsTable,
+        locationName: inventoryLocationsTable.locationName,
+      })
+      .from(inventoryTable)
+      .innerJoin(
+        materialsTable,
+        eq(inventoryTable.materialId, materialsTable.id),
+      )
+      .leftJoin(
+        inventoryLocationsTable,
+        eq(inventoryTable.locationId, inventoryLocationsTable.id),
+      )
+      .orderBy(materialsTable.name),
+    db.select().from(salesWorkOrdersTable),
+  ]);
+  const reservedByMaterial = new Map<number, number>();
+  for (const workOrder of workOrders) {
+    if (
+      ["Completed", "Cancelled", "Rejected"].includes(String(workOrder.status))
     )
-    .orderBy(materialsTable.name);
+      continue;
+    const requirements = Array.isArray(workOrder.materialRequirements)
+      ? workOrder.materialRequirements
+      : [];
+    for (const requirement of requirements as any[]) {
+      const materialId = Number(requirement.materialId);
+      const quantity = Number(requirement.requiredQuantity || 0) || 0;
+      if (materialId)
+        reservedByMaterial.set(
+          materialId,
+          (reservedByMaterial.get(materialId) || 0) + quantity,
+        );
+    }
+  }
 
   let data = rows.map((r) => ({
     id: r.inv.id,
@@ -50,6 +76,10 @@ router.get("/", requireAuth, async (req, res) => {
     attributeValues: r.material.attributeValues,
     unit: r.material.unit,
     quantityOnHand: Number(r.inv.quantityOnHand),
+    reservedQuantity: reservedByMaterial.get(Number(r.material.id)) || 0,
+    availableQuantity:
+      Number(r.inv.quantityOnHand) -
+      (reservedByMaterial.get(Number(r.material.id)) || 0),
     locationId: r.inv.locationId,
     locationName: r.locationName ?? null,
     costBasis: r.inv.costBasis !== null ? Number(r.inv.costBasis) : null,
@@ -211,8 +241,7 @@ router.get("/movements", requireAuth, async (req, res) => {
       unit: row.unit,
       type: "transfer",
       fromLocationId: row.mov.fromLocationId,
-      fromLocationName:
-        locationNames.get(row.mov.fromLocationId) ?? null,
+      fromLocationName: locationNames.get(row.mov.fromLocationId) ?? null,
       toLocationId: row.mov.toLocationId,
       toLocationName: locationNames.get(row.mov.toLocationId) ?? null,
       quantityKg: Math.abs(Number(row.mov.quantityKg)),
@@ -224,8 +253,7 @@ router.get("/movements", requireAuth, async (req, res) => {
     })),
     ...adjustmentRows.map((row: any) => {
       const quantity = Number(row.adjustment.quantityDelta);
-      const locationName =
-        locationNames.get(row.adjustment.locationId) ?? null;
+      const locationName = locationNames.get(row.adjustment.locationId) ?? null;
       return {
         id: `adjustment-${row.adjustment.id}`,
         materialId: row.adjustment.materialId,
@@ -245,8 +273,7 @@ router.get("/movements", requireAuth, async (req, res) => {
       };
     }),
   ].sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   const search = String(req.query.search || "")
     .trim()

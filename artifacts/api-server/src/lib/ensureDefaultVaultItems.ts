@@ -1,9 +1,13 @@
 import {
   and,
+  batchMaterialsTable,
+  coimbatoreBatchMaterialsTable,
   db,
   eq,
+  inArray,
   inventoryAdjustmentsTable,
   inventoryLocationsTable,
+  inventoryMovementsTable,
   itemNamesTable,
   inventoryTable,
   materialsTable,
@@ -133,6 +137,66 @@ export async function ensureDefaultVaultItems() {
     }
   }
   const warehouses = await ensureDefaultWarehouses();
+  const allMaterials = await db.select().from(materialsTable);
+  const retainedMaterialIds = new Set<number>();
+
+  // Prefer an exact SKU match so an older renamed record is repaired instead
+  // of creating a duplicate. Fall back to the canonical name for fresh/local
+  // databases that predate the SKU normalization.
+  for (const item of DEFAULT_VAULT_ITEMS) {
+    const existing =
+      allMaterials.find(
+        (material) =>
+          String(material.sku ?? "")
+            .trim()
+            .toLowerCase() === item.sku.toLowerCase(),
+      ) ??
+      allMaterials.find(
+        (material) =>
+          material.name.trim().toLowerCase() === item.name.toLowerCase() &&
+          !retainedMaterialIds.has(material.id),
+      );
+    if (existing) retainedMaterialIds.add(existing.id);
+  }
+
+  const obsoleteMaterialIds = allMaterials
+    .filter((material) => !retainedMaterialIds.has(material.id))
+    .map((material) => material.id);
+  if (obsoleteMaterialIds.length > 0) {
+    // The Mongo-backed query layer only cascades references explicitly marked
+    // onDelete:cascade. Remove every direct material dependency first so this
+    // reconciliation cannot leave orphaned inventory or usage history behind.
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(inventoryAdjustmentsTable)
+        .where(
+          inArray(inventoryAdjustmentsTable.materialId, obsoleteMaterialIds),
+        );
+      await tx
+        .delete(inventoryMovementsTable)
+        .where(
+          inArray(inventoryMovementsTable.materialId, obsoleteMaterialIds),
+        );
+      await tx
+        .delete(inventoryTable)
+        .where(inArray(inventoryTable.materialId, obsoleteMaterialIds));
+      await tx
+        .delete(batchMaterialsTable)
+        .where(inArray(batchMaterialsTable.materialId, obsoleteMaterialIds));
+      await tx
+        .delete(coimbatoreBatchMaterialsTable)
+        .where(
+          inArray(
+            coimbatoreBatchMaterialsTable.materialId,
+            obsoleteMaterialIds,
+          ),
+        );
+      await tx
+        .delete(materialsTable)
+        .where(inArray(materialsTable.id, obsoleteMaterialIds));
+    });
+  }
+
   const existingMaterials = await db.select().from(materialsTable);
   const byName = new Map(
     existingMaterials.map((material) => [
@@ -144,7 +208,14 @@ export async function ensureDefaultVaultItems() {
   let createdStockRows = 0;
 
   for (const item of DEFAULT_VAULT_ITEMS) {
-    let material = byName.get(item.name.toLowerCase());
+    let material =
+      byName.get(item.name.toLowerCase()) ??
+      existingMaterials.find(
+        (candidate) =>
+          String(candidate.sku ?? "")
+            .trim()
+            .toLowerCase() === item.sku.toLowerCase(),
+      );
     if (!material) {
       [material] = await db
         .insert(materialsTable)
@@ -169,6 +240,7 @@ export async function ensureDefaultVaultItems() {
     [material] = await db
       .update(materialsTable)
       .set({
+        name: item.name,
         sku: item.sku,
         unit: item.unit,
         itemType: item.itemType,
@@ -263,6 +335,7 @@ export async function ensureDefaultVaultItems() {
   return {
     createdItems,
     createdStockRows,
+    deletedItems: obsoleteMaterialIds.length,
     totalDefaults: DEFAULT_VAULT_ITEMS.length,
   };
 }

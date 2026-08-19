@@ -14,6 +14,7 @@ import {
   inventoryTable,
   inventoryLocationsTable,
   inventoryAdjustmentsTable,
+  labSpawnOutputTable,
   annurDispatchInventoryPostingsTable,
   labSpawnOutputTable,
 } from "@workspace/db";

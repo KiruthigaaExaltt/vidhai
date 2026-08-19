@@ -2062,7 +2062,7 @@ components:
     InventoryItem:
       type: object
       required:
-        [id, materialId, materialName, unit, quantityOnHand, lastUpdated]
+        [id, materialId, materialName, unit, quantityOnHand, reservedQuantity, availableQuantity, lastUpdated]
       properties:
         id: { type: integer }
         materialId: { type: integer }
@@ -2071,6 +2071,8 @@ components:
         category: { type: string }
         unit: { type: string }
         quantityOnHand: { type: number }
+        reservedQuantity: { type: number }
+        availableQuantity: { type: number }
         locationId: { type: ["integer", "null"] }
         locationName: { type: ["string", "null"] }
         costBasis: { type: ["number", "null"] }

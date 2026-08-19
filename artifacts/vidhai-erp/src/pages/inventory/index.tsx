@@ -198,9 +198,7 @@ export default function InventoryModule() {
   });
   const inventory: any[] = inventoryQuery.data ?? [];
   const inventoryItemOptions: any[] = Array.from(
-    new Map(
-      inventory.map((item) => [Number(item.materialId), item]),
-    ).values(),
+    new Map(inventory.map((item) => [Number(item.materialId), item])).values(),
   );
   const warehouseQuery = useQuery({
     queryKey: [
@@ -1111,7 +1109,11 @@ export default function InventoryModule() {
                               <th className="px-4 py-3">SKU</th>
                               <th className="px-4 py-3">Category</th>
                               <th className="px-4 py-3">Warehouse</th>
-                              <th className="px-4 py-3 text-right">Quantity</th>
+                              <th className="px-4 py-3 text-right">Actual</th>
+                              <th className="px-4 py-3 text-right">Reserved</th>
+                              <th className="px-4 py-3 text-right">
+                                Available
+                              </th>
                               <th className="px-4 py-3 text-right">
                                 Buy Price
                               </th>
@@ -1159,6 +1161,22 @@ export default function InventoryModule() {
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono font-bold">
                                   {inv.quantityOnHand} {inv.unit}
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono font-semibold text-amber-700">
+                                  {inv.reservedQuantity ?? 0} {inv.unit}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-right font-mono font-bold ${
+                                    Number(
+                                      inv.availableQuantity ??
+                                        inv.quantityOnHand,
+                                    ) < 0
+                                      ? "text-destructive"
+                                      : "text-emerald-700"
+                                  }`}
+                                >
+                                  {inv.availableQuantity ?? inv.quantityOnHand}{" "}
+                                  {inv.unit}
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   ₹{inv.buyPricePerUnit ?? "—"}
@@ -2535,7 +2553,8 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">
-                  Selling Price (₹) <span className="text-destructive">*</span>
+                  Selling Price (₹){" "}
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   type="number"
@@ -3028,10 +3047,7 @@ export default function InventoryModule() {
                 </SelectTrigger>
                 <SelectContent>
                   {inventoryItemOptions.map((item) => (
-                    <SelectItem
-                      key={item.materialId}
-                      value={item.materialName}
-                    >
+                    <SelectItem key={item.materialId} value={item.materialName}>
                       {item.materialName}
                     </SelectItem>
                   ))}
@@ -3308,7 +3324,7 @@ export default function InventoryModule() {
               This action cannot be undone. This will permanently delete the{" "}
               {itemToDelete?.type === "item-name"
                 ? "item name"
-                : itemToDelete?.type ?? "item"}{" "}
+                : (itemToDelete?.type ?? "item")}{" "}
               from the system.
             </AlertDialogDescription>
           </AlertDialogHeader>

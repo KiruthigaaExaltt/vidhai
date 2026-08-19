@@ -3,12 +3,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const dist=resolve(import.meta.dirname,"../dist/public");
-for(const file of ["index.html","sw.js","manifest.webmanifest","pwa-192x192.png","pwa-512x512.png","pwa-maskable-512x512.png","apple-touch-icon.png","favicon.png"])assert.ok(existsSync(resolve(dist,file)),`${file} missing`);
+for(const file of ["index.html","sw.js","manifest.webmanifest","pwa-portrait-v2-192x192.png","pwa-portrait-v2-512x512.png","pwa-portrait-v2-maskable-512x512.png","apple-touch-icon-portrait-v2.png","favicon-portrait-v2.png"])assert.ok(existsSync(resolve(dist,file)),`${file} missing`);
 const manifest=JSON.parse(readFileSync(resolve(dist,"manifest.webmanifest"),"utf8"));
+assert.equal(manifest.id,"/vidhai-erp-portrait-v2");
 assert.equal(manifest.name,"Vidhai ERP Production Control Center");
 assert.equal(manifest.display,"standalone");
+assert.equal(manifest.start_url,"/?pwa=portrait-v2");
 assert.equal(manifest.theme_color,"#20BFAF");
 assert.equal(manifest.icons.length,3);
+for(const icon of manifest.icons)assert.ok(icon.src.includes("portrait-v2"),`unversioned icon URL: ${icon.src}`);
+assert.ok(manifest.icons.filter(icon=>icon.purpose==="any").length>=2,"regular icons must declare purpose=any");
 assert.ok(manifest.icons.some(icon=>icon.purpose==="maskable"&&icon.sizes==="512x512"));
 const sw=readFileSync(resolve(dist,"sw.js"),"utf8");
 for(const marker of ["vidhai-navigation-","vidhai-public-images-","SKIP_WAITING","index.html","/api/"])assert.ok(sw.includes(marker),`${marker} absent from sw.js`);

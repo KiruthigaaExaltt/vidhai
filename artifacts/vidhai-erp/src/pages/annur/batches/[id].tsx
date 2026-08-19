@@ -5,6 +5,7 @@ import {
   getGetBatchQueryKey,
   useAdvanceBatchStage,
   useListLabBatches,
+  getListLabBatchesQueryKey,
   useListChambers,
   getListChambersQueryKey,
 } from "@workspace/api-client-react";
@@ -79,7 +80,9 @@ export default function BatchDetail() {
     query: { enabled: true },
   } as any);
   const completedLabBatches =
-    labBatches?.filter((b: any) => b.status === "completed") ?? [];
+    labBatches?.filter(
+      (b: any) => b.currentStage === "COMPLETED" && b.status === "completed",
+    ) ?? [];
   const { data: chambers } = useListChambers(
     { locationId: batch?.locationId },
     { query: { enabled: !!batch?.locationId } } as any,
@@ -163,6 +166,9 @@ export default function BatchDetail() {
           queryKey: getGetBatchQueryKey(batchId),
         });
         queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() });
+        queryClient.invalidateQueries({
+          queryKey: getListLabBatchesQueryKey(),
+        });
         toast.success("Stage completed");
         setCompleteDialog({
           open: false,
