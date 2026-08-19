@@ -17,8 +17,12 @@
     "test:build-package": "node --test ./scripts/build-package.test.mjs",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "demo:seed": "pnpm --filter @workspace/scripts run demo:seed",
-    "demo:clear": "pnpm --filter @workspace/scripts run demo:clear"
+    "demo:data:seed": "pnpm --filter @workspace/scripts run demo:data:seed",
+    "demo:data:clear": "pnpm --filter @workspace/scripts run demo:data:clear",
+    "staging:data:seed": "pnpm --filter @workspace/scripts run staging:data:seed",
+    "staging:data:clear": "pnpm --filter @workspace/scripts run staging:data:clear",
+    "production:data:seed": "pnpm --filter @workspace/scripts run production:data:seed",
+    "production:data:clear": "pnpm --filter @workspace/scripts run production:data:clear"
   },
   "private": true,
   "dependencies": {
