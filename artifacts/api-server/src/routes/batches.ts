@@ -16,7 +16,6 @@ import {
   inventoryAdjustmentsTable,
   labSpawnOutputTable,
   annurDispatchInventoryPostingsTable,
-  labSpawnOutputTable,
 } from "@workspace/db";
 import { eq, and, desc, ilike } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";

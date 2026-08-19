@@ -5,7 +5,7 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, import.meta.dirname, ""), ...process.env };
   const rawPort = env.PORT;
 
@@ -42,8 +42,8 @@ export default defineConfig(async ({ mode }) => {
         injectRegister: false,
         registerType: "prompt",
         includeAssets: [
-          "favicon-portrait-v2.png",
-          "apple-touch-icon-portrait-v2.png",
+          "favicon-maharishi-v4.png",
+          "apple-touch-icon-maharishi-v4.png",
         ],
         injectManifest: {
           globPatterns: ["**/*.{html,js,css,svg,png,webp,woff2,jpg}"],
@@ -55,12 +55,12 @@ export default defineConfig(async ({ mode }) => {
         // subscriptions can be tested in development as well as production.
         devOptions: { enabled: true, type: "module" },
         manifest: {
-          id: "/vidhai-erp-portrait-v2",
+          id: "/vidhai-erp-maharishi-v4",
           name: "Vidhai ERP Production Control Center",
           short_name: "Vidhai ERP",
           description:
             "Multi-site production control for Nilgiri Farm Produce.",
-          start_url: `${basePath}?pwa=portrait-v2`,
+          start_url: `${basePath}?pwa=maharishi-v4`,
           scope: basePath,
           display: "standalone",
           orientation: "any",
@@ -69,19 +69,19 @@ export default defineConfig(async ({ mode }) => {
           background_color: "#EAF9F7",
           icons: [
             {
-              src: "pwa-portrait-v2-192x192.png",
+              src: "pwa-maharishi-v4-192x192.png",
               sizes: "192x192",
               type: "image/png",
               purpose: "any",
             },
             {
-              src: "pwa-portrait-v2-512x512.png",
+              src: "pwa-maharishi-v4-512x512.png",
               sizes: "512x512",
               type: "image/png",
               purpose: "any",
             },
             {
-              src: "pwa-portrait-v2-maskable-512x512.png",
+              src: "pwa-maharishi-v4-maskable-512x512.png",
               sizes: "512x512",
               type: "image/png",
               purpose: "maskable",
@@ -89,18 +89,18 @@ export default defineConfig(async ({ mode }) => {
           ],
         },
       }),
-      ...(env.NODE_ENV !== "production" && env.REPL_ID !== undefined
-        ? [
-            await import("@replit/vite-plugin-cartographer").then((m) =>
-              m.cartographer({
-                root: path.resolve(import.meta.dirname, ".."),
-              }),
-            ),
-            await import("@replit/vite-plugin-dev-banner").then((m) =>
-              m.devBanner(),
-            ),
-          ]
-        : []),
+      // ...(env.NODE_ENV !== "production" && env.REPL_ID !== undefined
+      //   ? [
+      //       await import("@replit/vite-plugin-cartographer").then((m) =>
+      //         m.cartographer({
+      //           root: path.resolve(import.meta.dirname, ".."),
+      //         }),
+      //       ),
+      //       await import("@replit/vite-plugin-dev-banner").then((m) =>
+      //         m.devBanner(),
+      //       ),
+      //     ]
+      //   : []),
     ],
     resolve: {
       alias: {
