@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, inventoryLocationsTable } from "@workspace/db";
 import { eq, desc } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { publishInventoryMasterCreated } from "../lib/notificationService";
 
 const router = Router();
 
@@ -120,6 +121,16 @@ router.post("/", async (req, res) => {
     .where(eq(inventoryLocationsTable.id, location.id))
     .returning();
 
+  res.locals.notificationHandled = true;
+  await publishInventoryMasterCreated(req, {
+    permissionKey: "inventory.warehouses.notification",
+    eventType: "WAREHOUSE_CREATED",
+    title: "Warehouse created",
+    entityType: "warehouse",
+    entityId: updated.id,
+    label: updated.locationName,
+  });
+
   res.status(201).json(updated);
 });
 
@@ -195,11 +206,9 @@ router.delete("/:id", async (req, res) => {
   }
 
   if (location.isProtected || location.isReservedWarehouse) {
-    res
-      .status(403)
-      .json({
-        error: "Reserved Warehouse is system protected and cannot be deleted",
-      });
+    res.status(403).json({
+      error: "Reserved Warehouse is system protected and cannot be deleted",
+    });
     return;
   }
 

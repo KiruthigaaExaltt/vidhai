@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
+import { publishNotification } from "../lib/notificationService";
 import {
   and,
   asc,
@@ -655,6 +656,32 @@ router.post(
             ),
           );
       void audit(req, "employee", row.id, row.name, "create", null, row);
+      const actorId = Number(req.crew.user.id);
+      await publishNotification({
+        organizationId: org,
+        actorId,
+        permissionKey: "crew.employees.notification",
+        additionalPermissionKeys: ["crew.employees.view"],
+        directRecipientUserIds: [
+          ...new Set([
+            actorId,
+            ...(row.userId ? [Number(row.userId)] : []),
+          ]),
+        ],
+        eventType: "CREW_EMPLOYEE_CREATED",
+        eventKey: `crew-employee:${row.id}:created`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "employees",
+        title: "New employee added",
+        message: `${row.name} (${row.employeeCode}) was added to ${row.department}.`,
+        sourceEntityType: "employee",
+        sourceEntityId: row.id,
+        sourceReference: row.employeeCode,
+        navigationUrl: "/crew",
+        metadata: { employeeUserId: row.userId, department: row.department },
+      });
+      res.locals.notificationHandled = true;
       return res.status(201).json(row);
     } catch (e: any) {
       if (stored?.full) await unlink(stored.full).catch(() => {});
@@ -1659,6 +1686,69 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
       })
       .returning();
     void audit(req, "leave", row.id, employee.name, "create", null, row);
+    const [reportingManager] = employee.reportingManager
+      ? await db
+          .select()
+          .from(employeesTable)
+          .where(
+            and(
+              eq(employeesTable.id, Number(employee.reportingManager)),
+              eq(employeesTable.organizationId, req.crew.org),
+            ),
+          )
+          .limit(1)
+      : [null];
+    const organizationUsers = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.organizationId, req.crew.org));
+    const adminUserIds = organizationUsers
+      .filter((user: any) => {
+        const role = String(user.role || "").trim().toLowerCase();
+        return (
+          !user.isDeleted &&
+          user.isActive !== false &&
+          (role === "admin" ||
+            role === "super_admin" ||
+            user.systemKey === "ADMIN" ||
+            user.systemKey === "SUPER_ADMIN")
+        );
+      })
+      .map((user: any) => Number(user.id));
+    const recipientUserIds = [
+      ...new Set([
+        ...adminUserIds,
+        ...(reportingManager?.userId
+          ? [Number(reportingManager.userId)]
+          : []),
+      ]),
+    ].filter((id) => Number.isInteger(id) && id > 0);
+    if (recipientUserIds.length) {
+      await publishNotification({
+        organizationId: req.crew.org,
+        actorId: Number(req.crew.user.id),
+        permissionKey: "crew.leave.notification",
+        recipientUserIds: [],
+        directRecipientUserIds: recipientUserIds,
+        eventType: "CREW_LEAVES_REQUESTED",
+        eventKey: `crew-leave:${row.id}:requested`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "leave",
+        title: "Leave requested",
+        message: `${employee.name} requested ${row.leaveType} leave from ${row.startDate} to ${row.endDate}.`,
+        sourceEntityType: "leave_request",
+        sourceEntityId: row.id,
+        sourceReference: employee.employeeCode,
+        navigationUrl: "/crew",
+        metadata: {
+          employeeId: employee.id,
+          reportingManagerId: employee.reportingManager,
+          status: row.status,
+        },
+      });
+    }
+    res.locals.notificationHandled = true;
     return res.status(201).json(row);
   } catch (error: any) {
     return res
@@ -2133,6 +2223,32 @@ router.post("/bonus", async (req: any, res: any): Promise<any> => {
       null,
       row,
     );
+    if (employee.userId) {
+      await publishNotification({
+        organizationId: req.crew.org,
+        actorId: Number(req.crew.user.id),
+        permissionKey: "crew.bonus.notification",
+        recipientUserIds: [],
+        directRecipientUserIds: [Number(employee.userId)],
+        eventType: "CREW_BONUS_ADDED",
+        eventKey: `crew-bonus:${row.id}:added`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "bonus",
+        title: "Bonus added",
+        message: `A bonus of ₹${amount.toLocaleString("en-IN")} was added to your salary for ${payrollMonth}.`,
+        sourceEntityType: "crew_bonus",
+        sourceEntityId: row.id,
+        sourceReference: employee.employeeCode,
+        navigationUrl: "/crew",
+        metadata: {
+          employeeId: employee.id,
+          payrollMonth,
+          amount,
+        },
+      });
+    }
+    res.locals.notificationHandled = true;
     return res.status(201).json(row);
   } catch (error: any) {
     return res
@@ -2251,7 +2367,31 @@ for (const type of ["claims"]) {
       })
       .returning();
     void audit(req, type.slice(0, -1), row.id, e.name, "create", null, row);
-    res.status(201).json(row);
+    {
+      await publishNotification({
+        organizationId: req.crew.org,
+        actorId: Number(req.crew.user.id),
+        permissionKey: "crew.claims.notification",
+        eventType: "CREW_CLAIMS_REQUESTED",
+        eventKey: `crew-claim:${row.id}:requested`,
+        sourceModule: "crew",
+        targetModule: "crew",
+        submodule: "claims",
+        title: "Claim submitted",
+        message: `${e.name} submitted ${String(row.claimType).replace(/_/g, " ")} claim ${row.title} for ₹${Number(row.amount).toLocaleString("en-IN")}.`,
+        sourceEntityType: "crew_claim",
+        sourceEntityId: row.id,
+        sourceReference: row.title,
+        navigationUrl: "/crew",
+        metadata: {
+          employeeId: e.id,
+          reportingManagerId: e.reportingManager,
+          status: row.status,
+        },
+      });
+    }
+    res.locals.notificationHandled = true;
+    return res.status(201).json(row);
   });
   router.patch(`/${type}/:id/status`, (req: any, res: any) =>
     decision(
@@ -2472,7 +2612,34 @@ router.post("/deductions", async (req: any, res: any): Promise<any> => {
     })
     .returning();
   void audit(req, "deduction", row.id, e.name, "create", null, row);
-  res.status(201).json(row);
+  if (e.userId) {
+    await publishNotification({
+      organizationId: req.crew.org,
+      actorId: Number(req.crew.user.id),
+      permissionKey: "crew.deductions.notification",
+      recipientUserIds: [],
+      directRecipientUserIds: [Number(e.userId)],
+      eventType: "CREW_DEDUCTION_ADDED",
+      eventKey: `crew-deduction:${row.id}:added`,
+      sourceModule: "crew",
+      targetModule: "crew",
+      submodule: "deductions",
+      title: "Deduction added",
+      message: `A deduction of ₹${Number(row.amount).toLocaleString("en-IN")} was added to your salary for ${row.date}.`,
+      sourceEntityType: "crew_deduction",
+      sourceEntityId: row.id,
+      sourceReference: e.employeeCode,
+      navigationUrl: "/crew",
+      metadata: {
+        employeeId: e.id,
+        date: row.date,
+        amount: Number(row.amount),
+        source: row.source,
+      },
+    });
+  }
+  res.locals.notificationHandled = true;
+  return res.status(201).json(row);
 });
 router.patch("/deductions/:id/status", (req: any, res: any) =>
   decision(req, res, crewDeductionsTable, "deductions"),

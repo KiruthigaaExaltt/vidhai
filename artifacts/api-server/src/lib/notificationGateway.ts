@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { db, eq, usersTable } from "@workspace/db";
 import { configuredCorsOrigins, corsOriginHandler } from "./cors";
 import { logger } from "./logger";
+import { authenticateAccessTokenValue } from "./jwtAuth";
 
 let io: Server | null = null;
 
@@ -20,17 +21,24 @@ export function initializeNotificationGateway(
     try {
       const session = (socket.request as any).session;
       const userId = Number(session?.userId);
-      if (!userId) return next(new Error("Authentication required"));
-      const [user] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.id, userId))
-        .limit(1);
+      const tokenUser = await authenticateAccessTokenValue(
+        socket.handshake.auth?.accessToken,
+      );
+      const [sessionUser] = userId
+        ? await db
+            .select()
+            .from(usersTable)
+            .where(eq(usersTable.id, userId))
+            .limit(1)
+        : [null];
+      const user = tokenUser ?? sessionUser;
       if (
         !user ||
         user.isDeleted ||
         user.isActive === false ||
-        Number(user.sessionVersion ?? 0) !== Number(session.sessionVersion ?? 0)
+        (!tokenUser &&
+          Number(user.sessionVersion ?? 0) !==
+            Number(session?.sessionVersion ?? 0))
       )
         return next(new Error("Authentication required"));
       socket.data.user = user;

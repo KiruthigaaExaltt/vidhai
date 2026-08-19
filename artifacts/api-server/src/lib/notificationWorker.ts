@@ -86,7 +86,23 @@ async function processJob(job: any) {
     event.permissionKey,
     event.recipientUserIds,
     event.directRecipientUserIds,
+    event.additionalPermissionKeys,
   );
+  if (!recipients.length) {
+    await db.update(notificationOutboxTable).set({
+      status: "COMPLETED_NO_RECIPIENTS",
+      processedAt: new Date(),
+      lockedAt: null,
+      lockedBy: null,
+      lastError: `No active recipients resolved for ${event.permissionKey}`,
+      updatedAt: new Date(),
+    }).where(eq(notificationOutboxTable.id, job.id));
+    logger.warn(
+      { jobId: job.id, organizationId: event.organizationId, eventType: event.eventType, permissionKey: event.permissionKey },
+      "NOTIFICATION_NO_RECIPIENTS",
+    );
+    return;
+  }
   const results = await Promise.allSettled(recipients.map(recipient => deliver(event, Number(recipient.id))));
   const failures = results.filter(result => result.status === "rejected");
   if (failures.length) throw new AggregateError(failures.map(result => (result as PromiseRejectedResult).reason), "Notification delivery failed");

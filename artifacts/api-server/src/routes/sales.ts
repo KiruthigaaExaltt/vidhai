@@ -28,6 +28,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { publishNotification } from "../lib/notificationService";
 import {
   cancelInvoiceAccounting,
   deletePaymentAccounting,
@@ -213,6 +214,110 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
+async function publishSalesCreatedNotification(
+  req: any,
+  res: any,
+  input: {
+    permissionKey: string;
+    viewPermissionKey: string;
+    eventType: string;
+    title: string;
+    message: string;
+    entityType: string;
+    entityId: number;
+    reference: string;
+  },
+) {
+  const actorId = Number((req.session as any).userId);
+  await publishNotification({
+    organizationId: Number(req.authUser?.organizationId ?? 1),
+    actorId,
+    permissionKey: input.permissionKey,
+    additionalPermissionKeys: [input.viewPermissionKey],
+    directRecipientUserIds: [actorId],
+    eventType: input.eventType,
+    eventKey: `${input.entityType}:${input.entityId}:created`,
+    sourceModule: "sales",
+    targetModule: "sales",
+    submodule: input.entityType,
+    title: input.title,
+    message: input.message,
+    sourceEntityType: input.entityType,
+    sourceEntityId: input.entityId,
+    sourceReference: input.reference,
+    navigationUrl: "/sales",
+  });
+  res.locals.notificationHandled = true;
+}
+
+async function publishAccountsReceivableEntryNotification(req: any, entry: any) {
+  const reference = String(entry.invoiceNumber || `AR entry ${entry.id}`);
+  await publishNotification({
+    organizationId: Number(req.authUser?.organizationId ?? 1),
+    actorId: Number((req.session as any).userId),
+    permissionKey: "accounts.accounts_receivable.notification",
+    additionalPermissionKeys: ["accounts.accounts_receivable.view"],
+    eventType: "ACCOUNTS_RECEIVABLE_PENDING_INVOICE_CREATED",
+    eventKey: `accounts-receivable:${entry.id}:pending-invoice:created`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_receivable",
+    title: "AR pending invoice created",
+    message: `${reference} was added to Accounts Receivable for ${entry.clientName || "the customer"}.`,
+    sourceEntityType: "ar_pending_invoice",
+    sourceEntityId: entry.id,
+    sourceReference: reference,
+    navigationUrl: "/accounts",
+    metadata: {
+      entryType: entry.entryType,
+      status: entry.status,
+      amount: Number(entry.amount || 0),
+      sourceType: entry.sourceType,
+      sourceId: entry.sourceId,
+    },
+  });
+}
+
+async function publishAccountsReceivablePaymentNotification(
+  req: any,
+  payment: any,
+  receivable: any,
+) {
+  const balance = Math.max(
+    0,
+    Number(receivable.amount || 0) -
+      Number(receivable.receivedAmount || 0) -
+      Number(receivable.adjustedAmount || 0),
+  );
+  const fullyPaid = balance <= 0.005;
+  await publishNotification({
+    organizationId: Number(req.authUser?.organizationId ?? 1),
+    actorId: Number((req.session as any).userId),
+    permissionKey: "accounts.accounts_receivable.notification",
+    additionalPermissionKeys: ["accounts.accounts_receivable.view"],
+    eventType: fullyPaid
+      ? "ACCOUNTS_RECEIVABLE_PAYMENT_COMPLETED"
+      : "ACCOUNTS_RECEIVABLE_PARTIAL_PAYMENT_RECORDED",
+    eventKey: `accounts-receivable-payment:${payment.id}:${fullyPaid ? "completed" : "partial"}`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_receivable",
+    title: fullyPaid ? "AR payment completed" : "AR partial payment received",
+    message: `${payment.paymentNumber} received ₹${Number(payment.amount || 0).toLocaleString("en-IN")} for ${receivable.invoiceNumber}. ${fullyPaid ? "The invoice is fully settled." : `Remaining balance: ₹${balance.toLocaleString("en-IN")}.`}`,
+    sourceEntityType: "customer_payment",
+    sourceEntityId: payment.id,
+    sourceReference: payment.paymentNumber,
+    navigationUrl: "/accounts",
+    metadata: {
+      receivableId: receivable.id,
+      invoiceNumber: receivable.invoiceNumber,
+      paymentAmount: Number(payment.amount || 0),
+      balance,
+      settlement: fullyPaid ? "full" : "partial",
+    },
+  });
+}
+
 function orderCode(seq: number) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
@@ -267,6 +372,14 @@ router.post("/", requireAuth, async (req, res) => {
     totalValue: totalValue ? String(totalValue) : null,
     notes: notes ?? null, createdByUserId: userId,
   }).returning();
+  await publishNotification({
+    organizationId: Number((req as any).authUser?.organizationId ?? 1), actorId: Number(userId),
+    permissionKey: "sales.quotations.notification", eventType: "SALES_ORDER_CREATED",
+    eventKey: `sales-order:${row.id}:created`, sourceModule: "sales", targetModule: "sales", submodule: "sales_orders",
+    title: "Sales order created", message: `${row.orderCode || `Sales order ${row.id}`} was created.`,
+    sourceEntityType: "sales_order", sourceEntityId: row.id, sourceReference: row.orderCode, navigationUrl: "/sales",
+  });
+  res.locals.notificationHandled = true;
   return res.status(201).json(row);
 });
 
@@ -615,6 +728,12 @@ router.post("/quotations", requireAuth, async (req, res) => {
   }
 
   const savedItems = await db.select().from(quotationItemsTable).where(eq(quotationItemsTable.quoteId, doc.id));
+  await publishSalesCreatedNotification(req, res, {
+    permissionKey: "sales.quotations.notification", viewPermissionKey: "sales.quotations.view",
+    eventType: "SALES_QUOTATIONS_DRAFT", title: "Quotation created",
+    message: `${doc.quoteNumber || `Quotation ${doc.id}`} was created for ${doc.clientName || "the customer"}.`,
+    entityType: "quotation", entityId: Number(doc.id), reference: doc.quoteNumber || String(doc.id),
+  });
   return res.status(201).json({ ...serializeQuotation(doc), items: savedItems.map(serializeQuotationItem) });
 });
 
@@ -1255,6 +1374,12 @@ router.post("/challans", requireAuth, async (req, res) => {
     const [doc] = await db.insert(deliveryChallansTable).values({ dcNumber, ...challanData(req.body), status: "Draft", stockDeducted: false }).returning();
     await saveChallanItems(Number(doc.id), req.body.items || []);
     const items = await db.select().from(deliveryChallanItemsTable).where(eq(deliveryChallanItemsTable.dcId, doc.id));
+    await publishSalesCreatedNotification(req, res, {
+      permissionKey: "sales.delivery_challans.notification", viewPermissionKey: "sales.delivery_challans.view",
+      eventType: "SALES_CHALLANS_DRAFT", title: "Delivery challan created",
+      message: `${doc.dcNumber || `Delivery challan ${doc.id}`} was created for ${doc.clientName || "the customer"}.`,
+      entityType: "delivery_challan", entityId: Number(doc.id), reference: doc.dcNumber || String(doc.id),
+    });
     return res.status(201).json({ ...serializeProforma(doc), items: items.map(serializeQuotationItem) });
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
@@ -1362,6 +1487,16 @@ router.post("/invoices", requireAuth, async (req, res) => {
     const invoicePayload = invoiceData(req.body);
     const [doc] = await db.insert(salesInvoicesTable).values({ invoiceNumber, rootInvoiceNumber: invoiceNumber, ...invoicePayload, amountPaid: "0", balanceDue: invoicePayload.grandTotal, paymentStatus: "Unpaid", status: "Draft", versionSeries: "Draft", versionNumber: 1, versionLabel: "Draft V1", isLatestVersion: true, isLocked: false }).returning();
     await saveInvoiceItems(Number(doc.id), req.body.items);
+    await publishSalesCreatedNotification(req, res, {
+      permissionKey: "sales.invoices.notification",
+      viewPermissionKey: "sales.invoices.view",
+      eventType: "SALES_INVOICE_CREATED",
+      title: "Sales invoice created",
+      message: `${doc.invoiceNumber} was created as a draft.`,
+      entityType: "sales_invoice",
+      entityId: Number(doc.id),
+      reference: doc.invoiceNumber,
+    });
     return res.status(201).json(await invoiceWithItems(doc));
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
@@ -1426,7 +1561,28 @@ router.post("/invoices/:id/customer-response", requireAuth, async (req, res) => 
   if (status === "Approved") {
     try {
       const context = await accountingContext(req);
-      await triggerInvoiceApproved(id, context.organizationId, context.userId);
+      const accounting = await triggerInvoiceApproved(id, context.organizationId, context.userId);
+      if (accounting?.ar)
+        await publishAccountsReceivableEntryNotification(req, accounting.ar);
+      await publishNotification({
+        organizationId: context.organizationId,
+        actorId: context.userId,
+        permissionKey: "sales.invoices.notification",
+        additionalPermissionKeys: ["sales.invoices.view"],
+        eventType: "SALES_INVOICE_APPROVED",
+        eventKey: `sales-invoice:${id}:approved`,
+        sourceModule: "sales",
+        targetModule: "sales",
+        submodule: "invoices",
+        title: "Sales invoice approved",
+        message: `${updated.invoiceNumber} was approved and posted to Accounts Receivable.`,
+        sourceEntityType: "sales_invoice",
+        sourceEntityId: id,
+        sourceReference: updated.invoiceNumber,
+        navigationUrl: "/sales",
+        metadata: { status: "Approved", accountsReceivableId: accounting?.ar?.id },
+      });
+      res.locals.notificationHandled = true;
     } catch (error: any) {
       await db.update(salesInvoicesTable).set({ status: "Sent", isLocked: false, customerResponseAt: null, confirmedByUserId: null }).where(eq(salesInvoicesTable.id, id));
       return res.status(500).json({ error: `Invoice approval accounting failed: ${error.message}` });
@@ -1512,6 +1668,27 @@ router.post("/payments", requireAuth, async (req, res) => {
       throw error;
     }
     const [saved] = await db.select().from(salesPaymentsTable).where(eq(salesPaymentsTable.id, payment.id)).limit(1);
+    const [updatedReceivable] = await db
+      .select()
+      .from(accountsReceivableTable)
+      .where(
+        and(
+          eq(
+            accountsReceivableTable.organizationId,
+            context.organizationId,
+          ),
+          eq(accountsReceivableTable.sourceType, "Sales Invoice"),
+          eq(accountsReceivableTable.sourceId, invoiceId),
+        ),
+      )
+      .limit(1);
+    if (saved && updatedReceivable)
+      await publishAccountsReceivablePaymentNotification(
+        req,
+        saved,
+        updatedReceivable,
+      );
+    res.locals.notificationHandled = true;
     return res.status(201).json(saved);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
@@ -1699,7 +1876,14 @@ router.post("/returns", requireAuth, async (req, res) => {
     const linkedInvoice = !req.body.invoiceId && req.body.dcId ? await linkedInvoiceForChallan(Number(req.body.dcId)) : null;
     const returnNumber = returnCode((await db.select().from(salesReturnsTable)).length + 1);
     const [doc] = await db.insert(salesReturnsTable).values({ returnNumber, ...salesReturnData({ ...req.body, invoiceId: req.body.invoiceId || linkedInvoice?.id || null }), status: "Draft", restocked: false }).returning();
-    await saveSalesReturnItems(Number(doc.id), items); return res.status(201).json(await salesReturnWithItems(doc));
+    await saveSalesReturnItems(Number(doc.id), items);
+    await publishSalesCreatedNotification(req, res, {
+      permissionKey: "sales.returns.notification", viewPermissionKey: "sales.returns.view",
+      eventType: "SALES_RETURNS_DRAFT", title: "Sales return created",
+      message: `${doc.returnNumber || `Sales return ${doc.id}`} was created for ${doc.clientName || "the customer"}.`,
+      entityType: "sales_return", entityId: Number(doc.id), reference: doc.returnNumber || String(doc.id),
+    });
+    return res.status(201).json(await salesReturnWithItems(doc));
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
 
@@ -1877,6 +2061,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
   if (notes !== undefined) updates.notes = notes;
   if (saleType !== undefined) updates.saleType = saleType;
   const [row] = await db.update(salesOrdersTable).set(updates).where(eq(salesOrdersTable.id, id)).returning();
+  await publishNotification({
+    organizationId: Number((req as any).authUser?.organizationId ?? 1), actorId: Number((req.session as any).userId),
+    permissionKey: "sales.quotations.notification", eventType: "SALES_ORDER_UPDATED",
+    eventKey: `sales-order:${row.id}:updated:${new Date(row.updatedAt || Date.now()).toISOString()}`,
+    sourceModule: "sales", targetModule: "sales", submodule: "sales_orders",
+    title: "Sales order updated", message: `${row.orderCode || `Sales order ${row.id}`} was updated.`,
+    sourceEntityType: "sales_order", sourceEntityId: row.id, sourceReference: row.orderCode, navigationUrl: "/sales",
+  });
+  res.locals.notificationHandled = true;
   return res.json(row);
 });
 

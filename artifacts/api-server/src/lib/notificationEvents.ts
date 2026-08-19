@@ -118,28 +118,10 @@ function events(req: Request, body: any): Draft[] {
     ];
   const masters: [[string, string, string, string]] | any = [
     [
-      /^\/api\/(vault\/item-names|materials)\/?$/,
-      "inventory.materials.notification",
-      "ITEM_CREATED",
-      "Item created",
-    ],
-    [
-      /^\/api\/categories\/?$/,
-      "inventory.categories.notification",
-      "CATEGORY_CREATED",
-      "Category created",
-    ],
-    [
       /^\/api\/services\/?$/,
       "inventory.materials.notification",
       "SERVICE_CREATED",
       "Service created",
-    ],
-    [
-      /^\/api\/vault\/locations\/?$/,
-      "inventory.warehouses.notification",
-      "WAREHOUSE_CREATED",
-      "Warehouse created",
     ],
   ];
   if (method === "POST")

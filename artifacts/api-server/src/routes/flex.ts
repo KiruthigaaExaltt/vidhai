@@ -64,6 +64,134 @@ function currentUserId(req: any): number {
   return Number(req.authUser.id);
 }
 
+const eventAction = (value: unknown, fallback = "CREATED") =>
+  String(value || fallback).trim().toUpperCase().replace(/\W+/g, "_");
+
+async function publishFlexRecordNotification(
+  req: any,
+  res: any,
+  input: {
+    permissionKey: string;
+    eventPrefix: string;
+    titlePrefix: string;
+    navigationUrl: string;
+    record: any;
+    reference: string;
+    action?: string;
+    eventType?: string;
+    title?: string;
+    message?: string;
+    keySuffix?: string;
+    additionalPermissionKeys?: string[];
+    directRecipientUserIds?: number[];
+  },
+) {
+  const action = input.action || eventAction(input.record?.status);
+  await publishNotification({
+    organizationId: orgId(req),
+    actorId: currentUserId(req),
+    permissionKey: input.permissionKey,
+    eventType: input.eventType || `${input.eventPrefix}_${action}`,
+    eventKey: `${input.eventPrefix.toLowerCase()}:${input.record.id}:${input.keySuffix || action}`,
+    sourceModule: "flex",
+    targetModule: "flex",
+    submodule: input.eventPrefix.toLowerCase(),
+    title: input.title || `${input.titlePrefix} ${action.toLowerCase().replace(/_/g, " ")}`,
+    message: input.message || `${input.reference} is now ${String(input.record?.status || action).replace(/_/g, " ")}.`,
+    sourceEntityType: input.eventPrefix.toLowerCase(),
+    sourceEntityId: input.record.id,
+    sourceReference: input.reference,
+    navigationUrl: input.navigationUrl,
+    metadata: { status: input.record?.status },
+    additionalPermissionKeys: input.additionalPermissionKeys,
+    directRecipientUserIds: input.directRecipientUserIds,
+  });
+  res.locals.notificationHandled = true;
+}
+
+async function publishAccountsPayableEntryNotification(
+  req: any,
+  entry: any,
+) {
+  const isDebitNote = entry.entryType === "Debit Note";
+  const reference = String(entry.billNumber || `AP entry ${entry.id}`);
+  await publishNotification({
+    organizationId: orgId(req),
+    actorId: currentUserId(req),
+    permissionKey: "accounts.accounts_payable.notification",
+    additionalPermissionKeys: ["accounts.accounts_payable.view"],
+    eventType: isDebitNote
+      ? "ACCOUNTS_PAYABLE_DEBIT_NOTE_CREATED"
+      : "ACCOUNTS_PAYABLE_PENDING_BILL_CREATED",
+    eventKey: `accounts-payable:${entry.id}:${isDebitNote ? "debit-note" : "pending-bill"}:created`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_payable",
+    title: isDebitNote ? "AP debit note created" : "AP pending bill created",
+    message: isDebitNote
+      ? `${reference} created a debit note for ${entry.vendorName || "the vendor"}.`
+      : `${reference} was added to AP pending bills for ${entry.vendorName || "the vendor"}.`,
+    sourceEntityType: isDebitNote ? "ap_debit_note" : "ap_pending_bill",
+    sourceEntityId: entry.id,
+    sourceReference: reference,
+    navigationUrl: "/accounts",
+    metadata: {
+      entryType: entry.entryType,
+      status: entry.status,
+      amount: Number(entry.amount || 0),
+      sourceType: entry.sourceType,
+      sourceId: entry.sourceId,
+    },
+  });
+}
+
+async function publishAccountsPayablePaymentNotification(req: any, payment: any) {
+  const [bill] = await db
+    .select()
+    .from(accountsPayableTable)
+    .where(
+      and(
+        eq(accountsPayableTable.organizationId, orgId(req)),
+        eq(accountsPayableTable.billNumber, payment.invoiceReference),
+      ),
+    )
+    .limit(1);
+  if (!bill) return;
+  const balance = Math.max(
+    0,
+    Number(bill.amount || 0) -
+      Number(bill.paidAmount || 0) -
+      Number(bill.adjustedAmount || 0),
+  );
+  const fullyPaid = balance <= 0.005;
+  await publishNotification({
+    organizationId: orgId(req),
+    actorId: currentUserId(req),
+    permissionKey: "accounts.accounts_payable.notification",
+    additionalPermissionKeys: ["accounts.accounts_payable.view"],
+    eventType: fullyPaid
+      ? "ACCOUNTS_PAYABLE_PAYMENT_COMPLETED"
+      : "ACCOUNTS_PAYABLE_PARTIAL_PAYMENT_RECORDED",
+    eventKey: `accounts-payable-payment:${payment.id}:${fullyPaid ? "completed" : "partial"}`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_payable",
+    title: fullyPaid ? "AP payment completed" : "AP partial payment recorded",
+    message: `${payment.paymentNumber} paid ₹${Number(payment.amount || 0).toLocaleString("en-IN")} toward ${bill.billNumber}. ${fullyPaid ? "The bill is fully paid." : `Remaining balance: ₹${balance.toLocaleString("en-IN")}.`}`,
+    sourceEntityType: "vendor_payment",
+    sourceEntityId: payment.id,
+    sourceReference: payment.paymentNumber,
+    navigationUrl: "/accounts",
+    metadata: {
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      paymentAmount: Number(payment.amount || 0),
+      balance,
+      settlement: fullyPaid ? "full" : "partial",
+    },
+  });
+}
+
 // Helper to look up user display names
 async function getUserMap(org: number) {
   const users = await db
@@ -612,6 +740,25 @@ router.post("/purchase-requests", requireAuth, async (req, res) => {
     });
   }
 
+  await publishNotification({
+    organizationId: org,
+    actorId: currentId,
+    permissionKey: "flex.purchase_requests.notification",
+    eventType: `PURCHASE_REQUEST_${String(created.status || "CREATED").toUpperCase().replace(/\W+/g, "_")}`,
+    eventKey: `purchase-request:${created.id}:created`,
+    sourceModule: "flex",
+    targetModule: "flex",
+    submodule: "purchase_requests",
+    title: "Purchase request created",
+    message: `${created.prNumber || `Purchase request ${created.id}`} was created for ${created.vendorName || "the selected vendor"} with status ${created.status || "Submitted"}.`,
+    sourceEntityType: "purchase_request",
+    sourceEntityId: created.id,
+    sourceReference: created.prNumber,
+    navigationUrl: "/flex/purchase-requests",
+    metadata: { status: created.status, vendorId: created.vendorId },
+  });
+  res.locals.notificationHandled = true;
+
   return res.status(201).json(created);
 });
 
@@ -689,6 +836,30 @@ router.patch("/purchase-requests/:id", requireAuth, async (req, res) => {
     .where(eq(purchaseRequestsTable.id, id))
     .returning();
 
+  if (req.body.status !== undefined && updated) {
+    const normalizedStatus = String(updated.status || req.body.status)
+      .toUpperCase()
+      .replace(/\W+/g, "_");
+    await publishNotification({
+      organizationId: org,
+      actorId: currentUserId(req),
+      permissionKey: "flex.purchase_requests.notification",
+      eventType: `PURCHASE_REQUEST_${normalizedStatus}`,
+      eventKey: `purchase-request:${updated.id}:status:${normalizedStatus}:${new Date(updated.updatedAt || Date.now()).toISOString()}`,
+      sourceModule: "flex",
+      targetModule: "flex",
+      submodule: "purchase_requests",
+      title: `Purchase request ${String(updated.status || req.body.status).toLowerCase()}`,
+      message: `${updated.prNumber || `Purchase request ${updated.id}`} status changed to ${updated.status || req.body.status}.`,
+      sourceEntityType: "purchase_request",
+      sourceEntityId: updated.id,
+      sourceReference: updated.prNumber,
+      navigationUrl: "/flex/purchase-requests",
+      metadata: { previousStatus: pr.status, status: updated.status },
+    });
+    res.locals.notificationHandled = true;
+  }
+
   return res.json(updated);
 });
 
@@ -740,6 +911,25 @@ router.post(
         createdByUserId: userId,
       })
       .returning();
+
+    await publishNotification({
+      organizationId: org,
+      actorId: userId,
+      permissionKey: "flex.purchase_requests.notification",
+      eventType: "PURCHASE_REQUEST_CONVERTED_TO_PO",
+      eventKey: `purchase-request:${pr.id}:converted-to-po:${createdPo.id}`,
+      sourceModule: "flex",
+      targetModule: "flex",
+      submodule: "purchase_requests",
+      title: "Purchase request converted to PO",
+      message: `${pr.prNumber || `Purchase request ${pr.id}`} was converted to ${createdPo.poNumber || `purchase order ${createdPo.id}`}.`,
+      sourceEntityType: "purchase_request",
+      sourceEntityId: pr.id,
+      sourceReference: pr.prNumber,
+      navigationUrl: "/flex/purchase-requests",
+      metadata: { purchaseOrderId: createdPo.id, purchaseOrderNumber: createdPo.poNumber },
+    });
+    res.locals.notificationHandled = true;
 
     return res.status(201).json({
       message: FLEX_API_MESSAGES.successfullyConvertedPrToPo,
@@ -956,6 +1146,16 @@ router.post("/purchase-orders", requireAuth, async (req, res) => {
     })
     .returning();
 
+  await publishFlexRecordNotification(req, res, {
+    permissionKey: "flex.purchase_orders.notification",
+    eventPrefix: "PURCHASE_ORDER",
+    titlePrefix: "Purchase order",
+    navigationUrl: "/flex/purchase-orders",
+    record: created,
+    reference: created.poNumber || `Purchase order ${created.id}`,
+    keySuffix: "created",
+  });
+
   return res.status(201).json(created);
 });
 
@@ -1026,6 +1226,16 @@ router.patch("/purchase-orders/:id", requireAuth, async (req, res) => {
       metadata: { vendorId: updated.vendorId },
     });
     res.locals.notificationHandled = true;
+  } else if (req.body.status !== undefined && updated) {
+    await publishFlexRecordNotification(req, res, {
+      permissionKey: "flex.purchase_orders.notification",
+      eventPrefix: "PURCHASE_ORDER",
+      titlePrefix: "Purchase order",
+      navigationUrl: "/flex/purchase-orders",
+      record: updated,
+      reference: updated.poNumber || `Purchase order ${updated.id}`,
+      keySuffix: `status:${eventAction(updated.status)}:${new Date(updated.updatedAt || Date.now()).toISOString()}`,
+    });
   }
 
   return res.json(updated);
@@ -1606,6 +1816,15 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       .where(eq(goodsReceiptsTable.id, created.id));
     throw error;
   }
+  await publishFlexRecordNotification(req, res, {
+    permissionKey: "flex.goods_receipts.notification",
+    eventPrefix: "GOODS_RECEIPT",
+    titlePrefix: "Goods receipt",
+    navigationUrl: "/flex/goods-receipts",
+    record: created,
+    reference: created.grnNumber || `Goods receipt ${created.id}`,
+    keySuffix: "created",
+  });
   return res.status(201).json(created);
 });
 router.patch("/goods-receipts/:id", requireAuth, async (req, res) => {
@@ -1675,6 +1894,17 @@ router.patch("/goods-receipts/:id", requireAuth, async (req, res) => {
           );
       }
     }
+  }
+  if (req.body.status !== undefined) {
+    await publishFlexRecordNotification(req, res, {
+      permissionKey: "flex.goods_receipts.notification",
+      eventPrefix: "GOODS_RECEIPT",
+      titlePrefix: "Goods receipt",
+      navigationUrl: "/flex/goods-receipts",
+      record: updated,
+      reference: updated.grnNumber || `Goods receipt ${updated.id}`,
+      keySuffix: `status:${eventAction(updated.status)}:${new Date(updated.updatedAt || Date.now()).toISOString()}`,
+    });
   }
   return res.json(updated);
 });
@@ -2153,7 +2383,15 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       (line: any) =>
         !String(line.item || line.description || "").trim() ||
         !Number.isFinite(Number(line.qty ?? line.quantity)) ||
-        Number(line.qty ?? line.quantity) <= 0,
+        Number(line.qty ?? line.quantity) <= 0 ||
+        !Number.isFinite(Number(line.price ?? line.rate)) ||
+        Number(line.price ?? line.rate) < 0 ||
+        ["cgst", "sgst", "igst"].some((key) => {
+          const percent = Number(
+            line[`${key}Pct`] ?? line[`${key}Percent`] ?? 0,
+          );
+          return !Number.isFinite(percent) || percent < 0 || percent > 100;
+        }),
     )
   ) {
     return res.status(400).json({
@@ -2178,6 +2416,13 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   const cgstAmount = taxAmount("cgst");
   const sgstAmount = taxAmount("sgst");
   const igstAmount = taxAmount("igst");
+  const calculatedAmount =
+    taxableAmount + cgstAmount + sgstAmount + igstAmount;
+  if (Math.abs(amount - calculatedAmount) > 0.01) {
+    return res.status(400).json({
+      error: `Invoice total does not match the line items. Expected ₹${calculatedAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+    });
+  }
   const effectivePercent = (tax: number) =>
     taxableAmount > 0 ? (tax / taxableAmount) * 100 : 0;
 
@@ -2230,10 +2475,50 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       createdByUserId: creatingUser ? userId : null,
     })
     .returning();
-
-
-  const posted = await postMatchedPurchaseInvoice(org, created.id, userId);
-  return res.status(201).json(posted || created);
+  let posted;
+  try {
+    posted = await postMatchedPurchaseInvoice(org, created.id, userId);
+  } catch (error: any) {
+    await db
+      .delete(purchaseInvoicesTable)
+      .where(
+        and(
+          eq(purchaseInvoicesTable.id, created.id),
+          eq(purchaseInvoicesTable.organizationId, org),
+        ),
+      );
+    return res.status(400).json({
+      error:
+        error?.message ||
+        "The invoice could not be posted to Accounts Payable.",
+    });
+  }
+  const notificationInvoice = posted || created;
+  await publishFlexRecordNotification(req, res, {
+    permissionKey: "flex.purchase_invoices.notification",
+    eventPrefix: "PURCHASE_INVOICE",
+    titlePrefix: "Purchase invoice",
+    navigationUrl: "/flex/purchase-invoices",
+    record: notificationInvoice,
+    reference: notificationInvoice.invoiceNumber || `Purchase invoice ${notificationInvoice.id}`,
+    keySuffix: "created",
+    additionalPermissionKeys: ["flex.purchase_invoices.view"],
+  });
+  if (posted) {
+    const [payableBill] = await db
+      .select()
+      .from(accountsPayableTable)
+      .where(
+        and(
+          eq(accountsPayableTable.organizationId, org),
+          eq(accountsPayableTable.billNumber, notificationInvoice.invoiceNumber),
+        ),
+      )
+      .limit(1);
+    if (payableBill)
+      await publishAccountsPayableEntryNotification(req, payableBill);
+  }
+  return res.status(201).json(notificationInvoice);
 });
 
 router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
@@ -2307,7 +2592,20 @@ router.patch("/purchase-invoices/:id", requireAuth, async (req, res) => {
     .returning();
 
   const posted = await postMatchedPurchaseInvoice(org, updated.id, currentUserId(req));
-  return res.json(posted || updated);
+  const notificationInvoice = posted || updated;
+  if (req.body.status !== undefined) {
+    await publishFlexRecordNotification(req, res, {
+      permissionKey: "flex.purchase_invoices.notification",
+      eventPrefix: "PURCHASE_INVOICE",
+      titlePrefix: "Purchase invoice",
+      navigationUrl: "/flex/purchase-invoices",
+      record: notificationInvoice,
+      reference: notificationInvoice.invoiceNumber || `Purchase invoice ${notificationInvoice.id}`,
+      keySuffix: `status:${eventAction(notificationInvoice.status)}:${new Date(notificationInvoice.updatedAt || Date.now()).toISOString()}`,
+      additionalPermissionKeys: ["flex.purchase_invoices.view"],
+    });
+  }
+  return res.json(notificationInvoice);
 });
 
 router.get("/purchase-invoices/export", requireAuth, async (req, res) => {
@@ -2555,20 +2853,53 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     Number(process.env.FLEX_VENDOR_PAYMENT_REQUIRED_APPROVALS ?? 1),
   );
   const [created] = await db.insert(vendorPaymentsTable).values({ organizationId: org, paymentNumber, vendorName, invoiceReference, amount, paymentMode: String(req.body.paymentMode ?? "Bank Transfer"), bankAccount: String(req.body.bankAccount ?? ""), transactionReference, notes: String(req.body.notes ?? ""), attachmentName: String(req.body.attachmentName ?? ""), documentPath: String(req.body.documentPath ?? ""), paymentDate, status: "Pending Approval", requiredApprovals, approvalLevel: 0, createdByUserId: userId }).returning();
+  let result = created;
   if (requiredApprovals === 1) {
-    const settled = await settleApprovedVendorPayment(
+    result = await settleApprovedVendorPayment(
       org,
       Number(created.id),
       userId,
       "Recorded and approved",
     );
-    return res.status(201).json(settled);
   }
-  return res.status(201).json(created);
+  if (result.status === "Approved") {
+    await publishAccountsPayablePaymentNotification(req, result);
+    res.locals.notificationHandled = true;
+  } else {
+    await publishFlexRecordNotification(req, res, {
+      permissionKey: "accounts.accounts_payable.notification",
+      eventPrefix: "ACCOUNTS_PAYABLE",
+      eventType: "ACCOUNTS_PAYABLE_PAYMENT_REQUESTED",
+      titlePrefix: "Accounts payable",
+      title: "AP payment requested",
+      navigationUrl: "/accounts",
+      record: result,
+      reference: result.paymentNumber || `Vendor payment ${result.id}`,
+      message: `${result.paymentNumber || `Vendor payment ${result.id}`} was submitted for ${result.vendorName || "the vendor"}.`,
+      keySuffix: "requested",
+      additionalPermissionKeys: ["accounts.accounts_payable.view"],
+    });
+  }
+  return res.status(201).json(result);
 });
 
 router.post("/vendor-payments/:id/approve", requireAuth, async (req, res) => {
-  try { return res.json(await settleApprovedVendorPayment(orgId(req), Number(req.params.id), currentUserId(req), String(req.body.remarks ?? ""))); }
+  try {
+    const updated = await settleApprovedVendorPayment(orgId(req), Number(req.params.id), currentUserId(req), String(req.body.remarks ?? ""));
+    if (updated.status === "Approved") {
+      await publishAccountsPayablePaymentNotification(req, updated);
+      res.locals.notificationHandled = true;
+    } else {
+      await publishFlexRecordNotification(req, res, {
+        permissionKey: "accounts.accounts_payable.notification", eventPrefix: "ACCOUNTS_PAYABLE", eventType: "ACCOUNTS_PAYABLE_PAYMENT_APPROVAL_UPDATED",
+        titlePrefix: "Accounts payable", title: "AP payment approval updated", navigationUrl: "/accounts", record: updated,
+        reference: updated.paymentNumber || `Vendor payment ${updated.id}`,
+        message: `${updated.paymentNumber || `Vendor payment ${updated.id}`} advanced to approval level ${updated.approvalLevel}.`, keySuffix: `approval-${updated.approvalLevel}`,
+        additionalPermissionKeys: ["accounts.accounts_payable.view"],
+      });
+    }
+    return res.json(updated);
+  }
   catch (error: any) { return res.status(400).json({ error: error.message || "Unable to approve payment" }); }
 });
 
@@ -2579,6 +2910,12 @@ router.post("/vendor-payments/:id/reject", requireAuth, async (req, res) => {
   if (!payment) return res.status(404).json({ error: "Vendor payment not found" });
   if (payment.status !== "Pending Approval") return res.status(409).json({ error: "Only pending payments can be rejected" });
   const [updated] = await db.update(vendorPaymentsTable).set({ status: "Rejected", approvalRemarks: remarks, rejectedByUserId: currentUserId(req), rejectedAt: new Date() }).where(eq(vendorPaymentsTable.id, id)).returning();
+  await publishFlexRecordNotification(req, res, {
+    permissionKey: "accounts.accounts_payable.notification", eventPrefix: "ACCOUNTS_PAYABLE", eventType: "ACCOUNTS_PAYABLE_UPDATED",
+    titlePrefix: "Accounts payable", title: "Accounts payable updated", navigationUrl: "/accounts", record: updated,
+    reference: updated.paymentNumber || `Vendor payment ${updated.id}`,
+    message: `${updated.paymentNumber || `Vendor payment ${updated.id}`} was rejected for ${updated.vendorName || "the vendor"}.`, keySuffix: "rejected",
+  });
   return res.json(updated);
 });
 
@@ -2792,7 +3129,7 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
           ? 0
           : Math.min(invoiceAmount, returnAmount);
         debitNoteAmount = invoicePaid ? returnAmount : 0;
-        await db.insert(accountsPayableTable).values({
+        const [createdBill] = await db.insert(accountsPayableTable).values({
           organizationId: org,
           vendorName,
           billNumber: againstBillNumber,
@@ -2813,12 +3150,13 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
           notes: `From invoice ${againstBillNumber}`,
           sourceType: "Purchase Invoice",
           sourceId: linkedInvoice.id,
-        });
+        }).returning();
+        await publishAccountsPayableEntryNotification(req, createdBill);
       }
     }
 
     if (debitNoteAmount > 0) {
-      await db.insert(accountsPayableTable).values({
+      const [debitNote] = await db.insert(accountsPayableTable).values({
         organizationId: org,
         vendorName,
         billNumber: created.returnNumber,
@@ -2839,10 +3177,22 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
         notes: `Purchase return ${created.returnNumber}: ${reason}`,
         sourceType: "Purchase Return",
         sourceId: created.id,
-      });
+      }).returning();
+      await publishAccountsPayableEntryNotification(req, debitNote);
     }
   }
 
+  await publishFlexRecordNotification(req, res, {
+    permissionKey: "flex.purchase_returns.notification",
+    eventPrefix: "PURCHASE_RETURN",
+    titlePrefix: "Purchase return",
+    navigationUrl: "/flex/purchase-returns",
+    record: created,
+    reference: created.returnNumber || `Purchase return ${created.id}`,
+    keySuffix: "created",
+    additionalPermissionKeys: ["flex.purchase_returns.view"],
+    directRecipientUserIds: [currentUserId(req)],
+  });
   return res.status(201).json(created);
 });
 
@@ -3033,6 +3383,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
             sourceId: linkedInvoice.id,
           })
           .returning();
+        await publishAccountsPayableEntryNotification(req, bill);
       }
 
       if (bill) {
@@ -3053,7 +3404,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               Number(entry.sourceId) === Number(existingReturn.id),
           );
           if (!alreadyPosted) {
-            await db.insert(accountsPayableTable).values({
+            const [debitNote] = await db.insert(accountsPayableTable).values({
               organizationId: org,
               vendorName: existingReturn.vendorName,
               billNumber: existingReturn.returnNumber,
@@ -3074,7 +3425,8 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               notes: `Purchase return ${existingReturn.returnNumber}: ${existingReturn.reason}`,
               sourceType: "Purchase Return",
               sourceId: existingReturn.id,
-            });
+            }).returning();
+            await publishAccountsPayableEntryNotification(req, debitNote);
           }
         } else {
           const outstanding = Math.max(
@@ -3136,6 +3488,20 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
       ),
     )
     .returning();
+
+  if (req.body.status !== undefined && updated) {
+    await publishFlexRecordNotification(req, res, {
+      permissionKey: "flex.purchase_returns.notification",
+      eventPrefix: "PURCHASE_RETURN",
+      titlePrefix: "Purchase return",
+      navigationUrl: "/flex/purchase-returns",
+      record: updated,
+      reference: updated.returnNumber || `Purchase return ${updated.id}`,
+      keySuffix: `status:${eventAction(updated.status)}:${new Date(updated.updatedAt || Date.now()).toISOString()}`,
+      additionalPermissionKeys: ["flex.purchase_returns.view"],
+      directRecipientUserIds: [currentUserId(req)],
+    });
+  }
 
   return res.json(updated);
 });

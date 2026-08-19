@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import {
   and,
   db,
@@ -10,6 +11,7 @@ import {
 import { requireAuth } from "./auth";
 import { getAuthUser } from "../lib/access";
 import { getPushPublicKey } from "../lib/pushNotificationService";
+import { publishNotification } from "../lib/notificationService";
 
 const router = Router();
 router.use(requireAuth);
@@ -42,6 +44,35 @@ router.get("/count", async (req, res) => {
     ),
   );
   res.json({ unreadCount });
+});
+router.post("/test", async (req, res) => {
+  const c = await context(req);
+  const user = (req as any).notificationUser;
+  const isSuperAdmin =
+    String(user.role).toLowerCase().replace(/[\s-]+/g, "_") === "super_admin" ||
+    user.systemKey === "SUPER_ADMIN";
+  if (!isSuperAdmin)
+    return res.status(403).json({ error: "SuperAdmin access required" });
+  const testId = randomUUID();
+  const job = await publishNotification({
+    organizationId: c.organizationId,
+    actorId: c.userId,
+    permissionKey: "dashboard.notification_test",
+    eventType: "NOTIFICATION_SYSTEM_TEST",
+    eventKey: `notification-test:${c.organizationId}:${c.userId}:${testId}`,
+    sourceModule: "system",
+    targetModule: "system",
+    submodule: "notifications",
+    title: "Notification system test",
+    message: "The in-app, queue, Socket.IO, and push notification wiring is operational.",
+    navigationUrl: "/notifications",
+    metadata: { testId },
+    directRecipientUserIds: [c.userId],
+    priority: "HIGH",
+  });
+  if (!job)
+    return res.status(503).json({ error: "Unable to enqueue test notification" });
+  return res.status(202).json({ queued: true, jobId: job.id, testId });
 });
 router.get("/push/public-key", (_req, res) => {
   const key = getPushPublicKey();

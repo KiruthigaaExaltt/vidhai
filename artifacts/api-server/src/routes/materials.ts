@@ -10,6 +10,7 @@ import crypto from "crypto";
 import { inventoryTable } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { PROTECTED_VAULT_ITEM_NAMES } from "../lib/ensureDefaultVaultItems";
+import { publishInventoryMasterCreated } from "../lib/notificationService";
 
 const router = Router();
 
@@ -216,6 +217,15 @@ router.post("/", async (req, res): Promise<any> => {
       .select()
       .from(inventoryTable)
       .where(eq(inventoryTable.materialId, mat.id));
+    res.locals.notificationHandled = true;
+    await publishInventoryMasterCreated(req, {
+      permissionKey: "inventory.materials.notification",
+      eventType: "ITEM_CREATED",
+      title: "Item created",
+      entityType: "material",
+      entityId: mat.id,
+      label: mat.name,
+    });
     res.status(201).json({
       ...mat,
       warehouseStocks: savedStocks.map((row) => ({

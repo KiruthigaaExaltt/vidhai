@@ -8,6 +8,7 @@ import {
 import { eq, desc, and } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { isCoreProductMasterItem } from "../lib/coreProductMaster";
+import { publishInventoryMasterCreated } from "../lib/notificationService";
 
 const router = Router();
 
@@ -106,6 +107,16 @@ router.post("/", async (req, res) => {
       })
       .returning();
 
+    res.locals.notificationHandled = true;
+    await publishInventoryMasterCreated(req, {
+      permissionKey: "inventory.materials.notification",
+      eventType: "ITEM_CREATED",
+      title: "Item created",
+      entityType: "item_name",
+      entityId: newItem.id,
+      label: newItem.name,
+    });
+
     res.status(201).json({
       id: newItem.id,
       name: newItem.name,
@@ -166,12 +177,10 @@ router.patch("/:id", async (req, res) => {
         .where(eq(materialsTable.name, item.name))
         .limit(1);
       if (skusUsingThisItem.length > 0) {
-        res
-          .status(400)
-          .json({
-            error:
-              "Cannot change category because this Item Name is already used in existing SKUs",
-          });
+        res.status(400).json({
+          error:
+            "Cannot change category because this Item Name is already used in existing SKUs",
+        });
         return;
       }
 

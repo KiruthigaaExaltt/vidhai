@@ -457,9 +457,7 @@ export default function PurchaseInvoices() {
               cgstPct,
               sgstPct,
               igstPct,
-              total: Number(
-                line.total ?? base * (1 + (cgstPct + sgstPct + igstPct) / 100),
-              ),
+              total: base * (1 + (cgstPct + sgstPct + igstPct) / 100),
               source: order.poNumber,
             };
           },
@@ -526,11 +524,7 @@ export default function PurchaseInvoices() {
             cgstPct,
             sgstPct,
             igstPct,
-            total: Number(
-              line.lineTotal ??
-                line.total ??
-                base * (1 + (cgstPct + sgstPct + igstPct) / 100),
-            ),
+            total: base * (1 + (cgstPct + sgstPct + igstPct) / 100),
             source: receipt.grnNumber,
           };
         });
