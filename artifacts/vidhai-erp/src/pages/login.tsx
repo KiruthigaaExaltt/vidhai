@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Eye, EyeOff } from "lucide-react";
 import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
-import maharishiImage from "@assets/maharishi-login-portrait.jpg";
+import maharishiImage from "@assets/maharishi-login-cutout.png";
 import { encryptLoginPassword } from "@/lib/loginEncryption";
 
 export default function Login() {
@@ -75,11 +75,24 @@ export default function Login() {
           />
 
           {/* Login Image */}
-          <img
-            src={maharishiImage}
-            alt="Maharishi"
-            className="mx-auto h-[300px] w-full object-contain object-top rounded-sm"
-          />
+          <div className="relative isolate mx-auto h-[260px] w-full sm:h-[300px]">
+            <div className="absolute left-1/2 top-[44%] -z-20 h-[82%] w-[78%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(20,184,166,0.68)_0%,rgba(20,184,166,0.34)_45%,rgba(20,184,166,0.12)_65%,transparent_78%)] blur-2xl" />
+
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 400 300"
+              className="absolute inset-0 -z-10 h-full w-full fill-[#14b8a6] opacity-[0.13]"
+            >
+              <path d="M105 235c27-30 40-64 38-105 20 34 16 71-10 105-10 13-22 23-35 31 0-11 3-21 7-31Zm20-62c-30-1-54-14-71-40 31-2 57 10 77 34l-6 6Zm8-40c-20-12-33-30-37-54 26 9 43 27 51 52-5-1-10 0-14 2Zm162 102c-27-30-40-64-38-105-20 34-16 71 10 105 10 13 22 23 35 31 0-11-3-21-7-31Zm-20-62c30-1 54-14 71-40-31-2-57 10-77 34l6 6Zm-8-40c20-12 33-30 37-54-26 9-43 27-51 52 5-1 10 0 14 2Z" />
+            </svg>
+
+            <img
+              src={maharishiImage}
+              alt="Maharishi"
+              className="relative mx-auto h-full w-full object-contain object-top [mask-image:linear-gradient(to_bottom,black_0%,black_72%,transparent_100%)]"
+            />
+            <div className="pointer-events-none absolute inset-x-[8%] bottom-0 h-[25%] bg-gradient-to-b from-transparent to-background" />
+          </div>
 
           {/* Heading */}
           <div className="flex flex-col items-center text-center gap-1 w-full">
