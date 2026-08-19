@@ -278,6 +278,46 @@ async function publishAccountsReceivableEntryNotification(req: any, entry: any) 
   });
 }
 
+async function publishAccountsReceivablePaymentNotification(
+  req: any,
+  payment: any,
+  receivable: any,
+) {
+  const balance = Math.max(
+    0,
+    Number(receivable.amount || 0) -
+      Number(receivable.receivedAmount || 0) -
+      Number(receivable.adjustedAmount || 0),
+  );
+  const fullyPaid = balance <= 0.005;
+  await publishNotification({
+    organizationId: Number(req.authUser?.organizationId ?? 1),
+    actorId: Number((req.session as any).userId),
+    permissionKey: "accounts.accounts_receivable.notification",
+    additionalPermissionKeys: ["accounts.accounts_receivable.view"],
+    eventType: fullyPaid
+      ? "ACCOUNTS_RECEIVABLE_PAYMENT_COMPLETED"
+      : "ACCOUNTS_RECEIVABLE_PARTIAL_PAYMENT_RECORDED",
+    eventKey: `accounts-receivable-payment:${payment.id}:${fullyPaid ? "completed" : "partial"}`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_receivable",
+    title: fullyPaid ? "AR payment completed" : "AR partial payment received",
+    message: `${payment.paymentNumber} received ₹${Number(payment.amount || 0).toLocaleString("en-IN")} for ${receivable.invoiceNumber}. ${fullyPaid ? "The invoice is fully settled." : `Remaining balance: ₹${balance.toLocaleString("en-IN")}.`}`,
+    sourceEntityType: "customer_payment",
+    sourceEntityId: payment.id,
+    sourceReference: payment.paymentNumber,
+    navigationUrl: "/accounts",
+    metadata: {
+      receivableId: receivable.id,
+      invoiceNumber: receivable.invoiceNumber,
+      paymentAmount: Number(payment.amount || 0),
+      balance,
+      settlement: fullyPaid ? "full" : "partial",
+    },
+  });
+}
+
 function orderCode(seq: number) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
@@ -1628,6 +1668,27 @@ router.post("/payments", requireAuth, async (req, res) => {
       throw error;
     }
     const [saved] = await db.select().from(salesPaymentsTable).where(eq(salesPaymentsTable.id, payment.id)).limit(1);
+    const [updatedReceivable] = await db
+      .select()
+      .from(accountsReceivableTable)
+      .where(
+        and(
+          eq(
+            accountsReceivableTable.organizationId,
+            context.organizationId,
+          ),
+          eq(accountsReceivableTable.sourceType, "Sales Invoice"),
+          eq(accountsReceivableTable.sourceId, invoiceId),
+        ),
+      )
+      .limit(1);
+    if (saved && updatedReceivable)
+      await publishAccountsReceivablePaymentNotification(
+        req,
+        saved,
+        updatedReceivable,
+      );
+    res.locals.notificationHandled = true;
     return res.status(201).json(saved);
   } catch (error: any) {
     return res.status(500).json({ error: error.message });

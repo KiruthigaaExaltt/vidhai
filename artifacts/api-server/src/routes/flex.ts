@@ -145,6 +145,53 @@ async function publishAccountsPayableEntryNotification(
   });
 }
 
+async function publishAccountsPayablePaymentNotification(req: any, payment: any) {
+  const [bill] = await db
+    .select()
+    .from(accountsPayableTable)
+    .where(
+      and(
+        eq(accountsPayableTable.organizationId, orgId(req)),
+        eq(accountsPayableTable.billNumber, payment.invoiceReference),
+      ),
+    )
+    .limit(1);
+  if (!bill) return;
+  const balance = Math.max(
+    0,
+    Number(bill.amount || 0) -
+      Number(bill.paidAmount || 0) -
+      Number(bill.adjustedAmount || 0),
+  );
+  const fullyPaid = balance <= 0.005;
+  await publishNotification({
+    organizationId: orgId(req),
+    actorId: currentUserId(req),
+    permissionKey: "accounts.accounts_payable.notification",
+    additionalPermissionKeys: ["accounts.accounts_payable.view"],
+    eventType: fullyPaid
+      ? "ACCOUNTS_PAYABLE_PAYMENT_COMPLETED"
+      : "ACCOUNTS_PAYABLE_PARTIAL_PAYMENT_RECORDED",
+    eventKey: `accounts-payable-payment:${payment.id}:${fullyPaid ? "completed" : "partial"}`,
+    sourceModule: "accounts",
+    targetModule: "accounts",
+    submodule: "accounts_payable",
+    title: fullyPaid ? "AP payment completed" : "AP partial payment recorded",
+    message: `${payment.paymentNumber} paid ₹${Number(payment.amount || 0).toLocaleString("en-IN")} toward ${bill.billNumber}. ${fullyPaid ? "The bill is fully paid." : `Remaining balance: ₹${balance.toLocaleString("en-IN")}.`}`,
+    sourceEntityType: "vendor_payment",
+    sourceEntityId: payment.id,
+    sourceReference: payment.paymentNumber,
+    navigationUrl: "/accounts",
+    metadata: {
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      paymentAmount: Number(payment.amount || 0),
+      balance,
+      settlement: fullyPaid ? "full" : "partial",
+    },
+  });
+}
+
 // Helper to look up user display names
 async function getUserMap(org: number) {
   const users = await db
@@ -2320,7 +2367,15 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       (line: any) =>
         !String(line.item || line.description || "").trim() ||
         !Number.isFinite(Number(line.qty ?? line.quantity)) ||
-        Number(line.qty ?? line.quantity) <= 0,
+        Number(line.qty ?? line.quantity) <= 0 ||
+        !Number.isFinite(Number(line.price ?? line.rate)) ||
+        Number(line.price ?? line.rate) < 0 ||
+        ["cgst", "sgst", "igst"].some((key) => {
+          const percent = Number(
+            line[`${key}Pct`] ?? line[`${key}Percent`] ?? 0,
+          );
+          return !Number.isFinite(percent) || percent < 0 || percent > 100;
+        }),
     )
   ) {
     return res.status(400).json({
@@ -2345,6 +2400,13 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   const cgstAmount = taxAmount("cgst");
   const sgstAmount = taxAmount("sgst");
   const igstAmount = taxAmount("igst");
+  const calculatedAmount =
+    taxableAmount + cgstAmount + sgstAmount + igstAmount;
+  if (Math.abs(amount - calculatedAmount) > 0.01) {
+    return res.status(400).json({
+      error: `Invoice total does not match the line items. Expected ₹${calculatedAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+    });
+  }
   const effectivePercent = (tax: number) =>
     taxableAmount > 0 ? (tax / taxableAmount) * 100 : 0;
 
@@ -2397,9 +2459,24 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       createdByUserId: creatingUser ? userId : null,
     })
     .returning();
-
-
-  const posted = await postMatchedPurchaseInvoice(org, created.id, userId);
+  let posted;
+  try {
+    posted = await postMatchedPurchaseInvoice(org, created.id, userId);
+  } catch (error: any) {
+    await db
+      .delete(purchaseInvoicesTable)
+      .where(
+        and(
+          eq(purchaseInvoicesTable.id, created.id),
+          eq(purchaseInvoicesTable.organizationId, org),
+        ),
+      );
+    return res.status(400).json({
+      error:
+        error?.message ||
+        "The invoice could not be posted to Accounts Payable.",
+    });
+  }
   const notificationInvoice = posted || created;
   await publishFlexRecordNotification(req, res, {
     permissionKey: "flex.purchase_invoices.notification",
@@ -2769,30 +2846,42 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       "Recorded and approved",
     );
   }
-  await publishFlexRecordNotification(req, res, {
-    permissionKey: "accounts.accounts_payable.notification",
-    eventPrefix: "ACCOUNTS_PAYABLE",
-    eventType: "ACCOUNTS_PAYABLE_UPDATED",
-    titlePrefix: "Accounts payable",
-    title: "Accounts payable updated",
-    navigationUrl: "/accounts",
-    record: result,
-    reference: result.paymentNumber || `Vendor payment ${result.id}`,
-    message: `${result.paymentNumber || `Vendor payment ${result.id}`} was created for ${result.vendorName || "the vendor"}.`,
-    keySuffix: "created",
-  });
+  if (result.status === "Approved") {
+    await publishAccountsPayablePaymentNotification(req, result);
+    res.locals.notificationHandled = true;
+  } else {
+    await publishFlexRecordNotification(req, res, {
+      permissionKey: "accounts.accounts_payable.notification",
+      eventPrefix: "ACCOUNTS_PAYABLE",
+      eventType: "ACCOUNTS_PAYABLE_PAYMENT_REQUESTED",
+      titlePrefix: "Accounts payable",
+      title: "AP payment requested",
+      navigationUrl: "/accounts",
+      record: result,
+      reference: result.paymentNumber || `Vendor payment ${result.id}`,
+      message: `${result.paymentNumber || `Vendor payment ${result.id}`} was submitted for ${result.vendorName || "the vendor"}.`,
+      keySuffix: "requested",
+      additionalPermissionKeys: ["accounts.accounts_payable.view"],
+    });
+  }
   return res.status(201).json(result);
 });
 
 router.post("/vendor-payments/:id/approve", requireAuth, async (req, res) => {
   try {
     const updated = await settleApprovedVendorPayment(orgId(req), Number(req.params.id), currentUserId(req), String(req.body.remarks ?? ""));
-    await publishFlexRecordNotification(req, res, {
-      permissionKey: "accounts.accounts_payable.notification", eventPrefix: "ACCOUNTS_PAYABLE", eventType: "ACCOUNTS_PAYABLE_UPDATED",
-      titlePrefix: "Accounts payable", title: "Accounts payable updated", navigationUrl: "/accounts", record: updated,
-      reference: updated.paymentNumber || `Vendor payment ${updated.id}`,
-      message: `${updated.paymentNumber || `Vendor payment ${updated.id}`} was approved for ${updated.vendorName || "the vendor"}.`, keySuffix: "approved",
-    });
+    if (updated.status === "Approved") {
+      await publishAccountsPayablePaymentNotification(req, updated);
+      res.locals.notificationHandled = true;
+    } else {
+      await publishFlexRecordNotification(req, res, {
+        permissionKey: "accounts.accounts_payable.notification", eventPrefix: "ACCOUNTS_PAYABLE", eventType: "ACCOUNTS_PAYABLE_PAYMENT_APPROVAL_UPDATED",
+        titlePrefix: "Accounts payable", title: "AP payment approval updated", navigationUrl: "/accounts", record: updated,
+        reference: updated.paymentNumber || `Vendor payment ${updated.id}`,
+        message: `${updated.paymentNumber || `Vendor payment ${updated.id}`} advanced to approval level ${updated.approvalLevel}.`, keySuffix: `approval-${updated.approvalLevel}`,
+        additionalPermissionKeys: ["accounts.accounts_payable.view"],
+      });
+    }
     return res.json(updated);
   }
   catch (error: any) { return res.status(400).json({ error: error.message || "Unable to approve payment" }); }
