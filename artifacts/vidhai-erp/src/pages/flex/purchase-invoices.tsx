@@ -1242,7 +1242,8 @@ export default function PurchaseInvoices() {
                                   type="number"
                                   min="0"
                                   step="any"
-                                  value={line.price}
+                                  value={line.price === 0 ? "" : line.price}
+                                  placeholder="0"
                                   onChange={(event) =>
                                     updateLineItem(
                                       line.id,
