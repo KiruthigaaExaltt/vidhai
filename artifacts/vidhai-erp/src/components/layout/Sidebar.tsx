@@ -288,6 +288,12 @@ export function Sidebar({
             permission="production.casing_soil.view"
           />
 
+          <NavItem
+            href="/coimbatore/chambers"
+            icon={Thermometer}
+            label="Casing Soil Chambers"
+            permission="production.chambers.view"
+          />
           {/* ── Location D — Lab ── */}
           {can("production.spawn_batches.view") && (
             <SectionTitle>LAB · LOCATION D</SectionTitle>

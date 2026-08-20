@@ -301,7 +301,6 @@ export default function BatchDetail() {
     (Number.isInteger(Number(completeDialog.producedBags)) &&
       Number(completeDialog.producedBags) > 0);
   const canSubmit =
-    imagesReady &&
     spawnReady &&
     chamberReady &&
     producedBagsReady &&
@@ -881,7 +880,7 @@ export default function BatchDetail() {
                           {log.enteredByName}
                         </td>
                         <td className="px-4">
-                          {log.verificationImages?.length >= 2 ? (
+                          {log.verificationImages?.length > 0 ? (
                             <div className="flex gap-1">
                               {log.verificationImages
                                 .slice(0, 2)
@@ -1028,8 +1027,7 @@ export default function BatchDetail() {
               {STAGE_SEQ.find((s) => s.key === completeDialog.stageKey)?.label}
             </DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Two verification photos are required before this stage can be
-              marked complete.
+              Verification photos are optional for this stage.
             </p>
           </DialogHeader>
 
@@ -1037,7 +1035,7 @@ export default function BatchDetail() {
             {/* Image capture — two slots */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Verification Photos (2 required)
+                Verification Photos (optional)
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {([0, 1] as const).map((slot) => (
@@ -1349,15 +1347,13 @@ export default function BatchDetail() {
             >
               {advanceMutation.isPending
                 ? "Saving…"
-                : !imagesReady
-                  ? `Add ${2 - stageImages.filter(Boolean).length} more photo${stageImages.filter(Boolean).length === 1 ? "" : "s"}`
-                  : !spawnReady
-                    ? "Select spawn batch"
-                    : !chamberReady
-                      ? "Select the required chamber"
-                      : !producedBagsReady
-                        ? "Enter produced bags"
-                        : "Mark Stage Complete ✓"}
+                : !spawnReady
+                  ? "Select spawn batch"
+                  : !chamberReady
+                    ? "Select the required chamber"
+                    : !producedBagsReady
+                      ? "Enter produced bags"
+                      : "Mark Stage Complete ✓"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -33,11 +33,14 @@ import {
   spawnEntriesTable,
   spawnVaultTransactionsTable,
   annurSpawnUsagesTable,
+  coimbatoreTurnAssignmentsTable,
+  casingSoilInventoryPostingsTable,
   materialsTable,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
 import { getUploadRoot } from "./lib/uploadStorage";
 import { ensureDefaultVaultItems } from "./lib/ensureDefaultVaultItems";
+import { ensureDefaultCoimbatoreCasingChambers } from "./lib/ensureDefaultCoimbatoreCasingChambers";
 
 const rawPort = process.env["PORT"];
 
@@ -63,6 +66,11 @@ await syncTableIndexes(annurDispatchInventoryPostingsTable);
 await syncTableIndexes(spawnEntriesTable);
 await syncTableIndexes(spawnVaultTransactionsTable);
 await syncTableIndexes(annurSpawnUsagesTable);
+await syncTableIndexes(casingSoilInventoryPostingsTable);
+await syncTableCustomIndexes(coimbatoreTurnAssignmentsTable, [
+  { key: { batchId: 1, turnNumber: 1 }, name: "coimbatore_batch_turn_assignment", unique: true },
+  { key: { chamberId: 1, releasedAt: 1 }, name: "coimbatore_active_chamber_assignment" },
+]);
 await syncTableCustomIndexes(chambersTable, [
   {
     key: {
@@ -200,6 +208,9 @@ logger.info({ uploadRoot }, "Upload storage ready");
 
 const permissionMigration = await migratePermissionData();
 logger.info(permissionMigration, "RBAC permission migration complete");
+
+const defaultCoimbatoreChambers = await ensureDefaultCoimbatoreCasingChambers();
+logger.info(defaultCoimbatoreChambers, "Default Coimbatore casing-soil chambers ready");
 
 const defaultVaultItems = await ensureDefaultVaultItems();
 let [spawnCategory] = await db

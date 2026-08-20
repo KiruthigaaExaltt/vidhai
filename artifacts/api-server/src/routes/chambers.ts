@@ -63,6 +63,10 @@ router.get("/", requireAuth, async (req, res) => {
           ? Number(r.chamber.lastTemperature)
           : null,
       lastNh3: r.chamber.lastNh3 !== null ? Number(r.chamber.lastNh3) : null,
+      lastCo2: r.chamber.lastCo2 !== null ? Number(r.chamber.lastCo2) : null,
+      lastMoisture:
+        r.chamber.lastMoisture !== null ? Number(r.chamber.lastMoisture) : null,
+      currentTurnNumber: r.chamber.currentTurnNumber,
       lastReadingAt: r.chamber.lastReadingAt,
       lengthM: r.chamber.lengthM !== null ? Number(r.chamber.lengthM) : null,
       widthM: r.chamber.widthM !== null ? Number(r.chamber.widthM) : null,
@@ -92,6 +96,10 @@ router.post("/", requireAuth, async (req, res) => {
   if (!location) return res.status(400).json({ error: "Location not found" });
   if (location.code === "A" && !ANNUR_CHAMBER_TYPES.has(String(chamberType)))
     return res.status(400).json({ error: "Select a valid Annur chamber type" });
+  if (location.code === "C" && chamberType !== "casing_soil")
+    return res.status(400).json({
+      error: "Coimbatore chambers must use the Casing Soil Chamber type",
+    });
 
   const [chamber] = await db
     .insert(chambersTable)
@@ -166,6 +174,12 @@ router.get("/:id", requireAuth, async (req, res) => {
         ? Number(row.chamber.lastTemperature)
         : null,
     lastNh3: row.chamber.lastNh3 !== null ? Number(row.chamber.lastNh3) : null,
+    lastCo2: row.chamber.lastCo2 !== null ? Number(row.chamber.lastCo2) : null,
+    lastMoisture:
+      row.chamber.lastMoisture !== null
+        ? Number(row.chamber.lastMoisture)
+        : null,
+    currentTurnNumber: row.chamber.currentTurnNumber,
     lastReadingAt: row.chamber.lastReadingAt,
     lengthM: row.chamber.lengthM !== null ? Number(row.chamber.lengthM) : null,
     widthM: row.chamber.widthM !== null ? Number(row.chamber.widthM) : null,
@@ -210,12 +224,18 @@ router.patch("/:id", requireAuth, async (req, res) => {
     location?.code === "A" &&
     !ANNUR_CHAMBER_TYPES.has(String(chamberType))
   )
-    return res
-      .status(400)
-      .json({
-        error: "Legacy Turn chambers cannot be assigned to new production",
-      });
+    return res.status(400).json({
+      error: "Legacy Turn chambers cannot be assigned to new production",
+    });
 
+  if (
+    chamberType !== undefined &&
+    location?.code === "C" &&
+    chamberType !== "casing_soil"
+  )
+    return res.status(400).json({
+      error: "Coimbatore chambers must use the Casing Soil Chamber type",
+    });
   const updates: Record<string, any> = {};
   if (name !== undefined) updates.name = name;
   if (chamberType !== undefined) updates.chamberType = chamberType;
@@ -250,6 +270,21 @@ router.patch("/:id", requireAuth, async (req, res) => {
 // Delete chamber
 router.delete("/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  const [existing] = await db
+    .select()
+    .from(chambersTable)
+    .where(
+      and(
+        eq(chambersTable.id, id),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    )
+    .limit(1);
+  if (!existing) return res.status(404).json({ error: "Chamber not found" });
+  if (existing.status === "active" || existing.currentBatchId)
+    return res
+      .status(409)
+      .json({ error: "An occupied chamber cannot be deleted" });
   await db
     .delete(chambersTable)
     .where(
@@ -269,6 +304,7 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       reading: chamberReadingsTable,
       chamberName: chambersTable.name,
       recordedByName: usersTable.displayName,
+      batchCode: batchesTable.batchCode,
     })
     .from(chamberReadingsTable)
     .innerJoin(
@@ -279,6 +315,7 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       usersTable,
       eq(chamberReadingsTable.recordedByUserId, usersTable.id),
     )
+    .leftJoin(batchesTable, eq(chamberReadingsTable.batchId, batchesTable.id))
     .where(
       and(
         eq(chamberReadingsTable.chamberId, chamberId),
@@ -292,6 +329,9 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       id: r.reading.id,
       chamberId: r.reading.chamberId,
       chamberName: r.chamberName,
+      batchId: r.reading.batchId,
+      turnNumber: r.reading.turnNumber,
+      batchCode: r.batchCode ?? null,
       temperatureCelsius:
         r.reading.temperatureCelsius !== null
           ? Number(r.reading.temperatureCelsius)
@@ -324,12 +364,44 @@ router.post("/:id/readings", requireAuth, async (req, res) => {
     )
     .limit(1);
   if (!chamber) return res.status(404).json({ error: "Chamber not found" });
+  const [location] = await db
+    .select()
+    .from(locationsTable)
+    .where(eq(locationsTable.id, chamber.locationId))
+    .limit(1);
+  const isCasingSoil =
+    location?.code === "C" && chamber.chamberType === "casing_soil";
+  if (isCasingSoil) {
+    if (chamber.status !== "active" || !chamber.currentBatchId)
+      return res.status(409).json({
+        error:
+          "Assign an active casing-soil batch stage before logging readings",
+      });
+    for (const [label, value] of [
+      ["Temperature", temperatureCelsius],
+      ["NH3", nh3Ppm],
+      ["CO2", co2Percent],
+      ["Moisture", humidity],
+    ] as const) {
+      if (
+        value !== "" &&
+        value !== null &&
+        value !== undefined &&
+        !Number.isFinite(Number(value))
+      )
+        return res
+          .status(400)
+          .json({ error: `${label} must be a valid number when entered` });
+    }
+  }
 
   const [reading] = await db
     .insert(chamberReadingsTable)
     .values({
       organizationId: organizationId(req),
       chamberId,
+      batchId: isCasingSoil ? chamber.currentBatchId : null,
+      turnNumber: isCasingSoil ? chamber.currentTurnNumber : null,
       temperatureCelsius: temperatureCelsius ?? null,
       nh3Ppm: nh3Ppm ?? null,
       co2Percent: co2Percent ?? null,
@@ -344,6 +416,8 @@ router.post("/:id/readings", requireAuth, async (req, res) => {
   if (temperatureCelsius !== undefined)
     updates.lastTemperature = temperatureCelsius;
   if (nh3Ppm !== undefined) updates.lastNh3 = nh3Ppm;
+  if (co2Percent !== undefined) updates.lastCo2 = co2Percent;
+  if (humidity !== undefined) updates.lastMoisture = humidity;
   await db
     .update(chambersTable)
     .set(updates)

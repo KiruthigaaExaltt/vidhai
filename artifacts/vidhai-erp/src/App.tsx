@@ -19,6 +19,7 @@ import BatchDetail from "@/pages/annur/batches/[id]";
 import Chambers from "@/pages/annur/chambers";
 import CoimbatoreBatches from "@/pages/coimbatore/batches/index";
 import CoimbatoreBatchDetail from "@/pages/coimbatore/batches/[id]";
+import CoimbatoreChambers from "@/pages/coimbatore/chambers";
 import LabBatches from "@/pages/lab/batches/index";
 import LabBatchDetail from "@/pages/lab/batches/[id]";
 import OotyRooms from "@/pages/ooty/index";
@@ -151,6 +152,7 @@ const landingRoutes = [
   { path: "/annur/batches", permissions: ["production.batches.view"] },
   { path: "/ooty", permissions: ["production.growing_rooms.view"] },
   { path: "/coimbatore/batches", permissions: ["production.casing_soil.view"] },
+  { path: "/coimbatore/chambers", permissions: ["production.chambers.view"] },
   { path: "/lab/batches", permissions: ["production.spawn_batches.view"] },
   { path: "/crm", permissions: ["crm.contacts.view"] },
   {
@@ -278,6 +280,9 @@ function Router() {
         />
       </Route>
 
+      <Route path="/coimbatore/chambers">
+        <ProtectedRoute component={CoimbatoreChambers} permission="production.chambers.view" />
+      </Route>
       {/* Ooty Routes */}
       <Route path="/ooty">
         <ProtectedRoute

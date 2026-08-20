@@ -625,26 +625,21 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
         .status(409)
         .json({ error: "The selected chamber is no longer available" });
   }
-  // Validate verification images
-  if (
-    !verificationImages ||
-    !Array.isArray(verificationImages) ||
-    verificationImages.length < 2
-  ) {
-    return res.status(400).json({
-      error: "Two verification images are required to complete a stage",
-    });
-  }
-
-  let storedVerificationImages: string[];
-  try {
-    storedVerificationImages = await Promise.all(
-      verificationImages.slice(0, 2).map(saveAnnurVerificationImage),
-    );
-  } catch (error: any) {
-    return res.status(400).json({
-      error: error?.message || "Failed to store verification photos",
-    });
+  // Verification photos are optional. Preserve any supplied photos in history.
+  const submittedVerificationImages = Array.isArray(verificationImages)
+    ? verificationImages.filter(Boolean).slice(0, 2)
+    : [];
+  let storedVerificationImages: string[] = [];
+  if (submittedVerificationImages.length > 0) {
+    try {
+      storedVerificationImages = await Promise.all(
+        submittedVerificationImages.map(saveAnnurVerificationImage),
+      );
+    } catch (error: any) {
+      return res.status(400).json({
+        error: error?.message || "Failed to store verification photos",
+      });
+    }
   }
 
   const isDispatchCompletion =
