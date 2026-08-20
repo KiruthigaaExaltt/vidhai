@@ -21,7 +21,6 @@ import CoimbatoreBatches from "@/pages/coimbatore/batches/index";
 import CoimbatoreBatchDetail from "@/pages/coimbatore/batches/[id]";
 import LabBatches from "@/pages/lab/batches/index";
 import LabBatchDetail from "@/pages/lab/batches/[id]";
-import SpawnStockRedirect from "@/pages/lab/spawn-stock";
 import OotyRooms from "@/pages/ooty/index";
 import OotyRoomDetail from "@/pages/ooty/rooms/[id]";
 import Traceability from "@/pages/traceability/index";
@@ -472,13 +471,6 @@ function Router() {
           permission="production.spawn_batches.view"
         />
       </Route>
-      <Route path="/lab/spawn-stock">
-        <ProtectedRoute
-          component={SpawnStockRedirect}
-          permission="production.spawn_batches.view"
-        />
-      </Route>
-
       {/* Annur Routes */}
       <Route path="/annur/batches">
         <ProtectedRoute

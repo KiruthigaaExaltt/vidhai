@@ -283,6 +283,7 @@ export default function Chambers() {
             {chambers?.map((c) => {
               const isPreWetting = c.chamberType === "pre_wetting";
               const isTurn = c.chamberType === "turn";
+              const isBunker = c.chamberType.startsWith("bunker_");
               const isBulk = c.chamberType === "bulk";
 
               return (
@@ -297,7 +298,7 @@ export default function Chambers() {
                 >
                   {/* Top color bar indicator */}
                   <div
-                    className={`h-1 w-full ${isPreWetting ? "bg-amber-400" : isTurn ? "bg-blue-400" : "bg-primary"}`}
+                    className={`h-1 w-full ${isPreWetting ? "bg-amber-400" : isTurn || isBunker ? "bg-blue-400" : "bg-primary"}`}
                   ></div>
 
                   <CardContent className="p-5">
@@ -308,9 +309,13 @@ export default function Chambers() {
                         </div>
                         <div className="text-xs uppercase tracking-wider text-muted-foreground mt-0.5 flex items-center gap-1">
                           {isPreWetting && <Wind className="w-3 h-3" />}
-                          {isTurn && <Activity className="w-3 h-3" />}
+                          {(isTurn || isBunker) && (
+                            <Activity className="w-3 h-3" />
+                          )}
                           {isBulk && <Thermometer className="w-3 h-3" />}
-                          {c.chamberType.replace("_", " ")}
+                          {c.chamberType === "turn"
+                            ? "Turn � Legacy"
+                            : c.chamberType.replaceAll("_", " ")}
                         </div>
                       </div>
                       <Badge
@@ -348,7 +353,7 @@ export default function Chambers() {
                         <div className="text-xs text-muted-foreground uppercase tracking-wider">
                           Outdoor Zone
                         </div>
-                      ) : isTurn ? (
+                      ) : isTurn || isBunker ? (
                         <div className="text-xs text-muted-foreground uppercase tracking-wider">
                           Turning Process
                         </div>
@@ -373,7 +378,7 @@ export default function Chambers() {
                         </div>
                       )}
 
-                      {!isPreWetting && !isTurn && (
+                      {!isPreWetting && !isTurn && !isBunker && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -433,7 +438,10 @@ export default function Chambers() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="pre_wetting">Pre-Wetting</SelectItem>
-                      <SelectItem value="turn">Turn</SelectItem>
+                      <SelectItem value="bunker_1">Bunker 1</SelectItem>
+                      <SelectItem value="bunker_2">Bunker 2</SelectItem>
+                      <SelectItem value="bunker_3">Bunker 3</SelectItem>
+                      <SelectItem value="bunker_4">Bunker 4</SelectItem>
                       <SelectItem value="bulk">Bulk</SelectItem>
                     </SelectContent>
                   </Select>
@@ -627,82 +635,91 @@ export default function Chambers() {
                 </div>
               )}
 
-              {selectedChamber?.chamberType === "bulk" && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                      <Thermometer className="w-4 h-4" /> Environmental Log
-                    </h3>
-                    <Button
-                      size="sm"
-                      onClick={(e) => handleOpenReading(e, selectedChamber.id)}
-                      className="h-8 rounded-md text-xs px-3"
-                    >
-                      <Plus className="w-3 h-3 mr-1" /> Log Reading
-                    </Button>
-                  </div>
-                  <div className="border rounded-md overflow-hidden">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
-                        <tr>
-                          <th className="px-4 py-2 font-medium">Time</th>
-                          <th className="px-4 py-2 font-medium text-right">
-                            Temp °C
-                          </th>
-                          <th className="px-4 py-2 font-medium text-right">
-                            NH3 ppm
-                          </th>
-                          <th className="px-4 py-2 font-medium text-right">
-                            CO2 %
-                          </th>
-                          <th className="px-4 py-2 font-medium">Logged By</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {history?.map((r) => (
-                          <tr key={r.id} className="h-[36px] hover:bg-muted/30">
-                            <td className="px-4 font-mono text-xs">
-                              {new Date(r.recordedAt).toLocaleString([], {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              })}
-                            </td>
-                            <td className="px-4 font-mono text-right">
-                              {r.temperatureCelsius ?? "-"}
-                            </td>
-                            <td className="px-4 font-mono text-right">
-                              {r.nh3Ppm ?? "-"}
-                            </td>
-                            <td className="px-4 font-mono text-right">
-                              {r.co2Percent ?? "-"}
-                            </td>
-                            <td className="px-4 text-xs text-muted-foreground">
-                              {r.recordedByName}
-                            </td>
-                          </tr>
-                        ))}
-                        {(!history || history.length === 0) && (
+              {selectedChamber &&
+                (selectedChamber.chamberType === "bulk" ||
+                  selectedChamber.chamberType.startsWith("bunker_")) && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <Thermometer className="w-4 h-4" /> Environmental Log
+                      </h3>
+                      <Button
+                        size="sm"
+                        onClick={(e) =>
+                          handleOpenReading(e, selectedChamber.id)
+                        }
+                        className="h-8 rounded-md text-xs px-3"
+                      >
+                        <Plus className="w-3 h-3 mr-1" /> Log Reading
+                      </Button>
+                    </div>
+                    <div className="border rounded-md overflow-hidden">
+                      <table className="w-full text-sm text-left">
+                        <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                           <tr>
-                            <td
-                              colSpan={5}
-                              className="px-4 py-8 text-center text-muted-foreground"
-                            >
-                              No environmental readings found.
-                            </td>
+                            <th className="px-4 py-2 font-medium">Time</th>
+                            <th className="px-4 py-2 font-medium text-right">
+                              Temp °C
+                            </th>
+                            <th className="px-4 py-2 font-medium text-right">
+                              NH3 ppm
+                            </th>
+                            <th className="px-4 py-2 font-medium text-right">
+                              CO2 %
+                            </th>
+                            <th className="px-4 py-2 font-medium">Logged By</th>
                           </tr>
-                        )}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {history?.map((r) => (
+                            <tr
+                              key={r.id}
+                              className="h-[36px] hover:bg-muted/30"
+                            >
+                              <td className="px-4 font-mono text-xs">
+                                {new Date(r.recordedAt).toLocaleString([], {
+                                  dateStyle: "short",
+                                  timeStyle: "short",
+                                })}
+                              </td>
+                              <td className="px-4 font-mono text-right">
+                                {r.temperatureCelsius ?? "-"}
+                              </td>
+                              <td className="px-4 font-mono text-right">
+                                {r.nh3Ppm ?? "-"}
+                              </td>
+                              <td className="px-4 font-mono text-right">
+                                {r.co2Percent ?? "-"}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground">
+                                {r.recordedByName}
+                              </td>
+                            </tr>
+                          ))}
+                          {(!history || history.length === 0) && (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className="px-4 py-8 text-center text-muted-foreground"
+                              >
+                                No environmental readings found.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {selectedChamber?.chamberType !== "bulk" && (
-                <div className="py-8 text-center text-muted-foreground border border-dashed rounded-md flex items-center justify-center gap-2">
-                  <Info className="w-4 h-4" /> This chamber type does not
-                  require hourly environmental monitoring.
-                </div>
-              )}
+              {selectedChamber &&
+                selectedChamber.chamberType !== "bulk" &&
+                !selectedChamber.chamberType.startsWith("bunker_") && (
+                  <div className="py-8 text-center text-muted-foreground border border-dashed rounded-md flex items-center justify-center gap-2">
+                    <Info className="w-4 h-4" /> This chamber type does not
+                    require hourly environmental monitoring.
+                  </div>
+                )}
             </div>
           </DialogContent>
         </Dialog>

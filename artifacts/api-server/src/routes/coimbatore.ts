@@ -154,7 +154,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
       unit: materialsTable.unit,
     })
     .from(coimbatoreBatchMaterialsTable)
-    .innerJoin(materialsTable, eq(coimbatoreBatchMaterialsTable.materialId, materialsTable.id))
+    .leftJoin(materialsTable, eq(coimbatoreBatchMaterialsTable.materialId, materialsTable.id))
     .where(eq(coimbatoreBatchMaterialsTable.batchId, id));
 
   const [config] = await db.select().from(coimbatoreConfigTable)
@@ -242,6 +242,7 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
         batchId,
         materialId: found.id,
         weightKg: String(mat.weightKg),
+        notes: `Formulation material: ${mat.name.trim()}`,
       });
     }
 
@@ -261,9 +262,9 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       });
     }
 
-    // Advance to TURNING
+    // Lock formulation and begin Pre-wetting
     await tx.update(batchesTable).set({
-      currentStage: "TURNING",
+      currentStage: "PRE_WETTING",
       stageEnteredAt: new Date(),
     }).where(eq(batchesTable.id, batchId));
   });
@@ -272,6 +273,20 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
   return res.json(updated);
 });
 
+// Complete the required preparation gates in sequence.
+router.post("/batches/:id/complete-preparation", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const { stage } = req.body as { stage?: string };
+  const [batch] = await db.select().from(batchesTable).where(eq(batchesTable.id, id)).limit(1);
+  if (!batch) return res.status(404).json({ error: "Not found" });
+  if (stage !== batch.currentStage || !["PRE_WETTING", "MIXING"].includes(String(stage))) {
+    return res.status(409).json({ error: "Preparation stages must be completed in order" });
+  }
+  const nextStage = stage === "PRE_WETTING" ? "MIXING" : "TURNING";
+  const [updated] = await db.update(batchesTable).set({ currentStage: nextStage, stageEnteredAt: new Date() })
+    .where(eq(batchesTable.id, id)).returning();
+  return res.json(updated);
+});
 // ── List materials for a batch ────────────────────────────────────────────────
 router.get("/batches/:id/materials", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
@@ -286,7 +301,7 @@ router.get("/batches/:id/materials", requireAuth, async (req, res) => {
       unit: materialsTable.unit,
     })
     .from(coimbatoreBatchMaterialsTable)
-    .innerJoin(materialsTable, eq(coimbatoreBatchMaterialsTable.materialId, materialsTable.id))
+    .leftJoin(materialsTable, eq(coimbatoreBatchMaterialsTable.materialId, materialsTable.id))
     .where(eq(coimbatoreBatchMaterialsTable.batchId, id));
   return res.json(rows);
 });
@@ -337,6 +352,9 @@ router.get("/batches/:id/turns", requireAuth, async (req, res) => {
 // ── Record a turn (sequential, requires 2 images) ─────────────────────────────
 router.post("/batches/:id/turns", requireAuth, async (req, res) => {
   const batchId = Number(req.params.id);
+  const [activeBatch] = await db.select().from(batchesTable).where(eq(batchesTable.id, batchId)).limit(1);
+  if (!activeBatch) return res.status(404).json({ error: "Not found" });
+  if (activeBatch.currentStage !== "TURNING") return res.status(409).json({ error: "Pre-wetting and Mixing must be completed before Turning" });
   const userId = (req.session as any).userId;
   const { turnNumber, actualDate, notes, verificationImages } = req.body as any;
 

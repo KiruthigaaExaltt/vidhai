@@ -262,10 +262,30 @@ export default function CoimbatoreBatchDetail() {
       }
       return res.json();
     },
-    onSuccess: () => { refetch(); toast.success("Batch initiated — turn tracker is now active"); },
+    onSuccess: () => { refetch(); toast.success("Batch initiated - Pre-wetting is now active"); },
     onError: (e: any) => toast.error(e.message ?? "Failed to initiate"),
   });
 
+  const completePreparationMutation = useMutation({
+    mutationFn: async (stage: "PRE_WETTING" | "MIXING") => {
+      const res = await fetch(`/api/coimbatore/batches/${batchId}/complete-preparation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ stage }),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.error ?? "Failed to complete stage");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, stage) => {
+      refetch();
+      toast.success(stage === "PRE_WETTING" ? "Pre-wetting completed - Mixing is now active" : "Mixing completed - Turn tracker is now active");
+    },
+    onError: (error: any) => toast.error(error.message ?? "Failed to complete stage"),
+  });
   const completeTurnMutation = useMutation({
     mutationFn: async (payload: Record<string, any>) => {
       const res = await fetch(`/api/coimbatore/batches/${batchId}/turns`, {
@@ -316,6 +336,9 @@ export default function CoimbatoreBatchDetail() {
 
   const currentStage: string = b?.currentStage ?? "FORMULATION";
   const isFormulation = currentStage === "FORMULATION";
+  const isPreWetting  = currentStage === "PRE_WETTING";
+  const isMixing      = currentStage === "MIXING";
+  const isPreparation = isPreWetting || isMixing;
   const isTurning     = currentStage === "TURNING";
   const isQcPending   = currentStage === "QC_PENDING";
   const isCompleted   = currentStage === "COMPLETED" || currentStage === "READY_TO_SHIP";
@@ -583,7 +606,7 @@ export default function CoimbatoreBatchDetail() {
         {/* POST-FORMULATION: TABS                                               */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
 
-        {(isTurning || isQcPending || isCompleted) && (
+        {(isPreparation || isTurning || isQcPending || isCompleted) && (
           <Tabs defaultValue="tracker" className="w-full">
             <TabsList className="rounded-none bg-transparent border-b w-full justify-start h-auto p-0 space-x-6 mb-0">
               <TabsTrigger value="formulation" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-2.5 font-medium text-sm">
@@ -631,12 +654,13 @@ export default function CoimbatoreBatchDetail() {
                         <tbody className="divide-y divide-border">
                           {savedMaterials.map((m: any) => {
                             const kgVal = Number(m.weightKg);
-                            const unit  = getUnit(m.materialName ?? "");
+                            const materialLabel = m.materialName ?? m.notes?.replace(/^Formulation material:\s*/i, "") ?? "";
+                            const unit  = getUnit(materialLabel);
                             const display = unit === "tons" ? (kgVal / 1000).toFixed(2) : kgVal.toFixed(0);
                             const pct   = savedTotalKg > 0 ? (kgVal / savedTotalKg) * 100 : 0;
                             return (
                               <tr key={m.id} className="h-[44px] bg-muted/5">
-                                <td className="px-6 font-medium">{m.materialName}</td>
+                                <td className="px-6 font-medium">{m.materialName ?? m.notes?.replace(/^Formulation material:\s*/i, "") ?? `Archived material #${m.materialId}`}</td>
                                 <td className="px-6 font-mono text-right font-semibold">{display}</td>
                                 <td className="px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{unit}</td>
                                 <td className="px-6 font-mono text-right text-muted-foreground">{pct.toFixed(1)}%</td>
@@ -697,11 +721,11 @@ export default function CoimbatoreBatchDetail() {
                   <div className="flex items-center justify-between">
                     <div>
                       <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                        Turn Tracker Pipeline
+                        Casing Soil Stage Pipeline
                       </CardTitle>
                       {!isCompleted && (
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Complete each turn in order with two verification photos.
+                          Complete Pre-wetting and Mixing first, then complete every turn in order with two verification photos.
                           {isQcPending && <span className="ml-1 text-amber-600 font-medium">All turns complete — awaiting QC decision.</span>}
                         </p>
                       )}
@@ -727,6 +751,46 @@ export default function CoimbatoreBatchDetail() {
                   ) : (
                     <div className="overflow-x-auto">
                       <div className="flex gap-2 min-w-max pb-2">
+                        {([
+                          { key: "PRE_WETTING", label: "Pre-wetting" },
+                          { key: "MIXING", label: "Mixing" },
+                        ] as const).map((stage, index) => {
+                          const isActive = currentStage === stage.key;
+                          const isDone = stage.key === "PRE_WETTING"
+                            ? currentStage !== "PRE_WETTING"
+                            : !["PRE_WETTING", "MIXING"].includes(currentStage);
+                          return (
+                            <div key={stage.key} className="flex items-center gap-2">
+                              <div className={`w-40 rounded-sm border-2 p-3 transition-all ${
+                                isActive ? "border-primary bg-primary/5 shadow-sm" :
+                                isDone ? "border-green-300 bg-green-50/50" :
+                                "border-border bg-muted/20 opacity-60"
+                              }`}>
+                                <div className="flex items-center justify-between mb-2">
+                                  {isDone ? <CheckCircle2 className="w-4 h-4 text-green-600" /> :
+                                   isActive ? <Clock className="w-4 h-4 text-primary animate-pulse" /> :
+                                   <Circle className="w-4 h-4 text-muted-foreground/40" />}
+                                  <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                                    isActive ? "text-primary" : isDone ? "text-green-700" : "text-muted-foreground/50"
+                                  }`}>
+                                    {isActive ? "Active" : isDone ? "Done" : "Pending"}
+                                  </span>
+                                </div>
+                                <p className={`text-sm font-bold mb-1 ${!isDone && !isActive ? "text-muted-foreground" : "text-foreground"}`}>{stage.label}</p>
+                                <p className="text-[10px] text-muted-foreground">Preparation stage {index + 1}</p>
+                                {isActive && (
+                                  <Button size="sm" className="w-full mt-3 h-7 text-xs rounded-sm"
+                                    disabled={completePreparationMutation.isPending}
+                                    onClick={() => completePreparationMutation.mutate(stage.key)}>
+                                    {completePreparationMutation.isPending ? "Saving..." : "Complete"}
+                                  </Button>
+                                )}
+                              </div>
+                              <div className={`w-4 h-0.5 shrink-0 ${isDone ? "bg-green-400" : "bg-border"}`} />
+                            </div>
+                          );
+                        })}
+
                         {turnSchedule.map((slot, idx) => {
                           const logged = turns.find((t: any) => t.turnNumber === slot.turnNumber) ?? null;
                           const isCompletedSlot = !!logged;

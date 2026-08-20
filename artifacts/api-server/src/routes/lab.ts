@@ -11,6 +11,8 @@ import {
   inventoryTable,
   inventoryAdjustmentsTable,
   materialsTable,
+  spawnEntriesTable,
+  spawnVaultTransactionsTable,
 } from "@workspace/db";
 import { eq, desc, ilike } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
@@ -299,11 +301,9 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     ? verificationImages.filter(Boolean)
     : [];
   if (imgs.length < 2) {
-    return res
-      .status(400)
-      .json({
-        error: "Two verification photos are required to complete a stage",
-      });
+    return res.status(400).json({
+      error: "Two verification photos are required to complete a stage",
+    });
   }
 
   const [batch] = await db
@@ -375,7 +375,16 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     // QC → COMPLETED: record spawn output + optionally stock inventory
     if (nextStage === "COMPLETED" && spawnQty) {
       const qtyKg = Number(spawnQty);
-      const stockedToInventory = destination === "inventory";
+      const postingKey = `lab-production:${id}`;
+      const [existingPosting] = await tx
+        .select()
+        .from(spawnVaultTransactionsTable)
+        .where(eq(spawnVaultTransactionsTable.transactionKey, postingKey))
+        .limit(1);
+      if (existingPosting)
+        throw new Error(
+          "This Lab output was already credited to the Spawn Vault",
+        );
 
       const [output] = await tx
         .insert(labSpawnOutputTable)
@@ -384,12 +393,41 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
           strainName: strainName ?? "Mixed Spawn",
           quantityKg: String(qtyKg),
           producedAt: new Date().toISOString().split("T")[0],
-          status: stockedToInventory ? "stocked" : "available",
+          status: "stocked",
           notes: notes ?? null,
         })
         .returning();
 
-      if (stockedToInventory) {
+      const [vaultEntry] = await tx
+        .insert(spawnEntriesTable)
+        .values({
+          strainName: strainName ?? "Mixed Spawn",
+          quantityKg: String(qtyKg),
+          producedQuantityKg: String(qtyKg),
+          source: "Location D Production",
+          sourceType: "INTERNAL",
+          sourceReferenceType: "LAB_BATCH",
+          sourceReferenceId: id,
+          sourceReference: batch.batchCode,
+          receivedAt: new Date().toISOString().split("T")[0],
+          status: "available",
+          notes: notes ?? null,
+        })
+        .returning();
+      await tx.insert(spawnVaultTransactionsTable).values({
+        transactionKey: postingKey,
+        spawnEntryId: vaultEntry.id,
+        transactionType: "PRODUCTION_IN",
+        quantityInKg: String(qtyKg),
+        quantityOutKg: "0",
+        balanceAfterKg: String(qtyKg),
+        referenceType: "LAB_BATCH",
+        referenceId: id,
+        reference: batch.batchCode,
+        recordedByUserId: userId,
+      });
+
+      if (false) {
         // Find or create spawn material in inventory
         const [spawnMat] = await tx
           .select()

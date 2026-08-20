@@ -11,6 +11,14 @@ import { and, eq, desc } from "@workspace/db";
 import { organizationId } from "../lib/access";
 
 const router = Router();
+const ANNUR_CHAMBER_TYPES = new Set([
+  "pre_wetting",
+  "bunker_1",
+  "bunker_2",
+  "bunker_3",
+  "bunker_4",
+  "bulk",
+]);
 
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId)
@@ -76,6 +84,14 @@ router.post("/", requireAuth, async (req, res) => {
     heightM,
     notes,
   } = req.body;
+  const [location] = await db
+    .select()
+    .from(locationsTable)
+    .where(eq(locationsTable.id, Number(locationId)))
+    .limit(1);
+  if (!location) return res.status(400).json({ error: "Location not found" });
+  if (location.code === "A" && !ANNUR_CHAMBER_TYPES.has(String(chamberType)))
+    return res.status(400).json({ error: "Select a valid Annur chamber type" });
 
   const [chamber] = await db
     .insert(chambersTable)
@@ -173,6 +189,32 @@ router.patch("/:id", requireAuth, async (req, res) => {
     heightM,
     notes,
   } = req.body;
+  const [existing] = await db
+    .select()
+    .from(chambersTable)
+    .where(
+      and(
+        eq(chambersTable.id, id),
+        eq(chambersTable.organizationId, organizationId(req)),
+      ),
+    )
+    .limit(1);
+  if (!existing) return res.status(404).json({ error: "Chamber not found" });
+  const [location] = await db
+    .select()
+    .from(locationsTable)
+    .where(eq(locationsTable.id, existing.locationId))
+    .limit(1);
+  if (
+    chamberType !== undefined &&
+    location?.code === "A" &&
+    !ANNUR_CHAMBER_TYPES.has(String(chamberType))
+  )
+    return res
+      .status(400)
+      .json({
+        error: "Legacy Turn chambers cannot be assigned to new production",
+      });
 
   const updates: Record<string, any> = {};
   if (name !== undefined) updates.name = name;

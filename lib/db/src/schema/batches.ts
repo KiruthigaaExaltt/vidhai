@@ -25,6 +25,7 @@ export const batchesTable = mongoTable("batches", {
   actualBags: integer("actual_bags"),
   preWettingChamberId: integer("pre_wetting_chamber_id"),
   turnChamberId: integer("turn_chamber_id"),
+  currentChamberId: integer("current_chamber_id"),
   bulkChamberId: integer("bulk_chamber_id"),
   spawnEntryId: integer("spawn_entry_id"),
   // For spawn mixing stage traceability

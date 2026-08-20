@@ -298,7 +298,6 @@ export function Sidebar({
             label="Spawn Batches"
             permission="production.spawn_batches.view"
           />
-
           {/* ── Cross-site operations ── */}
           {hasOperationsAccess && <SectionTitle>OPERATIONS</SectionTitle>}
           {(can("crew.employees.view") ||

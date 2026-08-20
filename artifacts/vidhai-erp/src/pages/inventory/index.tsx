@@ -59,11 +59,13 @@ import {
   Edit2,
   Trash2,
   X,
+  FlaskConical,
 } from "lucide-react";
 import { CategoryDialog } from "./components/CategoryDialog";
 import { WarehouseDialog } from "./components/WarehouseDialog";
 import { ItemNameDialog } from "./components/ItemNameDialog";
 import { AssetManagement } from "./components/AssetManagement";
+import { SpawnVaultPanel } from "./spawn";
 import { toast } from "sonner";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
@@ -136,6 +138,7 @@ const NAV = [
   { id: "products", icon: Package, label: "Item & Product Master" },
   { id: "warehouses", icon: Warehouse, label: "Warehouses & Stores" },
   { id: "movements", icon: ArrowRightLeft, label: "Stock Movements" },
+  { id: "spawn-vault", icon: FlaskConical, label: "Spawn Vault" },
   { id: "indents", icon: ClipboardList, label: "Material Issue" },
   { id: "assets", icon: Wrench, label: "Asset Management" },
 ];
@@ -2252,6 +2255,13 @@ export default function InventoryModule() {
               </div>
             </TabsContent>
 
+            <TabsContent
+              value="spawn-vault"
+              className="outline-none mt-0 space-y-6"
+            >
+              <SpawnVaultPanel />
+            </TabsContent>
+
             {/* ── ASSET MANAGEMENT ── */}
             <AssetManagement />
             <TabsContent
@@ -2553,8 +2563,7 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">
-                  Selling Price (₹){" "}
-                  <span className="text-destructive">*</span>
+                  Selling Price (₹) <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   type="number"

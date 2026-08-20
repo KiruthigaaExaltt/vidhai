@@ -40,7 +40,7 @@ import { DataPagination } from "@/components/ui/data-pagination";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "sonner";
 
-const ALL_STAGES = ["FORMULATION", "TURNING", "QC_PENDING", "COMPLETED"];
+const ALL_STAGES = ["FORMULATION", "PRE_WETTING", "MIXING", "TURNING", "QC_PENDING", "COMPLETED"];
 
 function stageLabel(stage: string, currentTurnNumber?: number | null) {
   if (stage === "TURNING" && currentTurnNumber) {

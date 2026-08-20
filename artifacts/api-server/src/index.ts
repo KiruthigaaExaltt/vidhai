@@ -29,6 +29,11 @@ import {
   syncTableCustomIndexes,
   notificationOutboxTable,
   refreshSessionsTable,
+  inventoryCategoriesTable,
+  spawnEntriesTable,
+  spawnVaultTransactionsTable,
+  annurSpawnUsagesTable,
+  materialsTable,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
 import { getUploadRoot } from "./lib/uploadStorage";
@@ -55,6 +60,31 @@ await syncTableIndexes(ootyHarvestInventoryPostingsTable);
 await syncTableIndexes(ootyCookoutInventoryPostingsTable);
 await syncTableIndexes(ootyGrowBagInventoryPostingsTable);
 await syncTableIndexes(annurDispatchInventoryPostingsTable);
+await syncTableIndexes(spawnEntriesTable);
+await syncTableIndexes(spawnVaultTransactionsTable);
+await syncTableIndexes(annurSpawnUsagesTable);
+await syncTableCustomIndexes(chambersTable, [
+  {
+    key: {
+      organizationId: 1,
+      locationId: 1,
+      chamberType: 1,
+      status: 1,
+      currentBatchId: 1,
+    },
+    name: "chamber_availability",
+  },
+]);
+await syncTableCustomIndexes(spawnEntriesTable, [
+  {
+    key: { status: 1, sourceType: 1, quantityKg: 1 },
+    name: "spawn_vault_available",
+  },
+  {
+    key: { sourceReferenceType: 1, sourceReferenceId: 1 },
+    name: "spawn_vault_source",
+  },
+]);
 const legacyChambers = (await db.select().from(chambersTable)) as any[];
 for (const chamber of legacyChambers) {
   if (chamber.organizationId != null) continue;
@@ -172,6 +202,41 @@ const permissionMigration = await migratePermissionData();
 logger.info(permissionMigration, "RBAC permission migration complete");
 
 const defaultVaultItems = await ensureDefaultVaultItems();
+let [spawnCategory] = await db
+  .select()
+  .from(inventoryCategoriesTable)
+  .where(eq(inventoryCategoriesTable.categoryCode, "SPAWN"))
+  .limit(1);
+if (!spawnCategory) {
+  [spawnCategory] = await db
+    .insert(inventoryCategoriesTable)
+    .values({
+      name: "Spawn",
+      categoryCode: "SPAWN",
+      sortOrder: 30,
+      divisions: ["Production"],
+      isActive: true,
+    })
+    .returning();
+}
+for (const material of await db.select().from(materialsTable)) {
+  const alreadyStructured =
+    String(material.category || "")
+      .trim()
+      .toUpperCase() === "SPAWN" ||
+    String(material.itemType || "")
+      .trim()
+      .toUpperCase() === "SPAWN";
+  if (alreadyStructured && material.categoryId !== spawnCategory.id)
+    await db
+      .update(materialsTable)
+      .set({
+        categoryId: spawnCategory.id,
+        category: "spawn",
+        itemType: "Spawn",
+      })
+      .where(eq(materialsTable.id, material.id));
+}
 logger.info(defaultVaultItems, "Default Vault items ready");
 
 const server = createServer(app);

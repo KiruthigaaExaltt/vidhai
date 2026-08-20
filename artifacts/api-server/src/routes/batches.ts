@@ -16,8 +16,11 @@ import {
   inventoryAdjustmentsTable,
   labSpawnOutputTable,
   annurDispatchInventoryPostingsTable,
+  spawnEntriesTable,
+  spawnVaultTransactionsTable,
+  annurSpawnUsagesTable,
 } from "@workspace/db";
-import { eq, and, desc, ilike } from "@workspace/db";
+import { eq, and, desc, ilike, gte } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import {
   annurDispatchPostingKey,
@@ -27,6 +30,25 @@ import {
 import { resolveUploadPath } from "../lib/uploadStorage";
 
 const router = Router();
+const ANNUR_STAGES = [
+  "PRE_WETTING",
+  "T1",
+  "T2",
+  "T3",
+  "T4",
+  "BULK_CHAMBER",
+  "QUALITY_CHECK",
+  "SPAWN_MIXING",
+  "DISPATCH",
+  "COMPLETED",
+];
+const REQUIRED_CHAMBER_TYPE: Record<string, string> = {
+  T1: "bunker_1",
+  T2: "bunker_2",
+  T3: "bunker_3",
+  T4: "bunker_4",
+  BULK_CHAMBER: "bulk",
+};
 
 const ANNUR_VERIFICATION_FOLDER = [
   "production",
@@ -75,6 +97,7 @@ function formatBatch(b: any, locationCode: string, createdByName: string) {
     actualBags: b.actualBags,
     preWettingChamberId: b.preWettingChamberId,
     turnChamberId: b.turnChamberId,
+    currentChamberId: b.currentChamberId,
     bulkChamberId: b.bulkChamberId,
     spawnEntryId: b.spawnEntryId,
     spawnBatchRef: b.spawnBatchRef,
@@ -217,6 +240,7 @@ router.post("/", async (req, res) => {
           status: "active",
           targetBags: targetBags ?? null,
           preWettingChamberId: preWettingChamber.id,
+          currentChamberId: preWettingChamber.id,
           notes: notes ?? null,
           createdByUserId: userId,
           stageEnteredAt: new Date(),
@@ -285,6 +309,9 @@ router.post("/", async (req, res) => {
         enteredAt: new Date(),
         enteredByUserId: userId,
         notes: "Batch created",
+        chamberId: preWettingChamber.id,
+        chamberNameSnapshot: preWettingChamber.name,
+        chamberTypeSnapshot: preWettingChamber.chamberType,
       });
       return createdBatch;
     });
@@ -348,6 +375,11 @@ router.get("/:id", async (req, res) => {
     .leftJoin(usersTable, eq(stageLogsTable.enteredByUserId, usersTable.id))
     .where(eq(stageLogsTable.batchId, batchId))
     .orderBy(stageLogsTable.enteredAt);
+  const [spawnUsage] = await db
+    .select()
+    .from(annurSpawnUsagesTable)
+    .where(eq(annurSpawnUsagesTable.batchId, batchId))
+    .limit(1);
 
   const formattedMaterials = materials.map(({ bm, materialName, unit }) => {
     const wet = Number(bm.wetWeightKg);
@@ -376,6 +408,9 @@ router.get("/:id", async (req, res) => {
     exitedAt: sl.exitedAt,
     enteredByName: enteredByName ?? "System",
     notes: sl.notes,
+    chamberId: sl.chamberId,
+    chamberName: sl.chamberNameSnapshot,
+    chamberType: sl.chamberTypeSnapshot,
     nh3Ppm: sl.nh3Ppm != null ? Number(sl.nh3Ppm) : null,
     temperatureCelsius:
       sl.temperatureCelsius != null ? Number(sl.temperatureCelsius) : null,
@@ -388,6 +423,9 @@ router.get("/:id", async (req, res) => {
     ...formatBatch(row.batch, row.locationCode, row.createdByName ?? "System"),
     materials: formattedMaterials,
     stageLogs: formattedLogs,
+    spawnUsage: spawnUsage
+      ? { ...spawnUsage, quantityUsedKg: Number(spawnUsage.quantityUsedKg) }
+      : null,
   });
 });
 
@@ -530,6 +568,8 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     chamberId,
     turnChamberId,
     producedBags,
+    spawnEntryId,
+    spawnQuantityUsed,
   } = req.body;
   const userId = (req.session as any).userId;
 
@@ -539,76 +579,43 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, batchId))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Batch not found" });
+  const currentIndex = ANNUR_STAGES.indexOf(batch.currentStage);
+  if (currentIndex < 0 || ANNUR_STAGES[currentIndex + 1] !== nextStage)
+    return res.status(409).json({
+      error: `Expected next stage ${ANNUR_STAGES[currentIndex + 1] ?? "none"}`,
+    });
 
-  if (nextStage === "SPAWN_MIXING" && !spawnBatchRef) {
+  if (
+    nextStage === "SPAWN_MIXING" &&
+    (!spawnEntryId || !(Number(spawnQuantityUsed) > 0))
+  ) {
     return res.status(400).json({
-      error: "spawnBatchRef is required when advancing to SPAWN_MIXING",
+      error:
+        "Select one Spawn Vault entry and enter a quantity greater than zero",
     });
   }
 
-  let selectedLabSpawnBatch: any;
-  let selectedLabSpawnOutput: any;
-  if (
-    nextStage === "SPAWN_MIXING" &&
-    String(spawnBatchType ?? "internal") === "internal"
-  ) {
-    [selectedLabSpawnBatch] = await db
-      .select()
-      .from(batchesTable)
-      .where(eq(batchesTable.batchCode, String(spawnBatchRef)))
-      .limit(1);
-    if (!selectedLabSpawnBatch)
-      return res.status(404).json({ error: "Selected Lab spawn batch was not found" });
-    const outputs = await db
-      .select()
-      .from(labSpawnOutputTable)
-      .where(eq(labSpawnOutputTable.batchId, selectedLabSpawnBatch.id));
-    selectedLabSpawnOutput = outputs.find(
-      (output: any) => String(output.status).toLowerCase() !== "used",
-    );
-    if (
-      String(selectedLabSpawnBatch.status).toLowerCase() === "used" ||
-      !selectedLabSpawnOutput
-    )
-      return res.status(409).json({ error: "Selected Lab spawn batch has already been used" });
-  }
-
-  let selectedTurnChamber: typeof chambersTable.$inferSelect | undefined;
-  if (batch.currentStage === "PRE_WETTING" && nextStage === "T1") {
-    if (!turnChamberId)
-      return res
-        .status(400)
-        .json({ error: "A Turn chamber is required before entering T1" });
-    [selectedTurnChamber] = await db
-      .select()
-      .from(chambersTable)
-      .where(eq(chambersTable.id, Number(turnChamberId)))
-      .limit(1);
-    if (!isAvailableChamber(selectedTurnChamber, "turn", batch.locationId))
-      return res
-        .status(409)
-        .json({ error: "The selected Turn chamber is no longer available" });
-  }
-
   let selectedChamber: typeof chambersTable.$inferSelect | undefined;
-  if (nextStage === "BULK_CHAMBER") {
-    if (!chamberId)
-      return res
-        .status(400)
-        .json({ error: "A Bulk chamber is required when advancing from T4" });
+  const requiredChamberType = REQUIRED_CHAMBER_TYPE[nextStage];
+  if (requiredChamberType) {
+    const requestedChamberId = Number(chamberId || turnChamberId);
+    if (!requestedChamberId)
+      return res.status(400).json({
+        error: `A ${requiredChamberType.replace("_", " ")} chamber is required`,
+      });
     [selectedChamber] = await db
       .select()
       .from(chambersTable)
-      .where(eq(chambersTable.id, Number(chamberId)))
+      .where(eq(chambersTable.id, requestedChamberId))
       .limit(1);
     if (
       !selectedChamber ||
-      selectedChamber.chamberType !== "bulk" ||
+      selectedChamber.chamberType !== requiredChamberType ||
       selectedChamber.locationId !== batch.locationId
     )
-      return res
-        .status(400)
-        .json({ error: "Select a valid Bulk chamber for this location" });
+      return res.status(400).json({
+        error: `Select a valid ${requiredChamberType.replace("_", " ")} chamber for Annur`,
+      });
     // Mongo records created before currentBatchId was populated may omit the field; null and undefined both mean unassigned.
     if (
       selectedChamber.status !== "idle" ||
@@ -616,7 +623,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     )
       return res
         .status(409)
-        .json({ error: "The selected Bulk chamber is no longer available" });
+        .json({ error: "The selected chamber is no longer available" });
   }
   // Validate verification images
   if (
@@ -650,38 +657,75 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
 
   const exitedAt = new Date();
   const updated = await db.transaction(async (tx) => {
-    if (selectedLabSpawnBatch && selectedLabSpawnOutput) {
-      const [consumedOutput] = await tx
-        .update(labSpawnOutputTable)
-        .set({ status: "used" })
+    if (nextStage === "SPAWN_MIXING") {
+      const [existingUsage] = await tx
+        .select()
+        .from(annurSpawnUsagesTable)
+        .where(eq(annurSpawnUsagesTable.batchId, batchId))
+        .limit(1);
+      if (existingUsage)
+        throw new Error("This batch has already recorded spawn usage");
+      const qty = Number(spawnQuantityUsed);
+      const [entry] = await tx
+        .update(spawnEntriesTable)
+        .set({ status: "reserved" })
         .where(
           and(
-            eq(labSpawnOutputTable.id, selectedLabSpawnOutput.id),
-            eq(labSpawnOutputTable.status, selectedLabSpawnOutput.status),
+            eq(spawnEntriesTable.id, Number(spawnEntryId)),
+            eq(spawnEntriesTable.status, "available"),
+            gte(spawnEntriesTable.quantityKg, String(qty)),
           ),
         )
         .returning();
-      if (!consumedOutput)
-        throw new Error("Selected Lab spawn batch has already been used");
+      if (!entry)
+        throw new Error(
+          "Selected spawn stock is unavailable or has insufficient quantity",
+        );
+      const available = Number(entry.quantityKg);
+      const balance = available - qty;
       await tx
-        .update(batchesTable)
-        .set({ status: "used" })
-        .where(eq(batchesTable.id, selectedLabSpawnBatch.id));
+        .update(spawnEntriesTable)
+        .set({
+          quantityKg: String(balance),
+          status: balance === 0 ? "depleted" : "available",
+        })
+        .where(eq(spawnEntriesTable.id, entry.id));
+      await tx.insert(annurSpawnUsagesTable).values({
+        batchId,
+        spawnEntryId: entry.id,
+        quantityUsedKg: String(qty),
+        sourceTypeSnapshot: entry.sourceType,
+        sourceReferenceSnapshot: entry.sourceReference,
+        strainNameSnapshot: entry.strainName,
+        supplierNameSnapshot: entry.supplierName,
+        supplierLotSnapshot: entry.supplierLot,
+        purchaseReferenceSnapshot: entry.purchaseReference,
+        recordedByUserId: userId,
+        updatedByUserId: userId,
+      });
+      await tx.insert(spawnVaultTransactionsTable).values({
+        transactionKey: `annur-consumption:${batchId}:initial`,
+        spawnEntryId: entry.id,
+        transactionType: "ANNUR_CONSUMPTION",
+        quantityInKg: "0",
+        quantityOutKg: String(qty),
+        balanceAfterKg: String(balance),
+        referenceType: "ANNUR_BATCH",
+        referenceId: batchId,
+        reference: batch.batchCode,
+        recordedByUserId: userId,
+      });
     }
-    if (selectedTurnChamber) {
-      const [locked] = await tx
+    if (
+      batch.currentChamberId ||
+      batch.preWettingChamberId ||
+      batch.turnChamberId ||
+      batch.bulkChamberId
+    )
+      await tx
         .update(chambersTable)
-        .set({ currentBatchId: batchId, status: "active" })
-        .where(
-          and(
-            eq(chambersTable.id, selectedTurnChamber.id),
-            eq(chambersTable.status, "idle"),
-          ),
-        )
-        .returning();
-      if (!locked || locked.currentBatchId !== batchId)
-        throw new Error("The selected Turn chamber is no longer available");
-    }
+        .set({ currentBatchId: null, status: "idle" })
+        .where(eq(chambersTable.currentBatchId, batchId));
     if (selectedChamber) {
       const [locked] = await tx
         .update(chambersTable)
@@ -694,21 +738,16 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
         )
         .returning();
       if (!locked || locked.currentBatchId !== batchId)
-        throw new Error("The selected Bulk chamber is no longer available");
+        throw new Error("The selected chamber is no longer available");
     }
-    if (batch.currentStage === "PRE_WETTING" && nextStage !== "PRE_WETTING")
-      await tx
-        .update(chambersTable)
-        .set({ currentBatchId: null, status: "idle" })
-        .where(
-          and(
-            eq(chambersTable.currentBatchId, batchId),
-            eq(chambersTable.chamberType, "pre_wetting"),
-          ),
-        );
     await tx
       .update(stageLogsTable)
-      .set({ exitedAt })
+      .set({
+        exitedAt,
+        completedByUserId: userId,
+        notes: notes ?? null,
+        verificationImages: JSON.stringify(storedVerificationImages),
+      })
       .where(
         and(
           eq(stageLogsTable.batchId, batchId),
@@ -720,43 +759,24 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
       stage: nextStage,
       enteredAt: exitedAt,
       enteredByUserId: userId,
-      notes: notes ?? null,
-      verificationImages: JSON.stringify(storedVerificationImages),
+      chamberId: selectedChamber?.id ?? null,
+      chamberNameSnapshot: selectedChamber?.name ?? null,
+      chamberTypeSnapshot: selectedChamber?.chamberType ?? null,
     });
     const batchUpdates: Record<string, unknown> = {
       currentStage: nextStage,
       stageEnteredAt: exitedAt,
     };
-    if (selectedTurnChamber)
-      batchUpdates.turnChamberId = selectedTurnChamber.id;
-    if (selectedChamber) batchUpdates.bulkChamberId = selectedChamber.id;
+    batchUpdates.currentChamberId = selectedChamber?.id ?? null;
+    if (selectedChamber?.chamberType === "bulk")
+      batchUpdates.bulkChamberId = selectedChamber.id;
     if (isDispatchCompletion && produced?.ok) {
       batchUpdates.status = "dispatched";
       batchUpdates.actualBags = produced.producedBags;
     }
-    if (nextStage === "SPAWN_MIXING" && spawnBatchRef) {
-      batchUpdates.spawnBatchRef = spawnBatchRef;
-      batchUpdates.spawnBatchType = spawnBatchType ?? "external";
+    if (nextStage === "SPAWN_MIXING" && spawnEntryId) {
+      batchUpdates.spawnEntryId = Number(spawnEntryId);
     }
-    if (
-      batch.currentStage === "T4" &&
-      nextStage === "BULK_CHAMBER" &&
-      batch.turnChamberId
-    )
-      await tx
-        .update(chambersTable)
-        .set({ currentBatchId: null, status: "idle" })
-        .where(
-          and(
-            eq(chambersTable.id, batch.turnChamberId),
-            eq(chambersTable.currentBatchId, batchId),
-          ),
-        );
-    if (batch.currentStage === "BULK_CHAMBER" && nextStage !== "BULK_CHAMBER")
-      await tx
-        .update(chambersTable)
-        .set({ currentBatchId: null, status: "idle" })
-        .where(eq(chambersTable.currentBatchId, batchId));
     if (isDispatchCompletion && produced?.ok) {
       const postingKey = annurDispatchPostingKey(batchId);
       const [existingPosting] = await tx
@@ -854,6 +874,90 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     ...formatBatch(updated, loc?.code ?? "", user?.displayName ?? "System"),
     completedStage: batch.currentStage,
   });
+});
+
+router.patch("/:id/spawn-usage", requireAuth, async (req, res) => {
+  const batchId = Number(req.params.id);
+  const userId = (req.session as any).userId;
+  const newQuantity = Number(req.body.quantityUsedKg);
+  if (!(newQuantity > 0))
+    return res
+      .status(400)
+      .json({ error: "Quantity used must be greater than zero" });
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [usage] = await tx
+        .select()
+        .from(annurSpawnUsagesTable)
+        .where(eq(annurSpawnUsagesTable.batchId, batchId))
+        .limit(1);
+      if (!usage) throw new Error("This batch has no recorded spawn usage");
+      const oldQuantity = Number(usage.quantityUsedKg);
+      const difference = newQuantity - oldQuantity;
+      const [currentEntry] = await tx
+        .select()
+        .from(spawnEntriesTable)
+        .where(eq(spawnEntriesTable.id, usage.spawnEntryId))
+        .limit(1);
+      if (!currentEntry)
+        throw new Error("The locked Spawn Vault source no longer exists");
+      const [entry] = await tx
+        .update(spawnEntriesTable)
+        .set({ status: "reserved" })
+        .where(
+          and(
+            eq(spawnEntriesTable.id, usage.spawnEntryId),
+            eq(spawnEntriesTable.status, currentEntry.status),
+            gte(spawnEntriesTable.quantityKg, String(Math.max(0, difference))),
+          ),
+        )
+        .returning();
+      if (!entry)
+        throw new Error(
+          `Available spawn quantity is only ${Number(currentEntry.quantityKg)} kg`,
+        );
+      const available = Number(entry.quantityKg);
+      const balance = available - difference;
+      await tx
+        .update(spawnEntriesTable)
+        .set({
+          quantityKg: String(balance),
+          status: balance === 0 ? "depleted" : "available",
+        })
+        .where(eq(spawnEntriesTable.id, entry.id));
+      await tx
+        .update(annurSpawnUsagesTable)
+        .set({
+          quantityUsedKg: String(newQuantity),
+          updatedByUserId: userId,
+          updatedAt: new Date(),
+        })
+        .where(eq(annurSpawnUsagesTable.id, usage.id));
+      await tx.insert(spawnVaultTransactionsTable).values({
+        transactionKey: `annur-consumption:${batchId}:adjust:${Date.now()}`,
+        spawnEntryId: entry.id,
+        transactionType: "ANNUR_CONSUMPTION_ADJUSTMENT",
+        quantityInKg: String(difference < 0 ? -difference : 0),
+        quantityOutKg: String(difference > 0 ? difference : 0),
+        balanceAfterKg: String(balance),
+        referenceType: "ANNUR_BATCH",
+        referenceId: batchId,
+        reference: String(batchId),
+        recordedByUserId: userId,
+        notes: `Spawn usage adjusted from ${oldQuantity} kg to ${newQuantity} kg`,
+      });
+      return {
+        ...usage,
+        quantityUsedKg: newQuantity,
+        availableQuantityKg: balance,
+      };
+    });
+    return res.json(result);
+  } catch (error: any) {
+    return res
+      .status(409)
+      .json({ error: error?.message || "Unable to adjust spawn usage" });
+  }
 });
 
 // ── Replace all materials (formulation save) ──────────────────────────────────
