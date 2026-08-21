@@ -31,6 +31,16 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -76,6 +86,7 @@ export default function CoimbatoreChambers() {
   );
   const [isReadingModalOpen, setIsReadingModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     const chamberId = Number(
@@ -141,6 +152,7 @@ export default function CoimbatoreChambers() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() });
         setIsDetailModalOpen(false);
+        setIsDeleteConfirmOpen(false);
         toast.success("Chamber deleted");
       },
     },
@@ -243,13 +255,12 @@ export default function CoimbatoreChambers() {
   };
 
   const handleDelete = () => {
-    if (
-      confirm(
-        "Are you sure you want to delete this chamber? This cannot be undone.",
-      )
-    ) {
-      deleteMutation.mutate({ id: selectedChamberId! });
-    }
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (!selectedChamberId) return;
+    deleteMutation.mutate({ id: selectedChamberId });
   };
 
   const handleAddReading = (e: React.FormEvent) => {
@@ -865,6 +876,34 @@ export default function CoimbatoreChambers() {
             </form>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog
+          open={isDeleteConfirmOpen}
+          onOpenChange={setIsDeleteConfirmOpen}
+        >
+          <AlertDialogContent className="rounded-md">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete chamber?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to permanently delete{" "}
+                <strong>{selectedChamber?.name}</strong>? This action cannot be
+                undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteMutation.isPending}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteMutation.isPending}
+                onClick={confirmDelete}
+              >
+                {deleteMutation.isPending ? "Deleting..." : "Delete Chamber"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </Shell>
   );

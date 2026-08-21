@@ -9,6 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -16,11 +26,12 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Plus, FlaskConical } from "lucide-react";
+import { Plus, FlaskConical, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
+import { toast } from "sonner";
 
 function stageLabel(stage: string) {
   if (stage === "MS") return "Mother Spawn";
@@ -37,6 +48,8 @@ export default function LabBatches() {
   const [notes, setNotes] = useState("");
   const [batchPage, setBatchPage] = useState(1);
   const [batchPageSize, setBatchPageSize] = useState(10);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const batchQuery = useQuery({
     queryKey: ["lab-batches-paged", batchPage, batchPageSize],
     queryFn: async () => {
@@ -60,12 +73,42 @@ export default function LabBatches() {
         setNotes("");
         setLocation(`/lab/batches/${data.id}`);
       },
+      onError: (error: any) => {
+        toast.error(
+          error?.response?.data?.error ??
+            error?.message ??
+            "Unable to create spawn batch",
+        );
+      },
     },
   });
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     createMutation.mutate({ data: { notes: notes || null } });
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/lab/batches/${deleteTarget.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "Unable to delete spawn batch");
+      }
+      toast.success(`Spawn batch ${deleteTarget.batchCode} deleted`);
+      setDeleteTarget(null);
+      await queryClient.invalidateQueries({ queryKey: ["lab-batches-paged"] });
+      await queryClient.invalidateQueries({ queryKey: getListLabBatchesQueryKey() });
+    } catch (error: any) {
+      toast.error(error.message ?? "Unable to delete spawn batch");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -142,6 +185,7 @@ export default function LabBatches() {
                       <th className="px-4 py-2 font-medium">Created</th>
                       <th className="px-4 py-2 font-medium">By</th>
                       <th className="px-4 py-2 font-medium">Notes</th>
+                      <th className="px-4 py-2 font-medium text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -161,18 +205,7 @@ export default function LabBatches() {
                           />
                         </td>
                         <td className="px-4">
-                          <StatusBadge
-                            status={
-                              String(b.status).toLowerCase() === "completed"
-                                ? "used"
-                                : b.status
-                            }
-                            label={
-                              String(b.status).toLowerCase() === "completed"
-                                ? "Used"
-                                : undefined
-                            }
-                          />
+                          <StatusBadge status={b.status} />
                         </td>
                         <td className="px-4 font-mono text-muted-foreground">
                           {new Date(b.createdAt).toLocaleDateString()}
@@ -183,12 +216,27 @@ export default function LabBatches() {
                         <td className="px-4 text-muted-foreground truncate max-w-[200px]">
                           {b.notes ?? "—"}
                         </td>
+                        <td
+                          className="px-4 text-right"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+                            aria-label={`Delete spawn batch ${b.batchCode}`}
+                            onClick={() => setDeleteTarget(b)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                     {batches?.length === 0 && (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="px-4 py-8 text-center text-muted-foreground"
                         >
                           No spawn batches yet. Create the first one.
@@ -210,6 +258,34 @@ export default function LabBatches() {
             loading={isLoading}
           />
         </Card>
+
+        <AlertDialog
+          open={Boolean(deleteTarget)}
+          onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}
+        >
+          <AlertDialogContent className="rounded-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete spawn batch?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete spawn batch{" "}
+                <strong>{deleteTarget?.batchCode}</strong>. This action cannot
+                be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="rounded-sm" disabled={deleting}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="rounded-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting}
+                onClick={handleDelete}
+              >
+                {deleting ? "Deleting..." : "Delete Batch"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </Shell>
   );

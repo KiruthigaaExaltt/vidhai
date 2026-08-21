@@ -5,10 +5,58 @@ import { useListSpawnEntries } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Plus } from "lucide-react";
+import { toast } from "sonner";
 
 export function SpawnVaultPanel() {
-  const { data: spawn, isLoading } = useListSpawnEntries();
+  const { data: spawn, isLoading, refetch } = useListSpawnEntries();
   const spawnPagination = useClientPagination(spawn ?? []);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    strainName: "",
+    quantityKg: "",
+  });
+
+  const setField = (field: keyof typeof form, value: string) =>
+    setForm((previous) => ({ ...previous, [field]: value }));
+
+  const createExternalSpawn = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const response = await fetch("/api/spawn", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, quantityKg: Number(form.quantityKg) }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(body.error || "Unable to create external spawn");
+      toast.success("External spawn added to Spawn Vault");
+      setCreateOpen(false);
+      setForm({
+        strainName: "",
+        quantityKg: "",
+      });
+      await refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to create external spawn");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="min-w-0 w-full space-y-6">
@@ -18,10 +66,9 @@ export function SpawnVaultPanel() {
             Spawn Inventory
           </h1>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Stock enters automatically from finalized Lab production or received
-          Spawn goods receipts.
-        </p>
+        <Button className="rounded-sm" onClick={() => setCreateOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" /> Create New Spawn
+        </Button>
       </div>
 
       <Card className="rounded-sm border-border shadow-none">
@@ -111,6 +158,30 @@ export function SpawnVaultPanel() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="max-w-lg rounded-sm">
+          <DialogHeader>
+            <DialogTitle>Create New Spawn</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={createExternalSpawn} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Strain Name *</Label>
+                <Input value={form.strainName} onChange={(e) => setField("strainName", e.target.value)} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Quantity Produced (kg) *</Label>
+                <Input type="number" min="0.0001" step="0.0001" value={form.quantityKg} onChange={(e) => setField("quantityKg", e.target.value)} required />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Create Spawn"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

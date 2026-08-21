@@ -78,20 +78,9 @@ router.get("/batches", requireAuth, async (req, res) => {
     .leftJoin(usersTable, eq(batchesTable.createdByUserId, usersTable.id))
     .where(eq(locationsTable.code, "D"))
     .orderBy(desc(batchesTable.createdAt));
-  const usedSpawnReferences = new Set(
-    (await db.select().from(batchesTable))
-      .filter(
-        (batch: any) =>
-          batch.spawnBatchRef &&
-          String(batch.spawnBatchType || "internal") === "internal",
-      )
-      .map((batch: any) => String(batch.spawnBatchRef)),
-  );
   const displayRows = rows.map((row: any) => ({
     ...row,
-    status: usedSpawnReferences.has(String(row.batchCode))
-      ? "used"
-      : row.status,
+    status: row.currentStage === "COMPLETED" ? "completed" : "active",
   }));
   if (req.query.skip === undefined && req.query.limit === undefined)
     return res.json(displayRows);
@@ -116,11 +105,18 @@ router.post("/batches", requireAuth, async (req, res) => {
     .limit(1);
   if (!loc) return res.status(400).json({ error: "Location D not found" });
   const existing = await db
-    .select()
+    .select({ batchCode: batchesTable.batchCode })
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "D"));
-  const code = batchCode(existing.length + 1);
+  const todayPrefix = batchCode(0).slice(0, -3);
+  const nextSequence =
+    existing.reduce((highest, batch) => {
+      if (!batch.batchCode.startsWith(todayPrefix)) return highest;
+      const sequence = Number(batch.batchCode.slice(todayPrefix.length));
+      return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
+    }, 0) + 1;
+  const code = batchCode(nextSequence);
   const [batch] = await db
     .insert(batchesTable)
     .values({
@@ -180,15 +176,9 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .from(labSpawnOutputTable)
     .where(eq(labSpawnOutputTable.batchId, id));
 
-  const isUsed = (await db.select().from(batchesTable)).some(
-    (candidate: any) =>
-      String(candidate.spawnBatchRef || "") === String(batch.batchCode) &&
-      String(candidate.spawnBatchType || "internal") === "internal",
-  );
-
   return res.json({
     ...batch,
-    status: isUsed ? "used" : batch.status,
+    status: batch.currentStage === "COMPLETED" ? "completed" : "active",
     materials,
     stageLogs,
     spawnOutputs,
@@ -296,15 +286,10 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     spawnQty,
   } = req.body as any;
 
-  // Require 2 photos for every stage completion
+  // Preserve any supplied verification photos; photos are optional.
   const imgs: string[] = Array.isArray(verificationImages)
     ? verificationImages.filter(Boolean)
     : [];
-  if (imgs.length < 2) {
-    return res.status(400).json({
-      error: "Two verification photos are required to complete a stage",
-    });
-  }
 
   const [batch] = await db
     .select()

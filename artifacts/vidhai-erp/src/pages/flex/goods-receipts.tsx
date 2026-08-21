@@ -182,6 +182,7 @@ export default function GoodsReceipts() {
   const [mappedPoIds, setMappedPoIds] = useState<string[]>([]);
   const [poSearch, setPoSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
+  const [formVendorId, setFormVendorId] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
@@ -278,11 +279,20 @@ export default function GoodsReceipts() {
     setPoSearch("");
     setUserSearch("");
     setReceivedBy("");
+    setFormVendorId("");
     setVendorName("");
     setVendorAddress("");
     setVendorPhone("");
     setNotes("");
     setAttachmentName("");
+  };
+
+  const handleVendorSelect = (vendorId: string) => {
+    const vendor = vendorsList.find((item) => String(item.id) === vendorId);
+    setFormVendorId(vendorId);
+    setVendorName(vendor?.name || "");
+    setVendorAddress(vendor?.address || "");
+    setVendorPhone(vendor?.phone || vendor?.whatsapp || "");
   };
 
   const handleAddBlankRow = () => {
@@ -337,6 +347,10 @@ export default function GoodsReceipts() {
     const selectedVendors = selected.map((po: any) =>
       vendorsList.find((vendor) => String(vendor.id) === String(po.vendorId)),
     );
+    const selectedVendorIds = [
+      ...new Set(selected.map((po: any) => String(po.vendorId)).filter(Boolean)),
+    ];
+    setFormVendorId(selectedVendorIds.length === 1 ? selectedVendorIds[0] : "");
     setVendorName(
       [...new Set(selected.map((po: any) => po.vendor).filter(Boolean))].join(
         ", ",
@@ -923,38 +937,50 @@ export default function GoodsReceipts() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
-                    <Label className="text-xs font-semibold text-foreground mb-1 block">
+                    <Label className="mb-1 block text-xs font-semibold text-foreground">
                       {FLEX_TEXT.vendorName} *
                     </Label>
-                    <Input
-                      readOnly
-                      value={vendorName}
-                      className="h-9 text-xs bg-muted/30"
-                    />
+                    <Select
+                      value={formVendorId}
+                      onValueChange={handleVendorSelect}
+                    >
+                      <SelectTrigger className="h-9 bg-background text-xs">
+                        <SelectValue placeholder="Select CRM vendor..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {vendorsList.map((vendor) => (
+                          <SelectItem key={vendor.id} value={String(vendor.id)}>
+                            {vendor.name}
+                            {vendor.company ? ` - ${vendor.company}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
-                    <Label className="text-xs font-semibold text-foreground mb-1 block">
+                    <Label className="mb-1 block text-xs font-semibold text-foreground">
                       {FLEX_TEXT.vendorAddress} *
                     </Label>
                     <Input
                       readOnly
                       value={vendorAddress}
-                      className="h-9 text-xs bg-muted/30"
+                      className="h-9 bg-muted/30 text-xs"
                     />
                   </div>
                   <div>
-                    <Label className="text-xs font-semibold text-foreground mb-1 block">
+                    <Label className="mb-1 block text-xs font-semibold text-foreground">
                       {FLEX_TEXT.vendorPhone} *
                     </Label>
                     <Input
                       readOnly
                       value={vendorPhone}
-                      className="h-9 text-xs bg-muted/30"
+                      className="h-9 bg-muted/30 text-xs"
                     />
                   </div>
                 </div>
+
                 {/* Row 4: Received Date * | Received By * */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>

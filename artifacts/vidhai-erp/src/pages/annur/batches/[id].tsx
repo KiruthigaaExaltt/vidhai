@@ -80,6 +80,12 @@ export default function BatchDetail() {
   const availableSpawnEntries = (spawnEntries as any[]).filter(
     (entry) => entry.status === "available" && Number(entry.quantityKg) > 0,
   );
+  const internalSpawnEntries = availableSpawnEntries.filter(
+    (entry) => String(entry.sourceType).toUpperCase() !== "EXTERNAL",
+  );
+  const externalSpawnEntries = availableSpawnEntries.filter(
+    (entry) => String(entry.sourceType).toUpperCase() === "EXTERNAL",
+  );
   const { data: chambers } = useListChambers(
     { locationId: batch?.locationId },
     { query: { enabled: !!batch?.locationId } } as any,
@@ -1229,7 +1235,7 @@ export default function BatchDetail() {
                       spawnRef: "",
                     }))
                   }
-                  className="hidden"
+                  className="grid grid-cols-2 gap-2"
                 >
                   <div className="flex items-center gap-2 bg-white px-3 py-2 border rounded-sm">
                     <RadioGroupItem value="internal" id="spawn-int" />
@@ -1261,7 +1267,7 @@ export default function BatchDetail() {
                       <SelectValue placeholder="Select lab batch…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableSpawnEntries.map((entry: any) => (
+                      {internalSpawnEntries.map((entry: any) => (
                         <SelectItem key={entry.id} value={String(entry.id)}>
                           {entry.sourceType ?? "LEGACY"} �{" "}
                           {entry.sourceReference ||
@@ -1270,7 +1276,7 @@ export default function BatchDetail() {
                           � {Number(entry.quantityKg)} kg
                         </SelectItem>
                       ))}
-                      {availableSpawnEntries.length === 0 && (
+                      {internalSpawnEntries.length === 0 && (
                         <SelectItem value="__none__" disabled>
                           No Spawn Vault stock available
                         </SelectItem>
@@ -1278,17 +1284,28 @@ export default function BatchDetail() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
+                  <Select
                     value={completeDialog.spawnRef}
-                    onChange={(e) =>
-                      setCompleteDialog((p) => ({
-                        ...p,
-                        spawnRef: e.target.value,
-                      }))
+                    onValueChange={(value) =>
+                      setCompleteDialog((p) => ({ ...p, spawnRef: value }))
                     }
-                    className="rounded-sm h-9 bg-white font-mono"
-                    placeholder="Vendor lot / reference number"
-                  />
+                  >
+                    <SelectTrigger className="rounded-sm h-9 bg-white">
+                      <SelectValue placeholder="Select external spawn batch..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {externalSpawnEntries.map((entry: any) => (
+                        <SelectItem key={entry.id} value={String(entry.id)}>
+                          {entry.strainName} - {entry.sourceReference || entry.supplierLot || entry.source} - {Number(entry.quantityKg)} kg
+                        </SelectItem>
+                      ))}
+                      {externalSpawnEntries.length === 0 && (
+                        <SelectItem value="__none__" disabled>
+                          No external Spawn Vault stock available
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 )}
                 <Input
                   type="number"

@@ -46,11 +46,61 @@ router.get("/transactions", async (_req, res) => {
   );
 });
 
-router.post("/", async (_req, res) => {
-  res.status(403).json({
-    error:
-      "Manual Spawn Vault receipts are disabled. Stock must come from finalized Lab production or a received Spawn goods receipt.",
+router.post("/", async (req, res) => {
+  const userId = Number((req.session as any)?.userId);
+  if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+  const {
+    strainName,
+    quantityKg,
+  } = req.body as any;
+  const quantity = Number(quantityKg);
+  if (!String(strainName || "").trim())
+    return res.status(400).json({ error: "Strain name is required" });
+  if (!(quantity > 0))
+    return res.status(400).json({ error: "Quantity must be greater than zero" });
+
+  const entry = await db.transaction(async (tx) => {
+    const now = new Date();
+    const datePart = now.toISOString().slice(2, 10).replace(/-/g, "");
+    const reference = `EXT-${datePart}-${String(now.getTime()).slice(-6)}`;
+    const [created] = await tx
+      .insert(spawnEntriesTable)
+      .values({
+        strainName: String(strainName).trim(),
+        quantityKg: String(quantity),
+        producedQuantityKg: String(quantity),
+        source: "Manual External Spawn",
+        sourceType: "EXTERNAL",
+        sourceReferenceType: "MANUAL_EXTERNAL",
+        sourceReference: reference,
+        supplierName: null,
+        supplierLot: reference,
+        purchaseReference: null,
+        receivedAt: now.toISOString().split("T")[0],
+        expiresAt: null,
+        status: "available",
+        notes: null,
+      })
+      .returning();
+
+    await tx.insert(spawnVaultTransactionsTable).values({
+      transactionKey: `external-spawn:${created.id}:${Date.now()}`,
+      spawnEntryId: created.id,
+      transactionType: "EXTERNAL_RECEIPT",
+      quantityInKg: String(quantity),
+      quantityOutKg: "0",
+      balanceAfterKg: String(quantity),
+      referenceType: "MANUAL_EXTERNAL",
+      referenceId: created.id,
+      reference,
+      notes: null,
+      recordedByUserId: userId,
+    });
+    return created;
   });
+
+  return res.status(201).json({ ...entry, quantityKg: Number(entry.quantityKg) });
 });
 
 export default router;
