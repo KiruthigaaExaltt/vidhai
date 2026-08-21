@@ -145,6 +145,16 @@ export async function ensureOotyVaultLocation() {
 }
 
 export async function ensureDefaultVaultItems() {
+  const casingSources = await db.select().from(casingSoilInventorySourcesTable);
+  for (const source of casingSources) {
+    if ((source as any).origin) continue;
+    await db
+      .update(casingSoilInventorySourcesTable)
+      .set({
+        origin: source.sourceType === "produced" ? "internal" : "external",
+      })
+      .where(eq(casingSoilInventorySourcesTable.id, source.id));
+  }
   const redundantItemNames = new Set([
     "manure",
     "grow bag",

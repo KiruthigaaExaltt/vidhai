@@ -25,6 +25,8 @@ import {
   inventoryCategoriesTable,
   spawnEntriesTable,
   spawnVaultTransactionsTable,
+  casingSoilInventorySourcesTable,
+  casingSoilTransactionsTable,
 } from "@workspace/db";
 
 const router = Router();
@@ -1401,6 +1403,53 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
   );
 });
 
+router.get("/goods-receipts/external/:reference", requireAuth, async (req, res) => {
+  const org = orgId(req);
+  const reference = String(req.params.reference || "").trim().toUpperCase();
+  const receipts = await db
+    .select({
+      lineItems: goodsReceiptsTable.lineItems,
+      status: goodsReceiptsTable.status,
+    })
+    .from(goodsReceiptsTable)
+    .where(eq(goodsReceiptsTable.organizationId, org));
+  const matchingLines = receipts.flatMap((receipt: any) =>
+    (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).filter(
+      (line: any) =>
+        String(line.externalReference || "").trim().toUpperCase() === reference,
+    ),
+  );
+  if (!matchingLines.length) return res.json({ found: false });
+  const orderedQuantity = Math.max(
+    ...matchingLines.map((line: any) => Number(line.orderedQty || 0)),
+  );
+  const receivedQuantity = matchingLines.reduce(
+    (sum: number, line: any) => sum + Number(line.receivedQty || 0),
+    0,
+  );
+  const complete =
+    receipts.some(
+      (receipt: any) =>
+        receipt.status === "Complete" &&
+        (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).some(
+          (line: any) =>
+            String(line.externalReference || "").trim().toUpperCase() === reference,
+        ),
+    ) ||
+    matchingLines.some((line: any) => line.markComplete === true) ||
+    receivedQuantity >= orderedQuantity;
+  return res.json({
+    found: true,
+    externalVaultType: matchingLines[0].externalVaultType,
+    orderedQuantity,
+    receivedQuantity,
+    remainingQuantity: complete
+      ? 0
+      : Math.max(0, orderedQuantity - receivedQuantity),
+    complete,
+  });
+});
+
 router.post("/goods-receipts", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userId = currentUserId(req);
@@ -1419,7 +1468,9 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
   const requestedLines = Array.isArray(req.body.lineItems)
     ? req.body.lineItems
     : [];
-  if (!purchaseOrderIds.length)
+  const hasOnlyManualItems =
+    requestedLines.length > 0 && requestedLines.every((line: any) => line.manualItem === true);
+  if (!purchaseOrderIds.length && !hasOnlyManualItems)
     return res
       .status(400)
       .json({ error: "At least one Purchase Order is required" });
@@ -1451,8 +1502,16 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
     purchaseOrders.push(po);
   }
   const vendorIds = [
-    ...new Set(purchaseOrders.map((po) => String(po.vendorId))),
+    ...new Set(
+      (purchaseOrders.length
+        ? purchaseOrders.map((po) => String(po.vendorId))
+        : [String(req.body.vendorId || "")]
+      ).filter(Boolean),
+    ),
   ];
+  if (!vendorIds.length)
+    return res.status(400).json({ error: "Select a CRM vendor" });
+  const vendorRecords: any[] = [];
   for (const id of vendorIds) {
     const numericId = Number(id);
     const [vendor] = Number.isFinite(numericId)
@@ -1471,6 +1530,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       return res
         .status(400)
         .json({ error: "A Purchase Order vendor is invalid" });
+    vendorRecords.push(vendor);
   }
   const [inspector] = await db
     .select()
@@ -1506,6 +1566,15 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       .trim()
       .toLowerCase();
   const receiptLines: any[] = [];
+  const priorManualReceipts = requestedLines.some((line: any) => line.externalReference)
+    ? await db
+        .select({
+          lineItems: goodsReceiptsTable.lineItems,
+          status: goodsReceiptsTable.status,
+        })
+        .from(goodsReceiptsTable)
+        .where(eq(goodsReceiptsTable.organizationId, org))
+    : [];
   const priorByPo = new Map<number, Map<string, number>>();
   for (const po of purchaseOrders) {
     const orderedLines = Array.isArray(po.lineItems) ? po.lineItems : [];
@@ -1534,23 +1603,67 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
   }
 
   for (const requested of requestedLines) {
-    const po = purchaseOrders.find(
+    const isManualItem = requested.manualItem === true;
+    const matchedPo = purchaseOrders.find(
       (order) => Number(order.id) === Number(requested.purchaseOrderId),
     );
-    if (!po)
+    if (!matchedPo && !isManualItem)
       return res
         .status(400)
         .json({ error: "A received item has an invalid Purchase Order" });
-    const ordered = (Array.isArray(po.lineItems) ? po.lineItems : []).find(
-      (line: any) => keyOf(line) === keyOf(requested),
-    );
-    if (!ordered)
+    const po: any = matchedPo || {
+      id: 0,
+      poNumber: "MANUAL",
+      warehouse: requested.warehouse,
+      lineItems: [],
+    };
+    const ordered = isManualItem
+      ? null
+      : (Array.isArray(po.lineItems) ? po.lineItems : []).find(
+          (line: any) => keyOf(line) === keyOf(requested),
+        );
+    if (!isManualItem && !ordered)
       return res
         .status(400)
         .json({ error: "A received item is not part of its Purchase Order" });
-    const orderedQty = Number(ordered.qty ?? ordered.quantity ?? 0);
-    const alreadyReceived = priorByPo.get(po.id)?.get(keyOf(requested)) || 0;
     const receivedQty = Number(requested.receivedQty || 0);
+    const externalReference = String(requested.externalReference || "")
+      .trim()
+      .toUpperCase();
+    const priorExternalLines = externalReference
+      ? priorManualReceipts.flatMap((receipt: any) =>
+          (Array.isArray(receipt.lineItems) ? receipt.lineItems : [])
+            .filter(
+            (line: any) =>
+              String(line.externalReference || "").trim().toUpperCase() ===
+                externalReference &&
+              line.externalVaultType === requested.externalVaultType,
+          )
+            .map((line: any) => ({ ...line, receiptStatus: receipt.status })),
+        )
+      : [];
+    const priorExternalReceived = priorExternalLines.reduce(
+      (sum: number, line: any) => sum + Number(line.receivedQty || 0),
+      0,
+    );
+    const priorExternalOrdered = priorExternalLines.length
+      ? Math.max(
+          ...priorExternalLines.map((line: any) => Number(line.orderedQty || 0)),
+        )
+      : 0;
+    if (
+      priorExternalLines.some(
+        (line: any) =>
+          line.markComplete === true || line.receiptStatus === "Complete",
+      )
+    )
+      return res.status(400).json({ error: `${externalReference} is already complete` });
+    const orderedQty = isManualItem
+      ? priorExternalOrdered || Number(requested.orderedQty || receivedQty)
+      : Number(ordered.qty ?? ordered.quantity ?? 0);
+    const alreadyReceived = isManualItem
+      ? priorExternalReceived
+      : priorByPo.get(po.id)?.get(keyOf(requested)) || 0;
     const remaining = Math.max(0, orderedQty - alreadyReceived);
     if (!Number.isFinite(receivedQty) || receivedQty <= 0)
       return res
@@ -1565,38 +1678,71 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       return res
         .status(400)
         .json({ error: "Select a valid warehouse for every received item" });
-    const materialId = Number(ordered.itemId ?? requested.itemId);
-    if (!materialId)
+    let materialId = Number(ordered?.itemId ?? requested.itemId);
+    const externalVaultType = String(requested.externalVaultType || "");
+    const isExternalVaultItem =
+      isManualItem &&
+      (externalVaultType === "spawn" || externalVaultType === "casing_soil");
+    if (!materialId && !isExternalVaultItem)
       return res
         .status(400)
         .json({ error: "A received line is not linked to an Inventory item" });
-    const [material] = await db
-      .select()
-      .from(materialsTable)
-      .where(eq(materialsTable.id, materialId))
-      .limit(1);
+    let [material] = materialId
+      ? await db
+          .select()
+          .from(materialsTable)
+          .where(eq(materialsTable.id, materialId))
+          .limit(1)
+      : [];
+    if (!material && isExternalVaultItem) {
+      const specialName =
+        externalVaultType === "spawn" ? "Spawn" : "Casing Soil";
+      [material] = await db
+        .select()
+        .from(materialsTable)
+        .where(eq(materialsTable.name, specialName))
+        .limit(1);
+      if (!material) {
+        [material] = await db
+          .insert(materialsTable)
+          .values({
+            name: specialName,
+            sku: `VLT-EXT-${externalVaultType === "spawn" ? "SPAWN" : "CASING-SOIL"}`,
+            unit: "kg",
+            itemType: "Raw Material",
+            category: "raw_material",
+            itemIdentifier: `VLT-EXT-${externalVaultType === "spawn" ? "SPAWN" : "CASING-SOIL"}`,
+            qrPayload: `/product/${externalVaultType}`,
+            criticalLevel: "0",
+            buyPricePerUnit: "0",
+            sellPricePerUnit: "0",
+          })
+          .returning();
+      }
+      materialId = material.id;
+    }
     if (!material)
       return res
         .status(400)
         .json({ error: "A received Inventory item was not found" });
     const unitPrice = Number(
-      ordered.rate ?? ordered.price ?? requested.unitPrice ?? 0,
+      ordered?.rate ?? ordered?.price ?? requested.unitPrice ?? 0,
     );
-    const cgstPct = Number(ordered.cgstPct || 0),
-      sgstPct = Number(ordered.sgstPct || 0),
-      igstPct = Number(ordered.igstPct || 0);
+    const cgstPct = Number(ordered?.cgstPct || 0),
+      sgstPct = Number(ordered?.sgstPct || 0),
+      igstPct = Number(ordered?.igstPct || 0);
     const taxPct = cgstPct + sgstPct + igstPct;
     const baseAmount = receivedQty * unitPrice;
     receiptLines.push({
       purchaseOrderId: po.id,
       poNumber: po.poNumber,
-      poLineId: ordered.id ?? null,
+      poLineId: ordered?.id ?? requested.poLineId ?? null,
       itemId: materialId,
-      description: String(ordered.description || requested.description || ""),
+      description: String(ordered?.description || requested.description || material.name),
       orderedQty,
       alreadyReceived,
       receivedQty,
-      unit: String(ordered.unit || requested.unit || ""),
+      unit: String(ordered?.unit || requested.unit || ""),
       unitPrice,
       warehouse,
       cgstPct,
@@ -1604,7 +1750,11 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       igstPct,
       taxPct,
       lineTotal: baseAmount + (baseAmount * taxPct) / 100,
-      supplierLot: String(requested.supplierLot || ordered.supplierLot || ""),
+      supplierLot: String(requested.externalReference || requested.supplierLot || ordered?.supplierLot || ""),
+      manualItem: isManualItem,
+      externalVaultType: requested.externalVaultType || null,
+      externalReference: requested.externalReference || null,
+      markComplete: requested.markComplete === true,
     });
   }
 
@@ -1637,24 +1787,63 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       ),
     );
   }
-  const receiptStatus = purchaseOrders.every((po) =>
-    completionByPurchaseOrder.get(po.id),
-  )
-    ? "Complete"
-    : "Partial";
+  const receiptStatus = purchaseOrders.length
+    ? purchaseOrders.every((po) => completionByPurchaseOrder.get(po.id))
+      ? "Complete"
+      : "Partial"
+    : receiptLines.every(
+          (line) =>
+            line.markComplete === true ||
+            Number(line.alreadyReceived || 0) + Number(line.receivedQty || 0) >=
+              Number(line.orderedQty || 0),
+        )
+      ? "Complete"
+      : "Partial";
 
   const primaryPo = purchaseOrders[0];
+  if (!purchaseOrders.length) {
+    orderedQuantity = receiptLines.reduce(
+      (sum, line) => sum + Number(line.orderedQty || 0),
+      0,
+    );
+    remainingQuantity = receiptLines.reduce(
+      (sum, line) =>
+        sum +
+        Math.max(
+          0,
+          line.markComplete === true
+            ? 0
+            : Number(line.orderedQty || 0) -
+                Number(line.alreadyReceived || 0) -
+                Number(line.receivedQty || 0),
+        ),
+      0,
+    );
+  }
+  const manualReferences = receiptLines
+    .map((line) => line.externalReference)
+    .filter(Boolean);
+  const poReferences = purchaseOrders.length
+    ? purchaseOrders.map((po) => po.poNumber)
+    : manualReferences.length
+      ? manualReferences
+      : ["MANUAL"];
   const values = {
     organizationId: org,
-    purchaseOrderId: primaryPo.id,
+    purchaseOrderId: primaryPo?.id ?? null,
     purchaseOrderIds,
-    poReference: purchaseOrders.map((po) => po.poNumber).join(", "),
-    poReferences: purchaseOrders.map((po) => po.poNumber),
+    poReference: poReferences.join(", "),
+    poReferences,
     vendorId: vendorIds.join(", "),
     vendorIds,
-    vendorName: [...new Set(purchaseOrders.map((po) => po.vendorName))].join(
-      ", ",
-    ),
+    vendorName: [
+      ...new Set(
+        (purchaseOrders.length
+          ? purchaseOrders.map((po) => po.vendorName)
+          : vendorRecords.map((vendor) => vendor.name)
+        ).filter(Boolean),
+      ),
+    ].join(", "),
     itemsReceived: receiptLines.map((line) => line.description).join(", "),
     lineItems: receiptLines,
     orderedQuantity,
@@ -1707,6 +1896,8 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
   }> = [];
   const movementIds: number[] = [];
   const spawnVaultEntryIds: number[] = [];
+  const casingVaultSourceIds: number[] = [];
+  const casingTransactionIds: number[] = [];
   const purchaseOrderRollbacks: Array<{ id: number; status: string }> = [];
   try {
     for (const line of receiptLines) {
@@ -1727,7 +1918,9 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
         )
         .limit(1);
 
+      let inventoryStockId: number;
       if (existingStock) {
+        inventoryStockId = existingStock.id;
         stockRollbacks.push({
           id: existingStock.id,
           created: false,
@@ -1752,6 +1945,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
             costBasis: String(line.unitPrice || 0),
           })
           .returning();
+        inventoryStockId = newStock.id;
         stockRollbacks.push({ id: newStock.id, created: true });
       }
 
@@ -1782,6 +1976,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
             .limit(1)
         : [];
       const isSpawn =
+        line.externalVaultType === "spawn" ||
         String(category?.categoryCode || "").toUpperCase() === "SPAWN";
       if (isSpawn) {
         const postingKey = `grn:${created.id}:line:${line.poLineId || line.itemId}`;
@@ -1791,9 +1986,29 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
           .where(eq(spawnVaultTransactionsTable.transactionKey, postingKey))
           .limit(1);
         if (!existingPosting) {
-          const [entry] = await db
-            .insert(spawnEntriesTable)
-            .values({
+          let [entry] = line.externalReference
+            ? await db
+                .select()
+                .from(spawnEntriesTable)
+                .where(eq(spawnEntriesTable.sourceReference, line.externalReference))
+                .limit(1)
+            : [];
+          const existingSpawnEntry = Boolean(entry);
+          if (entry) {
+            const nextQuantity =
+              Number(entry.quantityKg || 0) + Number(line.receivedQty || 0);
+            [entry] = await db
+              .update(spawnEntriesTable)
+              .set({
+                quantityKg: String(nextQuantity),
+                producedQuantityKg: String(nextQuantity),
+                sourceReferenceId: created.id,
+                receivedAt: receivedDate,
+              })
+              .where(eq(spawnEntriesTable.id, entry.id))
+              .returning();
+          } else {
+            [entry] = await db.insert(spawnEntriesTable).values({
               strainName: material.name,
               quantityKg: String(line.receivedQty),
               producedQuantityKg: String(line.receivedQty),
@@ -1801,29 +2016,89 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
               sourceType: "EXTERNAL",
               sourceReferenceType: "GOODS_RECEIPT",
               sourceReferenceId: created.id,
-              sourceReference: created.grnNumber,
+              sourceReference: line.externalReference || created.grnNumber,
               supplierName: created.vendorName,
-              supplierLot: line.supplierLot || null,
+              supplierLot: line.externalReference || line.supplierLot || null,
               purchaseReference: line.poNumber,
               receivedAt: receivedDate,
               status: "available",
               notes: `Received through ${created.grnNumber}`,
-            })
-            .returning();
-          spawnVaultEntryIds.push(entry.id);
+            }).returning();
+          }
+          if (!existingSpawnEntry) spawnVaultEntryIds.push(entry.id);
           await db.insert(spawnVaultTransactionsTable).values({
             transactionKey: postingKey,
             spawnEntryId: entry.id,
             transactionType: "PURCHASE_IN",
             quantityInKg: String(line.receivedQty),
             quantityOutKg: "0",
-            balanceAfterKg: String(line.receivedQty),
+            balanceAfterKg: String(entry.quantityKg),
             referenceType: "GOODS_RECEIPT",
             referenceId: created.id,
             reference: created.grnNumber,
             recordedByUserId: userId,
           });
         }
+      }
+      if (line.externalVaultType === "casing_soil") {
+        const externalReference = String(line.externalReference || "");
+        const sourceKey = `external-grn:${externalReference.toLowerCase()}`;
+        const [existingSource] = await db
+          .select()
+          .from(casingSoilInventorySourcesTable)
+          .where(eq(casingSoilInventorySourcesTable.sourceKey, sourceKey))
+          .limit(1);
+        let source: any;
+        if (existingSource) {
+          [source] = await db
+            .update(casingSoilInventorySourcesTable)
+            .set({
+              originalQuantityKg: String(
+                Number(existingSource.originalQuantityKg || 0) +
+                  Number(line.receivedQty || 0),
+              ),
+              availableQuantityKg: String(
+                Number(existingSource.availableQuantityKg || 0) +
+                  Number(line.receivedQty || 0),
+              ),
+              stockDate: receivedDate,
+              origin: "external",
+            })
+            .where(eq(casingSoilInventorySourcesTable.id, existingSource.id))
+            .returning();
+        } else {
+          [source] = await db.insert(casingSoilInventorySourcesTable).values({
+            sourceKey,
+            sourceType: "purchased",
+            origin: "external",
+            productionBatchId: null,
+            reference: externalReference,
+            materialId: Number(line.itemId),
+            warehouseId: locationId,
+            inventoryId: inventoryStockId,
+            inventoryAdjustmentId: null,
+            originalQuantityKg: String(line.receivedQty),
+            consumedQuantityKg: "0",
+            availableQuantityKg: String(line.receivedQty),
+            stockDate: receivedDate,
+            notes: `Received through ${created.grnNumber}`,
+            status: "available",
+            createdByUserId: userId,
+          }).returning();
+        }
+        if (!existingSource) casingVaultSourceIds.push(source.id);
+        const [transaction] = await db
+          .insert(casingSoilTransactionsTable)
+          .values({
+            transactionType: "buy",
+            quantityKg: String(line.receivedQty),
+            counterparty: externalReference,
+            transactionDate: receivedDate,
+            notes: `Received through ${created.grnNumber}`,
+            recordedByUserId: userId,
+          })
+          .returning();
+        casingTransactionIds.push(transaction.id);
       }
     }
 
@@ -1882,7 +2157,47 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
         }
       }
     }
+    if (!purchaseOrders.length && receiptStatus === "Complete") {
+      const completedExternalReferences = new Set(
+        receiptLines
+          .filter(
+            (line) =>
+              line.externalReference &&
+              (line.markComplete === true ||
+                Number(line.alreadyReceived || 0) + Number(line.receivedQty || 0) >=
+                  Number(line.orderedQty || 0)),
+          )
+          .map((line) => String(line.externalReference).toUpperCase()),
+      );
+      if (completedExternalReferences.size) {
+        const relatedReceipts = await db
+          .select({ id: goodsReceiptsTable.id, lineItems: goodsReceiptsTable.lineItems })
+          .from(goodsReceiptsTable)
+          .where(eq(goodsReceiptsTable.organizationId, org));
+        for (const receipt of relatedReceipts as any[]) {
+          const isRelated = (Array.isArray(receipt.lineItems) ? receipt.lineItems : []).some(
+            (line: any) =>
+              completedExternalReferences.has(
+                String(line.externalReference || "").toUpperCase(),
+              ),
+          );
+          if (isRelated)
+            await db
+              .update(goodsReceiptsTable)
+              .set({ status: "Complete" })
+              .where(eq(goodsReceiptsTable.id, receipt.id));
+        }
+      }
+    }
   } catch (error) {
+    for (const transactionId of [...casingTransactionIds].reverse())
+      await db
+        .delete(casingSoilTransactionsTable)
+        .where(eq(casingSoilTransactionsTable.id, transactionId));
+    for (const sourceId of [...casingVaultSourceIds].reverse())
+      await db
+        .delete(casingSoilInventorySourcesTable)
+        .where(eq(casingSoilInventorySourcesTable.id, sourceId));
     for (const spawnEntryId of [...spawnVaultEntryIds].reverse()) {
       const transactions = await db
         .select()

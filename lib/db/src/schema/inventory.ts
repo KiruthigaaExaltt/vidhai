@@ -83,6 +83,7 @@ export const casingSoilInventorySourcesTable = mongoTable(
     id: serial("id").primaryKey(),
     sourceKey: text("source_key").notNull().unique(),
     sourceType: text("source_type").notNull(),
+    origin: text("origin").notNull().default("internal"),
     productionBatchId: integer("production_batch_id").references(
       () => batchesTable.id,
     ),

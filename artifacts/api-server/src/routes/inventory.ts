@@ -112,7 +112,11 @@ router.get("/", requireAuth, async (req, res) => {
     data = data.filter((row) => isCoreProductMasterItem(row.materialName));
   if (String(req.query.excludeVaultManaged || "").toLowerCase() === "true")
     data = data.filter(
-      (row) => row.sku !== "VLT-FP-SPAWN" && row.sku !== "VLT-FP-CASING-SOIL",
+      (row) =>
+        row.sku !== "VLT-FP-SPAWN" &&
+        row.sku !== "VLT-FP-CASING-SOIL" &&
+        row.sku !== "VLT-EXT-SPAWN" &&
+        row.sku !== "VLT-EXT-CASING-SOIL",
     );
   const search = String(req.query.search || "")
     .trim()

@@ -12,7 +12,21 @@ const router = Router();
 
 router.get("/", async (_req, res) => {
   const entries = await db
-    .select()
+    .select({
+      id: spawnEntriesTable.id,
+      strainName: spawnEntriesTable.strainName,
+      quantityKg: spawnEntriesTable.quantityKg,
+      reservedQuantityKg: spawnEntriesTable.reservedQuantityKg,
+      source: spawnEntriesTable.source,
+      sourceType: spawnEntriesTable.sourceType,
+      sourceReference: spawnEntriesTable.sourceReference,
+      supplierName: spawnEntriesTable.supplierName,
+      supplierLot: spawnEntriesTable.supplierLot,
+      purchaseReference: spawnEntriesTable.purchaseReference,
+      receivedAt: spawnEntriesTable.receivedAt,
+      expiresAt: spawnEntriesTable.expiresAt,
+      status: spawnEntriesTable.status,
+    })
     .from(spawnEntriesTable)
     .orderBy(desc(spawnEntriesTable.createdAt));
   res.json(

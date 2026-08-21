@@ -1219,6 +1219,7 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
       await tx.insert(casingSoilInventorySourcesTable).values({
         sourceKey: `produced:${batchId}`,
         sourceType: "produced",
+        origin: "internal",
         productionBatchId: batchId,
         reference: batch.batchCode,
         materialId: casingMaterial.id,
@@ -1332,7 +1333,19 @@ router.get("/casing-inventory", requireAuth, async (req, res) => {
   await ensureDefaultVaultItems();
   const sourceType = String(req.query.sourceType ?? "").toLowerCase();
   let rows = await db
-    .select()
+    .select({
+      id: casingSoilInventorySourcesTable.id,
+      sourceType: casingSoilInventorySourcesTable.sourceType,
+      origin: casingSoilInventorySourcesTable.origin,
+      productionBatchId: casingSoilInventorySourcesTable.productionBatchId,
+      reference: casingSoilInventorySourcesTable.reference,
+      originalQuantityKg: casingSoilInventorySourcesTable.originalQuantityKg,
+      consumedQuantityKg: casingSoilInventorySourcesTable.consumedQuantityKg,
+      availableQuantityKg: casingSoilInventorySourcesTable.availableQuantityKg,
+      stockDate: casingSoilInventorySourcesTable.stockDate,
+      notes: casingSoilInventorySourcesTable.notes,
+      status: casingSoilInventorySourcesTable.status,
+    })
     .from(casingSoilInventorySourcesTable)
     .orderBy(desc(casingSoilInventorySourcesTable.createdAt));
   if (sourceType === "produced" || sourceType === "purchased")
@@ -1444,8 +1457,7 @@ router.post("/casing-inventory/purchased", requireAuth, async (req, res) => {
         locationId: location?.id ?? null,
         quantityDelta: String(quantityKg),
         reason: "Manual Purchased Casing Soil Inward",
-        reference,
-        notes,
+        notes: notes ? `${reference} - ${notes}` : reference,
         adjustedByUserId: userId,
       })
       .returning();
@@ -1454,6 +1466,7 @@ router.post("/casing-inventory/purchased", requireAuth, async (req, res) => {
       .values({
         sourceKey,
         sourceType: "purchased",
+        origin: "external",
         productionBatchId: null,
         reference,
         materialId: material.id,

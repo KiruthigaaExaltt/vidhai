@@ -1564,9 +1564,11 @@ export default function InventoryModule() {
                                     : "secondary"
                                 }
                               >
-                                {row.sourceType === "produced"
-                                  ? "Produced"
-                                  : "Purchased"}
+                                {row.origin === "external"
+                                  ? "External"
+                                  : row.sourceType === "produced"
+                                    ? "Produced"
+                                    : "Purchased"}
                               </Badge>
                             </td>
                             <td className="px-4 py-3 font-medium">
@@ -2458,9 +2460,11 @@ export default function InventoryModule() {
                                 : "secondary"
                             }
                           >
-                            {row.sourceType === "produced"
-                              ? "PRODUCED"
-                              : "PURCHASED"}
+                            {row.origin === "external"
+                              ? "EXTERNAL"
+                              : row.sourceType === "produced"
+                                ? "PRODUCED"
+                                : "PURCHASED"}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 font-mono font-medium">
