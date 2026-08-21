@@ -1083,17 +1083,10 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "Valid casing soil source is required" });
   }
 
-  // Keep the existing two-photo requirement for Cookout completion.
+  // Verification photos are optional. Preserve up to two when supplied.
   const imgs: string[] = Array.isArray(verificationImages)
-    ? verificationImages.filter(Boolean)
+    ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
-  if ((targetStage !== "COMPLETED" || isCookoutCompletion) && imgs.length < 2) {
-    return res
-      .status(400)
-      .json({
-        error: "Two verification photos are required to complete a stage",
-      });
-  }
 
   const flushNumber = flushNumberForStage(effectiveCurrentStage);
   const expectedHarvestTarget =

@@ -6,6 +6,7 @@ import {
   eq,
   inArray,
   inventoryAdjustmentsTable,
+  inventoryCategoriesTable,
   inventoryLocationsTable,
   inventoryMovementsTable,
   itemNamesTable,
@@ -137,6 +138,49 @@ export async function ensureDefaultVaultItems() {
     }
   }
   const warehouses = await ensureDefaultWarehouses();
+  const existingCategories = await db.select().from(inventoryCategoriesTable);
+  const categoryByItemType = new Map<
+    string,
+    (typeof existingCategories)[number]
+  >();
+  for (const itemType of ["Raw Material", "Finished Product"] as const) {
+    const normalizedType = itemType.toLowerCase().replace(/[^a-z]/g, "");
+    let category = existingCategories.find((candidate) => {
+      const normalizedName = candidate.name
+        .toLowerCase()
+        .replace(/[^a-z]/g, "");
+      const normalizedCode = String(candidate.categoryCode ?? "")
+        .toLowerCase()
+        .replace(/[^a-z]/g, "");
+      return (
+        normalizedName === normalizedType ||
+        normalizedCode === normalizedType ||
+        normalizedCode === `cat${normalizedType}`
+      );
+    });
+    if (!category) {
+      [category] = await db
+        .insert(inventoryCategoriesTable)
+        .values({
+          name: itemType,
+          categoryCode:
+            itemType === "Finished Product"
+              ? "CAT-FINISHED-PRODUCT"
+              : "CAT-RAW-MATERIAL",
+          divisions: ["Production"],
+          isActive: true,
+        })
+        .returning();
+      existingCategories.push(category);
+    } else if (!category.isActive) {
+      [category] = await db
+        .update(inventoryCategoriesTable)
+        .set({ isActive: true })
+        .where(eq(inventoryCategoriesTable.id, category.id))
+        .returning();
+    }
+    categoryByItemType.set(itemType, category);
+  }
   const allMaterials = await db.select().from(materialsTable);
   // Never remove non-vault materials here. They are production master data and
   // may be referenced by locked Annur/Coimbatore formulation history.
@@ -172,6 +216,7 @@ export async function ensureDefaultVaultItems() {
             item.itemType === "Finished Product"
               ? "finished_product"
               : "raw_material",
+          categoryId: categoryByItemType.get(item.itemType)!.id,
           itemIdentifier: item.sku,
           qrPayload: `/product/${encodeURIComponent(item.sku)}`,
           criticalLevel: "0",
@@ -192,6 +237,7 @@ export async function ensureDefaultVaultItems() {
           item.itemType === "Finished Product"
             ? "finished_product"
             : "raw_material",
+        categoryId: categoryByItemType.get(item.itemType)!.id,
         buyPricePerUnit: material.buyPricePerUnit ?? "0",
         sellPricePerUnit: material.sellPricePerUnit ?? "0",
       })

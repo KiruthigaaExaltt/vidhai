@@ -2411,6 +2411,18 @@ export default function InventoryModule() {
                     <SelectValue placeholder="Select an Item Name" />
                   </SelectTrigger>
                   <SelectContent>
+                    {editingId &&
+                      productForm.name &&
+                      !(allItemNames ?? []).some(
+                        (item: any) => item.name === productForm.name,
+                      ) && (
+                        <SelectItem
+                          key={`current-${editingId}`}
+                          value={productForm.name}
+                        >
+                          {productForm.name}
+                        </SelectItem>
+                      )}
                     {(allItemNames ?? []).map((item: any) => (
                       <SelectItem key={item.id} value={item.name}>
                         {item.name}

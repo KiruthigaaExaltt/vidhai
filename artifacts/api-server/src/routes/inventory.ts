@@ -76,10 +76,15 @@ router.get("/", requireAuth, async (req, res) => {
     attributeValues: r.material.attributeValues,
     unit: r.material.unit,
     quantityOnHand: Number(r.inv.quantityOnHand),
-    reservedQuantity: reservedByMaterial.get(Number(r.material.id)) || 0,
-    availableQuantity:
+    reservedQuantity: Math.min(
+      Math.max(0, Number(r.inv.quantityOnHand)),
+      reservedByMaterial.get(Number(r.material.id)) || 0,
+    ),
+    availableQuantity: Math.max(
+      0,
       Number(r.inv.quantityOnHand) -
-      (reservedByMaterial.get(Number(r.material.id)) || 0),
+        (reservedByMaterial.get(Number(r.material.id)) || 0),
+    ),
     locationId: r.inv.locationId,
     locationName: r.locationName ?? null,
     costBasis: r.inv.costBasis !== null ? Number(r.inv.costBasis) : null,

@@ -211,7 +211,7 @@ export default function OotyRoomDetail() {
   const manureValue = Number(completeDialog.manureKg);
   const manurePrecisionValid = Math.abs(manureValue * 10000 - Math.round(manureValue * 10000)) <= 1e-7;
   const cookoutReady = !isCookout || (!!completeDialog.substrateWeightKg && completeDialog.manureKg !== "" && Number.isFinite(manureValue) && manureValue >= 0 && manurePrecisionValid);
-  const canSubmit = imagesReady && casingReady && harvestReady && cookoutReady && !advanceStageMutation.isPending;
+  const canSubmit = casingReady && harvestReady && cookoutReady && !advanceStageMutation.isPending;
 
   const handleCompleteStage = () => {
     const payload: Record<string, any> = {
@@ -664,7 +664,7 @@ export default function OotyRoomDetail() {
               Complete Stage: {STAGE_SEQ.find(s => s.key === completeDialog.stageKey)?.label}
             </DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Two verification photos are required before this stage can be marked complete.
+              Verification photos are optional for this stage.
             </p>
           </DialogHeader>
 
@@ -672,7 +672,7 @@ export default function OotyRoomDetail() {
             {/* Image capture — two slots */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Verification Photos (2 required)
+                Verification Photos (optional)
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {([0, 1] as const).map(slot => (
@@ -914,7 +914,6 @@ export default function OotyRoomDetail() {
               onClick={handleCompleteStage}
             >
               {advanceStageMutation.isPending ? "Saving…" :
-                !imagesReady ? `Add ${2 - stageImages.filter(Boolean).length} more photo${stageImages.filter(Boolean).length === 1 ? "" : "s"}` :
                 !casingReady ? "Enter casing soil reference" :
                 !harvestReady ? "Enter harvest weight and mushroom count" :
                 !cookoutReady ? "Enter substrate and Manure weight" :
