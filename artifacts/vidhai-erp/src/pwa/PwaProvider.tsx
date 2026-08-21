@@ -17,6 +17,16 @@ export function PwaProvider({children}:{children:ReactNode}) {
   const checkForUpdates=useCallback(async()=>{if(registration.current){await registration.current.update();inspect(registration.current)}},[inspect]);
   useEffect(()=>{
     if(!("serviceWorker" in navigator))return;
+    const pwaEnabledInDev = import.meta.env.VITE_ENABLE_PWA_DEV === "true";
+    if (import.meta.env.DEV && !pwaEnabledInDev) {
+      void navigator.serviceWorker.getRegistrations().then((registrations) =>
+        Promise.all(registrations.map((reg) => reg.unregister())),
+      );
+      void caches.keys().then((names) =>
+        Promise.all(names.filter((name) => name.startsWith("vidhai-") || name.startsWith("workbox-precache")).map((name) => caches.delete(name))),
+      );
+      return;
+    }
 
     updateSW.current=registerSW({immediate:true,onNeedRefresh:()=>setUpdateAvailable(true),onRegisteredSW(_url,reg){registration.current=reg||null;inspect(reg);reg?.addEventListener("updatefound",()=>{const worker=reg.installing;worker?.addEventListener("statechange",()=>{if(worker.state==="installed"&&navigator.serviceWorker.controller)setUpdateAvailable(true)})})},onRegisterError:error=>console.error("PWA registration failed",error)});
     const changed=()=>{if(!reloaded.current){reloaded.current=true;location.reload()}};navigator.serviceWorker.addEventListener("controllerchange",changed);return()=>navigator.serviceWorker.removeEventListener("controllerchange",changed);

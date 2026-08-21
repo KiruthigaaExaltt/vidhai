@@ -55,6 +55,7 @@ import NotificationsPage from "@/pages/notifications";
 import { NotificationProvider } from "@/notifications/NotificationProvider";
 import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
 import { Shell } from "@/components/layout/Shell";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -198,6 +199,10 @@ function LandingRoute() {
       setLocation("/login");
       return;
     }
+    if (can("dashboard.view")) {
+      setLocation("/dashboard");
+      return;
+    }
     const destination = landingRoutes.find(
       ({ permissions, ...route }) =>
         (!("moduleKey" in route) || isModuleEnabled(route.moduleKey)) &&
@@ -236,8 +241,6 @@ function Router() {
       <Route path="/dashboard">
         <ProtectedRoute component={Dashboard} permission="dashboard.view" />
       </Route>
-
-      <Route path="/" component={LandingRoute} />
 
       <Route path="/settings">
         <ProtectedRoute
@@ -335,6 +338,12 @@ function Router() {
             "sales.payments.view",
             "sales.returns.view",
           ]}
+        />
+      </Route>
+      <Route path="/fleet/settings">
+        <ProtectedRoute
+          component={FleetList}
+          permission="fleet.vehicles.view"
         />
       </Route>
       <Route path="/fleet/:id">
@@ -512,6 +521,7 @@ function Router() {
         />
       </Route>
 
+      <Route path="/" component={LandingRoute} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -526,7 +536,9 @@ function App() {
         <AuthProvider>
           <NotificationProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
+              <ErrorBoundary>
+                <Router />
+              </ErrorBoundary>
             </WouterRouter>
           </NotificationProvider>
         </AuthProvider>

@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
         // Web Push requires an active service worker. Keep the same
         // inject-manifest worker available on localhost so external notification
         // subscriptions can be tested in development as well as production.
-        devOptions: { enabled: true, type: "module" },
+        devOptions: { enabled: env.VITE_ENABLE_PWA_DEV === "true", type: "module" },
         manifest: {
           id: "/vidhai-erp-maharishi-v4",
           name: "Vidhai ERP Production Control Center",

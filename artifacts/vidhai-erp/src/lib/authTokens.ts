@@ -67,6 +67,7 @@ export function installAuthenticatedFetch(configuredBase: string) {
 
     let response = await send(accessToken);
     const publicAuthRequest = [
+      "/api/auth/me",
       "/api/auth/login",
       "/api/auth/login-key",
       "/api/auth/refresh",

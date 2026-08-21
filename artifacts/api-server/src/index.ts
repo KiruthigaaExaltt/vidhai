@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import app, { sessionMiddleware } from "./app";
 import { initializeNotificationGateway } from "./lib/notificationGateway";
 import { startChamberReminderScheduler } from "./lib/chamberReminderScheduler";
+import { startFleetServiceReminderScheduler } from "./lib/fleetServiceReminderScheduler";
 import {
   startNotificationWorker,
   stopNotificationWorker,
@@ -258,6 +259,7 @@ const server = createServer(app);
 initializeNotificationGateway(server, sessionMiddleware);
 startNotificationWorker();
 startChamberReminderScheduler();
+startFleetServiceReminderScheduler();
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
