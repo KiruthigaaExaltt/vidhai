@@ -61,11 +61,13 @@ function stageLabel(stage: string, currentTurnNumber?: number | null) {
 }
 
 const DATE_INPUT_CLASS =
-  "h-8 w-full rounded-md text-sm font-mono pl-2 pr-2 cursor-pointer sm:w-[140px] " +
+  "h-8 w-full min-w-0 overflow-hidden rounded-md text-sm font-mono pl-2 pr-2 cursor-pointer sm:w-[150px] " +
   "[&::-webkit-calendar-picker-indicator]:cursor-pointer " +
+  "[&::-webkit-calendar-picker-indicator]:ml-1 " +
+  "[&::-webkit-calendar-picker-indicator]:mr-0 " +
+  "[&::-webkit-calendar-picker-indicator]:shrink-0 " +
   "[&::-webkit-calendar-picker-indicator]:opacity-60 " +
-  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100 " +
-  "[&::-webkit-calendar-picker-indicator]:mr-0.5";
+  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100";
 
 export default function CoimbatoreBatches() {
   const [, setLocation] = useLocation();

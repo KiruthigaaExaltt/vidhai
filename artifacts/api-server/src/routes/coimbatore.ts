@@ -313,6 +313,9 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     moisturePercent: numericValue(t.moisturePercent),
     verificationImages: parseImages(t.verificationImages),
   }));
+  const linkedReadingIds = new Set(
+    rawTurns.map((turn) => turn.readingId).filter(Boolean),
+  );
 
   const [activeChamber] = batch.currentChamberId
     ? await db
@@ -336,10 +339,62 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .from(coimbatorePreparationStagesTable)
     .where(eq(coimbatorePreparationStagesTable.batchId, id))
     .orderBy(coimbatorePreparationStagesTable.completedAt);
-  const preparationStages = rawPreparationStages.map((record) => ({
-    ...record,
-    verificationImages: parseImages(record.verificationImages),
-  }));
+  const preparationStages = await Promise.all(
+    rawPreparationStages.map(async (record) => {
+      const [reading] = record.readingId
+        ? await db
+            .select({
+              temperatureCelsius: chamberReadingsTable.temperatureCelsius,
+              nh3Ppm: chamberReadingsTable.nh3Ppm,
+              co2Percent: chamberReadingsTable.co2Percent,
+              moisturePercent: chamberReadingsTable.humidity,
+              readingNotes: chamberReadingsTable.notes,
+              recordedAt: chamberReadingsTable.recordedAt,
+            })
+            .from(chamberReadingsTable)
+            .where(eq(chamberReadingsTable.id, record.readingId))
+            .limit(1)
+        : [];
+      return {
+        ...record,
+        temperatureCelsius: numericValue(reading?.temperatureCelsius),
+        nh3Ppm: numericValue(reading?.nh3Ppm),
+        co2Percent: numericValue(reading?.co2Percent),
+        moisturePercent: numericValue(reading?.moisturePercent),
+        readingRecordedAt: reading?.recordedAt ?? null,
+        notes: record.notes ?? reading?.readingNotes ?? null,
+        verificationImages: parseImages(record.verificationImages),
+      };
+    }),
+  );
+  for (const stage of rawPreparationStages)
+    if (stage.readingId) linkedReadingIds.add(stage.readingId);
+  const rawEnvironmentReadings = await db
+    .select({
+      id: chamberReadingsTable.id,
+      chamberId: chamberReadingsTable.chamberId,
+      chamberName: chambersTable.name,
+      turnNumber: chamberReadingsTable.turnNumber,
+      temperatureCelsius: chamberReadingsTable.temperatureCelsius,
+      nh3Ppm: chamberReadingsTable.nh3Ppm,
+      co2Percent: chamberReadingsTable.co2Percent,
+      moisturePercent: chamberReadingsTable.humidity,
+      notes: chamberReadingsTable.notes,
+      recordedAt: chamberReadingsTable.recordedAt,
+    })
+    .from(chamberReadingsTable)
+    .leftJoin(chambersTable, eq(chamberReadingsTable.chamberId, chambersTable.id))
+    .where(eq(chamberReadingsTable.batchId, id))
+    .orderBy(chamberReadingsTable.recordedAt);
+  const environmentReadings = rawEnvironmentReadings
+    .filter((reading) => !linkedReadingIds.has(reading.id))
+    .map((reading) => ({
+      ...reading,
+      temperatureCelsius: numericValue(reading.temperatureCelsius),
+      nh3Ppm: numericValue(reading.nh3Ppm),
+      co2Percent: numericValue(reading.co2Percent),
+      moisturePercent: numericValue(reading.moisturePercent),
+    }));
   // All QC decisions in chronological order (latest first)
   const qcDecisions = await db
     .select()
@@ -371,6 +426,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
           }
         : null,
     preparationStages,
+    environmentReadings,
     turns,
     qcDecision: qcDecisions[0] ?? null, // latest — kept for backward compat
     qcDecisions, // full history
