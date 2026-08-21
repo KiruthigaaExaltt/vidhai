@@ -59,11 +59,13 @@ import {
   Edit2,
   Trash2,
   X,
+  FlaskConical,
 } from "lucide-react";
 import { CategoryDialog } from "./components/CategoryDialog";
 import { WarehouseDialog } from "./components/WarehouseDialog";
 import { ItemNameDialog } from "./components/ItemNameDialog";
 import { AssetManagement } from "./components/AssetManagement";
+import { SpawnVaultPanel } from "./spawn";
 import { toast } from "sonner";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
@@ -136,6 +138,8 @@ const NAV = [
   { id: "products", icon: Package, label: "Item & Product Master" },
   { id: "warehouses", icon: Warehouse, label: "Warehouses & Stores" },
   { id: "movements", icon: ArrowRightLeft, label: "Stock Movements" },
+  { id: "spawn-vault", icon: FlaskConical, label: "Spawn Vault" },
+  { id: "casing-vault", icon: Layers, label: "Casing Soil Vault" },
   { id: "indents", icon: ClipboardList, label: "Material Issue" },
   { id: "assets", icon: Wrench, label: "Asset Management" },
 ];
@@ -175,7 +179,7 @@ export default function InventoryModule() {
     queryFn: async () => {
       const state = masterPaging.inventory;
       const response = await fetch(
-        `/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
+        `/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}&excludeVaultManaged=true`,
         { credentials: "include" },
       );
       if (!response.ok) throw new Error("Unable to load inventory items");
@@ -197,6 +201,17 @@ export default function InventoryModule() {
     },
   });
   const inventory: any[] = inventoryQuery.data ?? [];
+  const casingInventoryQuery = useQuery({
+    queryKey: ["casing-soil-inventory"],
+    queryFn: async () => {
+      const response = await fetch("/api/coimbatore/casing-inventory", {
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Unable to load casing-soil inventory");
+      return response.json();
+    },
+  });
+  const casingInventory: any[] = casingInventoryQuery.data ?? [];
   const inventoryItemOptions: any[] = Array.from(
     new Map(inventory.map((item) => [Number(item.materialId), item])).values(),
   );
@@ -629,6 +644,46 @@ export default function InventoryModule() {
   const [indentForm, setIndentForm] = useState(EMPTY_INDENT);
   const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE);
   const [productsSubTab, setProductsSubTab] = useState("inventory");
+  const [purchasedCasingOpen, setPurchasedCasingOpen] = useState(false);
+  const [purchasedCasingForm, setPurchasedCasingForm] = useState({
+    reference: "",
+    quantityKg: "",
+    stockDate: new Date().toISOString().slice(0, 10),
+    notes: "",
+  });
+  const createPurchasedCasing = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        "/api/coimbatore/casing-inventory/purchased",
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...purchasedCasingForm,
+            quantityKg: Number(purchasedCasingForm.quantityKg),
+          }),
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(body.error || "Unable to add purchased casing soil");
+      return body;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["casing-soil-inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      setPurchasedCasingOpen(false);
+      setPurchasedCasingForm({
+        reference: "",
+        quantityKg: "",
+        stockDate: new Date().toISOString().slice(0, 10),
+        notes: "",
+      });
+      toast.success("Purchased casing soil added");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
   const [assets, setAssets] = useState<any[]>([]);
   const [indents, setIndents] = useState<any[]>([]);
@@ -1033,6 +1088,14 @@ export default function InventoryModule() {
                       <Plus className="w-3.5 h-3.5" /> Add Product
                     </Button>
                   )}
+                  {productsSubTab === "casing-soil" && (
+                    <Button
+                      onClick={() => setPurchasedCasingOpen(true)}
+                      className="rounded-sm h-9 px-3 text-sm gap-2"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Purchased Casing Soil
+                    </Button>
+                  )}
                   {productsSubTab === "items" && (
                     <Button
                       onClick={() => {
@@ -1076,21 +1139,23 @@ export default function InventoryModule() {
               >
                 <TabsList className="w-full justify-start rounded-sm border-b border-border bg-transparent p-0 mb-6">
                   {/* Add "services" back here when the Services submodule is needed. */}
-                  {["inventory", "items", "category"].map((t) => (
-                    <TabsTrigger
-                      key={t}
-                      value={t}
-                      className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-5 pb-3 pt-2 capitalize font-medium text-sm"
-                    >
-                      {t === "inventory"
-                        ? "Inventory"
-                        : t === "items"
-                          ? "Items"
-                          : t === "category"
-                            ? "Category"
-                            : "Services"}
-                    </TabsTrigger>
-                  ))}
+                  {["inventory", "casing-soil", "items", "category"].map(
+                    (t) => (
+                      <TabsTrigger
+                        key={t}
+                        value={t}
+                        className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary px-5 pb-3 pt-2 capitalize font-medium text-sm"
+                      >
+                        {t === "inventory"
+                          ? "Inventory"
+                          : t === "items"
+                            ? "Items"
+                            : t === "category"
+                              ? "Category"
+                              : "Services"}
+                      </TabsTrigger>
+                    ),
+                  )}
                 </TabsList>
 
                 {/* Inventory sub-tab */}
@@ -1459,6 +1524,84 @@ export default function InventoryModule() {
                   )}
                 </TabsContent>
 
+                <TabsContent value="casing-soil" className="mt-0 outline-none">
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Batch-tracked produced and purchased casing-soil stock
+                    </p>
+                    <Badge variant="outline">
+                      {casingInventory
+                        .reduce(
+                          (sum, row) =>
+                            sum + Number(row.availableQuantityKg || 0),
+                          0,
+                        )
+                        .toFixed(2)}{" "}
+                      kg available
+                    </Badge>
+                  </div>
+                  <div className="overflow-x-auto rounded-lg border bg-card">
+                    <table className="w-full min-w-[850px] text-sm">
+                      <thead className="border-b bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3">Source</th>
+                          <th className="px-4 py-3">Reference / Batch</th>
+                          <th className="px-4 py-3">Stock date</th>
+                          <th className="px-4 py-3 text-right">Original</th>
+                          <th className="px-4 py-3 text-right">Consumed</th>
+                          <th className="px-4 py-3 text-right">Available</th>
+                          <th className="px-4 py-3">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {casingInventory.map((row) => (
+                          <tr key={row.id}>
+                            <td className="px-4 py-3">
+                              <Badge
+                                variant={
+                                  row.sourceType === "produced"
+                                    ? "default"
+                                    : "secondary"
+                                }
+                              >
+                                {row.origin === "external"
+                                  ? "External"
+                                  : row.sourceType === "produced"
+                                    ? "Produced"
+                                    : "Purchased"}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 font-medium">
+                              {row.reference}
+                            </td>
+                            <td className="px-4 py-3">
+                              {row.stockDate
+                                ? new Date(row.stockDate).toLocaleDateString()
+                                : "�"}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              {Number(row.originalQuantityKg).toFixed(2)} kg
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums">
+                              {Number(row.consumedQuantityKg).toFixed(2)} kg
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                              {Number(row.availableQuantityKg).toFixed(2)} kg
+                            </td>
+                            <td className="px-4 py-3 capitalize">
+                              {row.status}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {casingInventory.length === 0 && (
+                      <div className="p-12 text-center text-sm text-muted-foreground">
+                        No casing-soil stock sources yet.
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
                 {/* Items sub-tab */}
                 <TabsContent value="items" className="mt-0 outline-none">
                   <div className="flex items-center justify-between mb-4">
@@ -2252,6 +2395,150 @@ export default function InventoryModule() {
               </div>
             </TabsContent>
 
+            <TabsContent
+              value="casing-vault"
+              className="outline-none mt-0 space-y-6"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight font-display">
+                    Casing Soil Inventory
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    Stock enters automatically from approved Coimbatore
+                    production batches or purchased inward lots.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => setPurchasedCasingOpen(true)}
+                  className="rounded-sm h-9 px-3 text-sm gap-2"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Purchased Casing Soil
+                </Button>
+              </div>
+              <div className="flex justify-end">
+                <Badge variant="outline">
+                  {casingInventory
+                    .reduce(
+                      (sum, row) =>
+                        sum + Number(row.freeAvailableQuantityKg || 0),
+                      0,
+                    )
+                    .toFixed(2)}{" "}
+                  kg available
+                </Badge>
+              </div>
+              <div className="overflow-x-auto rounded-lg border bg-card">
+                <table className="w-full min-w-[1280px] text-sm">
+                  <thead className="border-b bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3">Source</th>
+                      <th className="px-4 py-3">Batch / Lot</th>
+                      <th className="px-4 py-3">Received / Produced</th>
+                      <th className="px-4 py-3 text-right">
+                        Produced / Received
+                      </th>
+                      <th className="px-4 py-3 text-right">Internal Used</th>
+                      <th className="px-4 py-3 text-right">Sales Dispatched</th>
+                      <th className="px-4 py-3 text-right">
+                        Physical Remaining
+                      </th>
+                      <th className="px-4 py-3 text-right">Reserved</th>
+                      <th className="px-4 py-3 text-right">Available</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {casingInventory.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/30">
+                        <td className="px-4 py-3">
+                          <Badge
+                            variant={
+                              row.sourceType === "produced"
+                                ? "default"
+                                : "secondary"
+                            }
+                          >
+                            {row.origin === "external"
+                              ? "EXTERNAL"
+                              : row.sourceType === "produced"
+                                ? "PRODUCED"
+                                : "PURCHASED"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 font-mono font-medium">
+                          {row.reference}
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.stockDate
+                            ? new Date(row.stockDate).toLocaleDateString()
+                            : "�"}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {Number(row.originalQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {Number(row.consumedQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {Number(row.salesDispatchedQuantityKg || 0).toFixed(
+                            2,
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {Number(row.availableQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-amber-600">
+                          {Number(row.reservedQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums text-primary">
+                          {Number(row.freeAvailableQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className="uppercase">
+                            {row.status}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.sourceType === "produced" &&
+                          row.productionBatchId ? (
+                            <a
+                              href={`/coimbatore/batches/${row.productionBatchId}`}
+                              className="text-primary hover:underline font-medium"
+                            >
+                              View Batch
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {row.notes || "Purchased inward"}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {casingInventoryQuery.isLoading && (
+                  <div className="p-12 text-center text-sm text-muted-foreground">
+                    Loading casing-soil inventory...
+                  </div>
+                )}
+                {!casingInventoryQuery.isLoading &&
+                  casingInventory.length === 0 && (
+                    <div className="p-12 text-center text-sm text-muted-foreground">
+                      No produced batches or purchased lots yet.
+                    </div>
+                  )}
+              </div>
+            </TabsContent>
+            <TabsContent
+              value="spawn-vault"
+              className="outline-none mt-0 space-y-6"
+            >
+              <SpawnVaultPanel />
+            </TabsContent>
+
             {/* ── ASSET MANAGEMENT ── */}
             <AssetManagement />
             <TabsContent
@@ -2401,6 +2688,18 @@ export default function InventoryModule() {
                     <SelectValue placeholder="Select an Item Name" />
                   </SelectTrigger>
                   <SelectContent>
+                    {editingId &&
+                      productForm.name &&
+                      !(allItemNames ?? []).some(
+                        (item: any) => item.name === productForm.name,
+                      ) && (
+                        <SelectItem
+                          key={`current-${editingId}`}
+                          value={productForm.name}
+                        >
+                          {productForm.name}
+                        </SelectItem>
+                      )}
                     {(allItemNames ?? []).map((item: any) => (
                       <SelectItem key={item.id} value={item.name}>
                         {item.name}
@@ -2553,8 +2852,8 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">
-                  Selling Price (₹){" "}
-                  <span className="text-destructive">*</span>
+                  Selling Price (INR){" "}
+                  <span className="text-muted-foreground">(Optional)</span>
                 </Label>
                 <Input
                   type="number"
@@ -3355,6 +3654,93 @@ export default function InventoryModule() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog open={purchasedCasingOpen} onOpenChange={setPurchasedCasingOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Purchased Casing Soil</DialogTitle>
+            <DialogDescription>
+              Record a traceable inward lot. The quantity is stored in
+              kilograms.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Purchase reference *</Label>
+              <Input
+                value={purchasedCasingForm.reference}
+                onChange={(e) =>
+                  setPurchasedCasingForm((v) => ({
+                    ...v,
+                    reference: e.target.value,
+                  }))
+                }
+                placeholder="Invoice / lot number"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Quantity (kg) *</Label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={purchasedCasingForm.quantityKg}
+                  onChange={(e) =>
+                    setPurchasedCasingForm((v) => ({
+                      ...v,
+                      quantityKg: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Stock date *</Label>
+                <Input
+                  type="date"
+                  value={purchasedCasingForm.stockDate}
+                  onChange={(e) =>
+                    setPurchasedCasingForm((v) => ({
+                      ...v,
+                      stockDate: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Input
+                value={purchasedCasingForm.notes}
+                onChange={(e) =>
+                  setPurchasedCasingForm((v) => ({
+                    ...v,
+                    notes: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPurchasedCasingOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                createPurchasedCasing.isPending ||
+                !purchasedCasingForm.reference.trim() ||
+                Number(purchasedCasingForm.quantityKg) <= 0 ||
+                !purchasedCasingForm.stockDate
+              }
+              onClick={() => createPurchasedCasing.mutate()}
+            >
+              {createPurchasedCasing.isPending ? "Adding..." : "Add Stock"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <CategoryDialog
         open={addCategoryOpen}
         onOpenChange={(val) => {

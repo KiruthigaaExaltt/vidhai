@@ -25,6 +25,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Plus,
   Search,
   Printer,
@@ -58,6 +65,10 @@ export interface GRNLineItem {
   sgstPct: number;
   igstPct: number;
   total: number;
+  manualItem?: boolean;
+  externalVaultType?: "spawn" | "casing_soil";
+  externalReference?: string;
+  markComplete?: boolean;
 }
 
 export interface GoodsReceiptItem {
@@ -177,11 +188,13 @@ export default function GoodsReceipts() {
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewReceipt, setViewReceipt] = useState<GoodsReceiptItem | null>(null);
+  const [receiptMode, setReceiptMode] = useState<"manual" | "po">("manual");
 
   // Form fields for Log Goods Receipt
   const [mappedPoIds, setMappedPoIds] = useState<string[]>([]);
   const [poSearch, setPoSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
+  const [formVendorId, setFormVendorId] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
@@ -192,6 +205,15 @@ export default function GoodsReceipts() {
   const [receivedBy, setReceivedBy] = useState("");
   const [notes, setNotes] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
+  const [externalItemType, setExternalItemType] = useState<
+    "spawn" | "casing_soil" | null
+  >(null);
+  const [externalIdNumber, setExternalIdNumber] = useState("");
+  const [externalOrderedKg, setExternalOrderedKg] = useState("");
+  const [externalReceivedKg, setExternalReceivedKg] = useState("");
+  const [externalAlreadyReceivedKg, setExternalAlreadyReceivedKg] = useState(0);
+  const [externalMarkComplete, setExternalMarkComplete] = useState(false);
+  const [externalLookupLoading, setExternalLookupLoading] = useState(false);
 
   // Line items state
   const [lineItems, setLineItems] = useState<GRNLineItem[]>([]);
@@ -211,6 +233,15 @@ export default function GoodsReceipts() {
   const calculatedGrandTotal = useMemo(() => {
     return calculatedSubtotal + calculatedTax;
   }, [calculatedSubtotal, calculatedTax]);
+  const isManualReceipt = receiptMode === "manual";
+  const regularItemOptions = useMemo(
+    () =>
+      itemOptions.filter((item) => {
+        const name = String(item.name || "").trim().toLowerCase();
+        return name !== "spawn" && name !== "casing soil";
+      }),
+    [itemOptions],
+  );
 
   const createMutation = useMutation({
     mutationFn: createGoodsReceipt,
@@ -278,11 +309,28 @@ export default function GoodsReceipts() {
     setPoSearch("");
     setUserSearch("");
     setReceivedBy("");
+    setFormVendorId("");
     setVendorName("");
     setVendorAddress("");
     setVendorPhone("");
     setNotes("");
     setAttachmentName("");
+    setReceiptMode("manual");
+  };
+
+  const changeReceiptMode = (mode: "manual" | "po") => {
+    setReceiptMode(mode);
+    setMappedPoIds([]);
+    setLineItems([]);
+    setPoSearch("");
+  };
+
+  const handleVendorSelect = (vendorId: string) => {
+    const vendor = vendorsList.find((item) => String(item.id) === vendorId);
+    setFormVendorId(vendorId);
+    setVendorName(vendor?.name || "");
+    setVendorAddress(vendor?.address || "");
+    setVendorPhone(vendor?.phone || vendor?.whatsapp || "");
   };
 
   const handleAddBlankRow = () => {
@@ -306,6 +354,136 @@ export default function GoodsReceipts() {
         total: 0,
       },
     ]);
+  };
+
+  const addInventoryItem = (
+    item: any,
+    externalVaultType?: "spawn" | "casing_soil",
+    externalReference?: string,
+    orderedQty = 1,
+    receivedQty = 1,
+    alreadyReceived = 0,
+    markComplete = false,
+  ) => {
+    const primaryPo = purchaseOrders.find((po: any) =>
+      mappedPoIds.includes(String(po.id)),
+    );
+    setLineItems((previous) => [
+      ...previous,
+      {
+        id: `manual:${item.id}:${Date.now()}`,
+        purchaseOrderId: Number(primaryPo?.id || 0),
+        poLineId: `manual:${item.id}:${Date.now()}`,
+        poNumber: String(primaryPo?.poNumber || externalReference || "MANUAL"),
+        itemId: Number(item.id),
+        itemMaster: String(item.name),
+        customSpec: String(item.unit || "kg"),
+        warehouse: String(primaryPo?.warehouse || warehouseOptions[0]?.name || ""),
+        qty: orderedQty,
+        alreadyReceived,
+        price: Number(item.buyPricePerUnit || 0),
+        recvQty: receivedQty,
+        cgstPct: 0,
+        sgstPct: 0,
+        igstPct: 0,
+        total: receivedQty * Number(item.buyPricePerUnit || 0),
+        manualItem: true,
+        externalVaultType,
+        externalReference,
+        markComplete,
+      },
+    ]);
+  };
+
+  const loadExternalReceiptBalance = async () => {
+    if (!externalItemType || !/^\d+$/.test(externalIdNumber)) return;
+    setExternalLookupLoading(true);
+    try {
+      const reference = `EXT-${externalIdNumber}`;
+      const response = await fetch(
+        `${BASE}/api/flex/goods-receipts/external/${encodeURIComponent(reference)}`,
+        { credentials: "include" },
+      );
+      if (!response.ok) throw new Error("Unable to load external receipt balance");
+      const balance = await response.json();
+      if (!balance.found) {
+        setExternalAlreadyReceivedKg(0);
+        return;
+      }
+      if (balance.externalVaultType !== externalItemType) {
+        toast.error(`${reference} belongs to a different item type`);
+        return;
+      }
+      if (balance.complete) {
+        toast.error(`${reference} is already complete`);
+        setExternalReceivedKg("");
+        return;
+      }
+      setExternalOrderedKg(String(balance.orderedQuantity));
+      setExternalAlreadyReceivedKg(Number(balance.receivedQuantity || 0));
+      setExternalReceivedKg(String(balance.remainingQuantity));
+      toast.info(`${balance.remainingQuantity} kg remains for ${reference}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to load balance");
+    } finally {
+      setExternalLookupLoading(false);
+    }
+  };
+
+  const saveExternalItem = () => {
+    if (!externalItemType || !/^\d+$/.test(externalIdNumber)) {
+      toast.error("Enter the numeric external ID");
+      return;
+    }
+    const orderedKg = Number(externalOrderedKg);
+    const receivedKg = Number(externalReceivedKg);
+    if (!(orderedKg > 0) || !(receivedKg > 0)) {
+      toast.error("Enter ordered and received quantities in kg");
+      return;
+    }
+    const remainingKg = Math.max(0, orderedKg - externalAlreadyReceivedKg);
+    if (receivedKg > remainingKg) {
+      toast.error(`Received quantity cannot exceed the remaining ${remainingKg} kg`);
+      return;
+    }
+    const externalReference = `EXT-${externalIdNumber}`;
+    if (
+      lineItems.some(
+        (line) =>
+          line.externalVaultType === externalItemType &&
+          line.externalReference === externalReference,
+      )
+    ) {
+      toast.error(`${externalReference} is already added to Line Items`);
+      return;
+    }
+    const displayName = externalItemType === "spawn" ? "Spawn" : "Casing Soil";
+    const expectedName = displayName.toLowerCase();
+    const item = itemOptions.find((candidate) =>
+      candidate.name.toLowerCase().includes(expectedName),
+    ) ?? {
+      id: 0,
+      name: displayName,
+      unit: "kg",
+      buyPricePerUnit: 0,
+    };
+    addInventoryItem(
+      item,
+      externalItemType,
+      externalReference,
+      orderedKg,
+      receivedKg,
+      externalAlreadyReceivedKg,
+      externalMarkComplete,
+    );
+    toast.success(`${displayName} ${externalReference} added to Line Items`);
+    setIsAddOpen(true);
+    setExternalItemType(null);
+    setExternalIdNumber("");
+    setExternalOrderedKg("");
+    setExternalReceivedKg("");
+    setExternalAlreadyReceivedKg(0);
+    setExternalMarkComplete(false);
   };
 
   const handleRemoveRow = (id: string) => {
@@ -337,6 +515,10 @@ export default function GoodsReceipts() {
     const selectedVendors = selected.map((po: any) =>
       vendorsList.find((vendor) => String(vendor.id) === String(po.vendorId)),
     );
+    const selectedVendorIds = [
+      ...new Set(selected.map((po: any) => String(po.vendorId)).filter(Boolean)),
+    ];
+    setFormVendorId(selectedVendorIds.length === 1 ? selectedVendorIds[0] : "");
     setVendorName(
       [...new Set(selected.map((po: any) => po.vendor).filter(Boolean))].join(
         ", ",
@@ -426,7 +608,10 @@ export default function GoodsReceipts() {
         };
       });
     });
-    setLineItems(mappedLines);
+    setLineItems((currentLines) => [
+      ...mappedLines,
+      ...currentLines.filter((line) => line.manualItem),
+    ]);
   };
 
   const receiptPurchaseOrderId = (line: any, fallback: number) =>
@@ -525,8 +710,12 @@ export default function GoodsReceipts() {
 
   const handleCreateGRN = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!mappedPoIds.length) {
+    if (!mappedPoIds.length && lineItems.some((line) => !line.manualItem)) {
       toast.error("Select at least one Purchase Order");
+      return;
+    }
+    if (!formVendorId) {
+      toast.error("Select a vendor from CRM");
       return;
     }
     if (!receivedBy) {
@@ -539,7 +728,9 @@ export default function GoodsReceipts() {
       return;
     }
     const overReceivedLine = lineItems.find(
-      (line) => line.recvQty > Math.max(0, line.qty - line.alreadyReceived),
+      (line) =>
+        !line.manualItem &&
+        line.recvQty > Math.max(0, line.qty - line.alreadyReceived),
     );
     if (overReceivedLine) {
       const remaining = Math.max(
@@ -562,6 +753,7 @@ export default function GoodsReceipts() {
     }
     createMutation.mutate({
       purchaseOrderIds: mappedPoIds.map(Number),
+      vendorId: formVendorId,
       receivedDate,
       inspectedByUserId: Number(receivedBy),
       notes,
@@ -571,10 +763,15 @@ export default function GoodsReceipts() {
         itemId: line.itemId,
         poLineId: line.poLineId,
         description: line.itemMaster,
+        orderedQty: line.qty,
         receivedQty: line.recvQty,
         unit: line.customSpec,
         unitPrice: line.price,
         warehouse: line.warehouse,
+        manualItem: line.manualItem,
+        externalVaultType: line.externalVaultType,
+        externalReference: line.externalReference,
+        markComplete: line.markComplete,
       })),
     });
   };
@@ -820,7 +1017,13 @@ export default function GoodsReceipts() {
         </Card>
 
         {/* ── LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) ── */}
-        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <Dialog
+          open={isAddOpen}
+          onOpenChange={(open) => {
+            if (!open && externalItemType) return;
+            setIsAddOpen(open);
+          }}
+        >
           <DialogContent className="w-[calc(100vw-1rem)] max-w-[940px] max-h-[calc(100svh-1rem)] overflow-x-hidden overflow-y-auto p-4 sm:w-[calc(100vw-2rem)] sm:max-h-[90vh] sm:p-6">
             <form onSubmit={handleCreateGRN}>
               <DialogHeader className="pb-2 border-b border-border">
@@ -833,8 +1036,32 @@ export default function GoodsReceipts() {
               </DialogHeader>
 
               <div className="space-y-4 py-3 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
+                <div className="inline-flex rounded-md border border-border bg-muted/30 p-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={receiptMode === "manual" ? "default" : "ghost"}
+                    className="h-7 rounded-sm text-xs"
+                    onClick={() => changeReceiptMode("manual")}
+                  >
+                    Manual Entry
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={receiptMode === "po" ? "default" : "ghost"}
+                    className="h-7 rounded-sm text-xs"
+                    onClick={() => changeReceiptMode("po")}
+                  >
+                    Purchase Order
+                  </Button>
+                </div>
+
+                <div
+                  className={`grid grid-cols-1 gap-3 ${isManualReceipt ? "" : "sm:grid-cols-2"}`}
+                >
+                  {!isManualReceipt && (
+                    <div className="space-y-1">
                     <Label className="text-xs font-semibold text-muted-foreground block">
                       {FLEX_TEXT.mapPurchaseOrderS}
                     </Label>
@@ -877,7 +1104,8 @@ export default function GoodsReceipts() {
                       )}
                     </div>
                   </div>
-                  <div>
+                )}
+                <div>
                     <Label className="text-xs font-semibold text-foreground mb-1 block">
                       {FLEX_TEXT.grnNumber}{" "}
                       <span className="text-primary">*</span>
@@ -923,38 +1151,50 @@ export default function GoodsReceipts() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div>
-                    <Label className="text-xs font-semibold text-foreground mb-1 block">
+                    <Label className="mb-1 block text-xs font-semibold text-foreground">
                       {FLEX_TEXT.vendorName} *
                     </Label>
-                    <Input
-                      readOnly
-                      value={vendorName}
-                      className="h-9 text-xs bg-muted/30"
-                    />
+                    <Select
+                      value={formVendorId}
+                      onValueChange={handleVendorSelect}
+                    >
+                      <SelectTrigger className="h-9 bg-background text-xs">
+                        <SelectValue placeholder="Select CRM vendor..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {vendorsList.map((vendor) => (
+                          <SelectItem key={vendor.id} value={String(vendor.id)}>
+                            {vendor.name}
+                            {vendor.company ? ` - ${vendor.company}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
-                    <Label className="text-xs font-semibold text-foreground mb-1 block">
+                    <Label className="mb-1 block text-xs font-semibold text-foreground">
                       {FLEX_TEXT.vendorAddress} *
                     </Label>
                     <Input
                       readOnly
                       value={vendorAddress}
-                      className="h-9 text-xs bg-muted/30"
+                      className="h-9 bg-muted/30 text-xs"
                     />
                   </div>
                   <div>
-                    <Label className="text-xs font-semibold text-foreground mb-1 block">
+                    <Label className="mb-1 block text-xs font-semibold text-foreground">
                       {FLEX_TEXT.vendorPhone} *
                     </Label>
                     <Input
                       readOnly
                       value={vendorPhone}
-                      className="h-9 text-xs bg-muted/30"
+                      className="h-9 bg-muted/30 text-xs"
                     />
                   </div>
                 </div>
+
                 {/* Row 4: Received Date * | Received By * */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
@@ -1001,14 +1241,38 @@ export default function GoodsReceipts() {
                 </div>
 
                 <div className="space-y-2 pt-1">
-                  <Label className="text-xs font-bold text-foreground">
-                    Line Items - Ordered vs Received
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs font-bold text-foreground">
+                      Line Items - Ordered vs Received
+                    </Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5">
+                          <Plus className="h-3.5 w-3.5" /> Item list
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
+                        {regularItemOptions.map((item) => (
+                          <DropdownMenuItem key={item.id} onClick={() => addInventoryItem(item)}>
+                            <span className="truncate">{item.name}</span>
+                            {item.sku && <span className="ml-auto text-[10px] text-muted-foreground">{item.sku}</span>}
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setExternalItemType("spawn")}>
+                          Spawn
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setExternalItemType("casing_soil")}>
+                          Casing Soil
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   {lineItems.length === 0 ? (
                     <div className="border border-dashed border-border rounded-lg p-6 text-center text-xs text-muted-foreground bg-muted/20">
                       {mappedPoIds.length
                         ? "All items on the selected Purchase Orders have already been received."
-                        : "Map one or more Purchase Orders to load line items."}
+                        : "Choose an item from Item list. Spawn and Casing Soil require external details."}
                     </div>
                   ) : (
                     <div className="border border-border/80 rounded-lg overflow-x-auto bg-background">
@@ -1062,9 +1326,14 @@ export default function GoodsReceipts() {
                                   <div className="text-[10px] text-muted-foreground">
                                     {line.poNumber} - {line.customSpec || "-"}
                                   </div>
+                                  {line.externalReference && (
+                                    <div className="mt-0.5 font-mono text-[10px] font-semibold text-primary">
+                                      External ID: {line.externalReference}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-right">
-                                  {line.qty}
+                                  {line.qty}{line.manualItem ? " kg" : ""}
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   {line.alreadyReceived}
@@ -1073,8 +1342,25 @@ export default function GoodsReceipts() {
                                   {remaining}
                                 </td>
                                 <td className="px-3 py-2 text-right">
-                                  {"\u20B9"}{" "}
-                                  {line.price.toLocaleString("en-IN")}
+                                  {line.manualItem ? (
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={line.price || ""}
+                                      onChange={(event) =>
+                                        handleLineChange(
+                                          line.id,
+                                          "price",
+                                          Number(event.target.value),
+                                        )
+                                      }
+                                      placeholder="Enter amount"
+                                      className="h-8 min-w-20 text-right px-2"
+                                    />
+                                  ) : (
+                                    <>{"\u20B9"} {line.price.toLocaleString("en-IN")}</>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2">
                                   <Select
@@ -1122,15 +1408,21 @@ export default function GoodsReceipts() {
                                     }
                                     className="h-8 w-full min-w-16 text-right px-2"
                                   />
+                                  {line.manualItem && (
+                                    <div className="mt-0.5 text-right text-[9px] text-muted-foreground">
+                                      kg received
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   {taxPct}%
                                 </td>
                                 <td className="px-3 py-2 text-right font-semibold">
-                                  {"\u20B9"}{" "}
-                                  {lineTotal.toLocaleString("en-IN", {
-                                    minimumFractionDigits: 2,
-                                  })}
+                                  {line.price > 0
+                                    ? `${"\u20B9"} ${lineTotal.toLocaleString("en-IN", {
+                                        minimumFractionDigits: 2,
+                                      })}`
+                                    : "—"}
                                 </td>
                               </tr>
                             );
@@ -1244,6 +1536,105 @@ export default function GoodsReceipts() {
                 </Button>
               </DialogFooter>
             </form>
+            {externalItemType !== null && (
+              <div className="absolute inset-0 z-[100] flex items-center justify-center rounded-lg bg-black/55 p-4">
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="external-item-title"
+                  className="w-full max-w-sm space-y-4 rounded-md border border-border bg-background p-6 shadow-2xl"
+                >
+                  <h2 id="external-item-title" className="text-lg font-semibold">
+                    Add External {externalItemType === "spawn" ? "Spawn" : "Casing Soil"}
+                  </h2>
+                  <div className="space-y-1.5">
+                    <Label>External ID *</Label>
+                    <div className="flex h-9 overflow-hidden rounded-md border border-input bg-background">
+                      <span className="flex items-center border-r bg-muted px-3 font-mono text-sm font-semibold">EXT-</span>
+                      <Input
+                        value={externalIdNumber}
+                        onChange={(event) => {
+                          setExternalIdNumber(event.target.value.replace(/\D/g, ""));
+                          setExternalAlreadyReceivedKg(0);
+                          setExternalOrderedKg("");
+                          setExternalReceivedKg("");
+                          setExternalMarkComplete(false);
+                        }}
+                        onBlur={loadExternalReceiptBalance}
+                        inputMode="numeric"
+                        className="h-full rounded-none border-0 font-mono focus-visible:ring-0"
+                        placeholder="Enter ID number"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Ordered (kg) *</Label>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={externalOrderedKg}
+                        onChange={(event) => setExternalOrderedKg(event.target.value)}
+                        placeholder="0.00"
+                        disabled={externalAlreadyReceivedKg > 0}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Received (kg) *</Label>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={externalReceivedKg}
+                        onChange={(event) => setExternalReceivedKg(event.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+                  {externalAlreadyReceivedKg > 0 && (
+                    <div className="rounded-md bg-muted px-3 py-2 text-xs">
+                      Already received: <strong>{externalAlreadyReceivedKg} kg</strong>
+                      {" · "}Remaining: <strong>{Math.max(0, Number(externalOrderedKg || 0) - externalAlreadyReceivedKg)} kg</strong>
+                    </div>
+                  )}
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={externalMarkComplete}
+                      onChange={(event) => setExternalMarkComplete(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-primary"
+                    />
+                    <span>
+                      <strong>Mark as complete</strong>
+                      <span className="block text-xs text-muted-foreground">
+                        Use this when no more quantity is required for this external ID.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setExternalItemType(null);
+                        setExternalIdNumber("");
+                        setExternalOrderedKg("");
+                        setExternalReceivedKg("");
+                        setExternalAlreadyReceivedKg(0);
+                        setExternalMarkComplete(false);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="button" onClick={saveExternalItem} disabled={externalLookupLoading}>
+                      {externalLookupLoading ? "Checking..." : "Save to Line Items"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
         <Dialog

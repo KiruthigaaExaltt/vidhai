@@ -19,8 +19,10 @@ import {
   ootyHarvestInventoryPostingsTable,
   ootyCookoutInventoryPostingsTable,
   ootyGrowBagInventoryPostingsTable,
+  casingSoilInventorySourcesTable,
+  ootyCasingRunConsumptionsTable,
 } from "@workspace/db";
-import { eq, desc, inArray, isNull, and } from "@workspace/db";
+import { eq, desc, inArray, isNull, and, gte } from "@workspace/db";
 import {
   flushNumberForStage,
   harvestInventoryPostingKey,
@@ -38,10 +40,8 @@ import {
   validateGrowingRoomInput,
   type ValidGrowingRoomInput,
 } from "../lib/ootyRoomImport";
-import {
-  growingRoomNumber,
-  OOTY_HARDCODED_ROOMS,
-} from "../lib/ootyHardcodedRooms";
+import { ensureDefaultOotyRooms } from "../lib/ensureDefaultOotyRooms";
+import { growingRoomNumber } from "../lib/ootyHardcodedRooms";
 
 const router = Router();
 
@@ -102,8 +102,7 @@ async function markFullyAllocatedAnnurBatchesFinished(
       .from(ootyBatchSourcesTable)
       .where(eq(ootyBatchSourcesTable.annurBatchId, annurBatchId));
     const allocatedBags = allocations.reduce(
-      (sum: number, allocation: any) =>
-        sum + Number(allocation.bagCount || 0),
+      (sum: number, allocation: any) => sum + Number(allocation.bagCount || 0),
       0,
     );
     if (allocatedBags < producedBags) continue;
@@ -155,38 +154,6 @@ function parseStageLog(log: any) {
   };
 }
 
-async function ensureHardcodedGrowingRooms(locationId: number) {
-  const existing = await db
-    .select()
-    .from(ootyRoomsTable)
-    .where(eq(ootyRoomsTable.locationId, locationId));
-  const byNumber = new Map(
-    existing
-      .map((room) => [growingRoomNumber(room.name), room] as const)
-      .filter(([number]) => number !== null),
-  );
-
-  for (const definition of OOTY_HARDCODED_ROOMS) {
-    const room = byNumber.get(definition.number);
-    const name = "Room " + definition.number;
-    if (room) {
-      if (room.name !== name || room.capacity !== definition.capacity) {
-        await db
-          .update(ootyRoomsTable)
-          .set({ name, capacity: definition.capacity })
-          .where(eq(ootyRoomsTable.id, room.id));
-      }
-      continue;
-    }
-    await db.insert(ootyRoomsTable).values({
-      name,
-      locationId,
-      capacity: definition.capacity,
-      status: "idle",
-      notes: "Hardcoded Ooty growing room",
-    });
-  }
-}
 // List rooms with current batch state (heatmap data)
 router.get("/rooms", requireAuth, async (req, res) => {
   const [loc] = await db
@@ -196,7 +163,7 @@ router.get("/rooms", requireAuth, async (req, res) => {
     .limit(1);
   if (!loc) return res.json([]);
 
-  await ensureHardcodedGrowingRooms(loc.id);
+  await ensureDefaultOotyRooms();
 
   const rooms = await db
     .select()
@@ -249,6 +216,11 @@ router.get("/rooms", requireAuth, async (req, res) => {
     }),
   );
 
+  result.sort(
+    (a: any, b: any) =>
+      (growingRoomNumber(a.name) ?? Number.MAX_SAFE_INTEGER) -
+      (growingRoomNumber(b.name) ?? Number.MAX_SAFE_INTEGER),
+  );
   return res.json(result);
 });
 
@@ -293,11 +265,9 @@ router.post("/rooms", requireAuth, async (req, res) => {
         normalizeGrowingRoomName(parsed.value.name),
     )
   )
-    return res
-      .status(409)
-      .json({
-        error: `A Growing Room named "${parsed.value.name}" already exists in Ooty Location B`,
-      });
+    return res.status(409).json({
+      error: `A Growing Room named "${parsed.value.name}" already exists in Ooty Location B`,
+    });
   const room = await insertGrowingRoom(db, loc.id, parsed.value);
   return res.status(201).json(room);
 });
@@ -317,11 +287,9 @@ router.post(
         .status(400)
         .json({ error: "The import contains no room rows" });
     if (rows.length > MAX_GROWING_ROOM_IMPORT_ROWS)
-      return res
-        .status(400)
-        .json({
-          error: `A maximum of ${MAX_GROWING_ROOM_IMPORT_ROWS} rooms can be imported at once`,
-        });
+      return res.status(400).json({
+        error: `A maximum of ${MAX_GROWING_ROOM_IMPORT_ROWS} rooms can be imported at once`,
+      });
     const [loc] = await db
       .select()
       .from(locationsTable)
@@ -531,21 +499,17 @@ router.post(
                 createdByUserId: userId,
               })
               .returning();
-            await tx
-              .insert(ootyStageLogsTable)
-              .values({
-                growingBatchId: batch.id,
-                stage: "SPAWN_RUN",
-                enteredAt: now,
-                recordedByUserId: userId,
-              });
-            await tx
-              .insert(ootyBatchSourcesTable)
-              .values({
-                growingBatchId: batch.id,
-                annurBatchId: item.annurBatch.id,
-                bagCount: item.value.bagsAllocated,
-              });
+            await tx.insert(ootyStageLogsTable).values({
+              growingBatchId: batch.id,
+              stage: "SPAWN_RUN",
+              enteredAt: now,
+              recordedByUserId: userId,
+            });
+            await tx.insert(ootyBatchSourcesTable).values({
+              growingBatchId: batch.id,
+              annurBatchId: item.annurBatch.id,
+              bagCount: item.value.bagsAllocated,
+            });
             await markFullyAllocatedAnnurBatchesFinished(tx, [
               item.annurBatch.id,
             ]);
@@ -561,16 +525,14 @@ router.post(
                 adjustedByUserId: userId,
               })
               .returning();
-            await tx
-              .insert(ootyGrowBagInventoryPostingsTable)
-              .values({
-                postingKey: `ooty-grow-bag-assignment:${batch.id}`,
-                growingBatchId: batch.id,
-                inventoryId: updatedStock.id,
-                inventoryAdjustmentId: adjustment.id,
-                warehouseId: annurWarehouse.id,
-                allocatedBags: item.value.bagsAllocated,
-              });
+            await tx.insert(ootyGrowBagInventoryPostingsTable).values({
+              postingKey: `ooty-grow-bag-assignment:${batch.id}`,
+              growingBatchId: batch.id,
+              inventoryId: updatedStock.id,
+              inventoryAdjustmentId: adjustment.id,
+              warehouseId: annurWarehouse.id,
+              allocatedBags: item.value.bagsAllocated,
+            });
             await tx
               .update(ootyRoomsTable)
               .set({ status: "active", currentGrowingBatchId: batch.id })
@@ -695,12 +657,10 @@ router.delete("/rooms/:id", requireAuth, async (req, res) => {
     .limit(1);
   if (!room) return res.status(404).json({ error: "Not found" });
   if (room.currentGrowingBatchId) {
-    return res
-      .status(409)
-      .json({
-        error:
-          "Cannot delete a room with an active growing batch. Complete or archive the batch first.",
-      });
+    return res.status(409).json({
+      error:
+        "Cannot delete a room with an active growing batch. Complete or archive the batch first.",
+    });
   }
 
   const batches = await db
@@ -708,20 +668,13 @@ router.delete("/rooms/:id", requireAuth, async (req, res) => {
     .from(ootyGrowingBatchesTable)
     .where(eq(ootyGrowingBatchesTable.roomId, id));
 
-  await db.transaction(async (tx) => {
-    if (batches.length > 0) {
-      const batchIds = batches.map((b) => b.id);
-      await tx
-        .update(batchLinksTable)
-        .set({ ootyGrowingBatchId: null } as any)
-        .where(inArray(batchLinksTable.ootyGrowingBatchId as any, batchIds));
-      await tx
-        .delete(ootyGrowingBatchesTable)
-        .where(inArray(ootyGrowingBatchesTable.id, batchIds));
-    }
-    await tx.delete(ootyRoomsTable).where(eq(ootyRoomsTable.id, id));
-  });
+  if (batches.length > 0)
+    return res.status(409).json({
+      error:
+        "Cannot delete a room with production history. Its completed batches and harvest records must be preserved.",
+    });
 
+  await db.delete(ootyRoomsTable).where(eq(ootyRoomsTable.id, id));
   return res.status(204).send();
 });
 
@@ -734,6 +687,65 @@ router.get("/growing-batches", requireAuth, async (req, res) => {
   return res.json(rows);
 });
 
+router.get("/room-history", requireAuth, async (_req, res) => {
+  const [rooms, growingBatches, harvests, sources] = await Promise.all([
+    db.select().from(ootyRoomsTable),
+    db.select().from(ootyGrowingBatchesTable),
+    db.select().from(ootyHarvestsTable),
+    db
+      .select({
+        growingBatchId: ootyBatchSourcesTable.growingBatchId,
+        bagCount: ootyBatchSourcesTable.bagCount,
+        batchCode: batchesTable.batchCode,
+      })
+      .from(ootyBatchSourcesTable)
+      .leftJoin(
+        batchesTable,
+        eq(ootyBatchSourcesTable.annurBatchId, batchesTable.id),
+      ),
+  ]);
+  const roomById = new Map(rooms.map((room) => [Number(room.id), room]));
+  const history = growingBatches.map((batch) => {
+    const batchHarvests = harvests.filter(
+      (row) => Number(row.growingBatchId) === Number(batch.id),
+    );
+    const batchSources = sources.filter(
+      (row) => Number(row.growingBatchId) === Number(batch.id),
+    );
+    return {
+      id: batch.id,
+      batchCode: batch.batchCode,
+      roomId: batch.roomId,
+      roomName:
+        roomById.get(Number(batch.roomId))?.name || `Room #${batch.roomId}`,
+      status: batch.status,
+      currentStage: batch.currentStage,
+      startedAt: batch.spawnRunStartDate || batch.createdAt,
+      completedAt: batch.status === "completed" ? batch.phaseEnteredAt : null,
+      allocatedBags: batchSources.reduce(
+        (sum, row) => sum + Number(row.bagCount || 0),
+        0,
+      ),
+      sourceBatches: batchSources.map((row) => row.batchCode).filter(Boolean),
+      harvestCount: batchHarvests.length,
+      mushroomCount: batchHarvests.reduce(
+        (sum, row) => sum + Number(row.mushroomCount || 0),
+        0,
+      ),
+      harvestWeightKg: batchHarvests.reduce(
+        (sum, row) => sum + Number(row.weightKg || 0),
+        0,
+      ),
+      harvests: batchHarvests,
+    };
+  });
+  history.sort(
+    (a, b) =>
+      new Date(b.completedAt || b.startedAt || 0).getTime() -
+      new Date(a.completedAt || a.startedAt || 0).getTime(),
+  );
+  return res.json(history);
+});
 // Create growing batch — accepts batchSources: [{annurBatchId, bagCount}]
 router.post("/growing-batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
@@ -792,18 +804,14 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
       requested <= 0 ||
       allocated + requested > annurBatch.actualBags
     )
-      return res
-        .status(400)
-        .json({
-          error: `Only ${annurBatch.actualBags - allocated} produced bags remain available from ${annurBatch.batchCode}`,
-        });
+      return res.status(400).json({
+        error: `Only ${annurBatch.actualBags - allocated} produced bags remain available from ${annurBatch.batchCode}`,
+      });
   }
   if (requestedSources.length === 0)
-    return res
-      .status(400)
-      .json({
-        error: "Select a completed Annur batch and enter the bags allocated",
-      });
+    return res.status(400).json({
+      error: "Select a completed Annur batch and enter the bags allocated",
+    });
   const totalAllocatedBags = requestedSources.reduce(
     (sum, source) => sum + Number(source.bagCount || 0),
     0,
@@ -845,11 +853,9 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     !availableStock ||
     Number(availableStock.quantityOnHand) < totalAllocatedBags
   )
-    return res
-      .status(409)
-      .json({
-        error: `Only ${Number(availableStock?.quantityOnHand || 0)} grow bags are available in the Annur Vault`,
-      });
+    return res.status(409).json({
+      error: `Only ${Number(availableStock?.quantityOnHand || 0)} grow bags are available in the Annur Vault`,
+    });
 
   const result = await db.transaction(async (tx) => {
     const [batch] = await tx
@@ -1048,6 +1054,8 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     notes,
     casingSourceType,
     casingBatchRef,
+    casingInventorySourceId,
+    casingQuantityKg,
     harvestData,
     cookoutDate,
     substrateWeightKg,
@@ -1074,26 +1082,63 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       : phaseToStage(batch.currentPhase);
   const isCookoutCompletion =
     effectiveCurrentStage === "COOKOUT" && targetStage === "COMPLETED";
-  const isSpawnRunCompletion =
-    effectiveCurrentStage === "SPAWN_RUN" && targetStage === "CASING_RUN";
-  if (isSpawnRunCompletion) {
-    if (!casingBatchRef)
-      return res.status(400).json({ error: "Casing soil reference is required" });
-    if (casingSourceType !== "internal" && casingSourceType !== "external")
-      return res.status(400).json({ error: "Valid casing soil source is required" });
+  const isCasingRunCompletion =
+    effectiveCurrentStage === "CASING_RUN" &&
+    (targetStage === "PINNING_FLUSH1" || targetStage === "DF");
+  let casingInventorySource: any = null;
+  let casingUsedKg = 0;
+  const casingConsumptionKey = `ooty-casing-run:${id}`;
+  if (isCasingRunCompletion) {
+    if (casingSourceType !== "produced" && casingSourceType !== "purchased")
+      return res
+        .status(400)
+        .json({ error: "Select Produced or Purchased Casing Soil" });
+    const sourceId = Number(casingInventorySourceId);
+    casingUsedKg = Number(casingQuantityKg);
+    if (!Number.isInteger(sourceId) || sourceId <= 0)
+      return res
+        .status(400)
+        .json({ error: "Select a Casing Soil batch or lot" });
+    if (!Number.isFinite(casingUsedKg) || casingUsedKg <= 0)
+      return res
+        .status(400)
+        .json({ error: "Casing Soil Quantity Used must be greater than 0 kg" });
+    [casingInventorySource] = await db
+      .select()
+      .from(casingSoilInventorySourcesTable)
+      .where(eq(casingSoilInventorySourcesTable.id, sourceId))
+      .limit(1);
+    if (
+      !casingInventorySource ||
+      casingInventorySource.sourceType !== casingSourceType
+    )
+      return res
+        .status(400)
+        .json({ error: "The selected Casing Soil source is invalid" });
+    const physical = Number(casingInventorySource.availableQuantityKg);
+    const reserved = Number(casingInventorySource.reservedQuantityKg || 0);
+    const available = Math.max(0, physical - reserved);
+    if (available < casingUsedKg)
+      return res.status(409).json({
+        error: `Insufficient Casing Soil stock. Selected ${casingInventorySource.reference} has ${available} kg available. Requested: ${casingUsedKg} kg.`,
+      });
+    const [existingConsumption] = await db
+      .select()
+      .from(ootyCasingRunConsumptionsTable)
+      .where(
+        eq(ootyCasingRunConsumptionsTable.postingKey, casingConsumptionKey),
+      )
+      .limit(1);
+    if (existingConsumption)
+      return res
+        .status(409)
+        .json({ error: "Casing Run inventory consumption was already posted" });
   }
 
-  // Keep the existing two-photo requirement for Cookout completion.
+  // Verification photos are optional. Preserve up to two when supplied.
   const imgs: string[] = Array.isArray(verificationImages)
-    ? verificationImages.filter(Boolean)
+    ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
-  if ((targetStage !== "COMPLETED" || isCookoutCompletion) && imgs.length < 2) {
-    return res
-      .status(400)
-      .json({
-        error: "Two verification photos are required to complete a stage",
-      });
-  }
 
   const flushNumber = flushNumberForStage(effectiveCurrentStage);
   const expectedHarvestTarget =
@@ -1107,12 +1152,10 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   let postingKey: string | null = null;
   if (flushNumber) {
     if (targetStage !== expectedHarvestTarget)
-      return res
-        .status(409)
-        .json({
-          error:
-            "This flush has already been completed or the next stage is invalid",
-        });
+      return res.status(409).json({
+        error:
+          "This flush has already been completed or the next stage is invalid",
+      });
     harvestProduction = validateHarvestProduction(harvestData);
     if (!harvestProduction.ok)
       return res.status(400).json({ error: harvestProduction.error });
@@ -1122,11 +1165,9 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       .where(eq(materialsTable.sku, "VLT-FP-MUSHROOM"))
       .limit(1);
     if (!mushroomMaterial)
-      return res
-        .status(409)
-        .json({
-          error: "Mushroom is missing from the Vault Item & Product Master",
-        });
+      return res.status(409).json({
+        error: "Mushroom is missing from the Vault Item & Product Master",
+      });
     [room] = await db
       .select()
       .from(ootyRoomsTable)
@@ -1140,11 +1181,9 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
           .limit(1)
       : [];
     if (!room || !ootyLocation || ootyLocation.code !== "B")
-      return res
-        .status(409)
-        .json({
-          error: "Harvest stock can only be posted from Ooty Location B",
-        });
+      return res.status(409).json({
+        error: "Harvest stock can only be posted from Ooty Location B",
+      });
     const vaultLocations = await db.select().from(inventoryLocationsTable);
     ootyWarehouse = vaultLocations.find(
       (location: any) =>
@@ -1184,11 +1223,9 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       .where(eq(materialsTable.sku, "VLT-RM-MANURE"))
       .limit(1);
     if (!manureMaterial)
-      return res
-        .status(409)
-        .json({
-          error: "Manure is missing from the Vault Item & Product Master",
-        });
+      return res.status(409).json({
+        error: "Manure is missing from the Vault Item & Product Master",
+      });
     [room] = await db
       .select()
       .from(ootyRoomsTable)
@@ -1202,11 +1239,9 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
           .limit(1)
       : [];
     if (!room || !ootyLocation || ootyLocation.code !== "B")
-      return res
-        .status(409)
-        .json({
-          error: "Cookout output can only be posted from Ooty Location B",
-        });
+      return res.status(409).json({
+        error: "Cookout output can only be posted from Ooty Location B",
+      });
     const vaultLocations = await db.select().from(inventoryLocationsTable);
     ootyWarehouse = vaultLocations.find(
       (location: any) =>
@@ -1233,34 +1268,86 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   const phaseChanged = nextPhaseValue !== stageToPhase(effectiveCurrentStage);
 
   const updated = await db.transaction(async (tx) => {
-    if (isSpawnRunCompletion && casingSourceType === "internal") {
-      const [casingBatch] = await tx
-        .select({ id: batchesTable.id })
-        .from(batchesTable)
-        .innerJoin(
-          locationsTable,
-          eq(batchesTable.locationId, locationsTable.id),
-        )
+    if (isCasingRunCompletion && casingInventorySource) {
+      const availableBefore = Number(casingInventorySource.availableQuantityKg);
+      const consumedBefore = Number(casingInventorySource.consumedQuantityKg);
+      const [updatedSource] = await tx
+        .update(casingSoilInventorySourcesTable)
+        .set({
+          consumedQuantityKg: String(consumedBefore + casingUsedKg),
+          availableQuantityKg: String(availableBefore - casingUsedKg),
+          status: availableBefore - casingUsedKg > 0 ? "available" : "depleted",
+        })
         .where(
           and(
-            eq(batchesTable.batchCode, String(casingBatchRef)),
-            eq(locationsTable.code, "C"),
-          ),
-        )
-        .limit(1);
-      if (!casingBatch) return null;
-      const [usedCasingBatch] = await tx
-        .update(batchesTable)
-        .set({ status: "used" })
-        .where(
-          and(
-            eq(batchesTable.id, casingBatch.id),
-            eq(batchesTable.currentStage, "COMPLETED"),
-            eq(batchesTable.status, "completed"),
+            eq(casingSoilInventorySourcesTable.id, casingInventorySource.id),
+            eq(casingSoilInventorySourcesTable.sourceType, casingSourceType),
+            gte(
+              casingSoilInventorySourcesTable.availableQuantityKg,
+              casingUsedKg,
+            ),
           ),
         )
         .returning();
-      if (!usedCasingBatch) return null;
+      if (!updatedSource)
+        throw new Error(
+          "Casing Soil stock changed. Refresh and select an available source again.",
+        );
+      const [stock] = await tx
+        .select()
+        .from(inventoryTable)
+        .where(eq(inventoryTable.id, casingInventorySource.inventoryId))
+        .limit(1);
+      if (!stock || Number(stock.quantityOnHand) < casingUsedKg)
+        throw new Error("Aggregate Casing Soil inventory is insufficient");
+      await tx
+        .update(inventoryTable)
+        .set({
+          quantityOnHand: String(Number(stock.quantityOnHand) - casingUsedKg),
+          lastUpdated: now,
+        })
+        .where(eq(inventoryTable.id, stock.id));
+      const [consumptionRoom] = await tx
+        .select()
+        .from(ootyRoomsTable)
+        .where(eq(ootyRoomsTable.id, batch.roomId))
+        .limit(1);
+      if (!consumptionRoom)
+        throw new Error("The growing room for this Casing Run was not found");
+      const [adjustment] = await tx
+        .insert(inventoryAdjustmentsTable)
+        .values({
+          materialId: casingInventorySource.materialId,
+          locationId: consumptionRoom.locationId,
+          quantityDelta: String(-casingUsedKg),
+          reason: "Casing Run Consumption",
+          reference: casingInventorySource.reference,
+          notes: `Growing batch ${batch.batchCode}; room ${batch.roomId}; source ${casingSourceType}`,
+          adjustedByUserId: userId,
+        })
+        .returning();
+      const [openLog] = await tx
+        .select()
+        .from(ootyStageLogsTable)
+        .where(
+          and(
+            eq(ootyStageLogsTable.growingBatchId, id),
+            isNull(ootyStageLogsTable.exitedAt),
+          ),
+        )
+        .limit(1);
+      await tx.insert(ootyCasingRunConsumptionsTable).values({
+        postingKey: casingConsumptionKey,
+        growingBatchId: id,
+        stageLogId: openLog?.id ?? null,
+        roomId: batch.roomId,
+        inventorySourceId: casingInventorySource.id,
+        sourceType: casingSourceType,
+        sourceReference: casingInventorySource.reference,
+        quantityKg: String(casingUsedKg),
+        inventoryAdjustmentId: adjustment.id,
+        consumedByUserId: userId,
+      });
     }
     // Close the current stage log
     await tx
@@ -1269,7 +1356,16 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
         exitedAt: now,
         verificationImages: imgs.length > 0 ? JSON.stringify(imgs) : null,
         notes: notes ?? null,
-        casingBatchRef: casingBatchRef ?? null,
+        casingBatchRef: isCasingRunCompletion
+          ? (casingInventorySource?.reference ?? null)
+          : null,
+        casingSoilSourceType: isCasingRunCompletion ? casingSourceType : null,
+        casingSoilInventorySourceId: isCasingRunCompletion
+          ? (casingInventorySource?.id ?? null)
+          : null,
+        casingSoilQuantityKg: isCasingRunCompletion
+          ? String(casingUsedKg)
+          : null,
         recordedByUserId: userId,
       })
       .where(
@@ -1375,19 +1471,17 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
           adjustedByUserId: userId,
         })
         .returning();
-      await tx
-        .insert(ootyHarvestInventoryPostingsTable)
-        .values({
-          postingKey,
-          growingBatchId: id,
-          harvestId: harvest.id,
-          flushNumber,
-          inventoryId: stock.id,
-          inventoryAdjustmentId: adjustment.id,
-          warehouseId: ootyWarehouse.id,
-          mushroomCount: harvestProduction.mushroomCount,
-          harvestWeightKg: String(harvestProduction.weightKg),
-        });
+      await tx.insert(ootyHarvestInventoryPostingsTable).values({
+        postingKey,
+        growingBatchId: id,
+        harvestId: harvest.id,
+        flushNumber,
+        inventoryId: stock.id,
+        inventoryAdjustmentId: adjustment.id,
+        warehouseId: ootyWarehouse.id,
+        mushroomCount: harvestProduction.mushroomCount,
+        harvestWeightKg: String(harvestProduction.weightKg),
+      });
     }
 
     // Increment Ooty Manure and create its traceable production ledger entry atomically.
@@ -1442,17 +1536,15 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
           adjustedByUserId: userId,
         })
         .returning();
-      await tx
-        .insert(ootyCookoutInventoryPostingsTable)
-        .values({
-          postingKey: cookoutPostingKey,
-          growingBatchId: id,
-          inventoryId: stock.id,
-          inventoryAdjustmentId: adjustment.id,
-          warehouseId: ootyWarehouse.id,
-          manureKg: String(cookoutProduction.manureKg),
-          cookoutDate,
-        });
+      await tx.insert(ootyCookoutInventoryPostingsTable).values({
+        postingKey: cookoutPostingKey,
+        growingBatchId: id,
+        inventoryId: stock.id,
+        inventoryAdjustmentId: adjustment.id,
+        warehouseId: ootyWarehouse.id,
+        manureKg: String(cookoutProduction.manureKg),
+        cookoutDate,
+      });
     }
 
     const [row] = await tx

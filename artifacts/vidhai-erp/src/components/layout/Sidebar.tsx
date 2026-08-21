@@ -26,6 +26,7 @@ import {
   Banknote,
   Building2,
   Landmark,
+  History,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -275,6 +276,13 @@ export function Sidebar({
             icon={Thermometer}
             label="Growing Rooms"
             permission="production.growing_rooms.view"
+            exact
+          />
+          <NavItem
+            href="/ooty/history"
+            icon={History}
+            label="Room History"
+            permission="production.growing_rooms.view"
           />
 
           {/* ── Location C — Coimbatore ── */}
@@ -288,6 +296,12 @@ export function Sidebar({
             permission="production.casing_soil.view"
           />
 
+          <NavItem
+            href="/coimbatore/chambers"
+            icon={Thermometer}
+            label="Casing Soil Chambers"
+            permission="production.chambers.view"
+          />
           {/* ── Location D — Lab ── */}
           {can("production.spawn_batches.view") && (
             <SectionTitle>LAB · LOCATION D</SectionTitle>
@@ -298,7 +312,6 @@ export function Sidebar({
             label="Spawn Batches"
             permission="production.spawn_batches.view"
           />
-
           {/* ── Cross-site operations ── */}
           {hasOperationsAccess && <SectionTitle>OPERATIONS</SectionTitle>}
           {(can("crew.employees.view") ||

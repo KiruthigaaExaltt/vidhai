@@ -59,7 +59,8 @@ export default function FleetDetail() {
   const [usageForm, setUsageForm] = useState({ usageDate: isoToday(), hoursWorked: "", workType: "", driverName: "", extraNotes: "" });
 
   const { data: vehicles } = useListVehicles({ query: { queryKey: getListVehiclesQueryKey() } });
-  const vehicle = ((vehicles as any) ?? []).find((v: any) => v.id === vehicleId);
+  const vehicleList = Array.isArray(vehicles) ? vehicles : Array.isArray((vehicles as any)?.data) ? (vehicles as any).data : [];
+  const vehicle = vehicleList.find((v: any) => v.id === vehicleId);
 
   const { data: fuelLogs } = useListFuelLogs({ query: { queryKey: getListFuelLogsQueryKey() } });
   const fuel: any[] = ((fuelLogs as any) ?? []).filter((l: any) => l.vehicleId === vehicleId);
@@ -130,6 +131,15 @@ export default function FleetDetail() {
     });
   };
 
+  if (!Number.isFinite(vehicleId)) {
+    return (
+      <Shell>
+        <div className="p-8 text-sm text-muted-foreground">
+          Vehicle page not found. <Button variant="link" className="px-1" onClick={() => setLocation("/fleet")}>Back to Fleet</Button>
+        </div>
+      </Shell>
+    );
+  }
   if (!vehicle) {
     return (
       <Shell>

@@ -14,6 +14,9 @@ export const chambersTable = mongoTable("chambers", {
   currentBatchId: integer("current_batch_id").references(() => batchesTable.id),
   lastTemperature: numeric("last_temperature", { precision: 6, scale: 2 }),
   lastNh3: numeric("last_nh3", { precision: 8, scale: 4 }),
+  lastCo2: numeric("last_co2", { precision: 6, scale: 3 }),
+  lastMoisture: numeric("last_moisture", { precision: 6, scale: 2 }),
+  currentTurnNumber: integer("current_turn_number"),
   lastReadingAt: timestamp("last_reading_at", { withTimezone: true }),
   // Physical dimensions
   lengthM: numeric("length_m", { precision: 8, scale: 2 }),
@@ -26,6 +29,8 @@ export const chamberReadingsTable = mongoTable("chamber_readings", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id").notNull().default(1),
   chamberId: integer("chamber_id").notNull().references(() => chambersTable.id, { onDelete: "cascade" }),
+  batchId: integer("batch_id").references(() => batchesTable.id, { onDelete: "cascade" }),
+  turnNumber: integer("turn_number"),
   temperatureCelsius: numeric("temperature_celsius", { precision: 6, scale: 2 }),
   nh3Ppm: numeric("nh3_ppm", { precision: 8, scale: 4 }),
   co2Percent: numeric("co2_percent", { precision: 6, scale: 3 }),

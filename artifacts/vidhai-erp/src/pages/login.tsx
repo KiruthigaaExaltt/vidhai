@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLogin } from "@workspace/api-client-react";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
@@ -16,9 +16,13 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const loginMutation = useLogin();
-  const { login } = useAuth();
+  const { login, user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!isLoading && user) setLocation("/dashboard");
+  }, [isLoading, user, setLocation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +36,7 @@ export default function Login() {
         },
       });
       login(res.user, res.accessToken);
-      setLocation("/");
+      setLocation("/dashboard");
     } catch (err: any) {
       toast({
         title: "Login Failed",

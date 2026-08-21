@@ -146,11 +146,11 @@ export default function LabBatchDetail() {
 
   const handleImageFile = (slot: 0 | 1, file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setStageImages((prev) => {
-        const n = [...prev];
-        n[slot] = e.target?.result as string;
-        return n;
+    reader.onload = (event) => {
+      setStageImages((previous) => {
+        const next = [...previous];
+        next[slot] = event.target?.result as string;
+        return next;
       });
     };
     reader.readAsDataURL(file);
@@ -162,7 +162,6 @@ export default function LabBatchDetail() {
     stageKey: "",
     nextStageKey: "",
     notes: "",
-    destination: "annur" as "annur" | "inventory",
     strainName: "",
     spawnQty: "",
   });
@@ -174,7 +173,6 @@ export default function LabBatchDetail() {
       stageKey,
       nextStageKey: NEXT_STAGE[stageKey] ?? "COMPLETED",
       notes: "",
-      destination: "annur",
       strainName: "",
       spawnQty: String(Math.round(totalKg * 0.85)),
     });
@@ -186,7 +184,6 @@ export default function LabBatchDetail() {
   };
 
   const isFinalStage = advDialog.stageKey === "QC";
-  const imagesReady = stageImages[0] !== null && stageImages[1] !== null;
   const finalReady =
     !isFinalStage || (!!advDialog.strainName && Number(advDialog.spawnQty) > 0);
 
@@ -243,7 +240,7 @@ export default function LabBatchDetail() {
     },
     onError: (e: any) => toast.error(e.message ?? "Failed"),
   });
-  const canSubmit = imagesReady && finalReady && !advanceMutation.isPending;
+  const canSubmit = finalReady && !advanceMutation.isPending;
 
   const handleAdvance = () => {
     advanceMutation.mutate({
@@ -251,7 +248,6 @@ export default function LabBatchDetail() {
       notes: advDialog.notes || null,
       verificationImages: stageImages.filter(Boolean),
       ...(isFinalStage && {
-        destination: advDialog.destination,
         strainName: advDialog.strainName,
         spawnQty: Number(advDialog.spawnQty),
       }),
@@ -740,8 +736,7 @@ export default function LabBatchDetail() {
                     9-Stage Preparation Pipeline
                   </CardTitle>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Complete each stage in order. Two verification photos
-                    required per stage.
+                    Complete each stage in order to move the batch forward.
                   </p>
                 </CardHeader>
                 <CardContent className="p-4 space-y-2">
@@ -1106,16 +1101,12 @@ export default function LabBatchDetail() {
               Complete —{" "}
               {STAGES.find((s) => s.key === advDialog.stageKey)?.label}
             </DialogTitle>
-            <p className="text-sm text-muted-foreground">
-              Two verification photos are required to complete this stage.
-            </p>
           </DialogHeader>
 
           <div className="space-y-4 pt-1">
-            {/* Two photo slots */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Verification Photos (2 required)
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Verification Photos (optional)
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {([0, 1] as const).map((slot) => (
@@ -1129,9 +1120,9 @@ export default function LabBatchDetail() {
                       accept="image/*"
                       capture="environment"
                       className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) handleImageFile(slot, f);
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) handleImageFile(slot, file);
                       }}
                     />
                     {stageImages[slot] ? (
@@ -1139,12 +1130,13 @@ export default function LabBatchDetail() {
                         <img
                           src={stageImages[slot]!}
                           alt={`Photo ${slot + 1}`}
-                          className="w-full h-28 object-cover rounded-sm border-2 border-green-400"
+                          className="h-28 w-full rounded-sm border-2 border-green-400 object-cover"
                         />
                         <Button
+                          type="button"
                           variant="outline"
                           size="sm"
-                          className="absolute bottom-1 right-1 h-6 text-[10px] rounded-sm bg-white/90"
+                          className="absolute bottom-1 right-1 h-6 rounded-sm bg-white/90 text-[10px]"
                           onClick={() => imgRef[slot].current?.click()}
                         >
                           Retake
@@ -1154,9 +1146,9 @@ export default function LabBatchDetail() {
                       <button
                         type="button"
                         onClick={() => imgRef[slot].current?.click()}
-                        className="w-full h-28 rounded-sm border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-1.5 text-muted-foreground hover:text-primary"
+                        className="flex h-28 w-full flex-col items-center justify-center gap-1.5 rounded-sm border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
                       >
-                        <Camera className="w-6 h-6" />
+                        <Camera className="h-6 w-6" />
                         <span className="text-xs font-medium">Take Photo</span>
                       </button>
                     )}
@@ -1164,20 +1156,21 @@ export default function LabBatchDetail() {
                 ))}
               </div>
               <div className="mt-2 flex items-center gap-1.5">
-                {stageImages[0] ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-                ) : (
-                  <Circle className="w-3.5 h-3.5 text-muted-foreground/40" />
+                {stageImages.map((image, index) =>
+                  image ? (
+                    <CheckCircle2
+                      key={index}
+                      className="h-3.5 w-3.5 text-green-600"
+                    />
+                  ) : (
+                    <Circle
+                      key={index}
+                      className="h-3.5 w-3.5 text-muted-foreground/40"
+                    />
+                  ),
                 )}
-                {stageImages[1] ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-                ) : (
-                  <Circle className="w-3.5 h-3.5 text-muted-foreground/40" />
-                )}
-                <span
-                  className={`text-xs font-medium ${imagesReady ? "text-green-700" : "text-muted-foreground"}`}
-                >
-                  {stageImages.filter(Boolean).length}/2 photos added
+                <span className="text-xs font-medium text-muted-foreground">
+                  {stageImages.filter(Boolean).length}/2 photos added (optional)
                 </span>
               </div>
             </div>
@@ -1197,7 +1190,7 @@ export default function LabBatchDetail() {
               />
             </div>
 
-            {/* QC final stage: destination picker + spawn details */}
+            {/* QC final stage: spawn details */}
             {isFinalStage && (
               <div className="p-3 border border-primary/20 bg-primary/5 rounded-sm space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-primary">
@@ -1237,62 +1230,6 @@ export default function LabBatchDetail() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Destination *
-                  </Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAdvDialog((p) => ({ ...p, destination: "annur" }))
-                      }
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-sm border-2 transition-all text-center ${
-                        advDialog.destination === "annur"
-                          ? "border-sky-400 bg-sky-50"
-                          : "border-border hover:border-sky-300"
-                      }`}
-                    >
-                      <ArrowRight
-                        className={`w-5 h-5 ${advDialog.destination === "annur" ? "text-sky-600" : "text-muted-foreground"}`}
-                      />
-                      <p
-                        className={`text-xs font-semibold ${advDialog.destination === "annur" ? "text-sky-700" : "text-foreground"}`}
-                      >
-                        Available for Annur
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        Spawn Mixing source
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAdvDialog((p) => ({
-                          ...p,
-                          destination: "inventory",
-                        }))
-                      }
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-sm border-2 transition-all text-center ${
-                        advDialog.destination === "inventory"
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      <Warehouse
-                        className={`w-5 h-5 ${advDialog.destination === "inventory" ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                      <p
-                        className={`text-xs font-semibold ${advDialog.destination === "inventory" ? "text-primary" : "text-foreground"}`}
-                      >
-                        Stock to Inventory
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        For sale or later use
-                      </p>
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
           </div>
@@ -1312,11 +1249,9 @@ export default function LabBatchDetail() {
             >
               {advanceMutation.isPending
                 ? "Saving…"
-                : !imagesReady
-                  ? `Add ${2 - stageImages.filter(Boolean).length} more photo${stageImages.filter(Boolean).length === 1 ? "" : "s"}`
-                  : isFinalStage
-                    ? "Complete & Produce Spawn ✓"
-                    : `Complete ${STAGES.find((s) => s.key === advDialog.stageKey)?.label} ✓`}
+                : isFinalStage
+                  ? "Complete & Produce Spawn ✓"
+                  : `Complete ${STAGES.find((s) => s.key === advDialog.stageKey)?.label} ✓`}
             </Button>
           </DialogFooter>
         </DialogContent>

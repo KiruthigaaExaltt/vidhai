@@ -85,6 +85,8 @@ export default function Accounts() {
     [ar, setAr] = useState<any[]>([]),
     [customers, setCustomers] = useState<any[]>([]),
     [vendors, setVendors] = useState<any[]>([]),
+    [masters, setMasters] = useState<any>({ transactionTypes: [], sourceRegistry: {} }),
+    [bankCash, setBankCash] = useState<any[]>([]),
     [activeTab, setActiveTab] = useState("dashboard"),
     [search, setSearch] = useState(""),
     [apStatusFilter, setApStatusFilter] = useState("All"),
@@ -138,20 +140,48 @@ export default function Accounts() {
     reference: "",
     notes: "",
   });
-  const visibleAccountTabs = [
-    ["dashboard", "Finance Dashboard", "accounts.finance_dashboard.view"],
-    ["customers", "Customer Ledger", "accounts.customer_ledger.view"],
-    ["vendors", "Vendor Ledger", "accounts.vendor_ledger.view"],
-    ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view"],
-    ["ap", "AP", "accounts.accounts_payable.view"],
-    ["ar", "AR", "accounts.accounts_receivable.view"],
-    ["journals", "Journal Entries", "accounts.journal_entries.view"],
-    [
-      "statements",
-      "Financial Statements",
-      "accounts.financial_statements.view",
-    ],
-  ].filter(([, , permission]) => can(permission));
+  const [openingForm, setOpeningForm] = useState({ accountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
+  const [bankForm, setBankForm] = useState({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
+  const [accountDocument, setAccountDocument] = useState<any | null>(null);
+  const accountTabGroups = [
+    {
+      group: "Overview",
+      tabs: [["dashboard", "Dashboard", "accounts.finance_dashboard.view"]],
+    },
+    {
+      group: "Daily Work",
+      tabs: [
+        ["bankcash", "Bank & Cash", "accounts.bank_cash.view"],
+        ["ar", "Receivables", "accounts.accounts_receivable.view"],
+        ["ap", "Payables", "accounts.accounts_payable.view"],
+        ["customers", "Customer Ledger", "accounts.customer_ledger.view"],
+        ["vendors", "Vendor Ledger", "accounts.vendor_ledger.view"],
+      ],
+    },
+    {
+      group: "Reports",
+      tabs: [
+        ["statements", "Financial Statements", "accounts.financial_statements.view"],
+        ["journals", "Journal Entries", "accounts.journal_entries.view"],
+      ],
+    },
+    {
+      group: "Setup & Audit",
+      tabs: [
+        ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view"],
+        ["opening", "Opening Balances", "accounts.opening_balances.view"],
+        ["masters", "Masters", "accounts.masters.view"],
+        ["tally", "Tally Export", "accounts.tally.view"],
+      ],
+    },
+  ] as const;
+  const visibleAccountGroups = accountTabGroups
+    .map((section) => ({
+      ...section,
+      tabs: section.tabs.filter(([, , permission]) => can(permission)),
+    }))
+    .filter((section) => section.tabs.length);
+  const visibleAccountTabs = visibleAccountGroups.flatMap((section) => section.tabs);
   const today = new Date().toISOString().slice(0, 10);
   const openManual = (
     type: "account" | "journal" | "ap" | "ar",
@@ -302,6 +332,8 @@ export default function Accounts() {
       can("accounts.journal_entries.view")
         ? [["c", "/coa"]]
         : []),
+      ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
+      ...(can("accounts.bank_cash.view") ? [["bc", "/bank-cash-transactions"]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
             [
@@ -344,6 +376,8 @@ export default function Accounts() {
       }
       if (k === "s") setSummary(v);
       if (k === "c") setCoa(v as any[]);
+      if (k === "m") setMasters(v);
+      if (k === "bc") setBankCash(v as any[]);
       if (k === "j" || k === "ap" || k === "ar") {
         const response = v as any;
         if (k === "j") setJournals(response.items || []);
@@ -568,7 +602,98 @@ export default function Accounts() {
       setSubmitting(false);
     }
   };
-  const statusBadge = (value: any) => {
+  const readAccountFile = (file?: File | null) =>
+    new Promise<any | null>((resolve, reject) => {
+      if (!file) return resolve(null);
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, content: String(reader.result || "") });
+      reader.onerror = () => reject(reader.error || new Error("Unable to read document"));
+      reader.readAsDataURL(file);
+    });
+  const submitOpeningBalance = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      await api("/opening-balances", { method: "POST", body: JSON.stringify({ bankCashAccountId: Number(openingForm.accountId), amount: numberValue(openingForm.amount), transactionDate: openingForm.transactionDate, reference: openingForm.reference, remarks: openingForm.remarks, document: accountDocument }) });
+      setOpeningForm({ accountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
+      setAccountDocument(null);
+      await load();
+    } catch (e: any) { setError(e.message); } finally { setSubmitting(false); }
+  };
+  const submitBankCash = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const type = (masters.transactionTypes || []).find((row: any) => String(row.id) === String(bankForm.transactionTypeId));
+      await api("/bank-cash-transactions", { method: "POST", body: JSON.stringify({ ...bankForm, transactionTypeName: bankForm.transactionTypeName || type?.name || "Bank/Cash Transaction", transactionTypeId: bankForm.transactionTypeId ? Number(bankForm.transactionTypeId) : undefined, bankCashAccountId: Number(bankForm.bankCashAccountId), transferToAccountId: bankForm.transferToAccountId ? Number(bankForm.transferToAccountId) : undefined, counterAccountId: bankForm.counterAccountId ? Number(bankForm.counterAccountId) : undefined, amount: numberValue(bankForm.amount), document: accountDocument }) });
+      setBankForm({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
+      setAccountDocument(null);
+      await load();
+    } catch (e: any) { setError(e.message); } finally { setSubmitting(false); }
+  };
+  const bankCashDecision = async (row: any, action: "approve" | "reject") => {
+    const remarks = action === "reject" ? window.prompt("Rejection remarks") : window.prompt("Approval remarks", "Approved");
+    if (remarks === null || (action === "reject" && !remarks.trim())) return;
+    setSubmitting(true);
+    setError("");
+    try { await api(`/bank-cash-transactions/${row.id}/${action}`, { method: "POST", body: JSON.stringify({ remarks }) }); await load(); }
+    catch (e: any) { setError(e.message); }
+    finally { setSubmitting(false); }
+  };
+  const saveTransactionType = async (row: any, patch: any) => {
+    setSubmitting(true);
+    setError("");
+    try { await api(`/masters/transaction-types/${row.id}`, { method: "PATCH", body: JSON.stringify(patch) }); await load(); }
+    catch (e: any) { setError(e.message); }
+    finally { setSubmitting(false); }
+  };
+  const downloadBlob = (blob: Blob, fileName: string) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  const fetchTallyExport = async (format: "xml" | "csv" | "json") => {
+    const response = await fetch(`${base}/api/accounts/tally/export?format=${format}`, { credentials: "include" });
+    if (response.status === 423) notifyModuleLocked("ledger");
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `Unable to export Tally ${format.toUpperCase()}`);
+    }
+    return response;
+  };
+  const exportTallyFile = async (format: "xml" | "csv") => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetchTallyExport(format);
+      const blob = await response.blob();
+      downloadBlob(blob, `tally-export-${new Date().toISOString().slice(0, 10)}.${format}`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const exportTallyXlsx = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetchTallyExport("json");
+      const payload = await response.json();
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.ledgers || []), "Ledgers");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.vouchers || []), "Vouchers");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.voucherLines || []), "Voucher Lines");
+      XLSX.writeFile(workbook, `tally-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };  const statusBadge = (value: any) => {
     const status = String(value || "Pending");
     const settled = status === "Paid" || status === "Approved";
     return (
@@ -843,27 +968,20 @@ export default function Accounts() {
     URL.revokeObjectURL(link.href);
   };
   const pageTitles: Record<string, [string, string]> = {
-    dashboard: [
-      "Finance Dashboard",
-      "Accounting overview and financial position",
-    ],
-    coa: ["Chart of Accounts", "Manage the organization ledger structure"],
-    customers: [
-      "Customer Ledger",
-      "Track customer invoices, receipts and balances",
-    ],
-    vendors: ["Vendor Ledger", "Track vendor bills, payments and balances"],
-    ap: [
-      "Accounts Payable (AP)",
-      "Manage pending vendor bills, debit notes and payments",
-    ],
-    ar: ["Accounts Receivable (AR)", "Manage customer invoices and receipts"],
-    journals: ["Journal Entries", "Review posted double-entry transactions"],
-    statements: [
-      "Financial Statements",
-      "Review profit, balance sheet and trial balance",
-    ],
+    dashboard: ["Finance Dashboard", "Today's receivables, payables, cash position and account health"],
+    bankcash: ["Bank & Cash", "Record deposits, withdrawals, transfers and cash movements"],
+    ar: ["Receivables", "Customer invoices, credit notes and receipts"],
+    ap: ["Payables", "Vendor bills, debit notes and payments"],
+    customers: ["Customer Ledger", "Customer-wise invoices, receipts, credits and outstanding balances"],
+    vendors: ["Vendor Ledger", "Vendor-wise bills, payments, credits and outstanding balances"],
+    statements: ["Financial Statements", "Profit & Loss, Balance Sheet and Trial Balance from posted vouchers"],
+    journals: ["Journal Entries", "Posted double-entry vouchers behind every account movement"],
+    coa: ["Chart of Accounts", "Ledger structure, bank/cash accounts and account balances"],
+    opening: ["Opening Balances", "Starting balances for bank and cash ledgers with approval"],
+    masters: ["Accounts Masters", "Transaction types and source mapping used by accounting workflows"],
+    tally: ["Tally Export", "Export ledgers and posted vouchers for TallyPrime and audit review"],
   };
+  const activePageTitle = pageTitles[activeTab] || ["Accounts", "Finance and accounting operations"];
   return (
     <Shell>
       <div className="min-h-full space-y-5 p-4 pt-16 sm:p-6">
@@ -895,20 +1013,34 @@ export default function Accounts() {
             {error}
           </div>
         )}
-        <Input
-          placeholder="Search current view..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-end">
+          <div>
+            <h2 className="text-lg font-semibold">{activePageTitle[0]}</h2>
+            <p className="text-sm text-muted-foreground">{activePageTitle[1]}</p>
+          </div>
+          <Input
+            placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-auto rounded-lg border bg-white p-1 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
-            {visibleAccountTabs.map(([value, label]) => (
-              <TabsTrigger key={value} value={value}>
-                {label}
-              </TabsTrigger>
+          <div className="space-y-2 rounded-lg border bg-white p-2">
+            {visibleAccountGroups.map((section) => (
+              <div key={section.group} className="flex flex-col gap-1 md:flex-row md:items-center">
+                <div className="w-28 shrink-0 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {section.group}
+                </div>
+                <TabsList className="flex h-auto flex-1 justify-start gap-1 overflow-x-auto bg-transparent p-0 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
+                  {section.tabs.map(([value, label]) => (
+                    <TabsTrigger key={value} value={value}>
+                      {label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
             ))}
-          </TabsList>
-          <TabsContent value="dashboard">
+          </div>          <TabsContent value="dashboard">
             <FinanceDashboard
               request={api}
               summary={summary}
@@ -958,6 +1090,62 @@ export default function Accounts() {
                 ["Balance", "currentBalance", inr],
               ]}
             />
+          </TabsContent>
+          <TabsContent value="opening" className="space-y-3">
+            <Card className="rounded-md border bg-white shadow-sm">
+              <CardHeader><CardTitle className="text-base">Opening Balances</CardTitle></CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-6">
+                <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={openingForm.accountId} onChange={(e) => setOpeningForm({ ...openingForm, accountId: e.target.value })}>
+                  <option value="">Bank / cash ledger</option>
+                  {coa.filter((a: any) => a.isBankCash).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                </select>
+                <Input type="number" step="0.01" placeholder="Amount" value={openingForm.amount} onChange={(e) => setOpeningForm({ ...openingForm, amount: e.target.value })} />
+                <Input type="date" value={openingForm.transactionDate} onChange={(e) => setOpeningForm({ ...openingForm, transactionDate: e.target.value })} />
+                <Input placeholder="Reference" value={openingForm.reference} onChange={(e) => setOpeningForm({ ...openingForm, reference: e.target.value })} />
+                <Input placeholder="Remarks" value={openingForm.remarks} onChange={(e) => setOpeningForm({ ...openingForm, remarks: e.target.value })} />
+                <Input type="file" className="md:col-span-2" onChange={(e) => void readAccountFile(e.target.files?.[0]).then(setAccountDocument)} />
+                <Button disabled={submitting || !openingForm.accountId || !openingForm.amount} onClick={() => void submitOpeningBalance()}>Submit for Approval</Button>
+              </CardContent>
+            </Card>
+            <Table rows={f(bankCash.filter((row) => row.transactionTypeName === "Opening Balance"))} cols={[
+              ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
+              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "reject")}>Reject</Button></div> : "—"],
+            ]} />
+          </TabsContent>
+          <TabsContent value="bankcash" className="space-y-3">
+            <Card className="rounded-md border bg-white shadow-sm">
+              <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-6">
+                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
+                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.transactionTypeId} onChange={(e) => setBankForm({ ...bankForm, transactionTypeId: e.target.value })}>
+                  <option value="">Type</option>{(masters.transactionTypes || []).filter((t: any) => t.isActive !== false).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
+                  <option value="">From / bank cash ledger</option>{coa.filter((a: any) => a.isBankCash).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                </select>
+                {bankForm.mode === "Transfer" ? <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Transfer to</option>{coa.filter((a: any) => a.isBankCash).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select> : <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.counterAccountId} onChange={(e) => setBankForm({ ...bankForm, counterAccountId: e.target.value })}><option value="">Counter ledger optional</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select>}
+                <Input type="number" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
+                <Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
+                <Input placeholder="Reference" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
+                <Input placeholder="Remarks" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
+                <Input type="file" className="md:col-span-2" onChange={(e) => void readAccountFile(e.target.files?.[0]).then(setAccountDocument)} />
+                <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+              </CardContent>
+            </Card>
+            <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
+              ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
+              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "reject")}>Reject</Button></div> : "—"],
+            ]} />
+          </TabsContent>
+          <TabsContent value="masters" className="space-y-3">
+            <Table rows={f(masters.transactionTypes || [])} cols={[
+              ["Code", "code"], ["Name", "name"], ["Direction", "direction"], ["Tally Voucher", "tallyVoucherType"], ["Active", "isActive", (v: any) => v === false ? "No" : "Yes"],
+              ["Actions", "id", (_: any, row: any) => <Button size="sm" variant="outline" onClick={() => void saveTransactionType(row, { isActive: row.isActive === false })}>{row.isActive === false ? "Enable" : "Disable"}</Button>],
+            ]} />
+            <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">Accounts Data Sources</CardTitle></CardHeader><CardContent className="grid gap-2 md:grid-cols-2">{Object.entries(masters.sourceRegistry || {}).map(([key, value]: any) => <div key={key} className="rounded border p-3"><p className="font-medium capitalize">{key.replace(/([A-Z])/g, " $1")}</p><p className="text-xs text-muted-foreground">{(value || []).join(", ")}</p></div>)}</CardContent></Card>
+          </TabsContent>
+          <TabsContent value="tally" className="space-y-3">
+            <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">TallyPrime Export</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-3">{can("accounts.tally.export") ? <><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("xml")}>Export Chart of Accounts + Posted Vouchers XML</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyXlsx()}>Export Chart of Accounts + Posted Vouchers XLSX</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("csv")}>Export Chart of Accounts + Posted Vouchers CSV</Button></> : <p className="text-sm text-muted-foreground">You need Tally export permission.</p>}</CardContent></Card>
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
             {can("accounts.accounts_payable.create") && (
@@ -1909,3 +2097,9 @@ export default function Accounts() {
     </Shell>
   );
 }
+
+
+
+
+
+

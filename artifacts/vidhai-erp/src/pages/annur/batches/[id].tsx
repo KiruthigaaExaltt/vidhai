@@ -4,8 +4,8 @@ import {
   useGetBatch,
   getGetBatchQueryKey,
   useAdvanceBatchStage,
-  useListLabBatches,
-  getListLabBatchesQueryKey,
+  useListSpawnEntries,
+  getListSpawnEntriesQueryKey,
   useListChambers,
   getListChambersQueryKey,
 } from "@workspace/api-client-react";
@@ -76,24 +76,20 @@ export default function BatchDetail() {
   const { data: batch, isLoading } = useGetBatch(batchId, {
     query: { enabled: !!batchId, queryKey: getGetBatchQueryKey(batchId) },
   });
-  const { data: labBatches } = useListLabBatches({
-    query: { enabled: true },
-  } as any);
-  const completedLabBatches =
-    labBatches?.filter(
-      (b: any) => b.currentStage === "COMPLETED" && b.status === "completed",
-    ) ?? [];
+  const { data: spawnEntries = [] } = useListSpawnEntries();
+  const availableSpawnEntries = (spawnEntries as any[]).filter(
+    (entry) => entry.status === "available" && Number(entry.quantityKg) > 0,
+  );
+  const internalSpawnEntries = availableSpawnEntries.filter(
+    (entry) => String(entry.sourceType).toUpperCase() !== "EXTERNAL",
+  );
+  const externalSpawnEntries = availableSpawnEntries.filter(
+    (entry) => String(entry.sourceType).toUpperCase() === "EXTERNAL",
+  );
   const { data: chambers } = useListChambers(
     { locationId: batch?.locationId },
     { query: { enabled: !!batch?.locationId } } as any,
   );
-  const availableTurnChambers =
-    chambers?.filter(
-      (chamber: any) =>
-        chamber.chamberType === "turn" &&
-        chamber.status === "idle" &&
-        !chamber.currentBatchId,
-    ) ?? [];
   const assignedTurnChamber = chambers?.find(
     (chamber: any) =>
       chamber.chamberType === "turn" &&
@@ -167,7 +163,7 @@ export default function BatchDetail() {
         });
         queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() });
         queryClient.invalidateQueries({
-          queryKey: getListLabBatchesQueryKey(),
+          queryKey: getListSpawnEntriesQueryKey(),
         });
         toast.success("Stage completed");
         setCompleteDialog({
@@ -177,6 +173,7 @@ export default function BatchDetail() {
           notes: "",
           spawnType: "internal",
           spawnRef: "",
+          spawnQty: "",
           chamberId: "",
           turnChamberId: "",
           producedBags: "",
@@ -196,6 +193,38 @@ export default function BatchDetail() {
 
   // ── Lightbox ──────────────────────────────────────────────────────────────
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [spawnEditQuantity, setSpawnEditQuantity] = useState("");
+  const [savingSpawnEdit, setSavingSpawnEdit] = useState(false);
+  const saveSpawnQuantity = async () => {
+    setSavingSpawnEdit(true);
+    try {
+      const response = await fetch(`/api/batches/${batchId}/spawn-usage`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quantityUsedKg: Number(spawnEditQuantity) }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(body.error || "Unable to adjust spawn usage");
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: getGetBatchQueryKey(batchId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: getListSpawnEntriesQueryKey(),
+        }),
+      ]);
+      setSpawnEditQuantity("");
+      toast.success("Spawn usage adjusted");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to adjust spawn usage",
+      );
+    } finally {
+      setSavingSpawnEdit(false);
+    }
+  };
 
   // ── Stage tracker state ───────────────────────────────────────────────────
   const imgRef0 = useRef<HTMLInputElement>(null);
@@ -213,6 +242,7 @@ export default function BatchDetail() {
     notes: "",
     spawnType: "internal",
     spawnRef: "",
+    spawnQty: "",
     chamberId: "",
     turnChamberId: "",
     producedBags: "",
@@ -230,6 +260,7 @@ export default function BatchDetail() {
       notes: "",
       spawnType: "internal",
       spawnRef: "",
+      spawnQty: "",
       chamberId: "",
       turnChamberId: "",
       producedBags: "",
@@ -250,24 +281,34 @@ export default function BatchDetail() {
 
   // Show spawn picker when COMPLETING Quality Check (which moves the batch TO Spawn Mixing)
   const isSpawnMixing = completeDialog.nextStageKey === "SPAWN_MIXING";
-  const isEnteringT1 =
-    completeDialog.stageKey === "PRE_WETTING" &&
-    completeDialog.nextStageKey === "T1";
+  const nextChamberType: Record<string, string> = {
+    T1: "bunker_1",
+    T2: "bunker_2",
+    T3: "bunker_3",
+    T4: "bunker_4",
+    BULK_CHAMBER: "bulk",
+  };
+  const requiredChamberType = nextChamberType[completeDialog.nextStageKey];
+  const availableNextChambers = (chambers ?? []).filter(
+    (chamber: any) =>
+      chamber.chamberType === requiredChamberType &&
+      chamber.status === "idle" &&
+      !chamber.currentBatchId,
+  );
   const isCompletingDispatch = completeDialog.stageKey === "DISPATCH";
   const isEnteringBulkChamber = completeDialog.nextStageKey === "BULK_CHAMBER";
   const imagesReady = stageImages[0] !== null && stageImages[1] !== null;
-  const spawnReady = !isSpawnMixing || !!completeDialog.spawnRef;
-  const chamberReady = !isEnteringBulkChamber || !!completeDialog.chamberId;
-  const turnChamberReady = !isEnteringT1 || !!completeDialog.turnChamberId;
+  const spawnReady =
+    !isSpawnMixing ||
+    (!!completeDialog.spawnRef && Number(completeDialog.spawnQty) > 0);
+  const chamberReady = !requiredChamberType || !!completeDialog.chamberId;
   const producedBagsReady =
     !isCompletingDispatch ||
     (Number.isInteger(Number(completeDialog.producedBags)) &&
       Number(completeDialog.producedBags) > 0);
   const canSubmit =
-    imagesReady &&
     spawnReady &&
     chamberReady &&
-    turnChamberReady &&
     producedBagsReady &&
     !advanceMutation.isPending;
 
@@ -278,18 +319,15 @@ export default function BatchDetail() {
         nextStage: completeDialog.nextStageKey as any,
         notes: completeDialog.notes || null,
         verificationImages: stageImages.filter(Boolean),
-        ...(isEnteringBulkChamber && {
+        ...(requiredChamberType && {
           chamberId: Number(completeDialog.chamberId),
-        }),
-        ...(isEnteringT1 && {
-          turnChamberId: Number(completeDialog.turnChamberId),
         }),
         ...(isCompletingDispatch && {
           producedBags: Number(completeDialog.producedBags),
         }),
         ...(isSpawnMixing && {
-          spawnBatchRef: completeDialog.spawnRef,
-          spawnBatchType: completeDialog.spawnType,
+          spawnEntryId: Number(completeDialog.spawnRef),
+          spawnQuantityUsed: Number(completeDialog.spawnQty),
         }),
       } as any,
     });
@@ -420,7 +458,7 @@ export default function BatchDetail() {
               value="tracker"
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-2 font-medium"
             >
-              Stage Tracker
+              History & Output
             </TabsTrigger>
           </TabsList>
 
@@ -729,6 +767,76 @@ export default function BatchDetail() {
             </Card>
 
             {/* Stage history log */}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Card className="rounded-sm shadow-none">
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase text-muted-foreground">
+                    Spawn Source
+                  </p>
+                  <p className="mt-1 font-medium">
+                    {(batch as any).spawnUsage?.sourceTypeSnapshot ??
+                      "Not recorded"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {(batch as any).spawnUsage?.sourceReferenceSnapshot ||
+                      (batch as any).spawnUsage?.supplierLotSnapshot ||
+                      "-"}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="rounded-sm shadow-none">
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase text-muted-foreground">
+                    Spawn Used
+                  </p>
+                  <p className="mt-1 font-mono font-semibold">
+                    {(batch as any).spawnUsage
+                      ? `${(batch as any).spawnUsage.quantityUsedKg} kg`
+                      : "-"}
+                  </p>
+                  {(batch as any).spawnUsage && (
+                    <div className="mt-2 flex gap-2">
+                      <Input
+                        type="number"
+                        min="0.0001"
+                        step="0.0001"
+                        value={spawnEditQuantity}
+                        onChange={(event) =>
+                          setSpawnEditQuantity(event.target.value)
+                        }
+                        placeholder="Correct quantity"
+                        className="h-8 font-mono"
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8"
+                        disabled={
+                          savingSpawnEdit || !(Number(spawnEditQuantity) > 0)
+                        }
+                        onClick={saveSpawnQuantity}
+                      >
+                        Update
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="rounded-sm shadow-none">
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase text-muted-foreground">
+                    Production Output
+                  </p>
+                  <p className="mt-1 font-mono font-semibold">
+                    {batch.actualBags
+                      ? `${batch.actualBags.toLocaleString()} bags`
+                      : "Pending"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Target: {batch.targetBags?.toLocaleString() ?? "-"}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
             <Card className="rounded-sm border-border shadow-none">
               <CardHeader className="pb-2 border-b">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -740,6 +848,7 @@ export default function BatchDetail() {
                   <thead className="bg-muted/40 text-muted-foreground text-[10px] uppercase tracking-wider border-b border-border">
                     <tr>
                       <th className="px-4 py-2.5 font-medium">Stage</th>
+                      <th className="px-4 py-2.5 font-medium">Chamber</th>
                       <th className="px-4 py-2.5 font-medium">Entered</th>
                       <th className="px-4 py-2.5 font-medium">Exited</th>
                       <th className="px-4 py-2.5 font-medium">By</th>
@@ -755,6 +864,9 @@ export default function BatchDetail() {
                       >
                         <td className="px-4">
                           <StatusBadge status={log.stage} />
+                        </td>
+                        <td className="px-4 text-xs">
+                          {log.chamberName || "-"}
                         </td>
                         <td className="px-4 font-mono text-xs text-muted-foreground">
                           {new Date(log.enteredAt).toLocaleString([], {
@@ -774,7 +886,7 @@ export default function BatchDetail() {
                           {log.enteredByName}
                         </td>
                         <td className="px-4">
-                          {log.verificationImages?.length >= 2 ? (
+                          {log.verificationImages?.length > 0 ? (
                             <div className="flex gap-1">
                               {log.verificationImages
                                 .slice(0, 2)
@@ -809,7 +921,7 @@ export default function BatchDetail() {
                     {(!batch.stageLogs || batch.stageLogs.length === 0) && (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="px-4 py-6 text-center text-sm text-muted-foreground"
                         >
                           No stage history recorded yet.
@@ -921,8 +1033,7 @@ export default function BatchDetail() {
               {STAGE_SEQ.find((s) => s.key === completeDialog.stageKey)?.label}
             </DialogTitle>
             <p className="text-sm text-muted-foreground">
-              Two verification photos are required before this stage can be
-              marked complete.
+              Verification photos are optional for this stage.
             </p>
           </DialogHeader>
 
@@ -930,7 +1041,7 @@ export default function BatchDetail() {
             {/* Image capture — two slots */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                Verification Photos (2 required)
+                Verification Photos (optional)
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {([0, 1] as const).map((slot) => (
@@ -997,17 +1108,17 @@ export default function BatchDetail() {
               </div>
             </div>
 
-            {isEnteringT1 && (
+            {requiredChamberType && (
               <div className="p-3 bg-muted/30 border border-border rounded-sm space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                  Turn Chamber
+                  {requiredChamberType.replace("_", " ")} Chamber
                 </p>
                 <Select
-                  value={completeDialog.turnChamberId}
+                  value={completeDialog.chamberId}
                   onValueChange={(value) =>
                     setCompleteDialog((previous) => ({
                       ...previous,
-                      turnChamberId: value,
+                      chamberId: value,
                     }))
                   }
                 >
@@ -1015,23 +1126,24 @@ export default function BatchDetail() {
                     <SelectValue placeholder="Select an available turn chamber..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableTurnChambers.map((chamber: any) => (
+                    {availableNextChambers.map((chamber: any) => (
                       <SelectItem key={chamber.id} value={String(chamber.id)}>
                         {chamber.name}
                         {chamber.capacity ? ` - ${chamber.capacity} bags` : ""}
                       </SelectItem>
                     ))}
-                    {availableTurnChambers.length === 0 && (
+                    {availableNextChambers.length === 0 && (
                       <SelectItem value="__none__" disabled>
-                        No turn chambers available
+                        No {requiredChamberType.replace("_", " ")} chambers
+                        available
                       </SelectItem>
                     )}
                   </SelectContent>
                 </Select>
-                {!completeDialog.turnChamberId && (
+                {!completeDialog.chamberId && (
                   <p className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Select a Turn
-                    chamber to continue.
+                    <AlertTriangle className="w-3.5 h-3.5" /> Select an
+                    available {requiredChamberType.replace("_", " ")} chamber.
                   </p>
                 )}
               </div>
@@ -1067,7 +1179,7 @@ export default function BatchDetail() {
                 )}
               </div>
             )}
-            {isEnteringBulkChamber && (
+            {false && isEnteringBulkChamber && (
               <div className="p-3 bg-muted/30 border border-border rounded-sm space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-foreground">
                   Bulk Chamber
@@ -1112,7 +1224,7 @@ export default function BatchDetail() {
             {isSpawnMixing && (
               <div className="p-3 bg-muted/30 border border-border rounded-sm space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                  Spawn Batch
+                  Spawn Vault Source
                 </p>
                 <RadioGroup
                   value={completeDialog.spawnType}
@@ -1123,7 +1235,7 @@ export default function BatchDetail() {
                       spawnRef: "",
                     }))
                   }
-                  className="flex gap-3"
+                  className="grid grid-cols-2 gap-2"
                 >
                   <div className="flex items-center gap-2 bg-white px-3 py-2 border rounded-sm">
                     <RadioGroupItem value="internal" id="spawn-int" />
@@ -1155,31 +1267,60 @@ export default function BatchDetail() {
                       <SelectValue placeholder="Select lab batch…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {completedLabBatches.map((lb: any) => (
-                        <SelectItem key={lb.id} value={lb.batchCode}>
-                          {lb.batchCode}
+                      {internalSpawnEntries.map((entry: any) => (
+                        <SelectItem key={entry.id} value={String(entry.id)}>
+                          {entry.sourceType ?? "LEGACY"} �{" "}
+                          {entry.sourceReference ||
+                            entry.supplierLot ||
+                            entry.strainName}{" "}
+                          � {Number(entry.quantityKg)} kg
                         </SelectItem>
                       ))}
-                      {completedLabBatches.length === 0 && (
+                      {internalSpawnEntries.length === 0 && (
                         <SelectItem value="__none__" disabled>
-                          No completed lab batches
+                          No Spawn Vault stock available
                         </SelectItem>
                       )}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Input
+                  <Select
                     value={completeDialog.spawnRef}
-                    onChange={(e) =>
-                      setCompleteDialog((p) => ({
-                        ...p,
-                        spawnRef: e.target.value,
-                      }))
+                    onValueChange={(value) =>
+                      setCompleteDialog((p) => ({ ...p, spawnRef: value }))
                     }
-                    className="rounded-sm h-9 bg-white font-mono"
-                    placeholder="Vendor lot / reference number"
-                  />
+                  >
+                    <SelectTrigger className="rounded-sm h-9 bg-white">
+                      <SelectValue placeholder="Select external spawn batch..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {externalSpawnEntries.map((entry: any) => (
+                        <SelectItem key={entry.id} value={String(entry.id)}>
+                          {entry.strainName} - {entry.sourceReference || entry.supplierLot || entry.source} - {Number(entry.quantityKg)} kg
+                        </SelectItem>
+                      ))}
+                      {externalSpawnEntries.length === 0 && (
+                        <SelectItem value="__none__" disabled>
+                          No external Spawn Vault stock available
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
                 )}
+                <Input
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  value={completeDialog.spawnQty}
+                  onChange={(e) =>
+                    setCompleteDialog((p) => ({
+                      ...p,
+                      spawnQty: e.target.value,
+                    }))
+                  }
+                  className="rounded-sm h-9 bg-white font-mono"
+                  placeholder="Quantity used (kg)"
+                />
                 {!completeDialog.spawnRef && (
                   <p className="text-xs text-amber-600 flex items-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5" /> Spawn batch
@@ -1223,17 +1364,13 @@ export default function BatchDetail() {
             >
               {advanceMutation.isPending
                 ? "Saving…"
-                : !imagesReady
-                  ? `Add ${2 - stageImages.filter(Boolean).length} more photo${stageImages.filter(Boolean).length === 1 ? "" : "s"}`
-                  : !spawnReady
-                    ? "Select spawn batch"
-                    : !chamberReady
-                      ? "Select bulk chamber"
-                      : !turnChamberReady
-                        ? "Select turn chamber"
-                        : !producedBagsReady
-                          ? "Enter produced bags"
-                          : "Mark Stage Complete ✓"}
+                : !spawnReady
+                  ? "Select spawn batch"
+                  : !chamberReady
+                    ? "Select the required chamber"
+                    : !producedBagsReady
+                      ? "Enter produced bags"
+                      : "Mark Stage Complete ✓"}
             </Button>
           </DialogFooter>
         </DialogContent>

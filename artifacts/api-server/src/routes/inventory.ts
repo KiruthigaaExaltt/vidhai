@@ -76,10 +76,15 @@ router.get("/", requireAuth, async (req, res) => {
     attributeValues: r.material.attributeValues,
     unit: r.material.unit,
     quantityOnHand: Number(r.inv.quantityOnHand),
-    reservedQuantity: reservedByMaterial.get(Number(r.material.id)) || 0,
-    availableQuantity:
+    reservedQuantity: Math.min(
+      Math.max(0, Number(r.inv.quantityOnHand)),
+      reservedByMaterial.get(Number(r.material.id)) || 0,
+    ),
+    availableQuantity: Math.max(
+      0,
       Number(r.inv.quantityOnHand) -
-      (reservedByMaterial.get(Number(r.material.id)) || 0),
+        (reservedByMaterial.get(Number(r.material.id)) || 0),
+    ),
     locationId: r.inv.locationId,
     locationName: r.locationName ?? null,
     costBasis: r.inv.costBasis !== null ? Number(r.inv.costBasis) : null,
@@ -105,6 +110,14 @@ router.get("/", requireAuth, async (req, res) => {
   }));
   if (String(req.query.coreOnly || "").toLowerCase() === "true")
     data = data.filter((row) => isCoreProductMasterItem(row.materialName));
+  if (String(req.query.excludeVaultManaged || "").toLowerCase() === "true")
+    data = data.filter(
+      (row) =>
+        row.sku !== "VLT-FP-SPAWN" &&
+        row.sku !== "VLT-FP-CASING-SOIL" &&
+        row.sku !== "VLT-EXT-SPAWN" &&
+        row.sku !== "VLT-EXT-CASING-SOIL",
+    );
   const search = String(req.query.search || "")
     .trim()
     .toLowerCase();

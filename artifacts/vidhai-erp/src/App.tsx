@@ -19,10 +19,11 @@ import BatchDetail from "@/pages/annur/batches/[id]";
 import Chambers from "@/pages/annur/chambers";
 import CoimbatoreBatches from "@/pages/coimbatore/batches/index";
 import CoimbatoreBatchDetail from "@/pages/coimbatore/batches/[id]";
+import CoimbatoreChambers from "@/pages/coimbatore/chambers";
 import LabBatches from "@/pages/lab/batches/index";
 import LabBatchDetail from "@/pages/lab/batches/[id]";
-import SpawnStockRedirect from "@/pages/lab/spawn-stock";
 import OotyRooms from "@/pages/ooty/index";
+import OotyRoomHistory from "@/pages/ooty/history";
 import OotyRoomDetail from "@/pages/ooty/rooms/[id]";
 import Traceability from "@/pages/traceability/index";
 import SchedulingCalendar from "@/pages/scheduling/index";
@@ -54,6 +55,7 @@ import NotificationsPage from "@/pages/notifications";
 import { NotificationProvider } from "@/notifications/NotificationProvider";
 import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
 import { Shell } from "@/components/layout/Shell";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const queryClient = new QueryClient();
 
@@ -152,6 +154,7 @@ const landingRoutes = [
   { path: "/annur/batches", permissions: ["production.batches.view"] },
   { path: "/ooty", permissions: ["production.growing_rooms.view"] },
   { path: "/coimbatore/batches", permissions: ["production.casing_soil.view"] },
+  { path: "/coimbatore/chambers", permissions: ["production.chambers.view"] },
   { path: "/lab/batches", permissions: ["production.spawn_batches.view"] },
   { path: "/crm", permissions: ["crm.contacts.view"] },
   {
@@ -196,6 +199,10 @@ function LandingRoute() {
       setLocation("/login");
       return;
     }
+    if (can("dashboard.view")) {
+      setLocation("/dashboard");
+      return;
+    }
     const destination = landingRoutes.find(
       ({ permissions, ...route }) =>
         (!("moduleKey" in route) || isModuleEnabled(route.moduleKey)) &&
@@ -234,8 +241,6 @@ function Router() {
       <Route path="/dashboard">
         <ProtectedRoute component={Dashboard} permission="dashboard.view" />
       </Route>
-
-      <Route path="/" component={LandingRoute} />
 
       <Route path="/settings">
         <ProtectedRoute
@@ -279,10 +284,22 @@ function Router() {
         />
       </Route>
 
+      <Route path="/coimbatore/chambers">
+        <ProtectedRoute
+          component={CoimbatoreChambers}
+          permission="production.chambers.view"
+        />
+      </Route>
       {/* Ooty Routes */}
       <Route path="/ooty">
         <ProtectedRoute
           component={OotyRooms}
+          permission="production.growing_rooms.view"
+        />
+      </Route>
+      <Route path="/ooty/history">
+        <ProtectedRoute
+          component={OotyRoomHistory}
           permission="production.growing_rooms.view"
         />
       </Route>
@@ -321,6 +338,12 @@ function Router() {
             "sales.payments.view",
             "sales.returns.view",
           ]}
+        />
+      </Route>
+      <Route path="/fleet/settings">
+        <ProtectedRoute
+          component={FleetList}
+          permission="fleet.vehicles.view"
         />
       </Route>
       <Route path="/fleet/:id">
@@ -472,13 +495,6 @@ function Router() {
           permission="production.spawn_batches.view"
         />
       </Route>
-      <Route path="/lab/spawn-stock">
-        <ProtectedRoute
-          component={SpawnStockRedirect}
-          permission="production.spawn_batches.view"
-        />
-      </Route>
-
       {/* Annur Routes */}
       <Route path="/annur/batches">
         <ProtectedRoute
@@ -505,6 +521,7 @@ function Router() {
         />
       </Route>
 
+      <Route path="/" component={LandingRoute} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -519,7 +536,9 @@ function App() {
         <AuthProvider>
           <NotificationProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
+              <ErrorBoundary>
+                <Router />
+              </ErrorBoundary>
             </WouterRouter>
           </NotificationProvider>
         </AuthProvider>

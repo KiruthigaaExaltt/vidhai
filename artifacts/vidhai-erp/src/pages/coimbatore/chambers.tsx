@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useListChambers,
   useListLocations,
@@ -64,22 +64,24 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
-export default function Chambers() {
+export default function CoimbatoreChambers() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const { data: locations } = useListLocations();
-  const annurLoc = locations?.find(
-    (l) => l.code === "A" || l.name.toLowerCase().includes("annur"),
+  const coimbatoreLoc = locations?.find(
+    (l) => l.code === "C" || l.name.toLowerCase().includes("coimbatore"),
   );
 
   const { data: chambers, isLoading } = useListChambers(
     {
-      locationId: annurLoc?.id || undefined,
+      locationId: coimbatoreLoc?.id || undefined,
     },
     {
-      query: { enabled: !!annurLoc },
+      query: { enabled: !!coimbatoreLoc },
     } as any,
   );
+
+  const chamberRows: any[] = (chambers ?? []) as any[];
 
   const [selectedChamberId, setSelectedChamberId] = useState<number | null>(
     null,
@@ -88,12 +90,33 @@ export default function Chambers() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
+  useEffect(() => {
+    const chamberId = Number(
+      new URLSearchParams(window.location.search).get("reading"),
+    );
+    if (
+      !chamberId ||
+      !chamberRows.some((chamber: any) => chamber.id === chamberId)
+    )
+      return;
+    setSelectedChamberId(chamberId);
+    setReadingForm({
+      temperatureCelsius: "",
+      nh3Ppm: "",
+      co2Percent: "",
+      humidity: "",
+      notes: "",
+    });
+    setIsReadingModalOpen(true);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [chambers]);
+
   // Create / Edit modal
   const [isManageModalOpen, setIsManageModalOpen] = useState(false);
   const [manageMode, setManageMode] = useState<"create" | "edit">("create");
   const [chamberForm, setChamberForm] = useState<any>({
     name: "",
-    chamberType: "bulk",
+    chamberType: "casing_soil",
     capacity: "",
     lengthM: "",
     widthM: "",
@@ -149,6 +172,7 @@ export default function Chambers() {
         });
         queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() });
         setIsReadingModalOpen(false);
+        setIsDetailModalOpen(true);
         toast.success("Reading logged");
       },
     },
@@ -184,7 +208,7 @@ export default function Chambers() {
     setManageMode("create");
     setChamberForm({
       name: "",
-      chamberType: "bulk",
+      chamberType: "casing_soil",
       capacity: "",
       lengthM: "",
       widthM: "",
@@ -211,7 +235,7 @@ export default function Chambers() {
 
   const handleManageSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!annurLoc) return;
+    if (!coimbatoreLoc) return;
 
     const payload = {
       name: chamberForm.name,
@@ -225,7 +249,7 @@ export default function Chambers() {
 
     if (manageMode === "create") {
       createMutation.mutate({
-        data: { ...payload, locationId: annurLoc.id } as any,
+        data: { ...payload, locationId: coimbatoreLoc.id } as any,
       });
     } else {
       updateMutation.mutate({ id: selectedChamberId!, data: payload as any });
@@ -261,7 +285,7 @@ export default function Chambers() {
     });
   };
 
-  const selectedChamber = chambers?.find((c) => c.id === selectedChamberId);
+  const selectedChamber = chamberRows.find((c) => c.id === selectedChamberId);
 
   return (
     <Shell>
@@ -269,7 +293,7 @@ export default function Chambers() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight font-display">
-              Chamber Control
+              Casing Soil Chambers
             </h1>
           </div>
           <Button
@@ -277,7 +301,7 @@ export default function Chambers() {
             className="rounded-md shadow-sm h-10 px-4"
           >
             <Plus className="w-4 h-4 mr-2" />
-            New Chamber
+            New Casing Soil Chamber
           </Button>
         </div>
 
@@ -291,7 +315,7 @@ export default function Chambers() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {chambers?.map((c) => {
+            {chamberRows.map((c) => {
               const isPreWetting = c.chamberType === "pre_wetting";
               const isTurn = c.chamberType === "turn";
               const isBunker = c.chamberType.startsWith("bunker_");
@@ -343,13 +367,32 @@ export default function Chambers() {
                       </Badge>
                     </div>
 
-                    <div className="h-16 flex flex-col justify-center">
+                    <div className="min-h-16 flex flex-col justify-center">
                       {c.status === "active" && c.currentBatchCode ? (
                         <div className="flex items-center gap-2">
                           <Box className="w-4 h-4 text-muted-foreground" />
-                          <span className="font-mono text-lg font-semibold">
-                            {c.currentBatchCode}
-                          </span>
+                          <div>
+                            <span className="font-mono text-lg font-semibold">
+                              {c.currentBatchCode}
+                            </span>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {String(c.currentBatchStage || "Active").replace(
+                                /_/g,
+                                " ",
+                              )}
+                              {c.currentTurnNumber
+                                ? ` � Turn ${c.currentTurnNumber}`
+                                : ""}
+                            </div>
+                            {c.currentBatchStartedAt && (
+                              <div className="text-[11px] text-muted-foreground">
+                                Started{" "}
+                                {new Date(
+                                  c.currentBatchStartedAt,
+                                ).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -369,13 +412,16 @@ export default function Chambers() {
                           Turning Process
                         </div>
                       ) : (
-                        <div className="flex gap-4">
+                        <div className="flex gap-3 flex-wrap">
                           <div className="flex flex-col">
                             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                               Temp
                             </span>
                             <span className="font-mono font-medium">
-                              {c.lastTemperature ?? "--"}°C
+                              {c.status === "active"
+                                ? (c.lastTemperature ?? "--")
+                                : "--"}
+                              °C
                             </span>
                           </div>
                           <div className="flex flex-col">
@@ -383,13 +429,38 @@ export default function Chambers() {
                               NH3
                             </span>
                             <span className="font-mono font-medium">
-                              {c.lastNh3 ?? "--"}ppm
+                              {c.status === "active"
+                                ? (c.lastNh3 ?? "--")
+                                : "--"}
+                              ppm
+                            </span>
+                          </div>{" "}
+                          <div className="flex flex-col">
+                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                              CO2
+                            </span>
+                            <span className="font-mono font-medium">
+                              {c.status === "active"
+                                ? ((c as any).lastCo2 ?? "--")
+                                : "--"}
+                              %
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                              Moist.
+                            </span>
+                            <span className="font-mono font-medium">
+                              {c.status === "active"
+                                ? ((c as any).lastMoisture ?? "--")
+                                : "--"}
+                              %
                             </span>
                           </div>
                         </div>
                       )}
 
-                      {!isPreWetting && !isTurn && !isBunker && (
+                      {c.status === "active" && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -430,7 +501,7 @@ export default function Chambers() {
                     setChamberForm({ ...chamberForm, name: e.target.value })
                   }
                   className="rounded-md font-medium"
-                  placeholder="e.g. Bulk Room 1"
+                  placeholder="e.g. A1"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -438,28 +509,15 @@ export default function Chambers() {
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                     Type
                   </Label>
-                  <Select
-                    value={chamberForm.chamberType}
-                    onValueChange={(v) =>
-                      setChamberForm({ ...chamberForm, chamberType: v })
-                    }
-                  >
-                    <SelectTrigger className="h-9 text-sm rounded-md">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pre_wetting">Pre-Wetting</SelectItem>
-                      <SelectItem value="bunker_1">Bunker 1</SelectItem>
-                      <SelectItem value="bunker_2">Bunker 2</SelectItem>
-                      <SelectItem value="bunker_3">Bunker 3</SelectItem>
-                      <SelectItem value="bunker_4">Bunker 4</SelectItem>
-                      <SelectItem value="bulk">Bulk</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    value="Casing Soil Chamber"
+                    disabled
+                    className="h-9 text-sm rounded-md bg-muted"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Capacity (Bags)
+                    Capacity
                   </Label>
                   <Input
                     type="number"
@@ -626,6 +684,17 @@ export default function Chambers() {
                       <div className="font-mono text-lg font-bold">
                         {selectedChamber.currentBatchCode}
                       </div>
+                      <div className="text-xs text-muted-foreground">
+                        {String(
+                          selectedChamber.currentBatchStage || "Active",
+                        ).replace(/_/g, " ")}
+                        {selectedChamber.currentTurnNumber
+                          ? ` � Turn ${selectedChamber.currentTurnNumber}`
+                          : ""}
+                        {selectedChamber.currentBatchStartedAt
+                          ? ` � Started ${new Date(selectedChamber.currentBatchStartedAt).toLocaleDateString()}`
+                          : ""}
+                      </div>
                     </div>
                   </div>
                   <Button
@@ -636,7 +705,7 @@ export default function Chambers() {
                     onClick={() => {
                       if (selectedChamber.currentBatchId) {
                         setLocation(
-                          `/annur/batches/${selectedChamber.currentBatchId}`,
+                          `/coimbatore/batches/${selectedChamber.currentBatchId}`,
                         );
                       }
                     }}
@@ -647,8 +716,7 @@ export default function Chambers() {
               )}
 
               {selectedChamber &&
-                (selectedChamber.chamberType === "bulk" ||
-                  selectedChamber.chamberType.startsWith("bunker_")) && (
+                String(selectedChamber.chamberType) === "casing_soil" && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
@@ -669,6 +737,8 @@ export default function Chambers() {
                         <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                           <tr>
                             <th className="px-4 py-2 font-medium">Time</th>
+                            <th className="px-4 py-2 font-medium">Batch</th>
+                            <th className="px-4 py-2 font-medium">Turn</th>
                             <th className="px-4 py-2 font-medium text-right">
                               Temp °C
                             </th>
@@ -677,6 +747,9 @@ export default function Chambers() {
                             </th>
                             <th className="px-4 py-2 font-medium text-right">
                               CO2 %
+                            </th>
+                            <th className="px-4 py-2 font-medium text-right">
+                              Moisture %
                             </th>
                             <th className="px-4 py-2 font-medium">Logged By</th>
                           </tr>
@@ -693,6 +766,14 @@ export default function Chambers() {
                                   timeStyle: "short",
                                 })}
                               </td>
+                              <td className="px-4 font-mono text-xs">
+                                {(r as any).batchCode ?? "�"}
+                              </td>
+                              <td className="px-4 font-mono text-xs">
+                                {(r as any).turnNumber
+                                  ? `T${(r as any).turnNumber}`
+                                  : "�"}
+                              </td>
                               <td className="px-4 font-mono text-right">
                                 {r.temperatureCelsius ?? "-"}
                               </td>
@@ -702,6 +783,9 @@ export default function Chambers() {
                               <td className="px-4 font-mono text-right">
                                 {r.co2Percent ?? "-"}
                               </td>
+                              <td className="px-4 font-mono text-right">
+                                {r.humidity ?? "-"}
+                              </td>
                               <td className="px-4 text-xs text-muted-foreground">
                                 {r.recordedByName}
                               </td>
@@ -710,7 +794,7 @@ export default function Chambers() {
                           {(!history || history.length === 0) && (
                             <tr>
                               <td
-                                colSpan={5}
+                                colSpan={8}
                                 className="px-4 py-8 text-center text-muted-foreground"
                               >
                                 No environmental readings found.
@@ -720,15 +804,6 @@ export default function Chambers() {
                         </tbody>
                       </table>
                     </div>
-                  </div>
-                )}
-
-              {selectedChamber &&
-                selectedChamber.chamberType !== "bulk" &&
-                !selectedChamber.chamberType.startsWith("bunker_") && (
-                  <div className="py-8 text-center text-muted-foreground border border-dashed rounded-md flex items-center justify-center gap-2">
-                    <Info className="w-4 h-4" /> This chamber type does not
-                    require hourly environmental monitoring.
                   </div>
                 )}
             </div>
@@ -801,7 +876,7 @@ export default function Chambers() {
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Humidity (%)
+                    Moisture (%)
                   </Label>
                   <Input
                     type="number"
@@ -833,7 +908,10 @@ export default function Chambers() {
               <div className="pt-4 border-t">
                 <Button
                   type="submit"
-                  disabled={createReadingMutation.isPending}
+                  disabled={
+                    createReadingMutation.isPending ||
+                    selectedChamber?.status !== "active"
+                  }
                   className="w-full rounded-md h-10"
                 >
                   Submit Log

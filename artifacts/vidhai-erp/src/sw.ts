@@ -8,6 +8,7 @@ import { ExpirationPlugin } from "workbox-expiration";
 declare let self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<any> };
 const version = "v1";
 const runtimeCaches = new Set([`vidhai-navigation-${version}`, `vidhai-public-images-${version}`, `vidhai-font-styles-${version}`, `vidhai-font-files-${version}`]);
+const normalizeNavigationUrl = (url: string) => url.startsWith("/fleet/") ? "/fleet" : url;
 
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
@@ -45,7 +46,7 @@ self.addEventListener("notificationclick", event => {
         });
       } catch {}
     }
-    const destination = new URL(data.navigationUrl || "notifications", self.registration.scope).href;
+    const destination = new URL(normalizeNavigationUrl(data.navigationUrl || "notifications"), self.registration.scope).href;
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const client of windows) {
       if ("focus" in client) {

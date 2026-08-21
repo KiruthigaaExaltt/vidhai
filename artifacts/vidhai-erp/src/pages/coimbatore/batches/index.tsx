@@ -35,12 +35,23 @@ import {
 } from "@/components/ui/select";
 import { Plus, Leaf, Trash2, Search, Filter, X, Pencil } from "lucide-react";
 import { useLocation } from "wouter";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { toast } from "sonner";
 
-const ALL_STAGES = ["FORMULATION", "TURNING", "QC_PENDING", "COMPLETED"];
+const ALL_STAGES = [
+  "FORMULATION",
+  "PRE_WETTING",
+  "MIXING",
+  "TURNING",
+  "QC_PENDING",
+  "COMPLETED",
+];
 
 function stageLabel(stage: string, currentTurnNumber?: number | null) {
   if (stage === "TURNING" && currentTurnNumber) {
@@ -50,11 +61,13 @@ function stageLabel(stage: string, currentTurnNumber?: number | null) {
 }
 
 const DATE_INPUT_CLASS =
-  "h-8 w-full rounded-md text-sm font-mono pl-2 pr-2 cursor-pointer sm:w-[140px] " +
+  "h-8 w-full min-w-0 overflow-hidden rounded-md text-sm font-mono pl-2 pr-2 cursor-pointer sm:w-[150px] " +
   "[&::-webkit-calendar-picker-indicator]:cursor-pointer " +
+  "[&::-webkit-calendar-picker-indicator]:ml-1 " +
+  "[&::-webkit-calendar-picker-indicator]:mr-0 " +
+  "[&::-webkit-calendar-picker-indicator]:shrink-0 " +
   "[&::-webkit-calendar-picker-indicator]:opacity-60 " +
-  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100 " +
-  "[&::-webkit-calendar-picker-indicator]:mr-0.5";
+  "[&::-webkit-calendar-picker-indicator]:hover:opacity-100";
 
 export default function CoimbatoreBatches() {
   const [, setLocation] = useLocation();
@@ -68,19 +81,40 @@ export default function CoimbatoreBatches() {
   const [filterSearch, setFilterSearch] = useState("");
   const [batchPage, setBatchPage] = useState(1);
   const [batchPageSize, setBatchPageSize] = useState(10);
-  useEffect(() => setBatchPage(1), [filterStage, filterStatus, filterFrom, filterTo, filterSearch]);
+  useEffect(
+    () => setBatchPage(1),
+    [filterStage, filterStatus, filterFrom, filterTo, filterSearch],
+  );
   const batchQuery = useQuery({
-    queryKey: ["coimbatore-batches-paged", filterStage, filterStatus, filterFrom, filterTo, filterSearch, batchPage, batchPageSize],
+    queryKey: [
+      "coimbatore-batches-paged",
+      filterStage,
+      filterStatus,
+      filterFrom,
+      filterTo,
+      filterSearch,
+      batchPage,
+      batchPageSize,
+    ],
     queryFn: async () => {
-      const params = new URLSearchParams({ skip: String((batchPage - 1) * batchPageSize), limit: String(batchPageSize) });
+      const params = new URLSearchParams({
+        skip: String((batchPage - 1) * batchPageSize),
+        limit: String(batchPageSize),
+      });
       if (filterStage !== "__all__") params.set("stage", filterStage);
       if (filterStatus !== "__all__") params.set("status", filterStatus);
       if (filterFrom) params.set("from", filterFrom);
       if (filterTo) params.set("to", filterTo);
       if (filterSearch) params.set("search", filterSearch);
-      const response = await fetch(`/api/coimbatore/batches?${params}`, { credentials: "include" });
+      const response = await fetch(`/api/coimbatore/batches?${params}`, {
+        credentials: "include",
+      });
       if (!response.ok) throw new Error("Unable to load casing soil batches");
-      return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
+      return response.json() as Promise<{
+        data: any[];
+        totalCount: number;
+        totalPages: number;
+      }>;
     },
     placeholderData: keepPreviousData,
   });
@@ -107,6 +141,23 @@ export default function CoimbatoreBatches() {
   // ── Create ─────────────────────────────────────────────────────────────────
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchNotes, setBatchNotes] = useState("");
+  const [batchChamberId, setBatchChamberId] = useState("");
+  const { data: casingChambers = [] } = useQuery<any[]>({
+    queryKey: ["available-casing-soil-chambers", batchOpen],
+    enabled: batchOpen,
+    queryFn: async () => {
+      const response = await fetch("/api/chambers", { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load Casing Soil Chambers");
+      const rows = await response.json();
+      return rows.filter(
+        (row: any) =>
+          row.locationCode === "C" &&
+          row.chamberType === "casing_soil" &&
+          row.status === "idle" &&
+          !row.currentBatchId,
+      );
+    },
+  });
 
   const createBatchMutation = useCreateCoimbatoreBatch({
     mutation: {
@@ -114,9 +165,12 @@ export default function CoimbatoreBatches() {
         queryClient.invalidateQueries({
           queryKey: getListCoimbatoreBatchesQueryKey(),
         });
-        queryClient.invalidateQueries({ queryKey: ["coimbatore-batches-paged"] });
+        queryClient.invalidateQueries({
+          queryKey: ["coimbatore-batches-paged"],
+        });
         setBatchOpen(false);
         setBatchNotes("");
+        setBatchChamberId("");
         setLocation(`/coimbatore/batches/${data.id}`);
         toast.success(
           "Casing soil batch created — fill in formulation to initiate",
@@ -132,7 +186,16 @@ export default function CoimbatoreBatches() {
 
   const handleCreateBatch = (e: React.FormEvent) => {
     e.preventDefault();
-    createBatchMutation.mutate({ data: { notes: batchNotes || null } as any });
+    if (!batchChamberId) {
+      toast.error("Select an available Casing Soil Chamber");
+      return;
+    }
+    createBatchMutation.mutate({
+      data: {
+        notes: batchNotes || null,
+        chamberId: Number(batchChamberId),
+      } as any,
+    });
   };
 
   // ── Edit ───────────────────────────────────────────────────────────────────
@@ -242,6 +305,32 @@ export default function CoimbatoreBatches() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Casing Soil Chamber *
+                  </Label>
+                  <Select
+                    value={batchChamberId}
+                    onValueChange={setBatchChamberId}
+                  >
+                    <SelectTrigger className="rounded-md h-9">
+                      <SelectValue placeholder="Select available chamber" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {casingChambers.map((chamber: any) => (
+                        <SelectItem key={chamber.id} value={String(chamber.id)}>
+                          {chamber.name}
+                        </SelectItem>
+                      ))}
+                      {casingChambers.length === 0 && (
+                        <SelectItem value="__none__" disabled>
+                          No available chambers
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                     Initial Notes (Optional)
                   </Label>
                   <Input
@@ -258,7 +347,7 @@ export default function CoimbatoreBatches() {
                 <DialogFooter className="pt-2">
                   <Button
                     type="submit"
-                    disabled={createBatchMutation.isPending}
+                    disabled={createBatchMutation.isPending || !batchChamberId}
                     className="w-full rounded-md h-9"
                   >
                     {createBatchMutation.isPending
@@ -379,7 +468,8 @@ export default function CoimbatoreBatches() {
               )}
 
               <span className="ml-auto text-xs text-muted-foreground self-end pb-1">
-                {Number(batchQuery.data?.totalCount || 0)} batch{Number(batchQuery.data?.totalCount || 0) !== 1 ? "es" : ""}
+                {Number(batchQuery.data?.totalCount || 0)} batch
+                {Number(batchQuery.data?.totalCount || 0) !== 1 ? "es" : ""}
               </span>
             </div>
           </CardContent>
@@ -505,7 +595,10 @@ export default function CoimbatoreBatches() {
             totalCount={Number(batchQuery.data?.totalCount || 0)}
             totalPages={Number(batchQuery.data?.totalPages || 0)}
             onPageChange={setBatchPage}
-            onPageSizeChange={(size) => { setBatchPageSize(size); setBatchPage(1); }}
+            onPageSizeChange={(size) => {
+              setBatchPageSize(size);
+              setBatchPage(1);
+            }}
             loading={isLoading}
           />
         </Card>

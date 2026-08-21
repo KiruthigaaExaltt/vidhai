@@ -8,6 +8,7 @@ import { useNotifications } from "@/notifications/NotificationProvider";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+const normalizeNavigationUrl = (url: string) => url.startsWith("/fleet/") ? "/fleet" : url;
 export default function NotificationsPage() {
   const [tab, setTab] = useState("unread"),
     [items, setItems] = useState<any[]>([]),
@@ -33,7 +34,7 @@ export default function NotificationsPage() {
   }, [tab, notifications.latest]);
   const open = async (item: any) => {
     if (!item.isRead) await notifications.markRead(item.id);
-    if (item.navigationUrl) navigate(item.navigationUrl);
+    if (item.navigationUrl) navigate(normalizeNavigationUrl(item.navigationUrl));
     else await load();
   };
   const markAll = async () => {

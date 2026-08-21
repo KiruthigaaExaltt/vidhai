@@ -2,10 +2,13 @@ import {
   and,
   batchMaterialsTable,
   coimbatoreBatchMaterialsTable,
+  casingSoilInventoryPostingsTable,
+  casingSoilInventorySourcesTable,
   db,
   eq,
   inArray,
   inventoryAdjustmentsTable,
+  inventoryCategoriesTable,
   inventoryLocationsTable,
   inventoryMovementsTable,
   itemNamesTable,
@@ -18,6 +21,8 @@ export const PROTECTED_VAULT_ITEM_NAMES = new Set([
   "mushroom",
   "manure",
   "grow bag",
+  "casing soil",
+  "spawn",
 ]);
 
 const DEFAULT_WAREHOUSES = {
@@ -31,6 +36,11 @@ const DEFAULT_WAREHOUSES = {
     locationName: "Coimbatore Warehouse",
     capacityUnit: "kg",
   },
+  LAB: {
+    warehouseCode: "WH-LAB",
+    locationName: "Lab Warehouse",
+    capacityUnit: "kg",
+  },
   OOTY: {
     warehouseCode: "WH-OOTY",
     locationName: "Ooty Warehouse",
@@ -39,6 +49,13 @@ const DEFAULT_WAREHOUSES = {
 } as const;
 
 const DEFAULT_VAULT_ITEMS = [
+  {
+    name: "Spawn",
+    sku: "VLT-FP-SPAWN",
+    unit: "kg",
+    itemType: "Finished Product",
+    warehouse: "LAB",
+  },
   {
     name: "Mushroom",
     sku: "VLT-FP-MUSHROOM",
@@ -59,6 +76,13 @@ const DEFAULT_VAULT_ITEMS = [
     unit: "Nos",
     itemType: "Raw Material",
     warehouse: "ANNUR",
+  },
+  {
+    name: "Casing Soil",
+    sku: "VLT-FP-CASING-SOIL",
+    unit: "kg",
+    itemType: "Finished Product",
+    warehouse: "COIMBATORE",
   },
 ] as const;
 
@@ -121,11 +145,22 @@ export async function ensureOotyVaultLocation() {
 }
 
 export async function ensureDefaultVaultItems() {
+  const casingSources = await db.select().from(casingSoilInventorySourcesTable);
+  for (const source of casingSources) {
+    if ((source as any).origin) continue;
+    await db
+      .update(casingSoilInventorySourcesTable)
+      .set({
+        origin: source.sourceType === "produced" ? "internal" : "external",
+      })
+      .where(eq(casingSoilInventorySourcesTable.id, source.id));
+  }
   const redundantItemNames = new Set([
     "manure",
     "grow bag",
     "mushroom from ooty",
     "mushroom",
+    "casing soil",
   ]);
   const itemNames = await db.select().from(itemNamesTable);
   for (const itemName of itemNames) {
@@ -137,67 +172,54 @@ export async function ensureDefaultVaultItems() {
     }
   }
   const warehouses = await ensureDefaultWarehouses();
-  const allMaterials = await db.select().from(materialsTable);
-  const retainedMaterialIds = new Set<number>();
-
-  // Prefer an exact SKU match so an older renamed record is repaired instead
-  // of creating a duplicate. Fall back to the canonical name for fresh/local
-  // databases that predate the SKU normalization.
-  for (const item of DEFAULT_VAULT_ITEMS) {
-    const existing =
-      allMaterials.find(
-        (material) =>
-          String(material.sku ?? "")
-            .trim()
-            .toLowerCase() === item.sku.toLowerCase(),
-      ) ??
-      allMaterials.find(
-        (material) =>
-          material.name.trim().toLowerCase() === item.name.toLowerCase() &&
-          !retainedMaterialIds.has(material.id),
+  const existingCategories = await db.select().from(inventoryCategoriesTable);
+  const categoryByItemType = new Map<
+    string,
+    (typeof existingCategories)[number]
+  >();
+  for (const itemType of ["Raw Material", "Finished Product"] as const) {
+    const normalizedType = itemType.toLowerCase().replace(/[^a-z]/g, "");
+    let category = existingCategories.find((candidate) => {
+      const normalizedName = candidate.name
+        .toLowerCase()
+        .replace(/[^a-z]/g, "");
+      const normalizedCode = String(candidate.categoryCode ?? "")
+        .toLowerCase()
+        .replace(/[^a-z]/g, "");
+      return (
+        normalizedName === normalizedType ||
+        normalizedCode === normalizedType ||
+        normalizedCode === `cat${normalizedType}`
       );
-    if (existing) retainedMaterialIds.add(existing.id);
-  }
-
-  const obsoleteMaterialIds = allMaterials
-    .filter((material) => !retainedMaterialIds.has(material.id))
-    .map((material) => material.id);
-  if (obsoleteMaterialIds.length > 0) {
-    // The Mongo-backed query layer only cascades references explicitly marked
-    // onDelete:cascade. Remove every direct material dependency first so this
-    // reconciliation cannot leave orphaned inventory or usage history behind.
-    await db.transaction(async (tx) => {
-      await tx
-        .delete(inventoryAdjustmentsTable)
-        .where(
-          inArray(inventoryAdjustmentsTable.materialId, obsoleteMaterialIds),
-        );
-      await tx
-        .delete(inventoryMovementsTable)
-        .where(
-          inArray(inventoryMovementsTable.materialId, obsoleteMaterialIds),
-        );
-      await tx
-        .delete(inventoryTable)
-        .where(inArray(inventoryTable.materialId, obsoleteMaterialIds));
-      await tx
-        .delete(batchMaterialsTable)
-        .where(inArray(batchMaterialsTable.materialId, obsoleteMaterialIds));
-      await tx
-        .delete(coimbatoreBatchMaterialsTable)
-        .where(
-          inArray(
-            coimbatoreBatchMaterialsTable.materialId,
-            obsoleteMaterialIds,
-          ),
-        );
-      await tx
-        .delete(materialsTable)
-        .where(inArray(materialsTable.id, obsoleteMaterialIds));
     });
+    if (!category) {
+      [category] = await db
+        .insert(inventoryCategoriesTable)
+        .values({
+          name: itemType,
+          categoryCode:
+            itemType === "Finished Product"
+              ? "CAT-FINISHED-PRODUCT"
+              : "CAT-RAW-MATERIAL",
+          divisions: ["Production"],
+          isActive: true,
+        })
+        .returning();
+      existingCategories.push(category);
+    } else if (!category.isActive) {
+      [category] = await db
+        .update(inventoryCategoriesTable)
+        .set({ isActive: true })
+        .where(eq(inventoryCategoriesTable.id, category.id))
+        .returning();
+    }
+    categoryByItemType.set(itemType, category);
   }
-
-  const existingMaterials = await db.select().from(materialsTable);
+  const allMaterials = await db.select().from(materialsTable);
+  // Never remove non-vault materials here. They are production master data and
+  // may be referenced by locked Annur/Coimbatore formulation history.
+  // This bootstrap only ensures the protected vault products exist.
+  const existingMaterials = allMaterials;
   const byName = new Map(
     existingMaterials.map((material) => [
       material.name.trim().toLowerCase(),
@@ -228,6 +250,7 @@ export async function ensureDefaultVaultItems() {
             item.itemType === "Finished Product"
               ? "finished_product"
               : "raw_material",
+          categoryId: categoryByItemType.get(item.itemType)!.id,
           itemIdentifier: item.sku,
           qrPayload: `/product/${encodeURIComponent(item.sku)}`,
           criticalLevel: "0",
@@ -248,6 +271,7 @@ export async function ensureDefaultVaultItems() {
           item.itemType === "Finished Product"
             ? "finished_product"
             : "raw_material",
+        categoryId: categoryByItemType.get(item.itemType)!.id,
         buyPricePerUnit: material.buyPricePerUnit ?? "0",
         sellPricePerUnit: material.sellPricePerUnit ?? "0",
       })
@@ -310,6 +334,27 @@ export async function ensureDefaultVaultItems() {
       createdStockRows += 1;
     }
 
+    if (item.name === "Casing Soil" && canonicalStock) {
+      await db
+        .update(casingSoilInventorySourcesTable)
+        .set({
+          inventoryId: canonicalStock.id,
+          warehouseId: targetLocation.id,
+        })
+        .where(eq(casingSoilInventorySourcesTable.materialId, material.id));
+      const casingPostings = await db
+        .select()
+        .from(casingSoilInventoryPostingsTable);
+      for (const posting of casingPostings) {
+        await db
+          .update(casingSoilInventoryPostingsTable)
+          .set({
+            inventoryId: canonicalStock.id,
+            warehouseId: targetLocation.id,
+          })
+          .where(eq(casingSoilInventoryPostingsTable.id, posting.id));
+      }
+    }
     if (item.name === "Manure" && canonicalStock) {
       const postings = await db
         .select()
@@ -335,7 +380,7 @@ export async function ensureDefaultVaultItems() {
   return {
     createdItems,
     createdStockRows,
-    deletedItems: obsoleteMaterialIds.length,
+    deletedItems: 0,
     totalDefaults: DEFAULT_VAULT_ITEMS.length,
   };
 }

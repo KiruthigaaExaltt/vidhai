@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import app, { sessionMiddleware } from "./app";
 import { initializeNotificationGateway } from "./lib/notificationGateway";
 import { startChamberReminderScheduler } from "./lib/chamberReminderScheduler";
+import { startFleetServiceReminderScheduler } from "./lib/fleetServiceReminderScheduler";
 import {
   startNotificationWorker,
   stopNotificationWorker,
@@ -29,10 +30,19 @@ import {
   syncTableCustomIndexes,
   notificationOutboxTable,
   refreshSessionsTable,
+  inventoryCategoriesTable,
+  spawnEntriesTable,
+  spawnVaultTransactionsTable,
+  annurSpawnUsagesTable,
+  coimbatoreTurnAssignmentsTable,
+  casingSoilInventoryPostingsTable,
+  materialsTable,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
 import { getUploadRoot } from "./lib/uploadStorage";
 import { ensureDefaultVaultItems } from "./lib/ensureDefaultVaultItems";
+import { ensureDefaultCoimbatoreCasingChambers } from "./lib/ensureDefaultCoimbatoreCasingChambers";
+import { ensureDefaultOotyRooms } from "./lib/ensureDefaultOotyRooms";
 
 const rawPort = process.env["PORT"];
 
@@ -55,6 +65,36 @@ await syncTableIndexes(ootyHarvestInventoryPostingsTable);
 await syncTableIndexes(ootyCookoutInventoryPostingsTable);
 await syncTableIndexes(ootyGrowBagInventoryPostingsTable);
 await syncTableIndexes(annurDispatchInventoryPostingsTable);
+await syncTableIndexes(spawnEntriesTable);
+await syncTableIndexes(spawnVaultTransactionsTable);
+await syncTableIndexes(annurSpawnUsagesTable);
+await syncTableIndexes(casingSoilInventoryPostingsTable);
+await syncTableCustomIndexes(coimbatoreTurnAssignmentsTable, [
+  { key: { batchId: 1, turnNumber: 1 }, name: "coimbatore_batch_turn_assignment", unique: true },
+  { key: { chamberId: 1, releasedAt: 1 }, name: "coimbatore_active_chamber_assignment" },
+]);
+await syncTableCustomIndexes(chambersTable, [
+  {
+    key: {
+      organizationId: 1,
+      locationId: 1,
+      chamberType: 1,
+      status: 1,
+      currentBatchId: 1,
+    },
+    name: "chamber_availability",
+  },
+]);
+await syncTableCustomIndexes(spawnEntriesTable, [
+  {
+    key: { status: 1, sourceType: 1, quantityKg: 1 },
+    name: "spawn_vault_available",
+  },
+  {
+    key: { sourceReferenceType: 1, sourceReferenceId: 1 },
+    name: "spawn_vault_source",
+  },
+]);
 const legacyChambers = (await db.select().from(chambersTable)) as any[];
 for (const chamber of legacyChambers) {
   if (chamber.organizationId != null) continue;
@@ -171,13 +211,55 @@ logger.info({ uploadRoot }, "Upload storage ready");
 const permissionMigration = await migratePermissionData();
 logger.info(permissionMigration, "RBAC permission migration complete");
 
+const defaultCoimbatoreChambers = await ensureDefaultCoimbatoreCasingChambers();
+logger.info(defaultCoimbatoreChambers, "Default Coimbatore casing-soil chambers ready");
+
+const defaultOotyRooms = await ensureDefaultOotyRooms();
+logger.info(defaultOotyRooms, "Default Ooty growing rooms ready");
+
 const defaultVaultItems = await ensureDefaultVaultItems();
+let [spawnCategory] = await db
+  .select()
+  .from(inventoryCategoriesTable)
+  .where(eq(inventoryCategoriesTable.categoryCode, "SPAWN"))
+  .limit(1);
+if (!spawnCategory) {
+  [spawnCategory] = await db
+    .insert(inventoryCategoriesTable)
+    .values({
+      name: "Spawn",
+      categoryCode: "SPAWN",
+      sortOrder: 30,
+      divisions: ["Production"],
+      isActive: true,
+    })
+    .returning();
+}
+for (const material of await db.select().from(materialsTable)) {
+  const alreadyStructured =
+    String(material.category || "")
+      .trim()
+      .toUpperCase() === "SPAWN" ||
+    String(material.itemType || "")
+      .trim()
+      .toUpperCase() === "SPAWN";
+  if (alreadyStructured && material.categoryId !== spawnCategory.id)
+    await db
+      .update(materialsTable)
+      .set({
+        categoryId: spawnCategory.id,
+        category: "spawn",
+        itemType: "Spawn",
+      })
+      .where(eq(materialsTable.id, material.id));
+}
 logger.info(defaultVaultItems, "Default Vault items ready");
 
 const server = createServer(app);
 initializeNotificationGateway(server, sessionMiddleware);
 startNotificationWorker();
 startChamberReminderScheduler();
+startFleetServiceReminderScheduler();
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });
