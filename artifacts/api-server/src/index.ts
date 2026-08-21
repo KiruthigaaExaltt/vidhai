@@ -41,6 +41,7 @@ import { migratePermissionData } from "./lib/migratePermissions";
 import { getUploadRoot } from "./lib/uploadStorage";
 import { ensureDefaultVaultItems } from "./lib/ensureDefaultVaultItems";
 import { ensureDefaultCoimbatoreCasingChambers } from "./lib/ensureDefaultCoimbatoreCasingChambers";
+import { ensureDefaultOotyRooms } from "./lib/ensureDefaultOotyRooms";
 
 const rawPort = process.env["PORT"];
 
@@ -211,6 +212,9 @@ logger.info(permissionMigration, "RBAC permission migration complete");
 
 const defaultCoimbatoreChambers = await ensureDefaultCoimbatoreCasingChambers();
 logger.info(defaultCoimbatoreChambers, "Default Coimbatore casing-soil chambers ready");
+
+const defaultOotyRooms = await ensureDefaultOotyRooms();
+logger.info(defaultOotyRooms, "Default Ooty growing rooms ready");
 
 const defaultVaultItems = await ensureDefaultVaultItems();
 let [spawnCategory] = await db

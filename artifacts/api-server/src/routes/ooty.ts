@@ -40,10 +40,8 @@ import {
   validateGrowingRoomInput,
   type ValidGrowingRoomInput,
 } from "../lib/ootyRoomImport";
-import {
-  growingRoomNumber,
-  OOTY_HARDCODED_ROOMS,
-} from "../lib/ootyHardcodedRooms";
+import { ensureDefaultOotyRooms } from "../lib/ensureDefaultOotyRooms";
+import { growingRoomNumber } from "../lib/ootyHardcodedRooms";
 
 const router = Router();
 
@@ -156,38 +154,6 @@ function parseStageLog(log: any) {
   };
 }
 
-async function ensureHardcodedGrowingRooms(locationId: number) {
-  const existing = await db
-    .select()
-    .from(ootyRoomsTable)
-    .where(eq(ootyRoomsTable.locationId, locationId));
-  const byNumber = new Map(
-    existing
-      .map((room) => [growingRoomNumber(room.name), room] as const)
-      .filter(([number]) => number !== null),
-  );
-
-  for (const definition of OOTY_HARDCODED_ROOMS) {
-    const room = byNumber.get(definition.number);
-    const name = "Room " + definition.number;
-    if (room) {
-      if (room.name !== name || room.capacity !== definition.capacity) {
-        await db
-          .update(ootyRoomsTable)
-          .set({ name, capacity: definition.capacity })
-          .where(eq(ootyRoomsTable.id, room.id));
-      }
-      continue;
-    }
-    await db.insert(ootyRoomsTable).values({
-      name,
-      locationId,
-      capacity: definition.capacity,
-      status: "idle",
-      notes: "Hardcoded Ooty growing room",
-    });
-  }
-}
 // List rooms with current batch state (heatmap data)
 router.get("/rooms", requireAuth, async (req, res) => {
   const [loc] = await db
@@ -197,7 +163,7 @@ router.get("/rooms", requireAuth, async (req, res) => {
     .limit(1);
   if (!loc) return res.json([]);
 
-  await ensureHardcodedGrowingRooms(loc.id);
+  await ensureDefaultOotyRooms();
 
   const rooms = await db
     .select()
@@ -250,6 +216,11 @@ router.get("/rooms", requireAuth, async (req, res) => {
     }),
   );
 
+  result.sort(
+    (a: any, b: any) =>
+      (growingRoomNumber(a.name) ?? Number.MAX_SAFE_INTEGER) -
+      (growingRoomNumber(b.name) ?? Number.MAX_SAFE_INTEGER),
+  );
   return res.json(result);
 });
 
