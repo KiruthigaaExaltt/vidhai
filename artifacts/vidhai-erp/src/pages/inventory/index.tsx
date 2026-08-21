@@ -1537,7 +1537,7 @@ export default function InventoryModule() {
                           0,
                         )
                         .toFixed(2)}{" "}
-                      kg free available
+                      kg available
                     </Badge>
                   </div>
                   <div className="overflow-x-auto rounded-lg border bg-card">
@@ -2423,7 +2423,7 @@ export default function InventoryModule() {
                       0,
                     )
                     .toFixed(2)}{" "}
-                  kg free available
+                  kg available
                 </Badge>
               </div>
               <div className="overflow-x-auto rounded-lg border bg-card">
@@ -2442,7 +2442,7 @@ export default function InventoryModule() {
                         Physical Remaining
                       </th>
                       <th className="px-4 py-3 text-right">Reserved</th>
-                      <th className="px-4 py-3 text-right">Free Available</th>
+                      <th className="px-4 py-3 text-right">Available</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Details</th>
                     </tr>
@@ -2848,7 +2848,8 @@ export default function InventoryModule() {
               </div>
               <div className="space-y-2">
                 <Label className="text-sm font-medium text-foreground">
-                  Selling Price (₹) <span className="text-destructive">*</span>
+                  Selling Price (INR){" "}
+                  <span className="text-muted-foreground">(Optional)</span>
                 </Label>
                 <Input
                   type="number"

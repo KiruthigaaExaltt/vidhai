@@ -1166,7 +1166,7 @@ export function SalesDocumentForm({
           if (Number(item.qty) > limit) {
             setFeedback({
               title: "Invalid Vault dispatch",
-              message: `${item.description} cannot exceed ${limit} ${item.uom} ${item.vaultReservationId ? "reserved" : "free available"}.`,
+              message: `${item.description} cannot exceed ${limit} ${item.uom} ${item.vaultReservationId ? "reserved" : "available"}.`,
             });
             return;
           }
@@ -2423,9 +2423,18 @@ export function SalesDocumentForm({
                                       )
                                     }
                                   >
-                                    [Inventory] {entry.materialName} —{" "}
-                                    {entry.locationName || "Unassigned"} (
-                                    {entry.quantityOnHand} {entry.unit})
+                                    {[
+                                      "VLT-FP-SPAWN",
+                                      "VLT-FP-CASING-SOIL",
+                                    ].includes(entry.sku) ? (
+                                      <>[Vault] {entry.materialName}</>
+                                    ) : (
+                                      <>
+                                        [Inventory] {entry.materialName} -{" "}
+                                        {entry.locationName || "Unassigned"} (
+                                        {entry.quantityOnHand} {entry.unit})
+                                      </>
+                                    )}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -2507,10 +2516,11 @@ export function SalesDocumentForm({
                                         >
                                           {entry.reference}
                                           {entry.detail
-                                            ? ` � ${entry.detail}`
+                                            ? ` - ${entry.detail}`
                                             : ""}{" "}
-                                          � {entry.freeAvailableQuantity}{" "}
-                                          {entry.unit} free
+                                          - Available:{" "}
+                                          {entry.freeAvailableQuantity}{" "}
+                                          {entry.unit}
                                         </SelectItem>
                                       ))}
                                   </SelectContent>

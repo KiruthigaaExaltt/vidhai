@@ -94,7 +94,7 @@ export function SpawnVaultPanel() {
                       Reserved
                     </th>
                     <th className="px-4 py-2 font-medium text-right">
-                      Free Available
+                      Available
                     </th>
                     <th className="px-4 py-2 font-medium">Origin</th>
                     <th className="px-4 py-2 font-medium">Source / Lot</th>
