@@ -81,6 +81,8 @@ export default function CoimbatoreChambers() {
     } as any,
   );
 
+  const chamberRows: any[] = (chambers ?? []) as any[];
+
   const [selectedChamberId, setSelectedChamberId] = useState<number | null>(
     null,
   );
@@ -94,7 +96,7 @@ export default function CoimbatoreChambers() {
     );
     if (
       !chamberId ||
-      !(chambers ?? []).some((chamber: any) => chamber.id === chamberId)
+      !chamberRows.some((chamber: any) => chamber.id === chamberId)
     )
       return;
     setSelectedChamberId(chamberId);
@@ -283,7 +285,7 @@ export default function CoimbatoreChambers() {
     });
   };
 
-  const selectedChamber = chambers?.find((c) => c.id === selectedChamberId);
+  const selectedChamber = chamberRows.find((c) => c.id === selectedChamberId);
 
   return (
     <Shell>
@@ -313,7 +315,7 @@ export default function CoimbatoreChambers() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {chambers?.map((c) => {
+            {chamberRows.map((c) => {
               const isPreWetting = c.chamberType === "pre_wetting";
               const isTurn = c.chamberType === "turn";
               const isBunker = c.chamberType.startsWith("bunker_");
@@ -365,13 +367,32 @@ export default function CoimbatoreChambers() {
                       </Badge>
                     </div>
 
-                    <div className="h-16 flex flex-col justify-center">
+                    <div className="min-h-16 flex flex-col justify-center">
                       {c.status === "active" && c.currentBatchCode ? (
                         <div className="flex items-center gap-2">
                           <Box className="w-4 h-4 text-muted-foreground" />
-                          <span className="font-mono text-lg font-semibold">
-                            {c.currentBatchCode}
-                          </span>
+                          <div>
+                            <span className="font-mono text-lg font-semibold">
+                              {c.currentBatchCode}
+                            </span>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {String(c.currentBatchStage || "Active").replace(
+                                /_/g,
+                                " ",
+                              )}
+                              {c.currentTurnNumber
+                                ? ` � Turn ${c.currentTurnNumber}`
+                                : ""}
+                            </div>
+                            {c.currentBatchStartedAt && (
+                              <div className="text-[11px] text-muted-foreground">
+                                Started{" "}
+                                {new Date(
+                                  c.currentBatchStartedAt,
+                                ).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -397,7 +418,10 @@ export default function CoimbatoreChambers() {
                               Temp
                             </span>
                             <span className="font-mono font-medium">
-                              {c.lastTemperature ?? "--"}°C
+                              {c.status === "active"
+                                ? (c.lastTemperature ?? "--")
+                                : "--"}
+                              °C
                             </span>
                           </div>
                           <div className="flex flex-col">
@@ -405,7 +429,10 @@ export default function CoimbatoreChambers() {
                               NH3
                             </span>
                             <span className="font-mono font-medium">
-                              {c.lastNh3 ?? "--"}ppm
+                              {c.status === "active"
+                                ? (c.lastNh3 ?? "--")
+                                : "--"}
+                              ppm
                             </span>
                           </div>{" "}
                           <div className="flex flex-col">
@@ -413,7 +440,10 @@ export default function CoimbatoreChambers() {
                               CO2
                             </span>
                             <span className="font-mono font-medium">
-                              {(c as any).lastCo2 ?? "--"}%
+                              {c.status === "active"
+                                ? ((c as any).lastCo2 ?? "--")
+                                : "--"}
+                              %
                             </span>
                           </div>
                           <div className="flex flex-col">
@@ -421,7 +451,10 @@ export default function CoimbatoreChambers() {
                               Moist.
                             </span>
                             <span className="font-mono font-medium">
-                              {(c as any).lastMoisture ?? "--"}%
+                              {c.status === "active"
+                                ? ((c as any).lastMoisture ?? "--")
+                                : "--"}
+                              %
                             </span>
                           </div>
                         </div>
@@ -650,6 +683,17 @@ export default function CoimbatoreChambers() {
                       </div>
                       <div className="font-mono text-lg font-bold">
                         {selectedChamber.currentBatchCode}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {String(
+                          selectedChamber.currentBatchStage || "Active",
+                        ).replace(/_/g, " ")}
+                        {selectedChamber.currentTurnNumber
+                          ? ` � Turn ${selectedChamber.currentTurnNumber}`
+                          : ""}
+                        {selectedChamber.currentBatchStartedAt
+                          ? ` � Started ${new Date(selectedChamber.currentBatchStartedAt).toLocaleDateString()}`
+                          : ""}
                       </div>
                     </div>
                   </div>

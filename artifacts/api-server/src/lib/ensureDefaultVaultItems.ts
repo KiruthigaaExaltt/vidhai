@@ -2,6 +2,8 @@ import {
   and,
   batchMaterialsTable,
   coimbatoreBatchMaterialsTable,
+  casingSoilInventoryPostingsTable,
+  casingSoilInventorySourcesTable,
   db,
   eq,
   inArray,
@@ -19,6 +21,7 @@ export const PROTECTED_VAULT_ITEM_NAMES = new Set([
   "mushroom",
   "manure",
   "grow bag",
+  "casing soil",
 ]);
 
 const DEFAULT_WAREHOUSES = {
@@ -60,6 +63,13 @@ const DEFAULT_VAULT_ITEMS = [
     unit: "Nos",
     itemType: "Raw Material",
     warehouse: "ANNUR",
+  },
+  {
+    name: "Casing Soil",
+    sku: "VLT-FP-CASING-SOIL",
+    unit: "kg",
+    itemType: "Finished Product",
+    warehouse: "COIMBATORE",
   },
 ] as const;
 
@@ -127,6 +137,7 @@ export async function ensureDefaultVaultItems() {
     "grow bag",
     "mushroom from ooty",
     "mushroom",
+    "casing soil",
   ]);
   const itemNames = await db.select().from(itemNamesTable);
   for (const itemName of itemNames) {
@@ -184,7 +195,7 @@ export async function ensureDefaultVaultItems() {
   const allMaterials = await db.select().from(materialsTable);
   // Never remove non-vault materials here. They are production master data and
   // may be referenced by locked Annur/Coimbatore formulation history.
-  // This bootstrap only ensures the three protected vault products exist.
+  // This bootstrap only ensures the protected vault products exist.
   const existingMaterials = allMaterials;
   const byName = new Map(
     existingMaterials.map((material) => [
@@ -300,6 +311,27 @@ export async function ensureDefaultVaultItems() {
       createdStockRows += 1;
     }
 
+    if (item.name === "Casing Soil" && canonicalStock) {
+      await db
+        .update(casingSoilInventorySourcesTable)
+        .set({
+          inventoryId: canonicalStock.id,
+          warehouseId: targetLocation.id,
+        })
+        .where(eq(casingSoilInventorySourcesTable.materialId, material.id));
+      const casingPostings = await db
+        .select()
+        .from(casingSoilInventoryPostingsTable);
+      for (const posting of casingPostings) {
+        await db
+          .update(casingSoilInventoryPostingsTable)
+          .set({
+            inventoryId: canonicalStock.id,
+            warehouseId: targetLocation.id,
+          })
+          .where(eq(casingSoilInventoryPostingsTable.id, posting.id));
+      }
+    }
     if (item.name === "Manure" && canonicalStock) {
       const postings = await db
         .select()

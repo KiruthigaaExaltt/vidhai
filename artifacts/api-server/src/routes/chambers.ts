@@ -35,6 +35,8 @@ router.get("/", requireAuth, async (req, res) => {
       chamber: chambersTable,
       locationCode: locationsTable.code,
       currentBatchCode: batchesTable.batchCode,
+      currentBatchStage: batchesTable.currentStage,
+      currentBatchStartedAt: batchesTable.casingSoilStartedAt,
     })
     .from(chambersTable)
     .innerJoin(locationsTable, eq(chambersTable.locationId, locationsTable.id))
@@ -58,6 +60,8 @@ router.get("/", requireAuth, async (req, res) => {
       capacity: r.chamber.capacity,
       currentBatchId: r.chamber.currentBatchId,
       currentBatchCode: r.currentBatchCode ?? null,
+      currentBatchStage: r.currentBatchStage ?? null,
+      currentBatchStartedAt: r.currentBatchStartedAt ?? null,
       lastTemperature:
         r.chamber.lastTemperature !== null
           ? Number(r.chamber.lastTemperature)
@@ -133,6 +137,8 @@ router.get("/:id", requireAuth, async (req, res) => {
       chamber: chambersTable,
       locationCode: locationsTable.code,
       currentBatchCode: batchesTable.batchCode,
+      currentBatchStage: batchesTable.currentStage,
+      currentBatchStartedAt: batchesTable.casingSoilStartedAt,
     })
     .from(chambersTable)
     .innerJoin(locationsTable, eq(chambersTable.locationId, locationsTable.id))
@@ -169,6 +175,8 @@ router.get("/:id", requireAuth, async (req, res) => {
     capacity: row.chamber.capacity,
     currentBatchId: row.chamber.currentBatchId,
     currentBatchCode: row.currentBatchCode ?? null,
+    currentBatchStage: row.currentBatchStage ?? null,
+    currentBatchStartedAt: row.currentBatchStartedAt ?? null,
     lastTemperature:
       row.chamber.lastTemperature !== null
         ? Number(row.chamber.lastTemperature)
@@ -214,6 +222,19 @@ router.patch("/:id", requireAuth, async (req, res) => {
     )
     .limit(1);
   if (!existing) return res.status(404).json({ error: "Chamber not found" });
+  if (
+    existing.chamberType === "casing_soil" &&
+    existing.currentBatchId &&
+    ((status !== undefined && status !== existing.status) ||
+      (currentBatchId !== undefined &&
+        Number(currentBatchId) !== Number(existing.currentBatchId)) ||
+      (chamberType !== undefined && chamberType !== existing.chamberType))
+  ) {
+    return res.status(409).json({
+      error:
+        "This chamber is reserved for an active casing-soil batch and cannot be released or reassigned manually",
+    });
+  }
   const [location] = await db
     .select()
     .from(locationsTable)
