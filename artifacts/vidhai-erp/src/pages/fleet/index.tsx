@@ -569,6 +569,7 @@ export default function FleetList() {
             }}
           />
         </Card>
+        {filterStatus !== "available" && (
         <Card className="rounded-sm border-border shadow-none">
           <CardContent className="border-b p-3"><p className="text-sm font-semibold">Completed {filterStatus === "ALL" ? "Status History" : STATUS_LABELS[filterStatus as VehicleStatus]}</p></CardContent>
           <CardContent className="p-0 overflow-x-auto">
@@ -605,6 +606,7 @@ export default function FleetList() {
             }}
           />
         </Card>
+        )}
         {/* Add / Edit dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="rounded-sm border-border shadow-none max-w-md">
