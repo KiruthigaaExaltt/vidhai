@@ -48,6 +48,7 @@ import {
   Trash2,
   WrenchIcon,
   CheckCircle2,
+  History,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -347,6 +348,13 @@ export default function OotyRooms() {
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
+            <Button
+              variant="outline"
+              className="rounded-md font-medium h-9"
+              onClick={() => setLocation("/ooty/history")}
+            >
+              <History className="w-4 h-4 mr-2" /> Room History
+            </Button>
             {can("production.growing_rooms.import") &&
               can("production.growing_rooms.create") && (
                 <Button

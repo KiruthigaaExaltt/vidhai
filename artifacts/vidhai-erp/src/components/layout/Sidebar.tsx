@@ -26,6 +26,7 @@ import {
   Banknote,
   Building2,
   Landmark,
+  History,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -274,6 +275,13 @@ export function Sidebar({
             href="/ooty"
             icon={Thermometer}
             label="Growing Rooms"
+            permission="production.growing_rooms.view"
+            exact
+          />
+          <NavItem
+            href="/ooty/history"
+            icon={History}
+            label="Room History"
             permission="production.growing_rooms.view"
           />
 

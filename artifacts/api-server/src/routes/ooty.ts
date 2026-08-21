@@ -668,20 +668,13 @@ router.delete("/rooms/:id", requireAuth, async (req, res) => {
     .from(ootyGrowingBatchesTable)
     .where(eq(ootyGrowingBatchesTable.roomId, id));
 
-  await db.transaction(async (tx) => {
-    if (batches.length > 0) {
-      const batchIds = batches.map((b) => b.id);
-      await tx
-        .update(batchLinksTable)
-        .set({ ootyGrowingBatchId: null } as any)
-        .where(inArray(batchLinksTable.ootyGrowingBatchId as any, batchIds));
-      await tx
-        .delete(ootyGrowingBatchesTable)
-        .where(inArray(ootyGrowingBatchesTable.id, batchIds));
-    }
-    await tx.delete(ootyRoomsTable).where(eq(ootyRoomsTable.id, id));
-  });
+  if (batches.length > 0)
+    return res.status(409).json({
+      error:
+        "Cannot delete a room with production history. Its completed batches and harvest records must be preserved.",
+    });
 
+  await db.delete(ootyRoomsTable).where(eq(ootyRoomsTable.id, id));
   return res.status(204).send();
 });
 
@@ -694,6 +687,65 @@ router.get("/growing-batches", requireAuth, async (req, res) => {
   return res.json(rows);
 });
 
+router.get("/room-history", requireAuth, async (_req, res) => {
+  const [rooms, growingBatches, harvests, sources] = await Promise.all([
+    db.select().from(ootyRoomsTable),
+    db.select().from(ootyGrowingBatchesTable),
+    db.select().from(ootyHarvestsTable),
+    db
+      .select({
+        growingBatchId: ootyBatchSourcesTable.growingBatchId,
+        bagCount: ootyBatchSourcesTable.bagCount,
+        batchCode: batchesTable.batchCode,
+      })
+      .from(ootyBatchSourcesTable)
+      .leftJoin(
+        batchesTable,
+        eq(ootyBatchSourcesTable.annurBatchId, batchesTable.id),
+      ),
+  ]);
+  const roomById = new Map(rooms.map((room) => [Number(room.id), room]));
+  const history = growingBatches.map((batch) => {
+    const batchHarvests = harvests.filter(
+      (row) => Number(row.growingBatchId) === Number(batch.id),
+    );
+    const batchSources = sources.filter(
+      (row) => Number(row.growingBatchId) === Number(batch.id),
+    );
+    return {
+      id: batch.id,
+      batchCode: batch.batchCode,
+      roomId: batch.roomId,
+      roomName:
+        roomById.get(Number(batch.roomId))?.name || `Room #${batch.roomId}`,
+      status: batch.status,
+      currentStage: batch.currentStage,
+      startedAt: batch.spawnRunStartDate || batch.createdAt,
+      completedAt: batch.status === "completed" ? batch.phaseEnteredAt : null,
+      allocatedBags: batchSources.reduce(
+        (sum, row) => sum + Number(row.bagCount || 0),
+        0,
+      ),
+      sourceBatches: batchSources.map((row) => row.batchCode).filter(Boolean),
+      harvestCount: batchHarvests.length,
+      mushroomCount: batchHarvests.reduce(
+        (sum, row) => sum + Number(row.mushroomCount || 0),
+        0,
+      ),
+      harvestWeightKg: batchHarvests.reduce(
+        (sum, row) => sum + Number(row.weightKg || 0),
+        0,
+      ),
+      harvests: batchHarvests,
+    };
+  });
+  history.sort(
+    (a, b) =>
+      new Date(b.completedAt || b.startedAt || 0).getTime() -
+      new Date(a.completedAt || a.startedAt || 0).getTime(),
+  );
+  return res.json(history);
+});
 // Create growing batch — accepts batchSources: [{annurBatchId, bagCount}]
 router.post("/growing-batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;

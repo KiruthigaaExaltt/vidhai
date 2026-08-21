@@ -23,6 +23,7 @@ import CoimbatoreChambers from "@/pages/coimbatore/chambers";
 import LabBatches from "@/pages/lab/batches/index";
 import LabBatchDetail from "@/pages/lab/batches/[id]";
 import OotyRooms from "@/pages/ooty/index";
+import OotyRoomHistory from "@/pages/ooty/history";
 import OotyRoomDetail from "@/pages/ooty/rooms/[id]";
 import Traceability from "@/pages/traceability/index";
 import SchedulingCalendar from "@/pages/scheduling/index";
@@ -281,12 +282,21 @@ function Router() {
       </Route>
 
       <Route path="/coimbatore/chambers">
-        <ProtectedRoute component={CoimbatoreChambers} permission="production.chambers.view" />
+        <ProtectedRoute
+          component={CoimbatoreChambers}
+          permission="production.chambers.view"
+        />
       </Route>
       {/* Ooty Routes */}
       <Route path="/ooty">
         <ProtectedRoute
           component={OotyRooms}
+          permission="production.growing_rooms.view"
+        />
+      </Route>
+      <Route path="/ooty/history">
+        <ProtectedRoute
+          component={OotyRoomHistory}
           permission="production.growing_rooms.view"
         />
       </Route>
