@@ -43,6 +43,7 @@ import {
   AlertTriangle,
   RotateCcw,
   PackageCheck,
+  ChevronLeft,
   ChevronRight,
   Settings2,
 } from "lucide-react";
@@ -163,6 +164,7 @@ export default function CoimbatoreBatchDetail() {
   const config = b?.config ?? null;
   const turns: any[] = b?.turns ?? [];
   const preparationStages: any[] = b?.preparationStages ?? [];
+  const environmentReadings: any[] = b?.environmentReadings ?? [];
   const qcDecisions: any[] = b?.qcDecisions ?? [];
   const configuredTurns = Number(config?.totalTurns ?? 12);
   const totalTurns =
@@ -278,6 +280,68 @@ export default function CoimbatoreBatchDetail() {
     actualDate: new Date().toISOString().split("T")[0],
     notes: "",
   });
+  const pipelineScrollRef = useRef<HTMLDivElement>(null);
+  const [readingDialog, setReadingDialog] = useState({
+    open: false,
+    chamberId: 0,
+    chamberName: "",
+    temperatureCelsius: "",
+    nh3Ppm: "",
+    co2Percent: "",
+    humidity: "",
+    notes: "",
+  });
+  const [readingSaving, setReadingSaving] = useState(false);
+
+  const openReadingDialog = (chamberId: number, chamberName: string) =>
+    setReadingDialog({
+      open: true,
+      chamberId,
+      chamberName,
+      temperatureCelsius: "",
+      nh3Ppm: "",
+      co2Percent: "",
+      humidity: "",
+      notes: "",
+    });
+
+  const submitReading = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!readingDialog.chamberId) return;
+    setReadingSaving(true);
+    try {
+      const optionalNumber = (value: string) =>
+        value.trim() === "" ? null : Number(value);
+      const response = await fetch(
+        `/api/chambers/${readingDialog.chamberId}/readings`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            temperatureCelsius: optionalNumber(readingDialog.temperatureCelsius),
+            nh3Ppm: optionalNumber(readingDialog.nh3Ppm),
+            co2Percent: optionalNumber(readingDialog.co2Percent),
+            humidity: optionalNumber(readingDialog.humidity),
+            notes: readingDialog.notes.trim() || null,
+          }),
+        },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to log reading");
+      setReadingDialog((current) => ({ ...current, open: false }));
+      await Promise.all([
+        refetch(),
+        queryClient.invalidateQueries({ queryKey: ["coimbatore-casing-chambers"] }),
+        queryClient.invalidateQueries({ queryKey: ["get", "/api/chambers"] }),
+      ]);
+      toast.success("Reading logged in batch and chamber history");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to log reading");
+    } finally {
+      setReadingSaving(false);
+    }
+  };
 
   const closeCompleteDialog = () => {
     setCompleteDialog((p) => ({ ...p, open: false }));
@@ -1245,7 +1309,41 @@ export default function CoimbatoreBatchDetail() {
                       </div>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="relative">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        aria-label="Scroll stages left"
+                        className="absolute left-1 top-1/2 z-20 h-8 w-8 -translate-y-1/2 rounded-full bg-background/95 shadow-md"
+                        onClick={() =>
+                          pipelineScrollRef.current?.scrollBy({
+                            left: -420,
+                            behavior: "smooth",
+                          })
+                        }
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        aria-label="Scroll stages right"
+                        className="absolute right-1 top-1/2 z-20 h-8 w-8 -translate-y-1/2 rounded-full bg-background/95 shadow-md"
+                        onClick={() =>
+                          pipelineScrollRef.current?.scrollBy({
+                            left: 420,
+                            behavior: "smooth",
+                          })
+                        }
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                      <div
+                        ref={pipelineScrollRef}
+                        className="overflow-x-auto px-11 scroll-smooth"
+                      >
                       <div className="flex gap-2 min-w-max pb-2">
                         {(
                           [
@@ -1334,8 +1432,9 @@ export default function CoimbatoreBatchDetail() {
                                       variant="outline"
                                       className="w-full h-7 text-[10px] rounded-sm"
                                       onClick={() =>
-                                        setLocation(
-                                          `/coimbatore/chambers?reading=${activePreparationAssignment.chamberId}`,
+                                        openReadingDialog(
+                                          activePreparationAssignment.chamberId,
+                                          activePreparationAssignment.chamberNameSnapshot,
                                         )
                                       }
                                     >
@@ -1453,8 +1552,9 @@ export default function CoimbatoreBatchDetail() {
                                       variant="outline"
                                       className="w-full h-7 text-[10px] rounded-sm"
                                       onClick={() =>
-                                        setLocation(
-                                          `/coimbatore/chambers?reading=${activeAssignment.chamberId}`,
+                                        openReadingDialog(
+                                          activeAssignment.chamberId,
+                                          activeAssignment.chamberNameSnapshot,
                                         )
                                       }
                                     >
@@ -1572,6 +1672,7 @@ export default function CoimbatoreBatchDetail() {
                           </div>
                         </div>
                       </div>
+                      </div>
                     </div>
                   )}
 
@@ -1599,7 +1700,7 @@ export default function CoimbatoreBatchDetail() {
               </Card>
 
               {/* Preparation History Log */}
-              {preparationStages.length > 0 && (
+              {false && preparationStages.length > 0 && (
                 <Card className="rounded-sm border-border shadow-none">
                   <CardHeader className="pb-2 border-b">
                     <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1651,11 +1752,13 @@ export default function CoimbatoreBatchDetail() {
                 </Card>
               )}
               {/* Turn History Log */}
-              {turns.length > 0 && (
+              {(preparationStages.length > 0 ||
+                environmentReadings.length > 0 ||
+                turnSchedule.length > 0) && (
                 <Card className="rounded-sm border-border shadow-none">
                   <CardHeader className="pb-2 border-b">
                     <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Turn History Log
+                      Preparation & Turn History Log
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
@@ -1663,7 +1766,7 @@ export default function CoimbatoreBatchDetail() {
                       <table className="w-full text-sm text-left whitespace-nowrap">
                         <thead className="bg-muted/40 text-muted-foreground text-[10px] uppercase tracking-wider border-b border-border">
                           <tr>
-                            <th className="px-4 py-2.5 font-medium">Turn</th>
+                            <th className="px-4 py-2.5 font-medium">Stage</th>
                             <th className="px-4 py-2.5 font-medium">Planned</th>
                             <th className="px-4 py-2.5 font-medium">Actual</th>
                             <th className="px-4 py-2.5 font-medium">Chamber</th>
@@ -1678,6 +1781,92 @@ export default function CoimbatoreBatchDetail() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
+                          {environmentReadings.map((reading: any) => (
+                            <tr key={`reading-${reading.id}`} className="h-[38px] bg-primary/5 hover:bg-primary/10">
+                              <td className="px-4 text-xs font-bold text-primary">
+                                {reading.turnNumber
+                                  ? `T${reading.turnNumber} Reading`
+                                  : `${currentStage === "MIXING" ? "Mixing" : "Pre-wetting"} Reading`}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground">—</td>
+                              <td className="px-4 font-mono text-xs">
+                                {reading.recordedAt
+                                  ? new Date(reading.recordedAt).toLocaleString()
+                                  : "—"}
+                              </td>
+                              <td className="px-4 text-xs font-semibold">
+                                {reading.chamberName || "—"}
+                              </td>
+                              <td className="px-4 font-mono text-xs">{reading.temperatureCelsius ?? "—"}</td>
+                              <td className="px-4 font-mono text-xs">{reading.nh3Ppm ?? "—"}</td>
+                              <td className="px-4 font-mono text-xs">{reading.co2Percent ?? "—"}</td>
+                              <td className="px-4 font-mono text-xs">{reading.moisturePercent ?? "—"}</td>
+                              <td className="px-4 text-muted-foreground">—</td>
+                              <td className="px-4 text-xs text-muted-foreground max-w-[200px] truncate">
+                                {reading.notes || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                          {preparationStages.map((record: any) => (
+                            <tr
+                              key={`preparation-${record.id}`}
+                              className="h-[38px] hover:bg-muted/20"
+                            >
+                              <td className="px-4 text-xs font-bold text-primary">
+                                {record.stage === "PRE_WETTING"
+                                  ? "Pre-wetting"
+                                  : "Mixing"}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground">—</td>
+                              <td className="px-4 font-mono text-xs">
+                                {record.completedAt
+                                  ? new Date(record.completedAt).toLocaleString()
+                                  : "—"}
+                              </td>
+                              <td className="px-4 text-xs font-semibold">
+                                {record.chamberNameSnapshot || "—"}
+                              </td>
+                              <td className="px-4 font-mono text-xs">
+                                {record.temperatureCelsius ?? "—"}
+                              </td>
+                              <td className="px-4 font-mono text-xs">
+                                {record.nh3Ppm ?? "—"}
+                              </td>
+                              <td className="px-4 font-mono text-xs">
+                                {record.co2Percent ?? "—"}
+                              </td>
+                              <td className="px-4 font-mono text-xs">
+                                {record.moisturePercent ?? "—"}
+                              </td>
+                              <td className="px-4">
+                                {record.verificationImages?.length ? (
+                                  <div className="flex gap-1">
+                                    {record.verificationImages
+                                      .slice(0, 2)
+                                      .map((img: string, index: number) => (
+                                        <button
+                                          key={index}
+                                          type="button"
+                                          onClick={() => setLightboxSrc(img)}
+                                          className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
+                                        >
+                                          <img
+                                            src={img}
+                                            className="w-full h-full object-cover"
+                                            alt=""
+                                          />
+                                        </button>
+                                      ))}
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground max-w-[200px] truncate">
+                                {record.notes || "—"}
+                              </td>
+                            </tr>
+                          ))}
                           {turnSchedule.map((slot) => {
                             const logged =
                               turns.find(
@@ -1918,6 +2107,80 @@ export default function CoimbatoreBatchDetail() {
               {adjSaving ? "Saving…" : "Save Configuration"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={readingDialog.open}
+        onOpenChange={(open) =>
+          setReadingDialog((current) => ({ ...current, open }))
+        }
+      >
+        <DialogContent className="max-w-sm rounded-md">
+          <DialogHeader>
+            <DialogTitle>Log Environment Reading</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={submitReading} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Chamber</Label>
+              <div className="rounded-md border bg-muted px-3 py-2 font-mono text-sm font-semibold">
+                {readingDialog.chamberName}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {(
+                [
+                  ["temperatureCelsius", "Temperature (°C)", "0.1"],
+                  ["nh3Ppm", "NH3 (ppm)", "0.01"],
+                  ["co2Percent", "CO2 (%)", "0.01"],
+                  ["humidity", "Moisture (%)", "0.1"],
+                ] as const
+              ).map(([field, label, step]) => (
+                <div key={field} className="space-y-1.5">
+                  <Label>{label}</Label>
+                  <Input
+                    type="number"
+                    step={step}
+                    value={readingDialog[field]}
+                    onChange={(event) =>
+                      setReadingDialog((current) => ({
+                        ...current,
+                        [field]: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Input
+                value={readingDialog.notes}
+                onChange={(event) =>
+                  setReadingDialog((current) => ({
+                    ...current,
+                    notes: event.target.value,
+                  }))
+                }
+                placeholder="Optional conditions..."
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setReadingDialog((current) => ({ ...current, open: false }))
+                }
+                disabled={readingSaving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={readingSaving}>
+                {readingSaving ? "Saving..." : "Submit Log"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
