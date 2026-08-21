@@ -1092,7 +1092,9 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       return res
         .status(400)
         .json({ error: "The selected Casing Soil source is invalid" });
-    const available = Number(casingInventorySource.availableQuantityKg);
+    const physical = Number(casingInventorySource.availableQuantityKg);
+    const reserved = Number(casingInventorySource.reservedQuantityKg || 0);
+    const available = Math.max(0, physical - reserved);
     if (available < casingUsedKg)
       return res.status(409).json({
         error: `Insufficient Casing Soil stock. Selected ${casingInventorySource.reference} has ${available} kg available. Requested: ${casingUsedKg} kg.`,

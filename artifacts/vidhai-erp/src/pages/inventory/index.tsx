@@ -1537,7 +1537,7 @@ export default function InventoryModule() {
                           0,
                         )
                         .toFixed(2)}{" "}
-                      kg available
+                      kg free available
                     </Badge>
                   </div>
                   <div className="overflow-x-auto rounded-lg border bg-card">
@@ -2418,23 +2418,31 @@ export default function InventoryModule() {
                 <Badge variant="outline">
                   {casingInventory
                     .reduce(
-                      (sum, row) => sum + Number(row.availableQuantityKg || 0),
+                      (sum, row) =>
+                        sum + Number(row.freeAvailableQuantityKg || 0),
                       0,
                     )
                     .toFixed(2)}{" "}
-                  kg available
+                  kg free available
                 </Badge>
               </div>
               <div className="overflow-x-auto rounded-lg border bg-card">
-                <table className="w-full min-w-[1000px] text-sm">
+                <table className="w-full min-w-[1280px] text-sm">
                   <thead className="border-b bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3">Source</th>
                       <th className="px-4 py-3">Batch / Lot</th>
                       <th className="px-4 py-3">Received / Produced</th>
-                      <th className="px-4 py-3 text-right">Quantity (kg)</th>
-                      <th className="px-4 py-3 text-right">Consumed (kg)</th>
-                      <th className="px-4 py-3 text-right">Available (kg)</th>
+                      <th className="px-4 py-3 text-right">
+                        Produced / Received
+                      </th>
+                      <th className="px-4 py-3 text-right">Internal Used</th>
+                      <th className="px-4 py-3 text-right">Sales Dispatched</th>
+                      <th className="px-4 py-3 text-right">
+                        Physical Remaining
+                      </th>
+                      <th className="px-4 py-3 text-right">Reserved</th>
+                      <th className="px-4 py-3 text-right">Free Available</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Details</th>
                     </tr>
@@ -2469,8 +2477,19 @@ export default function InventoryModule() {
                         <td className="px-4 py-3 text-right tabular-nums">
                           {Number(row.consumedQuantityKg || 0).toFixed(2)}
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold tabular-nums text-primary">
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {Number(row.salesDispatchedQuantityKg || 0).toFixed(
+                            2,
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
                           {Number(row.availableQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-amber-600">
+                          {Number(row.reservedQuantityKg || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums text-primary">
+                          {Number(row.freeAvailableQuantityKg || 0).toFixed(2)}
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant="outline" className="uppercase">

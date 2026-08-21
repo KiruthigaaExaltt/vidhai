@@ -677,6 +677,11 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
           "Selected spawn stock is unavailable or has insufficient quantity",
         );
       const available = Number(entry.quantityKg);
+      const reserved = Number(entry.reservedQuantityKg || 0);
+      if (available - reserved < qty)
+        throw new Error(
+          `Selected spawn stock has only ${Math.max(0, available - reserved)} kg free after Sales reservations`,
+        );
       const balance = available - qty;
       await tx
         .update(spawnEntriesTable)
@@ -912,6 +917,11 @@ router.patch("/:id/spawn-usage", requireAuth, async (req, res) => {
           `Available spawn quantity is only ${Number(currentEntry.quantityKg)} kg`,
         );
       const available = Number(entry.quantityKg);
+      const reserved = Number(entry.reservedQuantityKg || 0);
+      if (available - reserved < difference)
+        throw new Error(
+          `Available unreserved spawn quantity is only ${Math.max(0, available - reserved)} kg`,
+        );
       const balance = available - difference;
       await tx
         .update(spawnEntriesTable)

@@ -1343,6 +1343,14 @@ router.get("/casing-inventory", requireAuth, async (req, res) => {
       originalQuantityKg: numericValue(row.originalQuantityKg) ?? 0,
       consumedQuantityKg: numericValue(row.consumedQuantityKg) ?? 0,
       availableQuantityKg: numericValue(row.availableQuantityKg) ?? 0,
+      reservedQuantityKg: numericValue(row.reservedQuantityKg) ?? 0,
+      salesDispatchedQuantityKg:
+        numericValue(row.salesDispatchedQuantityKg) ?? 0,
+      freeAvailableQuantityKg: Math.max(
+        0,
+        (numericValue(row.availableQuantityKg) ?? 0) -
+          (numericValue(row.reservedQuantityKg) ?? 0),
+      ),
     })),
   );
 });

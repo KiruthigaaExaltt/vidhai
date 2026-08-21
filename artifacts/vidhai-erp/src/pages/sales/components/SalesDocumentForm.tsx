@@ -117,6 +117,7 @@ export function SalesDocumentForm({
 
   const [clients, setClients] = useState<any[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [vaultStock, setVaultStock] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
 
@@ -201,6 +202,10 @@ export function SalesDocumentForm({
       })
       .then((data) => setInventoryItems(data))
       .catch((err) => console.error("Error loading inventory:", err));
+    fetch("/api/sales/vault-sales-stock", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setVaultStock)
+      .catch((err) => console.error("Error loading Vault stock:", err));
     fetch("/api/services")
       .then((res) => res.json())
       .then((data) => setServices(data))
@@ -420,6 +425,14 @@ export function SalesDocumentForm({
               warehouse: line.warehouseName || "",
               itemType: line.itemType,
               lineSource: line.lineSource,
+              vaultType: line.vaultType,
+              vaultSourceType: line.vaultSourceType,
+              vaultStockId: line.vaultStockId,
+              vaultReference: line.vaultReference,
+              vaultReservationId: line.vaultReservationId,
+              sourceLineId: line.sourceLineId || line.id,
+              deliveredQuantity: numericValue(line.deliveredQuantity),
+              remainingQuantity: numericValue(line.remainingQuantity),
               invoiceItemId: line.invoiceItemId,
             };
           }),
@@ -686,7 +699,10 @@ export function SalesDocumentForm({
             inventoryId: null,
             description: line.description || line.productName || "",
             hsn: line.hsnSac || "",
-            qty: numericValue(line.quantity),
+            qty:
+              isChallan && line.vaultReservationId
+                ? numericValue(line.remainingQuantity)
+                : numericValue(line.quantity),
             returnedQty: 0,
             uom: line.uom || "Nos",
             rate: numericValue(line.rate),
@@ -697,6 +713,14 @@ export function SalesDocumentForm({
             warehouse: line.warehouseName || "",
             itemType: line.itemType,
             lineSource: line.lineSource,
+            vaultType: line.vaultType,
+            vaultSourceType: line.vaultSourceType,
+            vaultStockId: line.vaultStockId,
+            vaultReference: line.vaultReference,
+            vaultReservationId: line.vaultReservationId,
+            sourceLineId: line.sourceLineId || line.id,
+            deliveredQuantity: numericValue(line.deliveredQuantity),
+            remainingQuantity: numericValue(line.remainingQuantity),
             quotationId: source === "quotation" ? Number(sourceId) : null,
             piId: source === "proforma" ? Number(sourceId) : null,
             dcId: source === "challan" ? Number(sourceId) : null,
@@ -749,7 +773,9 @@ export function SalesDocumentForm({
             line.warehouseId == null ? null : Number(line.warehouseId);
           const key = serviceId
             ? `service-${serviceId}`
-            : `item-${itemId}-warehouse-${warehouseId || 0}`;
+            : line.vaultReservationId
+              ? `vault-${line.vaultReservationId}`
+              : `item-${itemId}-warehouse-${warehouseId || 0}`;
           const existing = merged.get(key);
           if (existing) {
             existing.qty += numericValue(line.quantity);
@@ -764,7 +790,10 @@ export function SalesDocumentForm({
             inventoryId: null,
             description: line.description || line.productName || "",
             hsn: line.hsnSac || "",
-            qty: numericValue(line.quantity),
+            qty:
+              isChallan && line.vaultReservationId
+                ? numericValue(line.remainingQuantity)
+                : numericValue(line.quantity),
             returnedQty: 0,
             uom: line.uom || "Nos",
             rate: numericValue(line.rate),
@@ -774,6 +803,14 @@ export function SalesDocumentForm({
             warehouse: line.warehouseName || "",
             itemType: line.itemType,
             lineSource: line.lineSource,
+            vaultType: line.vaultType,
+            vaultSourceType: line.vaultSourceType,
+            vaultStockId: line.vaultStockId,
+            vaultReference: line.vaultReference,
+            vaultReservationId: line.vaultReservationId,
+            sourceLineId: line.sourceLineId || line.id,
+            deliveredQuantity: numericValue(line.deliveredQuantity),
+            remainingQuantity: numericValue(line.remainingQuantity),
             quotationId: Number(uniqueIds[0]),
             quotationIds: [...uniqueIds.map(Number)],
           });
@@ -840,7 +877,9 @@ export function SalesDocumentForm({
             line.warehouseId == null ? null : Number(line.warehouseId);
           const key = serviceId
             ? `service-${serviceId}`
-            : `item-${itemId}-warehouse-${warehouseId || 0}`;
+            : line.vaultReservationId
+              ? `vault-${line.vaultReservationId}`
+              : `item-${itemId}-warehouse-${warehouseId || 0}`;
           const existing = merged.get(key);
           if (existing) {
             existing.qty += numericValue(line.quantity);
@@ -855,7 +894,10 @@ export function SalesDocumentForm({
             inventoryId: null,
             description: line.description || line.productName || "",
             hsn: line.hsnSac || "",
-            qty: numericValue(line.quantity),
+            qty:
+              isChallan && line.vaultReservationId
+                ? numericValue(line.remainingQuantity)
+                : numericValue(line.quantity),
             returnedQty: 0,
             uom: line.uom || "Nos",
             rate: numericValue(line.rate),
@@ -865,6 +907,14 @@ export function SalesDocumentForm({
             warehouse: line.warehouseName || "",
             itemType: line.itemType,
             lineSource: line.lineSource,
+            vaultType: line.vaultType,
+            vaultSourceType: line.vaultSourceType,
+            vaultStockId: line.vaultStockId,
+            vaultReference: line.vaultReference,
+            vaultReservationId: line.vaultReservationId,
+            sourceLineId: line.sourceLineId || line.id,
+            deliveredQuantity: numericValue(line.deliveredQuantity),
+            remainingQuantity: numericValue(line.remainingQuantity),
             piId:
               source === "proforma" ? Number(uniqueIds[documentIndex]) : null,
             dcId:
@@ -984,6 +1034,14 @@ export function SalesDocumentForm({
             warehouse: line.warehouseName || "",
             itemType: line.itemType,
             lineSource: line.lineSource,
+            vaultType: line.vaultType,
+            vaultSourceType: line.vaultSourceType,
+            vaultStockId: line.vaultStockId,
+            vaultReference: line.vaultReference,
+            vaultReservationId: line.vaultReservationId,
+            sourceLineId: line.sourceLineId || line.id,
+            deliveredQuantity: numericValue(line.deliveredQuantity),
+            remainingQuantity: numericValue(line.remainingQuantity),
           };
         }),
       );
@@ -1031,6 +1089,34 @@ export function SalesDocumentForm({
       });
       return;
     }
+    if (!isReturn && !isInvoice) {
+      for (const item of validItems) {
+        if (!item.vaultType) continue;
+        const stock = vaultStock.find(
+          (entry) =>
+            Number(entry.id) === Number(item.vaultStockId) &&
+            entry.vaultType === item.vaultType,
+        );
+        if (!item.vaultSourceType || !stock) {
+          setFeedback({
+            title: "Vault batch required",
+            message: `Select Produced/Purchased and one batch/lot for ${item.description}.`,
+          });
+          return;
+        }
+        // A Work Order has already moved a DC's quantity from free stock into
+        // reserved stock. Do not compare that quantity with free stock again;
+        // dispatchVaultReservation is the authoritative, transactional check.
+        const limit = Number(stock.freeAvailableQuantity || 0);
+        if (!isChallan && Number(item.qty) > limit) {
+          setFeedback({
+            title: "Insufficient Vault stock",
+            message: `${item.description} batch ${stock.reference} allows ${limit} ${stock.unit}; requested ${item.qty}.`,
+          });
+          return;
+        }
+      }
+    }
     if (isReturn) {
       if (!selectedReturnInvoiceId && !selectedReturnDcId) {
         setFeedback({
@@ -1061,12 +1147,30 @@ export function SalesDocumentForm({
       for (const item of validItems) {
         if (item.serviceId || String(item.itemType).toLowerCase() === "service")
           continue;
-        if (!item.warehouseId) {
+        if (!item.vaultType && !item.warehouseId) {
           setFeedback({
             title: "Warehouse required",
             message: `Select a warehouse for ${item.description}.`,
           });
           return;
+        }
+        if (item.vaultType) {
+          const stock = vaultStock.find(
+            (entry) =>
+              entry.vaultType === item.vaultType &&
+              Number(entry.id) === Number(item.vaultStockId),
+          );
+          const limit = item.vaultReservationId
+            ? Number(item.remainingQuantity || 0)
+            : Number(stock?.freeAvailableQuantity || 0);
+          if (Number(item.qty) > limit) {
+            setFeedback({
+              title: "Invalid Vault dispatch",
+              message: `${item.description} cannot exceed ${limit} ${item.uom} ${item.vaultReservationId ? "reserved" : "free available"}.`,
+            });
+            return;
+          }
+          continue;
         }
         const stockRow = inventoryItems.find(
           (entry) =>
@@ -1174,6 +1278,12 @@ export function SalesDocumentForm({
         warehouseId: item.warehouseId ?? null,
         warehouseName: item.warehouse || "",
         attributeValues: {},
+        vaultType: item.vaultType || null,
+        vaultSourceType: item.vaultSourceType || null,
+        vaultStockId: item.vaultStockId || null,
+        vaultReference: item.vaultReference || null,
+        vaultReservationId: item.vaultReservationId || null,
+        sourceLineId: item.sourceLineId || null,
         quotationId: item.quotationId ?? null,
         piId: item.piId ?? null,
         dcId: item.dcId ?? null,
@@ -1432,7 +1542,11 @@ export function SalesDocumentForm({
           <Button className="shrink-0" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button className="shrink-0" variant="outline" onClick={() => void openPreview()}>
+          <Button
+            className="shrink-0"
+            variant="outline"
+            onClick={() => void openPreview()}
+          >
             <FileText className="w-4 h-4 mr-2" /> Preview
           </Button>
           {versions.length > 0 && (
@@ -1486,7 +1600,10 @@ export function SalesDocumentForm({
       </div>
 
       <div className="sales-form-body min-h-0 min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto pb-8 pt-6 sm:px-1">
-        <fieldset disabled={isLocked} className="min-w-0 space-y-4 sm:space-y-6">
+        <fieldset
+          disabled={isLocked}
+          className="min-w-0 space-y-4 sm:space-y-6"
+        >
           {(status === "Sent" || (isReturn && status === "Confirmed")) && (
             <Card className="border-primary/20 bg-primary/5">
               <CardContent className="flex items-center justify-between gap-4 p-5">
@@ -2190,15 +2307,20 @@ export function SalesDocumentForm({
                                         Number(v.replace("inv-", "")),
                                     )
                                   : null;
-                                const isDuplicate = items.some(
-                                  (row) =>
-                                    row.id !== item.id &&
-                                    (selectedInventory
-                                      ? row.itemId ===
-                                        selectedInventory.materialId
-                                      : row.serviceId &&
-                                        `ser-${row.serviceId}` === v),
-                                );
+                                const isDuplicate =
+                                  ![
+                                    "VLT-FP-SPAWN",
+                                    "VLT-FP-CASING-SOIL",
+                                  ].includes(selectedInventory?.sku) &&
+                                  items.some(
+                                    (row) =>
+                                      row.id !== item.id &&
+                                      (selectedInventory
+                                        ? row.itemId ===
+                                          selectedInventory.materialId
+                                        : row.serviceId &&
+                                          `ser-${row.serviceId}` === v),
+                                  );
                                 if (isDuplicate) {
                                   setFeedback({
                                     title: "Duplicate line item",
@@ -2233,7 +2355,22 @@ export function SalesDocumentForm({
                                       warehouseId: inventory.locationId,
                                       warehouse: inventory.locationName || "",
                                       itemType: "Product",
-                                      lineSource: "Inventory",
+                                      lineSource: [
+                                        "VLT-FP-SPAWN",
+                                        "VLT-FP-CASING-SOIL",
+                                      ].includes(inventory.sku)
+                                        ? "Vault"
+                                        : "Inventory",
+                                      vaultType:
+                                        inventory.sku === "VLT-FP-SPAWN"
+                                          ? "spawn"
+                                          : inventory.sku ===
+                                              "VLT-FP-CASING-SOIL"
+                                            ? "casing_soil"
+                                            : null,
+                                      vaultSourceType: null,
+                                      vaultStockId: null,
+                                      vaultReference: null,
                                     });
                                   }
                                 } else if (v.startsWith("ser-")) {
@@ -2270,11 +2407,19 @@ export function SalesDocumentForm({
                                     value={`inv-${entry.id}`}
                                     disabled={
                                       (Number(entry.quantityOnHand) <= 0 &&
-                                        item.inventoryId !== entry.id) ||
+                                        item.inventoryId !== entry.id &&
+                                        ![
+                                          "VLT-FP-SPAWN",
+                                          "VLT-FP-CASING-SOIL",
+                                        ].includes(entry.sku)) ||
                                       items.some(
                                         (row) =>
                                           row.id !== item.id &&
-                                          row.itemId === entry.materialId,
+                                          row.itemId === entry.materialId &&
+                                          ![
+                                            "VLT-FP-SPAWN",
+                                            "VLT-FP-CASING-SOIL",
+                                          ].includes(entry.sku),
                                       )
                                     }
                                   >
@@ -2285,6 +2430,93 @@ export function SalesDocumentForm({
                                 ))}
                               </SelectContent>
                             </Select>
+                            {item.vaultType && (
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <Select
+                                  value={item.vaultSourceType || ""}
+                                  disabled={Boolean(
+                                    isChallan && item.vaultReservationId,
+                                  )}
+                                  onValueChange={(value) =>
+                                    updateItem(item.id, {
+                                      vaultSourceType: value,
+                                      vaultStockId: null,
+                                      vaultReference: null,
+                                    })
+                                  }
+                                >
+                                  <SelectTrigger className="h-8 text-sm">
+                                    <SelectValue placeholder="Produced / Purchased" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="produced">
+                                      Produced
+                                    </SelectItem>
+                                    <SelectItem value="purchased">
+                                      Purchased
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Select
+                                  value={
+                                    item.vaultStockId
+                                      ? String(item.vaultStockId)
+                                      : ""
+                                  }
+                                  disabled={
+                                    !item.vaultSourceType ||
+                                    Boolean(
+                                      isChallan && item.vaultReservationId,
+                                    )
+                                  }
+                                  onValueChange={(value) => {
+                                    const stock = vaultStock.find(
+                                      (entry) =>
+                                        entry.vaultType === item.vaultType &&
+                                        Number(entry.id) === Number(value),
+                                    );
+                                    if (stock)
+                                      updateItem(item.id, {
+                                        vaultStockId: stock.id,
+                                        vaultReference: stock.reference,
+                                        uom: stock.unit,
+                                        warehouseId: null,
+                                        warehouse: "",
+                                      });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 text-sm">
+                                    <SelectValue placeholder="Select batch / lot" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {vaultStock
+                                      .filter(
+                                        (entry) =>
+                                          entry.vaultType === item.vaultType &&
+                                          entry.sourceType ===
+                                            item.vaultSourceType &&
+                                          (Number(entry.freeAvailableQuantity) >
+                                            0 ||
+                                            Number(entry.id) ===
+                                              Number(item.vaultStockId)),
+                                      )
+                                      .map((entry) => (
+                                        <SelectItem
+                                          key={`${entry.vaultType}-${entry.id}`}
+                                          value={String(entry.id)}
+                                        >
+                                          {entry.reference}
+                                          {entry.detail
+                                            ? ` � ${entry.detail}`
+                                            : ""}{" "}
+                                          � {entry.freeAvailableQuantity}{" "}
+                                          {entry.unit} free
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            )}
                             {isReturn && (
                               <Input
                                 placeholder="Reason/Condition"

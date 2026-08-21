@@ -111,6 +111,18 @@ export const casingSoilInventorySourcesTable = mongoTable(
       precision: 12,
       scale: 4,
     }).notNull(),
+    reservedQuantityKg: numeric("reserved_quantity_kg", {
+      precision: 12,
+      scale: 4,
+    })
+      .notNull()
+      .default("0"),
+    salesDispatchedQuantityKg: numeric("sales_dispatched_quantity_kg", {
+      precision: 12,
+      scale: 4,
+    })
+      .notNull()
+      .default("0"),
     stockDate: text("stock_date").notNull(),
     notes: text("notes"),
     status: text("status").notNull().default("available"),
@@ -118,6 +130,41 @@ export const casingSoilInventorySourcesTable = mongoTable(
       () => usersTable.id,
     ),
     createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+);
+export const vaultSalesReservationsTable = mongoTable(
+  "vault_sales_reservations",
+  {
+    id: serial("id").primaryKey(),
+    reservationKey: text("reservation_key").notNull().unique(),
+    workOrderId: integer("work_order_id").notNull(),
+    sourceDocumentType: text("source_document_type").notNull(),
+    sourceDocumentId: integer("source_document_id").notNull(),
+    sourceLineId: integer("source_line_id").notNull(),
+    materialId: integer("material_id").notNull(),
+    vaultType: text("vault_type").notNull(),
+    vaultSourceType: text("vault_source_type").notNull(),
+    vaultStockId: integer("vault_stock_id").notNull(),
+    vaultReference: text("vault_reference").notNull(),
+    orderedQuantity: numeric("ordered_quantity", {
+      precision: 12,
+      scale: 4,
+    }).notNull(),
+    dispatchedQuantity: numeric("dispatched_quantity", {
+      precision: 12,
+      scale: 4,
+    })
+      .notNull()
+      .default("0"),
+    unit: text("unit").notNull(),
+    status: text("status").notNull().default("active"),
+    createdByUserId: integer("created_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },

@@ -22,6 +22,7 @@ export const PROTECTED_VAULT_ITEM_NAMES = new Set([
   "manure",
   "grow bag",
   "casing soil",
+  "spawn",
 ]);
 
 const DEFAULT_WAREHOUSES = {
@@ -35,6 +36,11 @@ const DEFAULT_WAREHOUSES = {
     locationName: "Coimbatore Warehouse",
     capacityUnit: "kg",
   },
+  LAB: {
+    warehouseCode: "WH-LAB",
+    locationName: "Lab Warehouse",
+    capacityUnit: "kg",
+  },
   OOTY: {
     warehouseCode: "WH-OOTY",
     locationName: "Ooty Warehouse",
@@ -43,6 +49,13 @@ const DEFAULT_WAREHOUSES = {
 } as const;
 
 const DEFAULT_VAULT_ITEMS = [
+  {
+    name: "Spawn",
+    sku: "VLT-FP-SPAWN",
+    unit: "kg",
+    itemType: "Finished Product",
+    warehouse: "LAB",
+  },
   {
     name: "Mushroom",
     sku: "VLT-FP-MUSHROOM",

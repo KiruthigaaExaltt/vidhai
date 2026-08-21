@@ -19,6 +19,11 @@ router.get("/", async (_req, res) => {
     entries.map((e) => ({
       ...e,
       quantityKg: Number(e.quantityKg),
+      reservedQuantityKg: Number(e.reservedQuantityKg || 0),
+      freeAvailableQuantityKg: Math.max(
+        0,
+        Number(e.quantityKg) - Number(e.reservedQuantityKg || 0),
+      ),
     })),
   );
 });
@@ -50,15 +55,14 @@ router.post("/", async (req, res) => {
   const userId = Number((req.session as any)?.userId);
   if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-  const {
-    strainName,
-    quantityKg,
-  } = req.body as any;
+  const { strainName, quantityKg } = req.body as any;
   const quantity = Number(quantityKg);
   if (!String(strainName || "").trim())
     return res.status(400).json({ error: "Strain name is required" });
   if (!(quantity > 0))
-    return res.status(400).json({ error: "Quantity must be greater than zero" });
+    return res
+      .status(400)
+      .json({ error: "Quantity must be greater than zero" });
 
   const entry = await db.transaction(async (tx) => {
     const now = new Date();
@@ -100,7 +104,9 @@ router.post("/", async (req, res) => {
     return created;
   });
 
-  return res.status(201).json({ ...entry, quantityKg: Number(entry.quantityKg) });
+  return res
+    .status(201)
+    .json({ ...entry, quantityKg: Number(entry.quantityKg) });
 });
 
 export default router;

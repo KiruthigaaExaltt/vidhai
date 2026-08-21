@@ -52,7 +52,11 @@ export function SpawnVaultPanel() {
       });
       await refetch();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to create external spawn");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to create external spawn",
+      );
     } finally {
       setSaving(false);
     }
@@ -84,7 +88,13 @@ export function SpawnVaultPanel() {
                   <tr>
                     <th className="px-4 py-2 font-medium">Strain</th>
                     <th className="px-4 py-2 font-medium text-right">
-                      Qty (kg)
+                      Physical
+                    </th>
+                    <th className="px-4 py-2 font-medium text-right">
+                      Reserved
+                    </th>
+                    <th className="px-4 py-2 font-medium text-right">
+                      Free Available
                     </th>
                     <th className="px-4 py-2 font-medium">Origin</th>
                     <th className="px-4 py-2 font-medium">Source / Lot</th>
@@ -98,7 +108,13 @@ export function SpawnVaultPanel() {
                     <tr key={s.id} className="hover:bg-muted/30 h-[36px]">
                       <td className="px-4 font-medium">{s.strainName}</td>
                       <td className="px-4 font-mono text-right">
-                        {s.quantityKg}
+                        {s.quantityKg} kg
+                      </td>
+                      <td className="px-4 font-mono text-right text-amber-700">
+                        {(s as any).reservedQuantityKg ?? 0} kg
+                      </td>
+                      <td className="px-4 font-mono text-right text-primary">
+                        {(s as any).freeAvailableQuantityKg ?? s.quantityKg} kg
                       </td>
                       <td className="px-4">
                         <Badge variant="outline">
@@ -137,7 +153,7 @@ export function SpawnVaultPanel() {
                   {spawn?.length === 0 && (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={9}
                         className="px-4 py-6 text-center text-muted-foreground"
                       >
                         No spawn records found.
@@ -168,16 +184,36 @@ export function SpawnVaultPanel() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Strain Name *</Label>
-                <Input value={form.strainName} onChange={(e) => setField("strainName", e.target.value)} required />
+                <Input
+                  value={form.strainName}
+                  onChange={(e) => setField("strainName", e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-1.5">
                 <Label>Quantity Produced (kg) *</Label>
-                <Input type="number" min="0.0001" step="0.0001" value={form.quantityKg} onChange={(e) => setField("quantityKg", e.target.value)} required />
+                <Input
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  value={form.quantityKg}
+                  onChange={(e) => setField("quantityKg", e.target.value)}
+                  required
+                />
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={saving}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Create Spawn"}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving..." : "Create Spawn"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

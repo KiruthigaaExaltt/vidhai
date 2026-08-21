@@ -15,6 +15,12 @@ export const spawnEntriesTable = mongoTable("spawn_entries", {
   id: serial("id").primaryKey(),
   strainName: text("strain_name").notNull(),
   quantityKg: numeric("quantity_kg", { precision: 10, scale: 4 }).notNull(),
+  reservedQuantityKg: numeric("reserved_quantity_kg", {
+    precision: 10,
+    scale: 4,
+  })
+    .notNull()
+    .default("0"),
   source: text("source").notNull(),
   sourceType: text("source_type").notNull().default("LEGACY"),
   sourceReferenceType: text("source_reference_type"),
