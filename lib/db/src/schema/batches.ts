@@ -26,6 +26,20 @@ export const batchesTable = mongoTable("batches", {
   preWettingChamberId: integer("pre_wetting_chamber_id"),
   turnChamberId: integer("turn_chamber_id"),
   currentChamberId: integer("current_chamber_id"),
+  casingSoilChamberId: integer("casing_soil_chamber_id").references(
+    () => chambersTable.id,
+  ),
+  casingSoilChamberNameSnapshot: text("casing_soil_chamber_name_snapshot"),
+  casingSoilStartedAt: timestamp("casing_soil_started_at", {
+    withTimezone: true,
+  }),
+  casingSoilCompletedAt: timestamp("casing_soil_completed_at", {
+    withTimezone: true,
+  }),
+  casingSoilProducedQuantityKg: numeric("casing_soil_produced_quantity_kg", {
+    precision: 12,
+    scale: 4,
+  }),
   bulkChamberId: integer("bulk_chamber_id"),
   spawnEntryId: integer("spawn_entry_id"),
   // For spawn mixing stage traceability

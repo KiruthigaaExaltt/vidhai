@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   useListOotyRooms,
   getListOotyRoomsQueryKey,
@@ -39,8 +39,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Plus, Thermometer, Sprout, MoreVertical, FileUp,
-  Pencil, Trash2, WrenchIcon, CheckCircle2,
+  Plus,
+  Thermometer,
+  Sprout,
+  MoreVertical,
+  FileUp,
+  Pencil,
+  Trash2,
+  WrenchIcon,
+  CheckCircle2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -75,14 +82,39 @@ function cardColors(room: any) {
   const batch = room.currentBatch;
   const level: string = room.alertLevel ?? "gray";
   if (!batch || level === "gray")
-    return { border: "border-border", bg: "bg-muted/30", text: "text-muted-foreground", label: "Idle" };
+    return {
+      border: "border-border",
+      bg: "bg-muted/30",
+      text: "text-muted-foreground",
+      label: "Idle",
+    };
   if (level === "red")
-    return { border: "border-red-300", bg: "bg-red-50", text: "text-red-700", label: "Critical" };
+    return {
+      border: "border-red-300",
+      bg: "bg-red-50",
+      text: "text-red-700",
+      label: "Critical",
+    };
   if (needsDecision(batch.currentPhase, batch.dayInPhase))
-    return { border: "border-purple-300", bg: "bg-purple-50", text: "text-purple-700", label: "Needs Decision" };
+    return {
+      border: "border-purple-300",
+      bg: "bg-purple-50",
+      text: "text-purple-700",
+      label: "Needs Decision",
+    };
   if (level === "amber")
-    return { border: "border-amber-300", bg: "bg-amber-50", text: "text-amber-700", label: "Watch" };
-  return { border: "border-primary/40", bg: "bg-primary/5", text: "text-primary", label: "Normal" };
+    return {
+      border: "border-amber-300",
+      bg: "bg-amber-50",
+      text: "text-amber-700",
+      label: "Watch",
+    };
+  return {
+    border: "border-primary/40",
+    bg: "bg-primary/5",
+    text: "text-primary",
+    label: "Normal",
+  };
 }
 
 const LEGEND = [
@@ -117,7 +149,11 @@ export default function OotyRooms() {
 
   // ── Create room ──
   const [roomOpen, setRoomOpen] = useState(false);
-  const [roomForm, setRoomForm] = useState({ name: "", capacity: "", notes: "" });
+  const [roomForm, setRoomForm] = useState({
+    name: "",
+    capacity: "",
+    notes: "",
+  });
   const createRoom = useCreateOotyRoom({
     mutation: {
       onSuccess: () => {
@@ -141,7 +177,11 @@ export default function OotyRooms() {
 
   // ── Edit room ──
   const [editRoom, setEditRoom] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ name: "", capacity: "", notes: "" });
+  const [editForm, setEditForm] = useState({
+    name: "",
+    capacity: "",
+    notes: "",
+  });
   const updateRoom = useUpdateOotyRoom({
     mutation: {
       onSuccess: () => {
@@ -186,7 +226,11 @@ export default function OotyRooms() {
       },
       onError: (err: any) => {
         const msg = err?.response?.data?.error ?? "Cannot delete room";
-        toast({ title: "Delete failed", description: msg, variant: "destructive" });
+        toast({
+          title: "Delete failed",
+          description: msg,
+          variant: "destructive",
+        });
         setDeleteTarget(null);
       },
     },
@@ -204,7 +248,8 @@ export default function OotyRooms() {
         refetch();
         toast({ title: "Room status updated" });
       },
-      onError: () => toast({ title: "Status update failed", variant: "destructive" }),
+      onError: () =>
+        toast({ title: "Status update failed", variant: "destructive" }),
     },
   });
 
@@ -226,14 +271,22 @@ export default function OotyRooms() {
     notes: "",
   });
   const [assignPending, setAssignPending] = useState(false);
-  const assignedBagCount = Number(assignForm.bagCount || 0);
-  const assignmentExceedsRoomCapacity =
-    !!assignRoom?.capacity && assignedBagCount > Number(assignRoom.capacity);
+  const bagCountInputRef = useRef<HTMLInputElement>(null);
 
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignRoom) return;
-    if (assignmentExceedsRoomCapacity) {
+    const bagCount = Number(bagCountInputRef.current?.value ?? "");
+    if (!Number.isInteger(bagCount) || bagCount <= 0) {
+      toast({
+        title: "Enter bags allocated",
+        description: "Bags allocated must be a whole number greater than zero.",
+        variant: "destructive",
+      });
+      bagCountInputRef.current?.focus();
+      return;
+    }
+    if (assignRoom.capacity && bagCount > Number(assignRoom.capacity)) {
       toast({
         title: "Room capacity exceeded",
         description: `${assignRoom.name} can hold only ${assignRoom.capacity} bags.`,
@@ -249,20 +302,31 @@ export default function OotyRooms() {
         credentials: "include",
         body: JSON.stringify({
           roomId: assignRoom.id,
-          annurBatchId: assignForm.annurBatchId ? Number(assignForm.annurBatchId) : null,
-          bagCount: assignForm.bagCount ? Number(assignForm.bagCount) : null,
+          annurBatchId: assignForm.annurBatchId
+            ? Number(assignForm.annurBatchId)
+            : null,
+          bagCount,
           spawnRunStartDate: assignForm.startDate,
           notes: assignForm.notes || null,
         }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        toast({ title: "Failed to start batch", description: err.error ?? "Unknown error", variant: "destructive" });
+        toast({
+          title: "Failed to start batch",
+          description: err.error ?? "Unknown error",
+          variant: "destructive",
+        });
         return;
       }
       refetch();
       setAssignRoom(null);
-      setAssignForm({ annurBatchId: "", bagCount: "", startDate: new Date().toISOString().split("T")[0], notes: "" });
+      setAssignForm({
+        annurBatchId: "",
+        bagCount: "",
+        startDate: new Date().toISOString().split("T")[0],
+        notes: "",
+      });
     } finally {
       setAssignPending(false);
     }
@@ -276,19 +340,28 @@ export default function OotyRooms() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Thermometer className="w-5 h-5 text-primary" />
-              <h1 className="text-2xl font-semibold tracking-tight">Ooty Location B — Growing Rooms</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Ooty Location B — Growing Rooms
+              </h1>
             </div>
-            
           </div>
 
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end">
-            {can("production.growing_rooms.import") && can("production.growing_rooms.create") && (
-              <Button variant="outline" className="rounded-md font-medium h-9" onClick={() => setImportOpen(true)}>
-                <FileUp className="w-4 h-4 mr-2" /> Import Excel
-              </Button>
-            )}
+            {can("production.growing_rooms.import") &&
+              can("production.growing_rooms.create") && (
+                <Button
+                  variant="outline"
+                  className="rounded-md font-medium h-9"
+                  onClick={() => setImportOpen(true)}
+                >
+                  <FileUp className="w-4 h-4 mr-2" /> Import Excel
+                </Button>
+              )}
             {can("production.growing_rooms.create") && (
-              <Button className="rounded-md font-medium h-9" onClick={() => setRoomOpen(true)}>
+              <Button
+                className="rounded-md font-medium h-9"
+                onClick={() => setRoomOpen(true)}
+              >
                 <Plus className="w-4 h-4 mr-2" /> New Room
               </Button>
             )}
@@ -307,7 +380,9 @@ export default function OotyRooms() {
 
         {/* Room heatmap grid */}
         {isLoading ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">Loading...</div>
+          <div className="p-6 text-center text-sm text-muted-foreground">
+            Loading...
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {(rooms as any[])?.map((room: any) => {
@@ -317,13 +392,17 @@ export default function OotyRooms() {
               return (
                 <Card
                   key={room.id}
-                  onClick={() => !isMaintenance && setLocation(`/ooty/rooms/${room.id}`)}
+                  onClick={() =>
+                    !isMaintenance && setLocation(`/ooty/rooms/${room.id}`)
+                  }
                   className={`rounded-md shadow-none transition-colors ${c.border} ${c.bg} ${!isMaintenance ? "cursor-pointer hover:opacity-90" : "cursor-default opacity-80"}`}
                 >
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-semibold text-sm truncate">{room.name}</p>
+                        <p className="font-semibold text-sm truncate">
+                          {room.name}
+                        </p>
                         <p className="text-[11px] text-muted-foreground uppercase tracking-wider mt-0.5">
                           {room.capacity ? `${room.capacity} bags` : "—"}
                         </p>
@@ -362,12 +441,16 @@ export default function OotyRooms() {
                               {isMaintenance ? (
                                 <>
                                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span className="text-emerald-700">Mark as Available</span>
+                                  <span className="text-emerald-700">
+                                    Mark as Available
+                                  </span>
                                 </>
                               ) : (
                                 <>
                                   <WrenchIcon className="w-3.5 h-3.5 text-orange-500" />
-                                  <span className="text-orange-700">Mark as Maintenance</span>
+                                  <span className="text-orange-700">
+                                    Mark as Maintenance
+                                  </span>
                                 </>
                               )}
                             </DropdownMenuItem>
@@ -392,25 +475,35 @@ export default function OotyRooms() {
                           Under maintenance
                         </p>
                         {room.notes && (
-                          <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">{room.notes}</p>
+                          <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                            {room.notes}
+                          </p>
                         )}
                       </div>
                     ) : batch ? (
                       <div className="space-y-1.5">
-                        <p className="font-mono text-sm font-bold text-foreground">{batch.batchCode}</p>
+                        <p className="font-mono text-sm font-bold text-foreground">
+                          {batch.batchCode}
+                        </p>
                         {batch.batchSources?.length > 0 && (
                           <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
                             {batch.batchSources.map((source: any) => (
                               <span key={source.id} className="font-mono">
-                                Annur: {source.batchCode ?? `#${source.annurBatchId}`}
-                                {source.bagCount ? ` - ${source.bagCount} bags` : ""}
+                                Annur:{" "}
+                                {source.batchCode ?? `#${source.annurBatchId}`}
+                                {source.bagCount
+                                  ? ` - ${source.bagCount} bags`
+                                  : ""}
                               </span>
                             ))}
                           </div>
                         )}
                         <div className="flex items-center justify-between text-xs">
-                          <span className={`font-semibold uppercase tracking-wider ${c.text}`}>
-                            {PHASE_LABEL[batch.currentPhase] ?? batch.currentPhase}
+                          <span
+                            className={`font-semibold uppercase tracking-wider ${c.text}`}
+                          >
+                            {PHASE_LABEL[batch.currentPhase] ??
+                              batch.currentPhase}
                           </span>
                           <span className="font-mono text-muted-foreground">
                             Day {batch.dayInPhase ?? 0}
@@ -418,9 +511,14 @@ export default function OotyRooms() {
                         </div>
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <Thermometer className="w-3.5 h-3.5" />
-                          {batch.lastTemperature !== null && batch.lastTemperature !== undefined
-                            ? <span className="font-mono">{Number(batch.lastTemperature).toFixed(1)}°C</span>
-                            : <span>No readings</span>}
+                          {batch.lastTemperature !== null &&
+                          batch.lastTemperature !== undefined ? (
+                            <span className="font-mono">
+                              {Number(batch.lastTemperature).toFixed(1)}°C
+                            </span>
+                          ) : (
+                            <span>No readings</span>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -459,35 +557,51 @@ export default function OotyRooms() {
           </DialogHeader>
           <form onSubmit={handleCreateRoom} className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Room Name</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Room Name
+              </Label>
               <Input
                 required
                 value={roomForm.name}
-                onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })}
+                onChange={(e) =>
+                  setRoomForm({ ...roomForm, name: e.target.value })
+                }
                 className="rounded-md"
                 placeholder="e.g. Room 43"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Capacity (bags, optional)</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Capacity (bags, optional)
+              </Label>
               <Input
                 type="number"
                 value={roomForm.capacity}
-                onChange={(e) => setRoomForm({ ...roomForm, capacity: e.target.value })}
+                onChange={(e) =>
+                  setRoomForm({ ...roomForm, capacity: e.target.value })
+                }
                 className="rounded-md font-mono"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes (optional)</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Notes (optional)
+              </Label>
               <Input
                 value={roomForm.notes}
-                onChange={(e) => setRoomForm({ ...roomForm, notes: e.target.value })}
+                onChange={(e) =>
+                  setRoomForm({ ...roomForm, notes: e.target.value })
+                }
                 className="rounded-md"
                 placeholder="Any notes about this room"
               />
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={createRoom.isPending || !roomForm.name} className="w-full rounded-md">
+              <Button
+                type="submit"
+                disabled={createRoom.isPending || !roomForm.name}
+                className="w-full rounded-md"
+              >
                 {createRoom.isPending ? "Creating..." : "Create Room"}
               </Button>
             </DialogFooter>
@@ -503,29 +617,41 @@ export default function OotyRooms() {
           </DialogHeader>
           <form onSubmit={handleEditRoom} className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Room Name</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Room Name
+              </Label>
               <Input
                 required
                 value={editForm.name}
-                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, name: e.target.value })
+                }
                 className="rounded-md"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Capacity (bags)</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Capacity (bags)
+              </Label>
               <Input
                 type="number"
                 value={editForm.capacity}
-                onChange={(e) => setEditForm({ ...editForm, capacity: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, capacity: e.target.value })
+                }
                 className="rounded-md font-mono"
                 placeholder="Leave blank to unset"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Notes
+              </Label>
               <Input
                 value={editForm.notes}
-                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, notes: e.target.value })
+                }
                 className="rounded-md"
                 placeholder="Optional notes"
               />
@@ -552,13 +678,17 @@ export default function OotyRooms() {
       </Dialog>
 
       {/* ── Delete Confirmation ── */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+      >
         <AlertDialogContent className="rounded-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove the room from the system. All historical batch records linked to this room
-              will remain intact but the room itself cannot be recovered.
+              This will permanently remove the room from the system. All
+              historical batch records linked to this room will remain intact
+              but the room itself cannot be recovered.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -575,18 +705,25 @@ export default function OotyRooms() {
       </AlertDialog>
 
       {/* ── Assign Batch Dialog ── */}
-      <Dialog open={!!assignRoom} onOpenChange={(o) => !o && setAssignRoom(null)}>
+      <Dialog
+        open={!!assignRoom}
+        onOpenChange={(o) => !o && setAssignRoom(null)}
+      >
         <DialogContent className="rounded-md border-border shadow-none max-w-md">
           <DialogHeader>
             <DialogTitle>Start Growing Batch — {assignRoom?.name}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleAssign} className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Annur Bag Batch</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Annur Bag Batch
+              </Label>
               <select
                 className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm"
                 value={assignForm.annurBatchId}
-                onChange={(e) => setAssignForm({ ...assignForm, annurBatchId: e.target.value })}
+                onChange={(e) =>
+                  setAssignForm({ ...assignForm, annurBatchId: e.target.value })
+                }
               >
                 <option value="">— Select Annur batch —</option>
                 {completedAnnurBatches.map((b: any) => (
@@ -595,49 +732,110 @@ export default function OotyRooms() {
                   </option>
                 ))}
                 {completedAnnurBatches.length === 0 && (
-                  <option value="" disabled>No completed Annur batches available</option>
+                  <option value="" disabled>
+                    No completed Annur batches available
+                  </option>
                 )}
               </select>
-              <p className="text-[11px] text-muted-foreground">Only completed Annur batches with produced bags are shown. One Annur batch can supply multiple rooms.</p>
+              <p className="text-[11px] text-muted-foreground">
+                Only completed Annur batches with produced bags are shown. One
+                Annur batch can supply multiple rooms.
+              </p>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Bags Allocated to this Room</Label>
-              <Input
-                type="number"
-                min="1"
-                max={assignRoom?.capacity ?? undefined}
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Bags Allocated to this Room
+              </Label>
+              <input
+                ref={bagCountInputRef}
+                type="text"
+                name="bagAllocation"
+                autoComplete="off"
                 placeholder="e.g. 500 bags"
-                value={assignForm.bagCount}
-                onChange={(e) => setAssignForm({ ...assignForm, bagCount: e.target.value })}
-                className="rounded-md font-mono"
+                key={`bag-allocation-${assignRoom?.id ?? "none"}`}
+                onKeyDownCapture={(event) => {
+                  if (/^\d$/.test(event.key)) {
+                    event.preventDefault();
+                    const input = event.currentTarget;
+                    const start = input.selectionStart ?? input.value.length;
+                    const end = input.selectionEnd ?? start;
+                    input.value = `${input.value.slice(0, start)}${event.key}${input.value.slice(end)}`;
+                    input.setSelectionRange(start + 1, start + 1);
+                  } else if (event.key === "Backspace") {
+                    event.preventDefault();
+                    const input = event.currentTarget;
+                    const start = input.selectionStart ?? input.value.length;
+                    const end = input.selectionEnd ?? start;
+                    if (start !== end) {
+                      input.value = `${input.value.slice(0, start)}${input.value.slice(end)}`;
+                      input.setSelectionRange(start, start);
+                    } else if (start > 0) {
+                      input.value = `${input.value.slice(0, start - 1)}${input.value.slice(end)}`;
+                      input.setSelectionRange(start - 1, start - 1);
+                    }
+                  } else if (event.key === "Delete") {
+                    event.preventDefault();
+                    const input = event.currentTarget;
+                    const start = input.selectionStart ?? input.value.length;
+                    const end = input.selectionEnd ?? start;
+                    input.value = `${input.value.slice(0, start)}${input.value.slice(start === end ? end + 1 : end)}`;
+                    input.setSelectionRange(start, start);
+                  }
+                }}
+                onPaste={(event) => {
+                  event.preventDefault();
+                  const digits = event.clipboardData
+                    .getData("text")
+                    .replace(/\D/g, "");
+                  if (!digits) return;
+                  const input = event.currentTarget;
+                  const start = input.selectionStart ?? input.value.length;
+                  const end = input.selectionEnd ?? start;
+                  input.value = `${input.value.slice(0, start)}${digits}${input.value.slice(end)}`;
+                  input.setSelectionRange(
+                    start + digits.length,
+                    start + digits.length,
+                  );
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 font-mono text-sm shadow-sm outline-none focus:ring-1 focus:ring-ring"
               />
-              <p className="text-[11px] text-muted-foreground">How many bags from this Annur batch are going into {assignRoom?.name}?</p>
-              {assignmentExceedsRoomCapacity && (
-                <p className="text-xs text-destructive">
-                  Room capacity is {assignRoom?.capacity} bags. Reduce the allocation from {assignedBagCount} bags.
-                </p>
-              )}
+              <p className="text-[11px] text-muted-foreground">
+                How many bags from this Annur batch are going into{" "}
+                {assignRoom?.name}?
+              </p>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Spawn Run Start Date</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Spawn Run Start Date
+              </Label>
               <Input
                 type="date"
                 required
                 value={assignForm.startDate}
-                onChange={(e) => setAssignForm({ ...assignForm, startDate: e.target.value })}
+                onChange={(e) =>
+                  setAssignForm({ ...assignForm, startDate: e.target.value })
+                }
                 className="rounded-md font-mono"
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes (Optional)</Label>
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Notes (Optional)
+              </Label>
               <Input
                 value={assignForm.notes}
-                onChange={(e) => setAssignForm({ ...assignForm, notes: e.target.value })}
+                onChange={(e) =>
+                  setAssignForm({ ...assignForm, notes: e.target.value })
+                }
                 className="rounded-md"
               />
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={assignPending || assignmentExceedsRoomCapacity} className="w-full rounded-md">
+              <Button
+                type="submit"
+                disabled={assignPending}
+                className="w-full rounded-md"
+              >
                 {assignPending ? "Starting..." : "Start Spawn Run"}
               </Button>
             </DialogFooter>

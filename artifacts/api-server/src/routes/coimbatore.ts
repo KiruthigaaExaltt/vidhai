@@ -17,9 +17,12 @@ import {
   usersTable,
   inventoryTable,
   inventoryAdjustmentsTable,
+  inventoryLocationsTable,
+  casingSoilInventorySourcesTable,
 } from "@workspace/db";
 import { and, eq, desc, gte, ilike, isNull } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { ensureDefaultVaultItems } from "../lib/ensureDefaultVaultItems";
 
 const router = Router();
 
@@ -47,6 +50,36 @@ function parseImages(raw: string | null | undefined): string[] {
 }
 
 // ── Default turn schedule ─────────────────────────────────────────────────────
+function numericValue(value: unknown): number | null {
+  const raw =
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
+function parseTurnScheduleValue(
+  value: unknown,
+): { turnNumber: number; intervalDays: number }[] {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return Array.isArray(parsed)
+      ? parsed
+          .filter(
+            (entry) =>
+              Number.isInteger(Number(entry?.turnNumber)) &&
+              Number.isFinite(Number(entry?.intervalDays)),
+          )
+          .map((entry) => ({
+            turnNumber: Number(entry.turnNumber),
+            intervalDays: Number(entry.intervalDays),
+          }))
+      : [];
+  } catch {
+    return [];
+  }
+}
 function defaultTurnSchedule(
   totalTurns: number,
 ): { turnNumber: number; intervalDays: number }[] {
@@ -131,7 +164,13 @@ router.get("/batches", requireAuth, async (req, res) => {
 // ── Create Coimbatore batch (starts in FORMULATION) ───────────────────────────
 router.post("/batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
-  const { notes } = req.body as { notes?: string };
+  const { notes, chamberId: rawChamberId } = req.body as {
+    notes?: string;
+    chamberId?: number;
+  };
+  const chamberId = Number(rawChamberId);
+  if (!Number.isInteger(chamberId) || chamberId <= 0)
+    return res.status(400).json({ error: "Casing Soil Chamber is required" });
   const [loc] = await db
     .select()
     .from(locationsTable)
@@ -143,23 +182,68 @@ router.post("/batches", requireAuth, async (req, res) => {
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "C"));
-  const seq = existing.length + 1;
-  const code = batchCode("C", seq);
-  const [batch] = await db
-    .insert(batchesTable)
-    .values({
-      batchCode: code,
-      locationId: loc.id,
-      currentStage: "FORMULATION",
-      status: "active",
-      notes: notes ?? null,
-      createdByUserId: userId,
+  const code = batchCode("C", existing.length + 1);
+  const result = await db
+    .transaction(async (tx) => {
+      const [chamber] = await tx
+        .select()
+        .from(chambersTable)
+        .where(
+          and(
+            eq(chambersTable.id, chamberId),
+            eq(chambersTable.locationId, loc.id),
+            eq(chambersTable.chamberType, "casing_soil"),
+          ),
+        )
+        .limit(1);
+      if (!chamber)
+        return {
+          error: "Select a valid Coimbatore casing-soil chamber",
+        } as const;
+      const [batch] = await tx
+        .insert(batchesTable)
+        .values({
+          batchCode: code,
+          locationId: loc.id,
+          currentStage: "FORMULATION",
+          status: "active",
+          notes: notes ?? null,
+          createdByUserId: userId,
+          currentChamberId: chamberId,
+          casingSoilChamberId: chamberId,
+          casingSoilChamberNameSnapshot: chamber.name,
+        })
+        .returning();
+      const [reserved] = await tx
+        .update(chambersTable)
+        .set({
+          status: "active",
+          currentBatchId: batch.id,
+          currentTurnNumber: null,
+        })
+        .where(
+          and(
+            eq(chambersTable.id, chamberId),
+            eq(chambersTable.status, "idle"),
+            isNull(chambersTable.currentBatchId),
+          ),
+        )
+        .returning();
+      if (!reserved)
+        throw new Error(
+          `${chamber.name} is currently assigned to another active batch. Please select another available chamber.`,
+        );
+      return { batch } as const;
     })
-    .returning();
-  return res.status(201).json(batch);
+    .catch(
+      (error: any) =>
+        ({ error: error?.message || "Unable to reserve chamber" }) as const,
+    );
+  if ("error" in result) return res.status(409).json({ error: result.error });
+  return res.status(201).json(result.batch);
 });
 
-// ── Get batch detail ──────────────────────────────────────────────────────────
+// Get batch detail ──────────────────────────────────────────────────────────
 router.get("/batches/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   const [batch] = await db
@@ -169,6 +253,11 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
       locationId: batchesTable.locationId,
       currentStage: batchesTable.currentStage,
       currentChamberId: batchesTable.currentChamberId,
+      casingSoilChamberId: batchesTable.casingSoilChamberId,
+      casingSoilChamberNameSnapshot: batchesTable.casingSoilChamberNameSnapshot,
+      casingSoilStartedAt: batchesTable.casingSoilStartedAt,
+      casingSoilCompletedAt: batchesTable.casingSoilCompletedAt,
+      casingSoilProducedQuantityKg: batchesTable.casingSoilProducedQuantityKg,
       status: batchesTable.status,
       notes: batchesTable.notes,
       alertLevel: batchesTable.alertLevel,
@@ -184,7 +273,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Not found" });
 
-  const materials = await db
+  const rawMaterials = await db
     .select({
       id: coimbatoreBatchMaterialsTable.id,
       batchId: coimbatoreBatchMaterialsTable.batchId,
@@ -200,6 +289,10 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
       eq(coimbatoreBatchMaterialsTable.materialId, materialsTable.id),
     )
     .where(eq(coimbatoreBatchMaterialsTable.batchId, id));
+  const materials = rawMaterials.map((material) => ({
+    ...material,
+    weightKg: numericValue(material.weightKg),
+  }));
 
   const [config] = await db
     .select()
@@ -214,6 +307,10 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .orderBy(coimbatoreTurnsTable.turnNumber);
   const turns = rawTurns.map((t) => ({
     ...t,
+    temperatureCelsius: numericValue(t.temperatureCelsius),
+    nh3Ppm: numericValue(t.nh3Ppm),
+    co2Percent: numericValue(t.co2Percent),
+    moisturePercent: numericValue(t.moisturePercent),
     verificationImages: parseImages(t.verificationImages),
   }));
 
@@ -253,7 +350,15 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
   return res.json({
     ...batch,
     materials,
-    config: config ?? null,
+    config: config
+      ? {
+          ...config,
+          initialTemperatureCelsius: numericValue(
+            config.initialTemperatureCelsius,
+          ),
+          initialMoisturePercent: numericValue(config.initialMoisturePercent),
+        }
+      : null,
     activeAssignment: activeAssignment ?? null,
     activePreparationAssignment:
       ["PRE_WETTING", "MIXING"].includes(String(batch.currentStage)) &&
@@ -281,8 +386,18 @@ router.delete("/batches/:id", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, id))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Not found" });
-  // Cascade-deletes handle related rows via FK onDelete: cascade
-  await db.delete(batchesTable).where(eq(batchesTable.id, id));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(chambersTable)
+      .set({
+        status: "idle",
+        currentBatchId: null,
+        currentTurnNumber: null,
+      })
+      .where(eq(chambersTable.currentBatchId, id));
+    // Cascade-deletes handle related rows via FK onDelete: cascade.
+    await tx.delete(batchesTable).where(eq(batchesTable.id, id));
+  });
   return res.status(204).send();
 });
 
@@ -323,6 +438,30 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
     initialTemperatureCelsius?: number;
     initialMoisturePercent?: number;
   };
+
+  const [batch] = await db
+    .select()
+    .from(batchesTable)
+    .where(eq(batchesTable.id, batchId))
+    .limit(1);
+  if (!batch) return res.status(404).json({ error: "Batch not found" });
+  if (
+    !batch.casingSoilChamberId ||
+    batch.currentChamberId !== batch.casingSoilChamberId
+  )
+    return res.status(409).json({
+      error:
+        "The assigned Casing Soil Chamber is no longer reserved for this batch",
+    });
+  const [assignedChamber] = await db
+    .select()
+    .from(chambersTable)
+    .where(eq(chambersTable.id, batch.casingSoilChamberId))
+    .limit(1);
+  if (!assignedChamber || assignedChamber.currentBatchId !== batchId)
+    return res
+      .status(409)
+      .json({ error: "The assigned Casing Soil Chamber is unavailable" });
 
   const initialTemp = Number(initialTemperatureCelsius);
   const initialMoisture = Number(initialMoisturePercent);
@@ -405,6 +544,7 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       .set({
         currentStage: "PRE_WETTING",
         stageEnteredAt: new Date(),
+        casingSoilStartedAt: batch.casingSoilStartedAt ?? new Date(),
       })
       .where(eq(batchesTable.id, batchId));
   });
@@ -474,7 +614,13 @@ router.post(
       if (!occupied) return null;
       const [updatedBatch] = await tx
         .update(batchesTable)
-        .set({ currentChamberId: chamberId })
+        .set({
+          currentChamberId: chamberId,
+          casingSoilChamberId: chamberId,
+          casingSoilChamberNameSnapshot: occupied.name,
+          casingSoilStartedAt:
+            batch.casingSoilStartedAt ?? batch.stageEnteredAt ?? new Date(),
+        })
         .where(
           and(
             eq(batchesTable.id, batchId),
@@ -548,11 +694,6 @@ router.post(
       )
       .orderBy(desc(chamberReadingsTable.recordedAt))
       .limit(1);
-    if (!reading)
-      return res.status(400).json({
-        error:
-          "Log a chamber reading in the assigned chamber before completing this stage",
-      });
     const nextStage = stage === "PRE_WETTING" ? "MIXING" : "TURNING";
     const completedAt = new Date();
     const result = await db.transaction(async (tx) => {
@@ -564,8 +705,8 @@ router.post(
           chamberId: chamber.id,
           chamberNameSnapshot: chamber.name,
           enteredAt: batch.stageEnteredAt,
-          readingId: reading.id,
-          notes: notes ?? reading.notes ?? null,
+          readingId: reading?.id ?? null,
+          notes: notes ?? reading?.notes ?? null,
           verificationImages: JSON.stringify(images),
           recordedByUserId: userId,
           completedAt,
@@ -573,19 +714,28 @@ router.post(
         .returning();
       await tx
         .update(chambersTable)
-        .set({ status: "idle", currentBatchId: null, currentTurnNumber: null })
+        .set({ currentTurnNumber: nextStage === "TURNING" ? 1 : null })
         .where(
           and(
             eq(chambersTable.id, chamber.id),
             eq(chambersTable.currentBatchId, id),
           ),
         );
+      if (nextStage === "TURNING") {
+        await tx.insert(coimbatoreTurnAssignmentsTable).values({
+          batchId: id,
+          turnNumber: 1,
+          chamberId: chamber.id,
+          chamberNameSnapshot:
+            batch.casingSoilChamberNameSnapshot ?? chamber.name,
+          enteredAt: completedAt,
+        });
+      }
       const [updated] = await tx
         .update(batchesTable)
         .set({
           currentStage: nextStage,
           stageEnteredAt: completedAt,
-          currentChamberId: null,
         })
         .where(eq(batchesTable.id, id))
         .returning();
@@ -762,7 +912,13 @@ router.post(
         .returning();
       const [updatedBatch] = await tx
         .update(batchesTable)
-        .set({ currentChamberId: chamberId })
+        .set({
+          currentChamberId: chamberId,
+          casingSoilChamberId: chamberId,
+          casingSoilChamberNameSnapshot: occupied.name,
+          casingSoilStartedAt:
+            batch.casingSoilStartedAt ?? batch.stageEnteredAt ?? new Date(),
+        })
         .where(
           and(
             eq(batchesTable.id, batchId),
@@ -839,11 +995,6 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
     )
     .orderBy(desc(chamberReadingsTable.recordedAt))
     .limit(1);
-  if (!reading)
-    return res.status(400).json({
-      error:
-        "Log a chamber reading in the assigned chamber before completing this turn",
-    });
   const [config] = await db
     .select()
     .from(coimbatoreConfigTable)
@@ -863,43 +1014,56 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
         chamberNameSnapshot: assignment.chamberNameSnapshot,
         enteredAt: assignment.enteredAt,
         completedAt,
-        readingId: reading.id,
-        temperatureCelsius: reading.temperatureCelsius,
-        nh3Ppm: reading.nh3Ppm,
-        co2Percent: reading.co2Percent,
-        moisturePercent: reading.humidity,
-        notes: notes ?? reading.notes ?? null,
+        readingId: reading?.id ?? null,
+        temperatureCelsius: reading?.temperatureCelsius ?? null,
+        nh3Ppm: reading?.nh3Ppm ?? null,
+        co2Percent: reading?.co2Percent ?? null,
+        moisturePercent: reading?.humidity ?? null,
+        notes: notes ?? reading?.notes ?? null,
         verificationImages: JSON.stringify(imgs),
         recordedByUserId: userId,
       })
       .returning();
     await tx
-      .update(chambersTable)
-      .set({ status: "idle", currentBatchId: null, currentTurnNumber: null })
-      .where(
-        and(
-          eq(chambersTable.id, assignment.chamberId),
-          eq(chambersTable.currentBatchId, batchId),
-        ),
-      );
-    await tx
       .update(coimbatoreTurnAssignmentsTable)
       .set({ releasedAt: completedAt })
       .where(eq(coimbatoreTurnAssignmentsTable.id, assignment.id));
-    await tx
-      .update(batchesTable)
-      .set({ currentChamberId: null })
-      .where(eq(batchesTable.id, batchId));
 
-    // Auto-advance to QC_PENDING when all planned turns are done
+    // The physical chamber remains occupied by this batch for its full lifecycle.
     if (Number(turnNumber) >= totalTurns) {
       await tx
+        .update(chambersTable)
+        .set({ currentTurnNumber: null })
+        .where(
+          and(
+            eq(chambersTable.id, assignment.chamberId),
+            eq(chambersTable.currentBatchId, batchId),
+          ),
+        );
+      await tx
         .update(batchesTable)
-        .set({
-          currentStage: "QC_PENDING",
-          stageEnteredAt: new Date(),
-        })
+        .set({ currentStage: "QC_PENDING", stageEnteredAt: completedAt })
         .where(eq(batchesTable.id, batchId));
+    } else {
+      const nextTurn = Number(turnNumber) + 1;
+      await tx
+        .update(chambersTable)
+        .set({ currentTurnNumber: nextTurn })
+        .where(
+          and(
+            eq(chambersTable.id, assignment.chamberId),
+            eq(chambersTable.currentBatchId, batchId),
+          ),
+        );
+      await tx.insert(coimbatoreTurnAssignmentsTable).values({
+        batchId,
+        turnNumber: nextTurn,
+        chamberId: assignment.chamberId,
+        chamberNameSnapshot:
+          activeBatch.casingSoilChamberNameSnapshot ??
+          assignment.chamberNameSnapshot,
+        enteredAt: completedAt,
+      });
     }
 
     return { ...turn, verificationImages: imgs };
@@ -915,73 +1079,160 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
   const batchId = Number(req.params.id);
   const userId = (req.session as any).userId;
   const { decision, notes, producedQuantityKg } = req.body as any;
-  const [decisionBatch] = await db
-    .select()
-    .from(batchesTable)
-    .where(eq(batchesTable.id, batchId))
-    .limit(1);
-  if (!decisionBatch) return res.status(404).json({ error: "Batch not found" });
-  if (
-    decisionBatch.currentStage !== "QC_PENDING" ||
-    decisionBatch.status !== "active"
-  )
-    return res
-      .status(409)
-      .json({ error: "This casing-soil batch is not awaiting QC" });
+  if (decision !== "approve" && decision !== "reject")
+    return res.status(400).json({ error: "Select Approve or Reject" });
 
+  const postingKey = `coimbatore-output:${batchId}`;
   if (decision === "approve") {
-    const [qcBatch] = await db
-      .select()
-      .from(batchesTable)
-      .where(eq(batchesTable.id, batchId))
-      .limit(1);
-    if (!qcBatch) return res.status(404).json({ error: "Batch not found" });
-    if (qcBatch.currentStage !== "QC_PENDING" || qcBatch.status !== "active")
-      return res
-        .status(409)
-        .json({ error: "This casing-soil batch is not awaiting QC" });
-    const postingKey = `coimbatore-output:${batchId}`;
+    await ensureDefaultVaultItems();
     const [existingOutput] = await db
       .select()
       .from(casingSoilInventoryPostingsTable)
       .where(eq(casingSoilInventoryPostingsTable.postingKey, postingKey))
       .limit(1);
     if (existingOutput)
-      return res
-        .status(409)
-        .json({ error: "Casing-soil inventory output was already posted" });
-    // Determine produced quantity (user-entered or fallback to formulation total)
-    const mats = await db
-      .select()
-      .from(coimbatoreBatchMaterialsTable)
-      .where(eq(coimbatoreBatchMaterialsTable.batchId, batchId));
-    const formulationKg = mats.reduce((s, m) => s + Number(m.weightKg), 0);
-    const qtyKg = producedQuantityKg
-      ? Number(producedQuantityKg)
-      : formulationKg;
+      return res.json({
+        decision: "approve",
+        qtyKg: Number(existingOutput.quantityKg),
+        alreadyPosted: true,
+      });
+  }
 
-    // Find casing soil finished-product material (by name pattern)
+  const [batch] = await db
+    .select()
+    .from(batchesTable)
+    .where(eq(batchesTable.id, batchId))
+    .limit(1);
+  if (!batch) return res.status(404).json({ error: "Batch not found" });
+  if (batch.currentStage !== "QC_PENDING" || batch.status !== "active")
+    return res
+      .status(409)
+      .json({ error: "This casing-soil batch is not awaiting QC" });
+  if (
+    !batch.casingSoilChamberId ||
+    batch.currentChamberId !== batch.casingSoilChamberId
+  )
+    return res.status(409).json({
+      error: "The batch-level Casing Soil Chamber assignment is missing",
+    });
+  const [chamber] = await db
+    .select()
+    .from(chambersTable)
+    .where(eq(chambersTable.id, batch.casingSoilChamberId))
+    .limit(1);
+  if (!chamber || chamber.currentBatchId !== batchId)
+    return res.status(409).json({
+      error: "The assigned Casing Soil Chamber is not occupied by this batch",
+    });
+
+  if (decision === "approve") {
+    const qtyKg = Number(producedQuantityKg);
+    if (!Number.isFinite(qtyKg) || qtyKg <= 0)
+      return res
+        .status(400)
+        .json({ error: "Final Produced Quantity must be greater than 0 kg" });
     const [casingMaterial] = await db
       .select()
       .from(materialsTable)
       .where(ilike(materialsTable.name, "%casing soil%"))
       .limit(1);
-
-    const [loc] = await db
+    if (!casingMaterial)
+      return res.status(409).json({
+        error: "Casing Soil material is missing from Item & Product Master",
+      });
+    const warehouses = await db.select().from(inventoryLocationsTable);
+    const warehouse =
+      warehouses.find(
+        (row: any) =>
+          String(row.systemCode ?? "").toUpperCase() === "COIMBATORE",
+      ) ??
+      warehouses.find((row: any) =>
+        /coimbatore/i.test(String(row.locationName ?? "")),
+      );
+    if (!warehouse)
+      return res
+        .status(409)
+        .json({ error: "Coimbatore Warehouse was not found" });
+    const [location] = await db
       .select()
       .from(locationsTable)
       .where(eq(locationsTable.code, "C"))
       .limit(1);
+    const completedAt = new Date();
 
     await db.transaction(async (tx) => {
-      await tx.insert(casingSoilInventoryPostingsTable).values({
-        postingKey,
-        batchId,
-        inventoryId: null,
-        inventoryAdjustmentId: null,
-        quantityKg: String(qtyKg),
+      const [posting] = await tx
+        .insert(casingSoilInventoryPostingsTable)
+        .values({
+          postingKey,
+          batchId,
+          inventoryId: null,
+          inventoryAdjustmentId: null,
+          quantityKg: String(qtyKg),
+        })
+        .returning();
+      let [stock] = await tx
+        .select()
+        .from(inventoryTable)
+        .where(
+          and(
+            eq(inventoryTable.materialId, casingMaterial.id),
+            eq(inventoryTable.locationId, warehouse.id),
+          ),
+        )
+        .limit(1);
+      if (stock) {
+        [stock] = await tx
+          .update(inventoryTable)
+          .set({
+            quantityOnHand: String(Number(stock.quantityOnHand) + qtyKg),
+            lastUpdated: completedAt,
+          })
+          .where(eq(inventoryTable.id, stock.id))
+          .returning();
+      } else {
+        [stock] = await tx
+          .insert(inventoryTable)
+          .values({
+            materialId: casingMaterial.id,
+            locationId: warehouse.id,
+            quantityOnHand: String(qtyKg),
+          })
+          .returning();
+      }
+      const [adjustment] = await tx
+        .insert(inventoryAdjustmentsTable)
+        .values({
+          materialId: casingMaterial.id,
+          locationId: location?.id ?? null,
+          quantityDelta: String(qtyKg),
+          reason: "Casing Soil Production Inward",
+          reference: batch.batchCode,
+          notes: notes ?? `Produced by ${batch.batchCode}`,
+          adjustedByUserId: userId,
+        })
+        .returning();
+      await tx
+        .update(casingSoilInventoryPostingsTable)
+        .set({ inventoryId: stock.id, inventoryAdjustmentId: adjustment.id })
+        .where(eq(casingSoilInventoryPostingsTable.id, posting.id));
+      await tx.insert(casingSoilInventorySourcesTable).values({
+        sourceKey: `produced:${batchId}`,
+        sourceType: "produced",
+        productionBatchId: batchId,
+        reference: batch.batchCode,
+        materialId: casingMaterial.id,
+        warehouseId: warehouse.id,
+        inventoryId: stock.id,
+        inventoryAdjustmentId: adjustment.id,
+        originalQuantityKg: String(qtyKg),
+        consumedQuantityKg: "0",
+        availableQuantityKg: String(qtyKg),
+        stockDate: completedAt.toISOString().split("T")[0],
+        notes: notes ?? null,
+        status: "available",
+        createdByUserId: userId,
       });
-      // Record QC decision
       await tx.insert(qcDecisionsTable).values({
         batchId,
         moduleType: "coimbatore",
@@ -989,137 +1240,245 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
         notes: notes ?? null,
         decidedByUserId: userId,
       });
-
-      // Add to inventory if the finished-product material exists.
-      if (casingMaterial && qtyKg > 0) {
-        let [stock] = await tx
-          .select()
-          .from(inventoryTable)
-          .where(eq(inventoryTable.materialId, casingMaterial.id))
-          .limit(1);
-        if (stock) {
-          [stock] = await tx
-            .update(inventoryTable)
-            .set({
-              quantityOnHand: String(Number(stock.quantityOnHand) + qtyKg),
-              lastUpdated: new Date(),
-            })
-            .where(eq(inventoryTable.id, stock.id))
-            .returning();
-        } else {
-          [stock] = await tx
-            .insert(inventoryTable)
-            .values({
-              materialId: casingMaterial.id,
-              locationId: loc?.id ?? null,
-              quantityOnHand: String(qtyKg),
-            })
-            .returning();
-        }
-        const [adjustment] = await tx
-          .insert(inventoryAdjustmentsTable)
-          .values({
-            materialId: casingMaterial.id,
-            locationId: loc?.id ?? null,
-            quantityDelta: String(qtyKg),
-            reason: "production",
-            notes: `QC-approved production from casing soil batch #${batchId}`,
-            adjustedByUserId: userId,
-          })
-          .returning();
-        await tx
-          .update(casingSoilInventoryPostingsTable)
-          .set({
-            inventoryId: stock.id,
-            inventoryAdjustmentId: adjustment.id,
-          })
-          .where(eq(casingSoilInventoryPostingsTable.postingKey, postingKey));
-      }
-
-      // Record produce transaction (always, for financial log)
       await tx.insert(casingSoilTransactionsTable).values({
         transactionType: "produce",
         quantityKg: String(qtyKg),
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: completedAt.toISOString().split("T")[0],
         coimbatoreBatchId: batchId,
         notes: notes ?? null,
         recordedByUserId: userId,
       });
-
-      // Mark batch COMPLETED
       await tx
         .update(batchesTable)
         .set({
           currentStage: "COMPLETED",
           status: "completed",
-          stageEnteredAt: new Date(),
+          stageEnteredAt: completedAt,
+          casingSoilCompletedAt: completedAt,
+          casingSoilProducedQuantityKg: String(qtyKg),
+          currentChamberId: null,
         })
         .where(eq(batchesTable.id, batchId));
-    });
-
-    return res.json({ decision, qtyKg, stockedToInventory: !!casingMaterial });
-  } else {
-    // REJECT: extend turn schedule by 3 turns, return to TURNING
-    const [config] = await db
-      .select()
-      .from(coimbatoreConfigTable)
-      .where(eq(coimbatoreConfigTable.batchId, batchId))
-      .limit(1);
-    const existingTurns = await db
-      .select()
-      .from(coimbatoreTurnsTable)
-      .where(eq(coimbatoreTurnsTable.batchId, batchId));
-    const currentTotal = config?.totalTurns ?? 12;
-    const newTotal = existingTurns.length + 3; // 3 additional turns required
-
-    await db.transaction(async (tx) => {
-      await tx.insert(qcDecisionsTable).values({
-        batchId,
-        moduleType: "coimbatore",
-        decision,
-        notes: notes ?? null,
-        decidedByUserId: userId,
-      });
-
-      // Extend the turn schedule config
-      if (config) {
-        const schedule: { turnNumber: number; intervalDays: number }[] =
-          (() => {
-            try {
-              return JSON.parse(config.turnScheduleJson ?? "[]");
-            } catch {
-              return [];
-            }
-          })();
-        for (let t = currentTotal + 1; t <= newTotal; t++) {
-          if (!schedule.find((s) => s.turnNumber === t)) {
-            schedule.push({ turnNumber: t, intervalDays: 6 });
-          }
-        }
-        await tx
-          .update(coimbatoreConfigTable)
-          .set({
-            totalTurns: newTotal,
-            turnScheduleJson: JSON.stringify(schedule),
-          })
-          .where(eq(coimbatoreConfigTable.batchId, batchId));
-      }
-
-      // Return to TURNING
       await tx
-        .update(batchesTable)
-        .set({
-          currentStage: "TURNING",
-          stageEnteredAt: new Date(),
-        })
-        .where(eq(batchesTable.id, batchId));
+        .update(chambersTable)
+        .set({ status: "idle", currentBatchId: null, currentTurnNumber: null })
+        .where(
+          and(
+            eq(chambersTable.id, chamber.id),
+            eq(chambersTable.currentBatchId, batchId),
+          ),
+        );
     });
-
-    return res.json({ decision, newTotal });
+    return res.json({ decision, qtyKg, stockedToInventory: true });
   }
+
+  const [config] = await db
+    .select()
+    .from(coimbatoreConfigTable)
+    .where(eq(coimbatoreConfigTable.batchId, batchId))
+    .limit(1);
+  const existingTurns = await db
+    .select()
+    .from(coimbatoreTurnsTable)
+    .where(eq(coimbatoreTurnsTable.batchId, batchId));
+  const currentTotal = config?.totalTurns ?? existingTurns.length;
+  const newTotal = existingTurns.length + 3;
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.insert(qcDecisionsTable).values({
+      batchId,
+      moduleType: "coimbatore",
+      decision,
+      notes: notes ?? null,
+      decidedByUserId: userId,
+    });
+    if (config) {
+      const schedule = parseTurnScheduleValue(config.turnScheduleJson);
+      for (let turn = currentTotal + 1; turn <= newTotal; turn++)
+        schedule.push({ turnNumber: turn, intervalDays: 6 });
+      await tx
+        .update(coimbatoreConfigTable)
+        .set({
+          totalTurns: newTotal,
+          turnScheduleJson: JSON.stringify(schedule),
+        })
+        .where(eq(coimbatoreConfigTable.batchId, batchId));
+    }
+    await tx
+      .update(batchesTable)
+      .set({ currentStage: "TURNING", stageEnteredAt: now })
+      .where(eq(batchesTable.id, batchId));
+    await tx
+      .update(chambersTable)
+      .set({
+        status: "active",
+        currentBatchId: batchId,
+        currentTurnNumber: existingTurns.length + 1,
+      })
+      .where(eq(chambersTable.id, chamber.id));
+    await tx.insert(coimbatoreTurnAssignmentsTable).values({
+      batchId,
+      turnNumber: existingTurns.length + 1,
+      chamberId: chamber.id,
+      chamberNameSnapshot: batch.casingSoilChamberNameSnapshot ?? chamber.name,
+      enteredAt: now,
+    });
+  });
+  return res.json({ decision, newTotal });
 });
 
-// ── List casing soil transactions ─────────────────────────────────────────────
+// Batch/lot-level casing-soil inventory used by Ooty Casing Run.
+router.get("/casing-inventory", requireAuth, async (req, res) => {
+  await ensureDefaultVaultItems();
+  const sourceType = String(req.query.sourceType ?? "").toLowerCase();
+  let rows = await db
+    .select()
+    .from(casingSoilInventorySourcesTable)
+    .orderBy(desc(casingSoilInventorySourcesTable.createdAt));
+  if (sourceType === "produced" || sourceType === "purchased")
+    rows = rows.filter((row) => row.sourceType === sourceType);
+  return res.json(
+    rows.map((row) => ({
+      ...row,
+      originalQuantityKg: numericValue(row.originalQuantityKg) ?? 0,
+      consumedQuantityKg: numericValue(row.consumedQuantityKg) ?? 0,
+      availableQuantityKg: numericValue(row.availableQuantityKg) ?? 0,
+    })),
+  );
+});
+
+router.post("/casing-inventory/purchased", requireAuth, async (req, res) => {
+  await ensureDefaultVaultItems();
+  const userId = (req.session as any).userId;
+  const reference = String(req.body.reference ?? "").trim();
+  const quantityKg = Number(req.body.quantityKg);
+  const stockDate = String(req.body.stockDate ?? "").trim();
+  const notes = String(req.body.notes ?? "").trim() || null;
+  if (!reference)
+    return res
+      .status(400)
+      .json({ error: "Purchased lot reference is required" });
+  if (!Number.isFinite(quantityKg) || quantityKg <= 0)
+    return res
+      .status(400)
+      .json({ error: "Purchased quantity must be greater than 0 kg" });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(stockDate))
+    return res.status(400).json({ error: "Stock date is required" });
+  const sourceKey = `purchased:${reference.toLowerCase()}`;
+  const [duplicate] = await db
+    .select()
+    .from(casingSoilInventorySourcesTable)
+    .where(eq(casingSoilInventorySourcesTable.sourceKey, sourceKey))
+    .limit(1);
+  if (duplicate)
+    return res
+      .status(409)
+      .json({ error: `Purchased lot ${reference} already exists` });
+  const [material] = await db
+    .select()
+    .from(materialsTable)
+    .where(ilike(materialsTable.name, "%casing soil%"))
+    .limit(1);
+  if (!material)
+    return res.status(409).json({
+      error: "Casing Soil material is missing from Item & Product Master",
+    });
+  const warehouses = await db.select().from(inventoryLocationsTable);
+  const warehouse =
+    warehouses.find(
+      (row: any) => String(row.systemCode ?? "").toUpperCase() === "COIMBATORE",
+    ) ??
+    warehouses.find((row: any) =>
+      /coimbatore/i.test(String(row.locationName ?? "")),
+    );
+  if (!warehouse)
+    return res
+      .status(409)
+      .json({ error: "Coimbatore Warehouse was not found" });
+  const [location] = await db
+    .select()
+    .from(locationsTable)
+    .where(eq(locationsTable.code, "C"))
+    .limit(1);
+  const source = await db.transaction(async (tx) => {
+    let [stock] = await tx
+      .select()
+      .from(inventoryTable)
+      .where(
+        and(
+          eq(inventoryTable.materialId, material.id),
+          eq(inventoryTable.locationId, warehouse.id),
+        ),
+      )
+      .limit(1);
+    if (stock)
+      [stock] = await tx
+        .update(inventoryTable)
+        .set({
+          quantityOnHand: String(Number(stock.quantityOnHand) + quantityKg),
+          lastUpdated: new Date(),
+        })
+        .where(eq(inventoryTable.id, stock.id))
+        .returning();
+    else
+      [stock] = await tx
+        .insert(inventoryTable)
+        .values({
+          materialId: material.id,
+          locationId: warehouse.id,
+          quantityOnHand: String(quantityKg),
+        })
+        .returning();
+    const [adjustment] = await tx
+      .insert(inventoryAdjustmentsTable)
+      .values({
+        materialId: material.id,
+        locationId: location?.id ?? null,
+        quantityDelta: String(quantityKg),
+        reason: "Manual Purchased Casing Soil Inward",
+        reference,
+        notes,
+        adjustedByUserId: userId,
+      })
+      .returning();
+    const [created] = await tx
+      .insert(casingSoilInventorySourcesTable)
+      .values({
+        sourceKey,
+        sourceType: "purchased",
+        productionBatchId: null,
+        reference,
+        materialId: material.id,
+        warehouseId: warehouse.id,
+        inventoryId: stock.id,
+        inventoryAdjustmentId: adjustment.id,
+        originalQuantityKg: String(quantityKg),
+        consumedQuantityKg: "0",
+        availableQuantityKg: String(quantityKg),
+        stockDate,
+        notes,
+        status: "available",
+        createdByUserId: userId,
+      })
+      .returning();
+    await tx.insert(casingSoilTransactionsTable).values({
+      transactionType: "buy",
+      quantityKg: String(quantityKg),
+      counterparty: reference,
+      transactionDate: stockDate,
+      notes,
+      recordedByUserId: userId,
+    });
+    return created;
+  });
+  return res.status(201).json({
+    ...source,
+    originalQuantityKg: quantityKg,
+    consumedQuantityKg: 0,
+    availableQuantityKg: quantityKg,
+  });
+});
+// List casing soil transactions ─────────────────────────────────────────────
 router.get("/soil-transactions", requireAuth, async (req, res) => {
   const rows = await db
     .select({

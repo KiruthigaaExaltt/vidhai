@@ -11,6 +11,7 @@ import {
   usersTable,
   employeesTable,
   locationsTable,
+  salesWorkOrdersTable,
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
@@ -709,11 +710,13 @@ router.post("/:id/time-logs", requireAuth, async (req, res) => {
   res.locals.notificationHandled = true;
   await publishTimesheetCreated(
     req,
-    (await db
-      .select()
-      .from(tasksTable)
-      .where(eq(tasksTable.id, taskId))
-      .limit(1))[0],
+    (
+      await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1)
+    )[0],
     log,
     Number(access.ctx.user.id),
     Number(access.ctx.user.organizationId ?? 1),
@@ -723,7 +726,26 @@ router.post("/:id/time-logs", requireAuth, async (req, res) => {
 
 router.delete("/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  await db.delete(tasksTable).where(eq(tasksTable.id, id));
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, id))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  await db.transaction(async (tx) => {
+    if (task.sourceWorkOrderId) {
+      await tx
+        .update(salesWorkOrdersTable)
+        .set({
+          status: "Cancelled",
+          productionStatus: "Cancelled",
+          updatedAt: new Date(),
+        })
+        .where(eq(salesWorkOrdersTable.id, task.sourceWorkOrderId));
+    }
+    await tx.delete(tasksTable).where(eq(tasksTable.id, id));
+  });
   return res.status(204).send();
 });
 

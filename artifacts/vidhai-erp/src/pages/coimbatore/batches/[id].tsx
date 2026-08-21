@@ -83,18 +83,37 @@ const DEFAULT_FORMULATION = [
   { id: 3, name: "Limestone", qty: "10" },
 ];
 
-function buildTurnSchedule(
-  totalTurns: number,
-  scheduleJson: string | null | undefined,
-  batchCreatedAt: string | Date,
-) {
-  const parsed: { turnNumber: number; intervalDays: number }[] = (() => {
+type TurnScheduleEntry = { turnNumber: number; intervalDays: number };
+
+function parseTurnSchedule(value: unknown): TurnScheduleEntry[] {
+  let parsed = value;
+  for (let attempt = 0; attempt < 2 && typeof parsed === "string"; attempt++) {
     try {
-      return JSON.parse(scheduleJson ?? "[]");
+      parsed = JSON.parse(parsed);
     } catch {
       return [];
     }
-  })();
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((entry) => ({
+      turnNumber: Number(entry?.turnNumber),
+      intervalDays: Number(entry?.intervalDays),
+    }))
+    .filter(
+      (entry) =>
+        Number.isInteger(entry.turnNumber) &&
+        entry.turnNumber > 0 &&
+        Number.isFinite(entry.intervalDays) &&
+        entry.intervalDays >= 0,
+    );
+}
+function buildTurnSchedule(
+  totalTurns: number,
+  scheduleJson: unknown,
+  batchCreatedAt: string | Date,
+) {
+  const parsed = parseTurnSchedule(scheduleJson);
   const base = new Date(batchCreatedAt);
   return Array.from({ length: totalTurns }, (_, i) => {
     const n = i + 1;
@@ -145,7 +164,11 @@ export default function CoimbatoreBatchDetail() {
   const turns: any[] = b?.turns ?? [];
   const preparationStages: any[] = b?.preparationStages ?? [];
   const qcDecisions: any[] = b?.qcDecisions ?? [];
-  const totalTurns: number = config?.totalTurns ?? 12;
+  const configuredTurns = Number(config?.totalTurns ?? 12);
+  const totalTurns =
+    Number.isInteger(configuredTurns) && configuredTurns > 0
+      ? configuredTurns
+      : 12;
   const { data: casingChambers = [] } = useQuery<any[]>({
     queryKey: ["coimbatore-casing-chambers"],
     queryFn: async () => {
@@ -196,13 +219,7 @@ export default function CoimbatoreBatchDetail() {
 
   const openAdjust = () => {
     setAdjTotal(totalTurns);
-    const existing: { turnNumber: number; intervalDays: number }[] = (() => {
-      try {
-        return JSON.parse(config?.turnScheduleJson ?? "[]");
-      } catch {
-        return [];
-      }
-    })();
+    const existing = parseTurnSchedule(config?.turnScheduleJson);
     const firstLate = existing.findIndex((e) => e.intervalDays < 8);
     setAdjEarly(firstLate > 0 ? firstLate : 4);
     setAdjEarlyD(existing[0]?.intervalDays ?? 10);
@@ -494,11 +511,19 @@ export default function CoimbatoreBatchDetail() {
 
   const completedCount = turns.length;
   const nextTurnNumber = completedCount + 1;
+  const permanentChamber = b?.casingSoilChamberId
+    ? {
+        chamberId: b.casingSoilChamberId,
+        chamberNameSnapshot:
+          b.casingSoilChamberNameSnapshot ?? `Chamber ${b.casingSoilChamberId}`,
+      }
+    : null;
   const activeAssignment =
     b?.activeAssignment?.turnNumber === nextTurnNumber
       ? b.activeAssignment
-      : null;
-  const activePreparationAssignment = b?.activePreparationAssignment ?? null;
+      : permanentChamber;
+  const activePreparationAssignment =
+    b?.activePreparationAssignment ?? permanentChamber;
   const allTurnsDone = completedCount >= totalTurns;
   const imagesReady = stageImages[0] !== null && stageImages[1] !== null;
   const canSubmitTurn = !completeTurnMutation.isPending;
@@ -570,6 +595,26 @@ export default function CoimbatoreBatchDetail() {
           </div>
 
           <div className="flex flex-wrap gap-2 md:justify-end">
+            {b.casingSoilChamberNameSnapshot && (
+              <div className="px-3 py-2 rounded-sm border border-primary/30 bg-primary/5 text-sm">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1.5">
+                  Reserved chamber
+                </span>
+                <span className="font-mono font-bold text-primary">
+                  {b.casingSoilChamberNameSnapshot}
+                </span>
+              </div>
+            )}
+            {b.casingSoilProducedQuantityKg != null && (
+              <div className="px-3 py-2 rounded-sm border border-border bg-muted/30 text-sm">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1.5">
+                  Produced
+                </span>
+                <span className="font-mono font-bold">
+                  {Number(b.casingSoilProducedQuantityKg).toFixed(2)} kg
+                </span>
+              </div>
+            )}
             <div className="px-3 py-2 rounded-sm border border-border bg-muted/30 text-sm">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mr-1.5">
                 Input
@@ -1133,16 +1178,9 @@ export default function CoimbatoreBatchDetail() {
                       </span>{" "}
                       configured at initiation. Schedule:{" "}
                       {(() => {
-                        const sched: {
-                          turnNumber: number;
-                          intervalDays: number;
-                        }[] = (() => {
-                          try {
-                            return JSON.parse(config.turnScheduleJson ?? "[]");
-                          } catch {
-                            return [];
-                          }
-                        })();
+                        const sched = parseTurnSchedule(
+                          config.turnScheduleJson,
+                        );
                         if (!sched.length)
                           return "Default (T1–T4: 10 days, T5+: 6 days)";
                         const earlyEnd = sched.findIndex(
@@ -2329,12 +2367,17 @@ export default function CoimbatoreBatchDetail() {
                     Produced Quantity (kg)
                   </Label>
                   <Input
-                    type="number"
-                    step="0.1"
+                    type="text"
+                    inputMode="decimal"
                     placeholder={`~${savedTotalKg.toFixed(0)} kg (formulation total)`}
-                    value={qcDialog.producedKg}
-                    onChange={(e) =>
-                      setQcDialog((p) => ({ ...p, producedKg: e.target.value }))
+                    key={`produced-${b.id}-${qcDialog.decision}`}
+                    defaultValue={qcDialog.producedKg}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onInput={(e) =>
+                      setQcDialog((p) => ({
+                        ...p,
+                        producedKg: e.currentTarget.value,
+                      }))
                     }
                     className="rounded-sm h-9 font-mono"
                   />
