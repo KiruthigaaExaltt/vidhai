@@ -97,10 +97,13 @@ const cookieOptions = () => ({
     | "strict"
     | "none",
   maxAge: cookieMaxAge(),
-  path: "/api/auth",
+  path: "/api",
 });
-export const clearRefreshCookie = (res: Response) =>
-  res.clearCookie(COOKIE, cookieOptions());
+const legacyCookieOptions = () => ({ ...cookieOptions(), path: "/api/auth" });
+export const clearRefreshCookie = (res: Response) => (
+  res.clearCookie(COOKIE, cookieOptions()),
+  res.clearCookie(COOKIE, legacyCookieOptions())
+);
 export const accessToken = (user: any) =>
   sign("access", user.id, Number(user.sessionVersion ?? 0));
 export async function createRefreshSession(
@@ -131,6 +134,7 @@ export async function createRefreshSession(
     userAgent: req.get("user-agent") ?? null,
     ipAddress: req.ip ?? null,
   });
+  res.clearCookie(COOKIE, legacyCookieOptions());
   res.cookie(COOKIE, token, {
     ...cookieOptions(),
     maxAge: Math.min(cookieMaxAge(), maxExpiry.getTime() - Date.now()),
@@ -219,6 +223,52 @@ export async function authenticateAccessToken(
     (req as any).authUser = user;
     return next();
   } catch {
+    if (
+      req.method === "GET" &&
+      /^\/(?:stored-files|batches\/files|crew\/files|organization-settings\/files|accounts\/files)\//.test(
+        req.path,
+      )
+    ) {
+      try {
+        const token = req.cookies?.[COOKIE];
+        if (!token) throw new Error("unauthorized");
+        const claims = verify(token, "refresh");
+        const [session] = await db
+          .select()
+          .from(refreshSessionsTable)
+          .where(
+            and(
+              eq(refreshSessionsTable.tokenHash, tokenHash(token)),
+              eq(refreshSessionsTable.userId, Number(claims.sub)),
+            ),
+          )
+          .limit(1);
+        if (
+          !session ||
+          session.revokedAt ||
+          session.expiresAt.getTime() <= Date.now()
+        )
+          throw new Error("unauthorized");
+        const [user] = await db
+          .select()
+          .from(usersTable)
+          .where(eq(usersTable.id, Number(claims.sub)))
+          .limit(1);
+        if (
+          !user ||
+          user.isDeleted ||
+          user.isActive === false ||
+          Number(user.sessionVersion ?? 0) !== claims.sv
+        )
+          throw new Error("unauthorized");
+        (req.session as any).userId = Number(claims.sub);
+        (req.session as any).sessionVersion = claims.sv;
+        (req as any).authUser = user;
+        return next();
+      } catch {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+    }
     return res.status(401).json({ error: "Not authenticated" });
   }
 }
