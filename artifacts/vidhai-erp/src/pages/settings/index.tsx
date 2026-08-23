@@ -17,6 +17,7 @@ import TemplateManager from "./templates";
 import Locations from "./locations";
 import AlertColors from "./alert-colors";
 import Departments from "./departments";
+import CrewCodes from "./crew-codes";
 import OrganizationDetails from "./OrganizationDetails";
 import ModuleEncryptionSettings from "./module-encryption";
 import { useAuth } from "@/lib/auth";
@@ -25,6 +26,7 @@ type View =
   | "general"
   | "users"
   | "departments"
+  | "crew-codes"
   | "attendance"
   | "work-pattern"
   | "salary"
@@ -52,7 +54,7 @@ export default function Settings() {
   const accessibleViews = new Set<View>([
     ...(companyProfileAccess ? (["general"] as View[]) : []),
     ...(userAccess ? (["users"] as View[]) : []),
-    ...(masterAccess ? (["departments"] as View[]) : []),
+    ...(masterAccess ? (["departments", "crew-codes"] as View[]) : []),
     ...(templateAccess ? templates.map(([key]) => key) : []),
     ...(alertAccess ? (["alerts"] as View[]) : []),
     ...(locationAccess ? (["locations"] as View[]) : []),
@@ -91,6 +93,7 @@ export default function Settings() {
   const mobileOptions = [
     ...(companyProfileAccess ? [["general", "General"]] : []),
     ...(userAccess ? [["users", "User Management"]] : []),
+    ...(masterAccess ? [["crew-codes", "Master Settings - Crew Code"]] : []),
     ...(masterAccess ? [["departments", "Master Settings � Departments"]] : []),
     ...(templateAccess
       ? templates.map(([key, label]) => [key, `Templates � ${label}`])
@@ -174,6 +177,14 @@ export default function Settings() {
                       <Building2 className="h-4 w-4 shrink-0" />
                       Departments
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => selectView("crew-codes")}
+                      className={`flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm ${view === "crew-codes" ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-background/70"}`}
+                    >
+                      <Database className="h-4 w-4 shrink-0" />
+                      Crew Code
+                    </button>
                   </div>
                 )}
               </>
@@ -247,6 +258,7 @@ export default function Settings() {
               <ModuleEncryptionSettings />
             )}{" "}
             {view === "departments" && masterAccess && <Departments />}
+            {view === "crew-codes" && masterAccess && <CrewCodes />}
             {templates.some(([k]) => k === view) && templateAccess && (
               <TemplateManager kind={view as any} />
             )}{" "}

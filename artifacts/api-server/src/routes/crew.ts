@@ -19,6 +19,9 @@ import {
   salaryTemplatesTable,
   departmentsTable,
   rolesTable,
+  crewCodePrefixesTable,
+  crewCodeSuffixesTable,
+  crewCodeSettingsTable,
 } from "@workspace/db";
 import {
   employeesTable,
@@ -346,16 +349,23 @@ router.get("/employees/next-code", async (req: any, res: any): Promise<any> => {
     .select()
     .from(employeesTable)
     .where(eq(employeesTable.organizationId, req.crew.org));
-  const n =
-    rows.reduce(
-      (m: any, x: any) =>
-        Math.max(
-          m,
-          Number(String(x.employeeCode || "").match(/\d+/)?.[0] || 0),
-        ),
-      0,
-    ) + 1;
-  res.json({ employeeCode: `EMP${String(n).padStart(4, "0")}` });
+  const [configuration] = await db
+    .select()
+    .from(crewCodeSettingsTable)
+    .where(eq(crewCodeSettingsTable.organizationId, req.crew.org))
+    .limit(1);
+  const maxExisting = rows.reduce(
+    (maximum: number, employee: any) =>
+      Math.max(
+        maximum,
+        ...((String(employee.employeeCode || "").match(/\d+/g) || []).map(Number)),
+      ),
+    0,
+  );
+  const nextNumber = configuration?.sequenceInitialized
+    ? Number(configuration.nextNumber || 1)
+    : Math.max(Number(configuration?.nextNumber || 1), maxExisting + 1);
+  res.json({ nextNumber, paddingDigits: Number(configuration?.paddingDigits || 4) });
 });
 router.get(
   "/employees/form-options",
@@ -404,6 +414,37 @@ router.get(
         await db.select().from(table).where(eq(table.organizationId, org))
       ).filter((x: any) => x.isActive !== false);
     const holidays = await active(holidayTemplatesTable);
+    let prefixes = await active(crewCodePrefixesTable);
+    if (!prefixes.length) {
+      const [defaultPrefix] = await db
+        .insert(crewCodePrefixesTable)
+        .values({ organizationId: org, value: "EMP", isActive: true, updatedAt: new Date() })
+        .returning();
+      prefixes = [defaultPrefix];
+    }
+    let [crewCodeSettings] = await db
+      .select()
+      .from(crewCodeSettingsTable)
+      .where(eq(crewCodeSettingsTable.organizationId, org))
+      .limit(1);
+    if (!crewCodeSettings) {
+      [crewCodeSettings] = await db
+        .insert(crewCodeSettingsTable)
+        .values({ organizationId: org, paddingDigits: 4, nextNumber: 1, sequenceInitialized: false })
+        .returning();
+    }
+    const allEmployeesForCode = await db
+      .select()
+      .from(employeesTable)
+      .where(eq(employeesTable.organizationId, org));
+    const maxExistingCrewNumber = allEmployeesForCode.reduce(
+      (maximum: number, employee: any) =>
+        Math.max(maximum, ...((String(employee.employeeCode || "").match(/\d+/g) || []).map(Number))),
+      0,
+    );
+    const nextCrewNumber = crewCodeSettings.sequenceInitialized
+      ? Number(crewCodeSettings.nextNumber || 1)
+      : Math.max(Number(crewCodeSettings.nextNumber || 1), maxExistingCrewNumber + 1);
     return res.json({
       users,
       attendance: await active(attendanceTemplatesTable),
@@ -418,6 +459,12 @@ router.get(
         (role: any) =>
           !role.isSuperAdmin && role.systemKey !== "SUPER_ADMIN",
       ),
+      crewCode: {
+        prefixes,
+        suffixes: await active(crewCodeSuffixesTable),
+        paddingDigits: Number(crewCodeSettings.paddingDigits || 4),
+        nextNumber: nextCrewNumber,
+      },
     });
   },
 );
@@ -463,6 +510,7 @@ router.post(
         "accountHolderName",
         "accountNumber",
         "ifscCode",
+        "crewCodePrefixId",
       ];
       for (const key of required)
         if (!String(b[key] ?? "").trim())
@@ -538,35 +586,20 @@ router.post(
         return res
           .status(400)
           .json({ error: "Aadhaar, PAN or IFSC format is invalid" });
-      const rows = (
-        await db
-          .select()
-          .from(employeesTable)
-          .where(eq(employeesTable.organizationId, org))
-      ).filter((x: any) => !x.isDeleted);
-      let code = String(v.employeeCode || "").trim();
-      if (!code) {
-        const n =
-          rows.reduce(
-            (m: any, x: any) =>
-              Math.max(
-                m,
-                Number(String(x.employeeCode || "").match(/\d+/)?.[0] || 0),
-              ),
-            0,
-          ) + 1;
-        code = `EMP${String(n).padStart(4, "0")}`;
-      }
+      const allRows = await db
+        .select()
+        .from(employeesTable)
+        .where(eq(employeesTable.organizationId, org));
+      const rows = allRows.filter((x: any) => !x.isDeleted);
       if (
         rows.some(
           (x: any) =>
-            x.employeeCode === code ||
             String(x.email || "").toLowerCase() === v.email,
         )
       )
         return res
           .status(409)
-          .json({ error: "Employee code or email already exists" });
+          .json({ error: "Employee email already exists" });
       if (v.userId) {
         const [u] = await db
           .select()
@@ -620,25 +653,78 @@ router.post(
           });
       }
       stored = await saveEmployeePhoto(req.file);
-      const [row] = await db
-        .insert(employeesTable)
-        .values({
-          ...v,
-          id: undefined,
-          organizationId: org,
-          employeeCode: code,
-          annualCtc: String(v.annualCtc),
-          baseSalary: String(v.baseSalary),
-          skills: JSON.stringify(v.skills),
-          certifications: JSON.stringify(v.certifications),
-          fixedComponentValues: JSON.stringify(v.fixedComponentValues || {}),
-          photoUrl: stored?.url || null,
-          isDeleted: false,
-          isSystemGenerated: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .returning();
+      const row = await db.transaction(async (tx) => {
+        const prefixId = Number(v.crewCodePrefixId);
+        const suffixId = v.crewCodeSuffixId ? Number(v.crewCodeSuffixId) : null;
+        const [prefix] = await tx
+          .select()
+          .from(crewCodePrefixesTable)
+          .where(and(eq(crewCodePrefixesTable.id, prefixId), eq(crewCodePrefixesTable.organizationId, org)))
+          .limit(1);
+        if (!prefix || prefix.isActive === false) throw new Error("Selected crew code prefix is unavailable");
+        let suffix: any = null;
+        if (suffixId) {
+          [suffix] = await tx
+            .select()
+            .from(crewCodeSuffixesTable)
+            .where(and(eq(crewCodeSuffixesTable.id, suffixId), eq(crewCodeSuffixesTable.organizationId, org)))
+            .limit(1);
+          if (!suffix || suffix.isActive === false) throw new Error("Selected crew code suffix is unavailable");
+        }
+        let [configuration] = await tx
+          .select()
+          .from(crewCodeSettingsTable)
+          .where(eq(crewCodeSettingsTable.organizationId, org))
+          .limit(1);
+        if (!configuration) {
+          [configuration] = await tx
+            .insert(crewCodeSettingsTable)
+            .values({ organizationId: org, paddingDigits: 4, nextNumber: 1, sequenceInitialized: false })
+            .returning();
+        }
+        const existingEmployees = await tx
+          .select()
+          .from(employeesTable)
+          .where(eq(employeesTable.organizationId, org));
+        const maxExisting = existingEmployees.reduce(
+          (maximum: number, employee: any) => Math.max(
+            maximum,
+            ...((String(employee.employeeCode || "").match(/\d+/g) || []).map(Number)),
+          ),
+          0,
+        );
+        const number = configuration.sequenceInitialized
+          ? Number(configuration.nextNumber || 1)
+          : Math.max(Number(configuration.nextNumber || 1), maxExisting + 1);
+        const code = `${prefix.value}${String(number).padStart(Number(configuration.paddingDigits || 4), "0")}${suffix?.value || ""}`;
+        if (existingEmployees.some((employee: any) => employee.employeeCode === code))
+          throw new Error("Generated employee code already exists; please retry");
+        await tx
+          .update(crewCodeSettingsTable)
+          .set({ nextNumber: number + 1, sequenceInitialized: true, updatedAt: new Date() })
+          .where(eq(crewCodeSettingsTable.id, configuration.id));
+        const { crewCodePrefixId: _prefix, crewCodeSuffixId: _suffix, employeeCode: _code, ...employeeValues } = v;
+        const [created] = await tx
+          .insert(employeesTable)
+          .values({
+            ...employeeValues,
+            id: undefined,
+            organizationId: org,
+            employeeCode: code,
+            annualCtc: String(v.annualCtc),
+            baseSalary: String(v.baseSalary),
+            skills: JSON.stringify(v.skills),
+            certifications: JSON.stringify(v.certifications),
+            fixedComponentValues: JSON.stringify(v.fixedComponentValues || {}),
+            photoUrl: stored?.url || null,
+            isDeleted: false,
+            isSystemGenerated: false,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .returning();
+        return created;
+      });
       createdEmployeeId = Number(row.id);
       if (row.userId)
         await db

@@ -700,6 +700,7 @@ function resolveVersionSeries(status: string): "Draft" | "Sent" {
 }
 
 function listResponse(req: any, res: any, rows: any[]) {
+  rows = filterSalesDocuments(req, rows);
   if (req.query.skip === undefined && req.query.limit === undefined)
     return res.json(rows);
   const pagination = paginateQuery(req.query);
@@ -710,6 +711,37 @@ function listResponse(req: any, res: any, rows: any[]) {
       pagination,
     ),
   );
+}
+
+function filterSalesDocuments(req: any, rows: any[]) {
+  const search = String(req.query.search || "").trim().toLowerCase();
+  const fromDate = String(req.query.fromDate || "").slice(0, 10);
+  const toDate = String(req.query.toDate || "").slice(0, 10);
+  return rows.filter((row: any) => {
+    const documentNumber =
+      row.documentNumber || row.returnNumber || row.invoiceNumber ||
+      row.dcNumber || row.piNumber || row.quotationNumber || row.quoteNumber ||
+      row.orderCode || "";
+    const searchable = [
+      documentNumber,
+      row.clientId,
+      row.clientName,
+      row.customerCompany,
+      row.customerMobile,
+      row.customerWhatsappNumber,
+    ]
+      .map((value) => String(value ?? "").toLowerCase())
+      .join(" ");
+    const documentDate = String(
+      row.returnDate || row.invoiceDate || row.dcDate || row.piDate ||
+      row.quotationDate || row.transactionDate || row.customerApprovedAt || "",
+    ).slice(0, 10);
+    return (
+      (!search || searchable.includes(search)) &&
+      (!fromDate || !documentDate || documentDate >= fromDate) &&
+      (!toDate || !documentDate || documentDate <= toDate)
+    );
+  });
 }
 
 function isQuotationLocked(status: string) {
@@ -1704,7 +1736,7 @@ router.post("/quotations/:id/restore", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/approved-quotations", requireAuth, async (_req, res) => {
+router.get("/approved-quotations", requireAuth, async (req, res) => {
   const [quotes, proformas, inventory, workOrders] = await Promise.all([
     db.select().from(quotationsTable),
     db.select().from(proformaInvoicesTable),
@@ -1809,7 +1841,7 @@ router.get("/approved-quotations", requireAuth, async (_req, res) => {
       new Date(right.customerApprovedAt || 0).getTime() -
       new Date(left.customerApprovedAt || 0).getTime(),
   );
-  return res.json({ data: result });
+  return res.json({ data: filterSalesDocuments(req, result) });
 });
 
 router.post("/approved-quotations/reject", requireAuth, async (req, res) => {

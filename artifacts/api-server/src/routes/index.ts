@@ -22,6 +22,7 @@ import rolesRouter from "./roles";
 import tasksRouter from "./tasks";
 import contactsRouter from "./contacts";
 import departmentsRouter from "./departments";
+import crewCodesRouter from "./crewCodes";
 import templatesRouter from "./templates";
 import permissionsRouter from "./permissions";
 import flexRouter from "./flex";
@@ -197,6 +198,11 @@ router.use(
   "/departments",
   requireModulePermission("settings.master_settings"),
   departmentsRouter,
+);
+router.use(
+  "/crew-codes",
+  requireModulePermission("settings.master_settings"),
+  crewCodesRouter,
 );
 router.use(templatesRouter);
 router.use("/settings", templatesRouter);

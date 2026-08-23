@@ -28,6 +28,8 @@ const today = () => new Date().toLocaleDateString("en-CA");
 const initial = () => ({
   userId: "",
   employeeCode: "",
+  crewCodePrefixId: "",
+  crewCodeSuffixId: "",
   name: "",
   dateOfBirth: "",
   gender: "",
@@ -152,6 +154,7 @@ export function AddMemberDialog({
       salary: [],
       departments: [],
       roles: [],
+      crewCode: { prefixes: [], suffixes: [], paddingDigits: 4, nextNumber: 1 },
     }),
     [preview, setPreview] = useState(""),
     [userDialog, setUserDialog] = useState(false),
@@ -171,13 +174,8 @@ export function AddMemberDialog({
     setF(initial());
     setErrors({});
     setPreview("");
-    Promise.all([
-      editingEmployee
-        ? Promise.resolve({ employeeCode: editingEmployee.employeeCode })
-        : request("crew/employees/next-code"),
-      request("crew/employees/form-options"),
-    ])
-      .then(([code, data]) => {
+    request("crew/employees/form-options")
+      .then((data) => {
         setOptions(data);
         const source = editingEmployee || initialEmployee || {};
         const defaults = {
@@ -211,7 +209,11 @@ export function AddMemberDialog({
           ...x,
           ...defaults,
           ...source,
-          employeeCode: source.employeeCode || code.employeeCode,
+          employeeCode: source.employeeCode || "",
+          crewCodePrefixId: editingEmployee
+            ? ""
+            : String(data.crewCode?.prefixes?.[0]?.id || ""),
+          crewCodeSuffixId: "",
           userId: source.userId ? String(source.userId) : "",
           reportingManager: source.reportingManager
             ? String(source.reportingManager)
@@ -255,6 +257,31 @@ export function AddMemberDialog({
         }),
       );
   }, [open, editingEmployee, initialEmployee]);
+  useEffect(() => {
+    if (!open || editingEmployee) return;
+    const prefix = options.crewCode?.prefixes?.find(
+      (item: any) => String(item.id) === String(f.crewCodePrefixId),
+    );
+    const suffix = options.crewCode?.suffixes?.find(
+      (item: any) => String(item.id) === String(f.crewCodeSuffixId),
+    );
+    const number = String(options.crewCode?.nextNumber || 1).padStart(
+      Number(options.crewCode?.paddingDigits || 4),
+      "0",
+    );
+    const employeeCode = prefix ? `${prefix.value}${number}${suffix?.value || ""}` : "";
+    setF((current) =>
+      current.employeeCode === employeeCode
+        ? current
+        : { ...current, employeeCode },
+    );
+  }, [
+    open,
+    editingEmployee,
+    options.crewCode,
+    f.crewCodePrefixId,
+    f.crewCodeSuffixId,
+  ]);
   useEffect(
     () => () => {
       if (preview.startsWith("blob:")) URL.revokeObjectURL(preview);
@@ -341,6 +368,8 @@ export function AddMemberDialog({
       ["accountNumber", "Account number is required."],
       ["ifscCode", "IFSC code is required."],
     ];
+    if (!editingEmployee)
+      required.push(["crewCodePrefixId", "Crew code prefix is required."]);
     required.forEach(([k, m]) => {
       if (!String(f[k] ?? "").trim()) e[k] = m;
     });
@@ -683,12 +712,28 @@ export function AddMemberDialog({
                       label: department.name,
                     }))}
                   />
-                  <Text
-                    k="employeeCode"
-                    label="Employee Code"
-                    required
-                    disabled
-                  />
+                  {!editingEmployee && (
+                    <Choice
+                      k="crewCodePrefixId"
+                      label="Crew Code Prefix"
+                      required
+                      items={(options.crewCode?.prefixes || []).map((item: any) => ({
+                        value: String(item.id),
+                        label: item.value,
+                      }))}
+                    />
+                  )}
+                  {!editingEmployee && (
+                    <Choice
+                      k="crewCodeSuffixId"
+                      label="Crew Code Suffix (Optional)"
+                      items={(options.crewCode?.suffixes || []).map((item: any) => ({
+                        value: String(item.id),
+                        label: item.value,
+                      }))}
+                    />
+                  )}
+                  <Text k="employeeCode" label="Employee Code" required disabled />
                   <Text
                     k="location"
                     label="Work Location"

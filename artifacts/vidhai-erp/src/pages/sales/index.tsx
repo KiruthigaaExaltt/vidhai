@@ -8,6 +8,7 @@ import {
   CirclePlay,
   AlertTriangle,
   Eye,
+  Search,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,9 @@ export default function Sales() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [paginationByTab, setPaginationByTab] = useState<Record<string, { page: number; size: number }>>({});
   const [listMeta, setListMeta] = useState({ totalCount: 0, totalPages: 0 });
   const paginationState = paginationByTab[activeTab] ?? { page: 1, size: 10 };
@@ -74,8 +78,19 @@ export default function Sales() {
       ...current,
       [activeTab]: { ...(current[activeTab] ?? paginationState), ...next },
     }));
-  const pagedPath = (path: string) =>
-    `${path}?skip=${(paginationState.page - 1) * paginationState.size}&limit=${paginationState.size}`;
+  const filterParams = () => {
+    const params = new URLSearchParams();
+    if (search.trim()) params.set("search", search.trim());
+    if (fromDate) params.set("fromDate", fromDate);
+    if (toDate) params.set("toDate", toDate);
+    return params;
+  };
+  const pagedPath = (path: string) => {
+    const params = filterParams();
+    params.set("skip", String((paginationState.page - 1) * paginationState.size));
+    params.set("limit", String(paginationState.size));
+    return `${path}?${params.toString()}`;
+  };
   const acceptPage = (body: any, setter: (rows: any[]) => void) => {
     setter(body.data || []);
     setListMeta({
@@ -133,7 +148,8 @@ export default function Sales() {
     setLoading(true);
     setLoadError("");
     try {
-      const response = await fetch("/api/sales/approved-quotations", {
+      const params = filterParams();
+      const response = await fetch(`/api/sales/approved-quotations?${params.toString()}`, {
         credentials: "include",
       });
       const body = await response.json().catch(() => ({}));
@@ -318,7 +334,11 @@ export default function Sales() {
     if (activeTab === "Delivery Challan") void loadChallans();
     if (activeTab === "Invoices") void loadInvoices();
     if (activeTab === "Sales Return") void loadReturns();
-  }, [activeTab, paginationState.page, paginationState.size]);
+  }, [activeTab, paginationState.page, paginationState.size, search, fromDate, toDate]);
+
+  useEffect(() => {
+    setListPagination({ page: 1 });
+  }, [search, fromDate, toDate, activeTab]);
 
   const listedDocuments =
     activeTab === "Quotation"
@@ -510,6 +530,27 @@ export default function Sales() {
           </div>
 
           {/* Content Area */}
+          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="relative lg:col-span-2">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search document number, client ID, client name, mobile or WhatsApp..."
+                className="h-9 rounded-md border-border bg-background pl-9 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 lg:col-span-2">
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">From Date</div>
+                <Input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} className="h-9 cursor-pointer rounded-md bg-background text-xs" />
+              </div>
+              <div>
+                <div className="mb-1 text-[11px] font-medium text-muted-foreground">To Date</div>
+                <Input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} className="h-9 cursor-pointer rounded-md bg-background text-xs" />
+              </div>
+            </div>
+          </div>
           {activeTab === "Sales Order" ? (
             salesOrderQueue
           ) : activeTab === "Quotation" ||

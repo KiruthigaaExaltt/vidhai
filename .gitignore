@@ -54,3 +54,6 @@ Thumbs.db
 
 # local binary uploads (configured by UPLOAD_ROOT)
 uploads/
+
+# pnpm local package store
+.pnpm-store/
