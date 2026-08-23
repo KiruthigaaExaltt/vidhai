@@ -16,6 +16,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, ilike } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { saveImageDataUrl } from "../lib/uploadStorage";
 
 const router = Router();
 
@@ -287,8 +288,8 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
   } = req.body as any;
 
   // Preserve any supplied verification photos; photos are optional.
-  const imgs: string[] = Array.isArray(verificationImages)
-    ? verificationImages.filter(Boolean)
+  const submittedImages: string[] = Array.isArray(verificationImages)
+    ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
 
   const [batch] = await db
@@ -317,6 +318,19 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
         .status(400)
         .json({ error: "Spawn quantity is required to complete the batch" });
     }
+  }
+
+  let imgs: string[];
+  try {
+    imgs = await Promise.all(
+      submittedImages.map((image) =>
+        saveImageDataUrl(image, "lab-verification"),
+      ),
+    );
+  } catch (error: any) {
+    return res.status(400).json({
+      error: error?.message || "Unable to store verification photos",
+    });
   }
 
   await db.transaction(async (tx) => {

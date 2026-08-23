@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import {
   useListMaterials,
   useCreateMaterial,
@@ -1195,7 +1196,7 @@ export default function InventoryModule() {
                                   <div className="flex items-center gap-3">
                                     {inv.imageUrl ? (
                                       <img
-                                        src={inv.imageUrl}
+                                        src={apiAssetUrl(inv.imageUrl)}
                                         alt=""
                                         className="h-10 w-10 rounded-md border object-cover"
                                       />
@@ -1326,7 +1327,7 @@ export default function InventoryModule() {
                             <div className="aspect-square bg-muted/30 relative flex items-center justify-center overflow-hidden border-b">
                               {inv.imageUrl ? (
                                 <img
-                                  src={inv.imageUrl}
+                                  src={apiAssetUrl(inv.imageUrl)}
                                   alt={inv.materialName}
                                   className="w-full h-full object-cover"
                                 />
@@ -2953,7 +2954,7 @@ export default function InventoryModule() {
                   <div className="w-20 h-20 border rounded-sm flex items-center justify-center bg-muted/20 text-muted-foreground overflow-hidden">
                     {productForm.imageUrl ? (
                       <img
-                        src={productForm.imageUrl}
+                        src={apiAssetUrl(productForm.imageUrl)}
                         alt="Product"
                         className="w-full h-full object-cover"
                       />

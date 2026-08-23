@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { useParams, useLocation } from "wouter";
 import {
   useGetCoimbatoreBatch,
@@ -1584,7 +1585,7 @@ export default function CoimbatoreBatchDetail() {
                                             className="w-8 h-8 rounded-sm overflow-hidden border border-green-300 hover:border-primary cursor-zoom-in"
                                           >
                                             <img
-                                              src={img}
+                                              src={apiAssetUrl(img)}
                                               className="w-full h-full object-cover"
                                               alt=""
                                             />
@@ -1735,7 +1736,7 @@ export default function CoimbatoreBatchDetail() {
                                   className="w-10 h-10 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                 >
                                   <img
-                                    src={img}
+                                    src={apiAssetUrl(img)}
                                     className="w-full h-full object-cover"
                                     alt={`${record.stage} photo ${index + 1}`}
                                   />
@@ -1851,7 +1852,7 @@ export default function CoimbatoreBatchDetail() {
                                           className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                         >
                                           <img
-                                            src={img}
+                                            src={apiAssetUrl(img)}
                                             className="w-full h-full object-cover"
                                             alt=""
                                           />
@@ -1920,7 +1921,7 @@ export default function CoimbatoreBatchDetail() {
                                             className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                           >
                                             <img
-                                              src={img}
+                                              src={apiAssetUrl(img)}
                                               className="w-full h-full object-cover"
                                               alt=""
                                             />
@@ -2000,7 +2001,7 @@ export default function CoimbatoreBatchDetail() {
         <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
           {lightboxSrc && (
             <img
-              src={lightboxSrc}
+              src={apiAssetUrl(lightboxSrc)}
               alt=""
               className="w-full h-auto max-h-[80vh] object-contain"
             />

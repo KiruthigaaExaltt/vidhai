@@ -23,6 +23,7 @@ import {
 import { and, eq, desc, gte, ilike, isNull } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { ensureDefaultVaultItems } from "../lib/ensureDefaultVaultItems";
+import { saveImageDataUrl } from "../lib/uploadStorage";
 
 const router = Router();
 
@@ -708,9 +709,21 @@ router.post(
     const id = Number(req.params.id);
     const userId = (req.session as any).userId;
     const { stage, notes, verificationImages } = req.body as any;
-    const images: string[] = Array.isArray(verificationImages)
+    const submittedImages: string[] = Array.isArray(verificationImages)
       ? verificationImages.filter(Boolean).slice(0, 2)
       : [];
+    let images: string[];
+    try {
+      images = await Promise.all(
+        submittedImages.map((image) =>
+          saveImageDataUrl(image, "coimbatore-verification"),
+        ),
+      );
+    } catch (error: any) {
+      return res.status(400).json({
+        error: error?.message || "Unable to store verification photos",
+      });
+    }
     const [batch] = await db
       .select()
       .from(batchesTable)
@@ -1008,9 +1021,21 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
   const { turnNumber, actualDate, notes, verificationImages } = req.body as any;
   // Verification photos are optional and retained when supplied.
-  const imgs: string[] = Array.isArray(verificationImages)
+  const submittedImages: string[] = Array.isArray(verificationImages)
     ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
+  let imgs: string[];
+  try {
+    imgs = await Promise.all(
+      submittedImages.map((image) =>
+        saveImageDataUrl(image, "coimbatore-verification"),
+      ),
+    );
+  } catch (error: any) {
+    return res.status(400).json({
+      error: error?.message || "Unable to store verification photos",
+    });
+  }
 
   // Enforce sequential completion
   const existingTurns = await db

@@ -1,4 +1,5 @@
 import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { useAuth } from "@/lib/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -380,7 +381,7 @@ export default function Profile() {
               <div className="w-24 h-24 rounded-full bg-primary/15 flex items-center justify-center mb-4 overflow-hidden">
                 {avatarUrl ? (
                   <img
-                    src={avatarUrl}
+                    src={apiAssetUrl(avatarUrl)}
                     alt={`${user.displayName}'s profile`}
                     className="h-full w-full object-cover"
                   />

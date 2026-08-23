@@ -33,6 +33,7 @@ import {
   validateCookoutManure,
 } from "../lib/ootyCookoutInventory";
 import { requirePermission } from "../lib/access";
+import { saveImageDataUrl } from "../lib/uploadStorage";
 import {
   MAX_GROWING_ROOM_IMPORT_ROWS,
   normalizeGrowingRoomName,
@@ -1136,9 +1137,21 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
   }
 
   // Verification photos are optional. Preserve up to two when supplied.
-  const imgs: string[] = Array.isArray(verificationImages)
+  const submittedImages: string[] = Array.isArray(verificationImages)
     ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
+  let imgs: string[];
+  try {
+    imgs = await Promise.all(
+      submittedImages.map((image) =>
+        saveImageDataUrl(image, "ooty-verification"),
+      ),
+    );
+  } catch (error: any) {
+    return res.status(400).json({
+      error: error?.message || "Unable to store verification photos",
+    });
+  }
 
   const flushNumber = flushNumberForStage(effectiveCurrentStage);
   const expectedHarvestTarget =

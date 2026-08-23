@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { deleteStoredUpload, saveImageDataUrl } from "../lib/uploadStorage";
 import {
   and,
   assetAllocationsTable,
@@ -134,6 +135,9 @@ router.post("/", async (req, res): Promise<any> => {
     ).length
   )
     return res.status(409).json({ error: "SKU already exists" });
+  const imageUrl = b.imageUrl
+    ? await saveImageDataUrl(b.imageUrl, "asset-images")
+    : null;
   const [created] = await db
     .insert(assetsTable)
     .values({
@@ -146,7 +150,7 @@ router.post("/", async (req, res): Promise<any> => {
       availableQuantity: String(quantity),
       purchaseValue: String(value),
       unitPrice: String(value / quantity),
-      imageUrl: b.imageUrl || null,
+      imageUrl,
       purchaseDate: b.purchaseDate,
       qrPayload: "pending",
       isDeleted: false,
@@ -211,6 +215,12 @@ router.patch("/:id", async (req, res): Promise<any> => {
     (b.purchaseDate !== undefined && !date.test(b.purchaseDate))
   )
     return res.status(400).json({ error: "Invalid asset details" });
+  const imageUrl =
+    b.imageUrl === undefined
+      ? old.imageUrl
+      : b.imageUrl
+        ? await saveImageDataUrl(b.imageUrl, "asset-images")
+        : null;
   const [asset] = await db
     .update(assetsTable)
     .set({
@@ -223,13 +233,15 @@ router.patch("/:id", async (req, res): Promise<any> => {
       availableQuantity: String(total - Number(old.allocatedQuantity)),
       purchaseValue: String(value),
       unitPrice: String(value / total),
-      imageUrl: b.imageUrl === undefined ? old.imageUrl : b.imageUrl || null,
+      imageUrl,
       purchaseDate: b.purchaseDate ?? old.purchaseDate,
       qrPayload: JSON.stringify({ assetId: id, sku, name }),
       updatedAt: new Date(),
     })
     .where(eq(assetsTable.id, id))
     .returning();
+  if (b.imageUrl !== undefined && old.imageUrl !== asset.imageUrl)
+    await deleteStoredUpload(old.imageUrl);
   res.json(assetJson(asset));
 });
 router.delete("/:id", async (req, res): Promise<any> => {
@@ -248,6 +260,7 @@ router.delete("/:id", async (req, res): Promise<any> => {
     .update(assetsTable)
     .set({ isDeleted: true, updatedAt: new Date() })
     .where(eq(assetsTable.id, id));
+  await deleteStoredUpload(asset.imageUrl);
   res.status(204).send();
 });
 router.post(

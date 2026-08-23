@@ -13,6 +13,7 @@ import {
   verifyPassword,
 } from "../lib/password";
 import { revokeUserRefreshSessions } from "../lib/jwtAuth";
+import { deleteStoredUpload, saveImageDataUrl } from "../lib/uploadStorage";
 
 const router = Router();
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -134,6 +135,7 @@ router.patch("/me/profile", async (req, res) => {
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ error: "Not authenticated" });
 
+  let newlyStoredAvatar: string | null = null;
   try {
     const updates: Record<string, unknown> = {};
     const requestedWorkDetails = [
@@ -194,16 +196,16 @@ router.patch("/me/profile", async (req, res) => {
     }
     if (req.body.avatarUrl !== undefined) {
       const avatarUrl = String(req.body.avatarUrl || "");
-      if (
-        avatarUrl &&
-        !/^data:image\/(jpeg|png|webp);base64,[a-z0-9+/=]+$/i.test(avatarUrl)
-      )
-        return res.status(400).json({ error: "Profile picture is invalid" });
       if (avatarUrl.length > 7_000_000)
         return res
           .status(400)
           .json({ error: "Profile picture must be 5 MB or smaller" });
-      updates.avatarUrl = avatarUrl || null;
+      if (avatarUrl) {
+        newlyStoredAvatar = await saveImageDataUrl(avatarUrl, "avatars");
+        updates.avatarUrl = newlyStoredAvatar;
+      } else {
+        updates.avatarUrl = null;
+      }
     }
 
     if (!Object.keys(updates).length) return res.json(safe(user));
@@ -217,8 +219,16 @@ router.patch("/me/profile", async (req, res) => {
         ),
       )
       .returning();
+    if (
+      req.body.avatarUrl !== undefined &&
+      user.avatarUrl &&
+      user.avatarUrl !== updated.avatarUrl
+    )
+      await deleteStoredUpload(user.avatarUrl).catch(() => {});
+    newlyStoredAvatar = null;
     return res.json(safe(updated));
   } catch (error: any) {
+    if (newlyStoredAvatar) await deleteStoredUpload(newlyStoredAvatar);
     return res.status(400).json({ error: error.message });
   }
 });

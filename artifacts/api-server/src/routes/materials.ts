@@ -11,6 +11,7 @@ import { inventoryTable } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { PROTECTED_VAULT_ITEM_NAMES } from "../lib/ensureDefaultVaultItems";
 import { publishInventoryMasterCreated } from "../lib/notificationService";
+import { deleteStoredUpload, saveImageDataUrl } from "../lib/uploadStorage";
 
 const router = Router();
 
@@ -144,7 +145,12 @@ router.post("/", async (req, res): Promise<any> => {
 
   const qrPayload = `/product/${encodeURIComponent(sku || itemIdentifier)}`;
 
+  let storedImage: string | null = null;
+  let materialSaved = false;
   try {
+    storedImage = imageUrl
+      ? await saveImageDataUrl(imageUrl, "material-images")
+      : null;
     const normalizedStocks = Array.isArray(warehouseStocks)
       ? warehouseStocks
           .filter((ws: any) => ws.warehouseId)
@@ -189,13 +195,14 @@ router.post("/", async (req, res): Promise<any> => {
         sellPricePerUnit:
           sellPricePerUnit != null ? String(sellPricePerUnit) : null,
         gstPercent: gstPercent != null ? String(gstPercent) : "0",
-        imageUrl: imageUrl ?? null,
+        imageUrl: storedImage,
         categoryId: categoryId ? Number(categoryId) : null,
         attributeValues: attributeValues || {},
         itemIdentifier,
         qrPayload,
       })
       .returning();
+    materialSaved = true;
 
     try {
       for (const ws of normalizedStocks)
@@ -210,6 +217,7 @@ router.post("/", async (req, res): Promise<any> => {
         .delete(inventoryTable)
         .where(eq(inventoryTable.materialId, mat.id));
       await db.delete(materialsTable).where(eq(materialsTable.id, mat.id));
+      materialSaved = false;
       throw stockError;
     }
 
@@ -234,6 +242,7 @@ router.post("/", async (req, res): Promise<any> => {
       })),
     });
   } catch (err: any) {
+    if (storedImage && !materialSaved) await deleteStoredUpload(storedImage);
     if (err.code === 11000 || err.code === "23505") {
       res
         .status(400)
@@ -263,6 +272,12 @@ router.patch("/:id", async (req, res) => {
     attributeValues,
     warehouseStocks,
   } = req.body;
+  const [existingMaterial] = await db
+    .select()
+    .from(materialsTable)
+    .where(eq(materialsTable.id, Number(req.params.id)))
+    .limit(1);
+  if (!existingMaterial) return res.status(404).json({ error: "Not found" });
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (sku !== undefined) updates.sku = sku;
@@ -279,7 +294,13 @@ router.patch("/:id", async (req, res) => {
     updates.gstPercent = gstPercent != null ? String(gstPercent) : "0";
   if (criticalLevel !== undefined)
     updates.criticalLevel = String(criticalLevel);
-  if (imageUrl !== undefined) updates.imageUrl = imageUrl || null;
+  let storedImage: string | null = null;
+  if (imageUrl !== undefined) {
+    storedImage = imageUrl
+      ? await saveImageDataUrl(imageUrl, "material-images")
+      : null;
+    updates.imageUrl = storedImage;
+  }
   if (categoryId !== undefined)
     updates.categoryId = categoryId ? Number(categoryId) : null;
   if (attributeValues !== undefined) updates.attributeValues = attributeValues;
@@ -296,6 +317,8 @@ router.patch("/:id", async (req, res) => {
     .where(eq(materialsTable.id, Number(req.params.id)))
     .returning();
   if (!mat) return res.status(404).json({ error: "Not found" });
+  if (imageUrl !== undefined && existingMaterial.imageUrl !== mat.imageUrl)
+    await deleteStoredUpload(existingMaterial.imageUrl);
   if (Array.isArray(warehouseStocks)) {
     const normalized = warehouseStocks
       .filter((ws: any) => ws.warehouseId)
@@ -377,6 +400,7 @@ router.delete("/:id", async (req, res) => {
   await db
     .delete(materialsTable)
     .where(eq(materialsTable.id, Number(req.params.id)));
+  await deleteStoredUpload(material.imageUrl);
   return res.status(204).send();
 });
 

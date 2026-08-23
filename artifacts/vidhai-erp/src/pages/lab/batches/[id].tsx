@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { useParams, useLocation } from "wouter";
 import {
   useGetLabBatch,
@@ -847,7 +848,7 @@ export default function LabBatchDetail() {
                                     className="w-10 h-10 rounded-sm overflow-hidden border-2 border-green-300 hover:border-primary cursor-zoom-in"
                                   >
                                     <img
-                                      src={img}
+                                      src={apiAssetUrl(img)}
                                       alt=""
                                       className="w-full h-full object-cover"
                                     />
@@ -936,7 +937,7 @@ export default function LabBatchDetail() {
                                             className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                           >
                                             <img
-                                              src={img}
+                                              src={apiAssetUrl(img)}
                                               alt=""
                                               className="w-full h-full object-cover"
                                             />
@@ -1070,7 +1071,7 @@ export default function LabBatchDetail() {
         <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
           {lightboxSrc && (
             <img
-              src={lightboxSrc}
+              src={apiAssetUrl(lightboxSrc)}
               alt=""
               className="w-full h-auto max-h-[80vh] object-contain"
             />

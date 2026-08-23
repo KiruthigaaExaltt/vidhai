@@ -82,7 +82,7 @@ export const ootyStageLogsTable = mongoTable("ooty_stage_logs", {
     .notNull()
     .defaultNow(),
   exitedAt: timestamp("exited_at", { withTimezone: true }),
-  verificationImages: text("verification_images"), // JSON array of base64 strings
+  verificationImages: text("verification_images"), // JSON array of stored file URLs
   notes: text("notes"),
   casingBatchRef: text("casing_batch_ref"),
   casingSoilSourceType: text("casing_soil_source_type"),

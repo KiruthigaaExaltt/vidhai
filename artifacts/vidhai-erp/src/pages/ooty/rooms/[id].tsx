@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { useParams, useLocation } from "wouter";
 import {
   useGetOotyRoom,
@@ -641,7 +642,7 @@ export default function OotyRoomDetail() {
                                           title="Click to enlarge"
                                         >
                                           <img
-                                            src={img}
+                                            src={apiAssetUrl(img)}
                                             className="w-full h-full object-cover"
                                             alt={`Verification ${i + 1}`}
                                           />
@@ -725,7 +726,7 @@ export default function OotyRoomDetail() {
                                       title="Click to enlarge"
                                     >
                                       <img
-                                        src={img}
+                                        src={apiAssetUrl(img)}
                                         className="w-full h-full object-cover"
                                         alt=""
                                       />
@@ -966,7 +967,7 @@ export default function OotyRoomDetail() {
         <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
           {lightboxSrc && (
             <img
-              src={lightboxSrc}
+              src={apiAssetUrl(lightboxSrc)}
               alt="Verification photo"
               className="w-full h-auto max-h-[80vh] object-contain"
             />

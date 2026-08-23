@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
 import {
@@ -404,7 +405,7 @@ export default function Inventory() {
                     <div className="aspect-square bg-muted/30 relative flex items-center justify-center overflow-hidden border-b">
                       {inv.imageUrl ? (
                         <img
-                          src={inv.imageUrl}
+                          src={apiAssetUrl(inv.imageUrl)}
                           alt={inv.materialName}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
