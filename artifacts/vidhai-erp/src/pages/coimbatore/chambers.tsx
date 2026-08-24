@@ -286,6 +286,12 @@ export default function CoimbatoreChambers() {
   };
 
   const selectedChamber = chamberRows.find((c) => c.id === selectedChamberId);
+  const visibleHistory = selectedChamber?.currentBatchId
+    ? (history ?? []).filter(
+        (reading: any) =>
+          Number(reading.batchId) === Number(selectedChamber.currentBatchId),
+      )
+    : [];
 
   return (
     <Shell>
@@ -755,7 +761,7 @@ export default function CoimbatoreChambers() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {history?.map((r) => (
+                          {visibleHistory.map((r) => (
                             <tr
                               key={r.id}
                               className="h-[36px] hover:bg-muted/30"
@@ -791,7 +797,7 @@ export default function CoimbatoreChambers() {
                               </td>
                             </tr>
                           ))}
-                          {(!history || history.length === 0) && (
+                          {visibleHistory.length === 0 && (
                             <tr>
                               <td
                                 colSpan={8}
