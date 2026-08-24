@@ -15,7 +15,7 @@ export interface Contact {
   phone: string;
   whatsappNumber: string;
   gstin: string;
-  stateCode: string;
+  stateCode?: string;
   email: string;
   address: string;
   notes: string;

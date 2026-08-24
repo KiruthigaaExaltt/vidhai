@@ -326,6 +326,8 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       chamberName: chambersTable.name,
       recordedByName: usersTable.displayName,
       batchCode: batchesTable.batchCode,
+      batchStatus: batchesTable.status,
+      batchStage: batchesTable.currentStage,
     })
     .from(chamberReadingsTable)
     .innerJoin(
@@ -353,6 +355,8 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       batchId: r.reading.batchId,
       turnNumber: r.reading.turnNumber,
       batchCode: r.batchCode ?? null,
+      batchStatus: r.batchStatus ?? null,
+      batchStage: r.batchStage ?? null,
       temperatureCelsius:
         r.reading.temperatureCelsius !== null
           ? Number(r.reading.temperatureCelsius)
@@ -421,7 +425,9 @@ router.post("/:id/readings", requireAuth, async (req, res) => {
     .values({
       organizationId: organizationId(req),
       chamberId,
-      batchId: isCasingSoil ? chamber.currentBatchId : null,
+      // Keep every reading tied to the batch occupying the chamber.  Annur
+      // batch history and chamber history then read the same durable record.
+      batchId: chamber.currentBatchId ?? null,
       turnNumber: isCasingSoil ? chamber.currentTurnNumber : null,
       temperatureCelsius: temperatureCelsius ?? null,
       nh3Ppm: nh3Ppm ?? null,

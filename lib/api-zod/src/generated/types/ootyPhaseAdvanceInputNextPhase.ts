@@ -11,6 +11,7 @@ export type OotyPhaseAdvanceInputNextPhase = typeof OotyPhaseAdvanceInputNextPha
 
 export const OotyPhaseAdvanceInputNextPhase = {
   CASING_RUN: 'CASING_RUN',
+  PRONING: 'PRONING',
   DF: 'DF',
   COOKOUT: 'COOKOUT',
   COMPLETED: 'COMPLETED',

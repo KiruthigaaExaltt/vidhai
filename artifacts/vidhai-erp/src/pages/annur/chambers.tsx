@@ -262,6 +262,26 @@ export default function Chambers() {
   };
 
   const selectedChamber = chambers?.find((c) => c.id === selectedChamberId);
+  // Keep readings visible in every chamber used by an in-progress batch. They
+  // leave Chamber Control only when that batch is fully completed; the durable
+  // records remain available on its batch history page.
+  const visibleHistory = (history ?? []).filter(
+    (reading) =>
+      !!(reading as any).batchId &&
+      (reading as any).batchStage !== "COMPLETED" &&
+      (reading as any).batchStatus !== "completed",
+  );
+  const displayedBatch = selectedChamber?.currentBatchId
+    ? {
+        id: selectedChamber.currentBatchId,
+        code: selectedChamber.currentBatchCode,
+      }
+    : visibleHistory[0]
+      ? {
+          id: (visibleHistory[0] as any).batchId,
+          code: (visibleHistory[0] as any).batchCode,
+        }
+      : null;
 
   return (
     <Shell>
@@ -375,7 +395,9 @@ export default function Chambers() {
                               Temp
                             </span>
                             <span className="font-mono font-medium">
-                              {c.lastTemperature ?? "--"}°C
+                              {c.currentBatchId
+                                ? (c.lastTemperature ?? "--")
+                                : "--"}°C
                             </span>
                           </div>
                           <div className="flex flex-col">
@@ -383,7 +405,8 @@ export default function Chambers() {
                               NH3
                             </span>
                             <span className="font-mono font-medium">
-                              {c.lastNh3 ?? "--"}ppm
+                              {c.currentBatchId ? (c.lastNh3 ?? "--") : "--"}
+                              ppm
                             </span>
                           </div>
                         </div>
@@ -395,6 +418,7 @@ export default function Chambers() {
                           size="icon"
                           className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10 rounded-md"
                           onClick={(e) => handleOpenReading(e, c.id)}
+                          disabled={!c.currentBatchId}
                         >
                           <Plus className="w-4 h-4" />
                         </Button>
@@ -613,7 +637,7 @@ export default function Chambers() {
             </div>
 
             <div className="p-6 flex-1 overflow-y-auto space-y-8">
-              {selectedChamber?.status === "active" && (
+              {displayedBatch && (
                 <div className="bg-primary/5 border border-primary/20 rounded-md p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="bg-primary text-primary-foreground p-2 rounded-md">
@@ -621,10 +645,10 @@ export default function Chambers() {
                     </div>
                     <div>
                       <div className="text-xs uppercase tracking-wider font-semibold text-primary">
-                        Current Batch
+                        Production Batch
                       </div>
                       <div className="font-mono text-lg font-bold">
-                        {selectedChamber.currentBatchCode}
+                        {displayedBatch.code}
                       </div>
                     </div>
                   </div>
@@ -632,11 +656,11 @@ export default function Chambers() {
                     variant="outline"
                     size="sm"
                     className="rounded-md border-primary/20 text-primary"
-                    disabled={!selectedChamber.currentBatchId}
+                    disabled={!displayedBatch.id}
                     onClick={() => {
-                      if (selectedChamber.currentBatchId) {
+                      if (displayedBatch.id) {
                         setLocation(
-                          `/annur/batches/${selectedChamber.currentBatchId}`,
+                          `/annur/batches/${displayedBatch.id}`,
                         );
                       }
                     }}
@@ -646,9 +670,7 @@ export default function Chambers() {
                 </div>
               )}
 
-              {selectedChamber &&
-                (selectedChamber.chamberType === "bulk" ||
-                  selectedChamber.chamberType.startsWith("bunker_")) && (
+              {selectedChamber && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
@@ -659,15 +681,22 @@ export default function Chambers() {
                         onClick={(e) =>
                           handleOpenReading(e, selectedChamber.id)
                         }
+                        disabled={!selectedChamber.currentBatchId}
+                        title={
+                          selectedChamber.currentBatchId
+                            ? "Log a reading for the current batch"
+                            : "Assign a batch before logging readings"
+                        }
                         className="h-8 rounded-md text-xs px-3"
                       >
                         <Plus className="w-3 h-3 mr-1" /> Log Reading
                       </Button>
                     </div>
-                    <div className="border rounded-md overflow-hidden">
+                    <div className="border rounded-md overflow-x-auto">
                       <table className="w-full text-sm text-left">
                         <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                           <tr>
+                            <th className="px-4 py-2 font-medium">Batch</th>
                             <th className="px-4 py-2 font-medium">Time</th>
                             <th className="px-4 py-2 font-medium text-right">
                               Temp °C
@@ -678,15 +707,22 @@ export default function Chambers() {
                             <th className="px-4 py-2 font-medium text-right">
                               CO2 %
                             </th>
+                            <th className="px-4 py-2 font-medium text-right">
+                              Moisture %
+                            </th>
                             <th className="px-4 py-2 font-medium">Logged By</th>
+                            <th className="px-4 py-2 font-medium">Notes</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {history?.map((r) => (
+                          {visibleHistory.map((r) => (
                             <tr
                               key={r.id}
                               className="h-[36px] hover:bg-muted/30"
                             >
+                              <td className="px-4 font-mono text-xs font-semibold">
+                                {(r as any).batchCode ?? "-"}
+                              </td>
                               <td className="px-4 font-mono text-xs">
                                 {new Date(r.recordedAt).toLocaleString([], {
                                   dateStyle: "short",
@@ -702,18 +738,25 @@ export default function Chambers() {
                               <td className="px-4 font-mono text-right">
                                 {r.co2Percent ?? "-"}
                               </td>
+                              <td className="px-4 font-mono text-right">
+                                {r.humidity ?? "-"}
+                              </td>
                               <td className="px-4 text-xs text-muted-foreground">
                                 {r.recordedByName}
                               </td>
+                              <td className="px-4 text-xs text-muted-foreground max-w-[180px] truncate">
+                                {r.notes || "-"}
+                              </td>
                             </tr>
                           ))}
-                          {(!history || history.length === 0) && (
+                          {visibleHistory.length === 0 && (
                             <tr>
                               <td
-                                colSpan={5}
+                                colSpan={8}
                                 className="px-4 py-8 text-center text-muted-foreground"
                               >
-                                No environmental readings found.
+                                No readings from an in-progress batch. Completed
+                                batch readings are available in Batch History.
                               </td>
                             </tr>
                           )}
@@ -723,14 +766,6 @@ export default function Chambers() {
                   </div>
                 )}
 
-              {selectedChamber &&
-                selectedChamber.chamberType !== "bulk" &&
-                !selectedChamber.chamberType.startsWith("bunker_") && (
-                  <div className="py-8 text-center text-muted-foreground border border-dashed rounded-md flex items-center justify-center gap-2">
-                    <Info className="w-4 h-4" /> This chamber type does not
-                    require hourly environmental monitoring.
-                  </div>
-                )}
             </div>
           </DialogContent>
         </Dialog>

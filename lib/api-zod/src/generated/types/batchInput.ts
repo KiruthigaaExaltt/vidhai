@@ -5,17 +5,14 @@
  * Vidhai ERP API — multi-site mushroom farming production orchestration
  * OpenAPI spec version: 0.1.0
  */
+import type { BatchInputFormulationItem } from './batchInputFormulationItem';
 
 export interface BatchInput {
   locationId: number;
+  preWettingChamberId: number;
   /** @nullable */
   targetBags?: number | null;
   /** @nullable */
   notes?: string | null;
-  formulation?: Array<{
-    materialId?: number | null;
-    name: string;
-    wetWeightKg: number;
-    moisturePercent: number;
-    nitrogenPercent: number;
-  }>;}
+  formulation?: BatchInputFormulationItem[];
+}

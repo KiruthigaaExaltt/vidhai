@@ -12,4 +12,5 @@ export type StageAdvanceInputSpawnBatchType = typeof StageAdvanceInputSpawnBatch
 export const StageAdvanceInputSpawnBatchType = {
   internal: 'internal',
   external: 'external',
+  both: 'both',
 } as const;

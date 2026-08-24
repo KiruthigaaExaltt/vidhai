@@ -5,9 +5,11 @@
  * Vidhai ERP API — multi-site mushroom farming production orchestration
  * OpenAPI spec version: 0.1.0
  */
+import type { LoginInputPasswordEncoding } from './loginInputPasswordEncoding';
 
 export interface LoginInput {
   username: string;
+  /** RSA-OAEP SHA-256 ciphertext encoded as base64 */
   password: string;
-  passwordEncoding: "rsa-oaep-256";
+  passwordEncoding: LoginInputPasswordEncoding;
 }

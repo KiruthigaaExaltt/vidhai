@@ -5,9 +5,9 @@
  * Vidhai ERP API — multi-site mushroom farming production orchestration
  * OpenAPI spec version: 0.1.0
  */
-import type { User } from './user';
 
-export interface AuthResponse {
-  accessToken: string;
-  user: User;
-}
+export type StageAdvanceInputSpawnUsagesItem = {
+  spawnEntryId: number;
+  /** @exclusiveMinimum 0 */
+  quantityUsedKg: number;
+};

@@ -54,6 +54,7 @@ export const ootyGrowingBatchesTable = mongoTable("ooty_growing_batches", {
     scale: 4,
   }),
   manureProducedKg: numeric("manure_produced_kg", { precision: 10, scale: 4 }),
+  manureBags: integer("manure_bags"),
   notes: text("notes"),
   createdByUserId: integer("created_by_user_id").references(
     () => usersTable.id,
@@ -93,6 +94,7 @@ export const ootyStageLogsTable = mongoTable("ooty_stage_logs", {
     precision: 12,
     scale: 4,
   }),
+  manureBags: integer("manure_bags"),
   recordedByUserId: integer("recorded_by_user_id").references(
     () => usersTable.id,
   ),

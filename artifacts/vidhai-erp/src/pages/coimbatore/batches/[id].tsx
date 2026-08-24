@@ -1017,7 +1017,7 @@ export default function CoimbatoreBatchDetail() {
               </CardHeader>
               <CardContent className="p-5 grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>Initial Temperature (�C) *</Label>
+                  <Label>Initial Temperature (°C) *</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -1209,7 +1209,7 @@ export default function CoimbatoreBatchDetail() {
                           {Number(
                             config.initialTemperatureCelsius ?? 0,
                           ).toFixed(2)}{" "}
-                          �C
+                          °C
                         </p>
                       </div>
                       <div>
@@ -1771,7 +1771,10 @@ export default function CoimbatoreBatchDetail() {
                             <th className="px-4 py-2.5 font-medium">Planned</th>
                             <th className="px-4 py-2.5 font-medium">Actual</th>
                             <th className="px-4 py-2.5 font-medium">Chamber</th>
-                            <th className="px-4 py-2.5 font-medium">Temp �C</th>
+                            <th className="px-4 py-2.5 font-medium">
+                              Stage By
+                            </th>
+                            <th className="px-4 py-2.5 font-medium">Temp °C</th>
                             <th className="px-4 py-2.5 font-medium">NH3 ppm</th>
                             <th className="px-4 py-2.5 font-medium">CO2 %</th>
                             <th className="px-4 py-2.5 font-medium">
@@ -1797,6 +1800,9 @@ export default function CoimbatoreBatchDetail() {
                               </td>
                               <td className="px-4 text-xs font-semibold">
                                 {reading.chamberName || "—"}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground">
+                                {reading.stagedByName || b.createdByName || "—"}
                               </td>
                               <td className="px-4 font-mono text-xs">{reading.temperatureCelsius ?? "—"}</td>
                               <td className="px-4 font-mono text-xs">{reading.nh3Ppm ?? "—"}</td>
@@ -1826,6 +1832,9 @@ export default function CoimbatoreBatchDetail() {
                               </td>
                               <td className="px-4 text-xs font-semibold">
                                 {record.chamberNameSnapshot || "—"}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground">
+                                {record.stagedByName || b.createdByName || "—"}
                               </td>
                               <td className="px-4 font-mono text-xs">
                                 {record.temperatureCelsius ?? "—"}
@@ -1894,6 +1903,9 @@ export default function CoimbatoreBatchDetail() {
                                 <td className="px-4 text-xs font-semibold">
                                   {logged?.chamberNameSnapshot ??
                                     "Legacy � not recorded"}
+                                </td>
+                                <td className="px-4 text-xs text-muted-foreground">
+                                  {logged?.stagedByName || b.createdByName || "—"}
                                 </td>
                                 <td className="px-4 font-mono text-xs">
                                   {logged?.temperatureCelsius ?? "�"}

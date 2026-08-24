@@ -7,6 +7,7 @@
  */
 import type { StageAdvanceInputNextStage } from './stageAdvanceInputNextStage';
 import type { StageAdvanceInputSpawnBatchType } from './stageAdvanceInputSpawnBatchType';
+import type { StageAdvanceInputSpawnUsagesItem } from './stageAdvanceInputSpawnUsagesItem';
 
 export interface StageAdvanceInput {
   nextStage: StageAdvanceInputNextStage;
@@ -17,6 +18,18 @@ export interface StageAdvanceInput {
   /** @nullable */
   temperatureCelsius?: number | null;
   /** @nullable */
+  chamberId?: number | null;
+  verificationImages?: string[];
+  /** @nullable */
   spawnBatchRef?: string | null;
   spawnBatchType?: StageAdvanceInputSpawnBatchType;
+  /** @nullable */
+  spawnEntryId?: number | null;
+  /** @nullable */
+  spawnQuantityUsed?: number | null;
+  /**
+     * @minItems 1
+     * @maxItems 2
+     */
+  spawnUsages?: StageAdvanceInputSpawnUsagesItem[];
 }

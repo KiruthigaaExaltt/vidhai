@@ -295,6 +295,17 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     weightKg: numericValue(material.weightKg),
   }));
 
+  const historyUsers = await db
+    .select({ id: usersTable.id, displayName: usersTable.displayName })
+    .from(usersTable);
+  const historyUserNameById = new Map(
+    historyUsers.map((user: any) => [Number(user.id), user.displayName]),
+  );
+  const historyUserName = (userId: unknown) =>
+    userId == null
+      ? batch.createdByName ?? null
+      : historyUserNameById.get(Number(userId)) ?? batch.createdByName ?? null;
+
   const [config] = await db
     .select()
     .from(coimbatoreConfigTable)
@@ -308,6 +319,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .orderBy(coimbatoreTurnsTable.turnNumber);
   const turns = rawTurns.map((t) => ({
     ...t,
+    stagedByName: historyUserName(t.recordedByUserId),
     temperatureCelsius: numericValue(t.temperatureCelsius),
     nh3Ppm: numericValue(t.nh3Ppm),
     co2Percent: numericValue(t.co2Percent),
@@ -358,6 +370,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
         : [];
       return {
         ...record,
+        stagedByName: historyUserName(record.recordedByUserId),
         temperatureCelsius: numericValue(reading?.temperatureCelsius),
         nh3Ppm: numericValue(reading?.nh3Ppm),
         co2Percent: numericValue(reading?.co2Percent),
@@ -381,6 +394,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
       co2Percent: chamberReadingsTable.co2Percent,
       moisturePercent: chamberReadingsTable.humidity,
       notes: chamberReadingsTable.notes,
+      recordedByUserId: chamberReadingsTable.recordedByUserId,
       recordedAt: chamberReadingsTable.recordedAt,
     })
     .from(chamberReadingsTable)
@@ -391,6 +405,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .filter((reading) => !linkedReadingIds.has(reading.id))
     .map((reading) => ({
       ...reading,
+      stagedByName: historyUserName(reading.recordedByUserId),
       temperatureCelsius: numericValue(reading.temperatureCelsius),
       nh3Ppm: numericValue(reading.nh3Ppm),
       co2Percent: numericValue(reading.co2Percent),
