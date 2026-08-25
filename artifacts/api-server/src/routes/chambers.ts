@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { and, eq, desc } from "@workspace/db";
 import { organizationId } from "../lib/access";
+import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 
 const router = Router();
 const ANNUR_CHAMBER_TYPES = new Set([
@@ -386,7 +387,7 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
 router.post("/:id/readings", requireAuth, async (req, res) => {
   const chamberId = Number(req.params.id);
   const userId = (req.session as any).userId;
-  const { temperatureCelsius, nh3Ppm, co2Percent, humidity, notes } = req.body;
+  const { temperatureCelsius, nh3Ppm, co2Percent, humidity, notes, recordedAt } = req.body;
 
   const [chamber] = await db
     .select()
@@ -399,6 +400,18 @@ router.post("/:id/readings", requireAuth, async (req, res) => {
     )
     .limit(1);
   if (!chamber) return res.status(404).json({ error: "Chamber not found" });
+  const readingTime = resolveProductionDateTime(recordedAt);
+  if (!readingTime)
+    return res.status(400).json({ error: "Reading date and time is invalid" });
+  if (chamber.currentBatchId) {
+    const [activeBatch] = await db.select().from(batchesTable).where(eq(batchesTable.id, chamber.currentBatchId)).limit(1);
+    const error = chronologyError(
+      readingTime,
+      activeBatch?.stageEnteredAt ?? activeBatch?.initializedAt,
+      "Reading date and time",
+    );
+    if (error) return res.status(400).json({ error });
+  }
   const [location] = await db
     .select()
     .from(locationsTable)
@@ -444,12 +457,13 @@ router.post("/:id/readings", requireAuth, async (req, res) => {
       co2Percent: co2Percent ?? null,
       humidity: humidity ?? null,
       notes: notes ?? null,
+      recordedAt: readingTime,
       recordedByUserId: userId,
     })
     .returning();
 
   // Update chamber's last reading
-  const updates: Record<string, any> = { lastReadingAt: new Date() };
+  const updates: Record<string, any> = { lastReadingAt: readingTime };
   if (temperatureCelsius !== undefined)
     updates.lastTemperature = temperatureCelsius;
   if (nh3Ppm !== undefined) updates.lastNh3 = nh3Ppm;

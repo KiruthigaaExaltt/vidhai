@@ -33,6 +33,10 @@ import {
   validateCookoutManure,
 } from "../lib/ootyCookoutInventory";
 import { requirePermission } from "../lib/access";
+import {
+  chronologyError,
+  resolveProductionDateTime,
+} from "../lib/productionDateTime";
 import { saveImageDataUrl } from "../lib/uploadStorage";
 import {
   MAX_GROWING_ROOM_IMPORT_ROWS,
@@ -732,6 +736,8 @@ router.get("/room-history", requireAuth, async (_req, res) => {
       .select({
         growingBatchId: ootyStageLogsTable.growingBatchId,
         stage: ootyStageLogsTable.stage,
+        enteredAt: ootyStageLogsTable.enteredAt,
+        exitedAt: ootyStageLogsTable.exitedAt,
         manureBags: ootyStageLogsTable.manureBags,
       })
       .from(ootyStageLogsTable),
@@ -750,6 +756,12 @@ router.get("/room-history", requireAuth, async (_req, res) => {
         row.stage === "COOKOUT" &&
         row.manureBags != null,
     );
+    const batchStageLogs = stageLogs
+      .filter((row) => Number(row.growingBatchId) === Number(batch.id))
+      .sort(
+        (left, right) =>
+          new Date(left.enteredAt).getTime() - new Date(right.enteredAt).getTime(),
+      );
     return {
       id: batch.id,
       batchCode: batch.batchCode,
@@ -758,8 +770,12 @@ router.get("/room-history", requireAuth, async (_req, res) => {
         roomById.get(Number(batch.roomId))?.name || `Room #${batch.roomId}`,
       status: batch.status,
       currentStage: batch.currentStage,
-      startedAt: batch.spawnRunStartDate || batch.createdAt,
-      completedAt: batch.status === "completed" ? batch.phaseEnteredAt : null,
+      startedAt: batchStageLogs[0]?.enteredAt ?? batch.createdAt,
+      completedAt:
+        batch.status === "completed"
+          ? batchStageLogs.find((row) => row.stage === "COOKOUT")?.exitedAt ??
+            batch.phaseEnteredAt
+          : null,
       allocatedBags: batchSources.reduce(
         (sum, row) => sum + Number(row.bagCount || 0),
         0,
@@ -793,6 +809,7 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     annurBatchId,
     coimBatchId,
     spawnRunStartDate,
+    batchStartedAt,
     notes,
     batchSources,
     bagCount,
@@ -803,12 +820,21 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     .where(eq(ootyRoomsTable.id, roomId))
     .limit(1);
   if (!room) return res.status(400).json({ error: "Room not found" });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(spawnRunStartDate ?? "")))
-    return res.status(400).json({ error: "Spawn run start date is required" });
-  const now = new Date(`${spawnRunStartDate}T00:00:00+05:30`);
-  if (Number.isNaN(now.getTime()))
+  const indiaParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    indiaParts.find((value) => value.type === type)?.value ?? "";
+  const effectiveStartDate = spawnRunStartDate || `${part("year")}-${part("month")}-${part("day")}`;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveStartDate)))
     return res.status(400).json({ error: "Invalid spawn run start date" });
-  const [year, mm, dd] = String(spawnRunStartDate).split("-");
+  const now = resolveProductionDateTime(batchStartedAt);
+  if (!now)
+    return res.status(400).json({ error: "Invalid batch initialization date and time" });
+  const [year, mm, dd] = String(effectiveStartDate).split("-");
   const yy = year.slice(2);
   const existing = await db.select().from(ootyGrowingBatchesTable);
   const codePrefix = `B-${yy}${mm}${dd}-`;
@@ -918,7 +944,7 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
         currentStage: "SPAWN_RUN",
         phaseEnteredAt: now,
         status: "active",
-        spawnRunStartDate: spawnRunStartDate ?? null,
+        spawnRunStartDate: effectiveStartDate,
         notes: notes ?? null,
         createdByUserId: userId,
       })
@@ -1124,6 +1150,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     manureBags,
     // Legacy fields
     nextPhase,
+    completedAt,
   } = req.body as any;
 
   const [batch] = await db
@@ -1341,7 +1368,25 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
         .json({ error: "Cookout Manure inventory was already posted" });
   }
 
-  const now = new Date();
+  const now = resolveProductionDateTime(completedAt);
+  if (!now)
+    return res.status(400).json({ error: "Invalid stage completion date and time" });
+  const [activeStageLog] = await db
+    .select()
+    .from(ootyStageLogsTable)
+    .where(
+      and(
+        eq(ootyStageLogsTable.growingBatchId, id),
+        isNull(ootyStageLogsTable.exitedAt),
+      ),
+    )
+    .limit(1);
+  const timeError = chronologyError(
+    now,
+    activeStageLog?.enteredAt ?? batch.phaseEnteredAt ?? batch.createdAt,
+    "Stage completion",
+  );
+  if (timeError) return res.status(400).json({ error: timeError });
   const nextPhaseValue = stageToPhase(targetStage);
   const phaseChanged = nextPhaseValue !== stageToPhase(effectiveCurrentStage);
 
@@ -1668,6 +1713,7 @@ router.post(
     const userId = (req.session as any).userId;
     const {
       observationDate,
+      recordedAt,
       temperatureCelsius,
       observationNote,
     } = req.body as any;
@@ -1679,11 +1725,32 @@ router.post(
     if (!batch) return res.status(404).json({ error: "Growing batch not found" });
     if (batch.currentStage === "COMPLETED" || batch.status === "completed")
       return res.status(409).json({ error: "The growing cycle is completed" });
+    const readingTime = resolveProductionDateTime(recordedAt);
+    if (!readingTime)
+      return res.status(400).json({ error: "Invalid reading date and time" });
+    const [activeStageLog] = await db
+      .select()
+      .from(ootyStageLogsTable)
+      .where(
+        and(
+          eq(ootyStageLogsTable.growingBatchId, growingBatchId),
+          isNull(ootyStageLogsTable.exitedAt),
+        ),
+      )
+      .limit(1);
+    const timeError = chronologyError(
+      readingTime,
+      activeStageLog?.enteredAt ?? batch.phaseEnteredAt ?? batch.createdAt,
+      "Reading",
+    );
+    if (timeError) return res.status(400).json({ error: timeError });
     const [obs] = await db
       .insert(ootyObservationsTable)
       .values({
         growingBatchId,
-        observationDate,
+        observationDate:
+          observationDate || readingTime.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }),
+        recordedAt: readingTime,
         temperatureCelsius: temperatureCelsius
           ? String(temperatureCelsius)
           : null,

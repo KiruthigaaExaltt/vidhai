@@ -175,6 +175,7 @@ export default function LabBatchDetail() {
     notes: "",
     strainName: "",
     spawnQty: "",
+    completedAt: "",
   });
 
   const openAdvDialog = (stageKey: string) => {
@@ -186,6 +187,7 @@ export default function LabBatchDetail() {
       notes: "",
       strainName: "",
       spawnQty: String(Math.round(totalKg * 0.85)),
+      completedAt: "",
     });
   };
 
@@ -258,6 +260,7 @@ export default function LabBatchDetail() {
       nextStage: advDialog.nextStageKey,
       notes: advDialog.notes || null,
       verificationImages: stageImages.filter(Boolean),
+      completedAt: advDialog.completedAt ? new Date(advDialog.completedAt).toISOString() : undefined,
       ...(isFinalStage && {
         strainName: advDialog.strainName,
         spawnQty: Number(advDialog.spawnQty),
@@ -1095,6 +1098,11 @@ export default function LabBatchDetail() {
           </DialogHeader>
 
           <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label>Stage Completion Date & Time (Optional)</Label>
+              <Input type="datetime-local" value={advDialog.completedAt} onChange={(event) => setAdvDialog((current) => ({ ...current, completedAt: event.target.value }))} />
+              <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+            </div>
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Verification Photos (optional)

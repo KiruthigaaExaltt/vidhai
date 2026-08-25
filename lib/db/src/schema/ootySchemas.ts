@@ -187,6 +187,7 @@ export const ootyObservationsTable = mongoTable("ooty_observations", {
     .notNull()
     .references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),
   observationDate: date("observation_date", { mode: "string" }).notNull(),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }),
   temperatureCelsius: numeric("temperature_celsius", {
     precision: 6,
     scale: 2,

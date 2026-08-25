@@ -66,6 +66,7 @@ type GrowingBatchHistory = RoomHistoryRow & {
   observations?: Array<{
     id: number;
     observationDate: string;
+    recordedAt?: string | null;
     temperatureCelsius?: string | number | null;
     observationType?: string | null;
     observationNote?: string | null;
@@ -100,6 +101,14 @@ function displayDate(value?: string | null) {
   if (!key) return "-";
   const [year, month, day] = key.split("-");
   return year && month && day ? `${day}/${month}/${year}` : key;
+}
+
+function displayDateTime(value?: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? "-"
+    : parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
 }
 
 export default function OotyRoomHistory() {
@@ -267,8 +276,8 @@ export default function OotyRoomHistory() {
                 <th className="px-4 py-3">Source Batch</th>
                 <th className="px-4 py-3">Room</th>
                 <th className="px-4 py-3 text-right">Bags</th>
-                <th className="px-4 py-3">Started Date</th>
-                <th className="px-4 py-3">Completed Date</th>
+                <th className="px-4 py-3">Started Date &amp; Time</th>
+                <th className="px-4 py-3">Completed Date &amp; Time</th>
                 <th className="px-4 py-3 text-right">Mushrooms</th>
                 <th className="px-4 py-3 text-right">Weight</th>
                 <th className="px-4 py-3 text-right">Manure Bags</th>
@@ -297,8 +306,8 @@ export default function OotyRoomHistory() {
                   <td className="px-4 py-3 text-right tabular-nums">
                     {row.allocatedBags}
                   </td>
-                  <td className="px-4 py-3">{displayDate(row.startedAt)}</td>
-                  <td className="px-4 py-3">{displayDate(row.completedAt)}</td>
+                  <td className="px-4 py-3">{displayDateTime(row.startedAt)}</td>
+                  <td className="px-4 py-3">{displayDateTime(row.completedAt)}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums text-primary">
                     {row.mushroomCount}
                   </td>
@@ -439,8 +448,8 @@ export default function OotyRoomHistory() {
                     <HistoryValue label="Room" value={selectedRow?.roomName} />
                     <HistoryValue label="Growing batch" value={selectedRow?.batchCode} mono />
                     <HistoryValue label="Source batches" value={sources.map((source) => `${source.batchCode || "-"} (${source.bagCount} bags)`).join(", ") || "-"} />
-                    <HistoryValue label="Started" value={displayDate(selectedRow?.startedAt)} />
-                    <HistoryValue label="Completed" value={displayDate(selectedRow?.completedAt)} />
+                    <HistoryValue label="Started" value={displayDateTime(selectedRow?.startedAt)} />
+                    <HistoryValue label="Completed" value={displayDateTime(selectedRow?.completedAt)} />
                   </div>
 
                   <HistoryTable title="Stage history" headers={["Stage", "Entered", "Exited", "Photos", "Manure Bags", "Manure Weight", "Reference / notes"]} empty={stageLogs.length === 0}>
@@ -473,10 +482,10 @@ export default function OotyRoomHistory() {
                     ))}
                   </HistoryTable>
 
-                  <HistoryTable title="Temperature & observation history" headers={["Date", "Temperature", "Stage", "Note"]} empty={observations.length === 0}>
+                  <HistoryTable title="Temperature & observation history" headers={["Date & Time", "Temperature", "Stage", "Note"]} empty={observations.length === 0}>
                     {observations.map((observation) => (
                       <tr key={observation.id} className="border-t">
-                        <td className="px-3 py-2">{displayDate(observation.observationDate)}</td>
+                        <td className="px-3 py-2">{displayDateTime(observation.recordedAt ?? observation.observationDate)}</td>
                         <td className="px-3 py-2">{observation.temperatureCelsius != null ? `${Number(observation.temperatureCelsius).toFixed(1)} °C` : "-"}</td>
                         <td className="px-3 py-2">{stageLabel(observation.observationType)}</td>
                         <td className="px-3 py-2">{observation.observationNote || "-"}</td>

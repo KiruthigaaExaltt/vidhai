@@ -197,6 +197,7 @@ export default function OotyRoomDetail() {
     open: false,
     stageKey: "",
     notes: "",
+    completedAt: "",
     // Casing soil inventory is selected when completing CASING_RUN.
     casingSourceType: "produced" as "produced" | "purchased" | "both",
     casingInventorySourceId: "",
@@ -228,6 +229,7 @@ export default function OotyRoomDetail() {
       open: true,
       stageKey,
       notes: "",
+      completedAt: "",
       casingSourceType: "produced",
       casingInventorySourceId: "",
       casingQuantityKg: "",
@@ -343,6 +345,9 @@ export default function OotyRoomDetail() {
       nextStage: nextStageKey(completeDialog.stageKey),
       verificationImages: stageImages.filter(Boolean),
       notes: completeDialog.notes || null,
+      completedAt: completeDialog.completedAt
+        ? new Date(completeDialog.completedAt).toISOString()
+        : undefined,
     };
     if (isCasingRun) {
       payload.casingSourceType = completeDialog.casingSourceType;
@@ -423,7 +428,7 @@ export default function OotyRoomDetail() {
 
   // ── Observation state ─────────────────────────────────────────────────────
   const [obsForm, setObsForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    recordedAt: "",
     temp: "",
     note: "",
   });
@@ -447,7 +452,12 @@ export default function OotyRoomDetail() {
       {
         id: batchId,
         data: {
-          observationDate: obsForm.date,
+          observationDate: obsForm.recordedAt
+            ? obsForm.recordedAt.slice(0, 10)
+            : undefined,
+          recordedAt: obsForm.recordedAt
+            ? new Date(obsForm.recordedAt).toISOString()
+            : undefined,
           temperatureCelsius: obsForm.temp ? Number(obsForm.temp) : null,
           observationNote: obsForm.note || null,
           observationType: currentStageKey,
@@ -456,7 +466,7 @@ export default function OotyRoomDetail() {
       {
         onSuccess: () =>
           setObsForm({
-            date: new Date().toISOString().split("T")[0],
+            recordedAt: "",
             temp: "",
             note: "",
           }),
@@ -931,17 +941,19 @@ export default function OotyRoomDetail() {
                   >
                     <div className="space-y-1">
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                        Date
+                        Date and Time (optional)
                       </Label>
                       <Input
-                        type="date"
-                        required
-                        value={obsForm.date}
+                        type="datetime-local"
+                        value={obsForm.recordedAt}
                         onChange={(e) =>
-                          setObsForm({ ...obsForm, date: e.target.value })
+                          setObsForm({ ...obsForm, recordedAt: e.target.value })
                         }
-                        className="rounded-sm font-mono h-9 w-[150px]"
+                        className="rounded-sm font-mono h-9 w-[210px]"
                       />
+                      <p className="max-w-[210px] text-[10px] text-muted-foreground">
+                        If left blank, the current device date and time will be recorded automatically.
+                      </p>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -1001,7 +1013,7 @@ export default function OotyRoomDetail() {
                       {observations.map((o: any) => (
                         <tr key={o.id} className="h-[36px] hover:bg-muted/20">
                           <td className="px-4 font-mono text-muted-foreground">
-                            {fmt(o.observationDate)}
+                            {new Date(o.recordedAt ?? `${o.observationDate}T00:00:00`).toLocaleString("en-IN")}
                           </td>
                           <td className="px-4 font-mono text-right">
                             {o.temperatureCelsius !== null &&
@@ -1479,6 +1491,26 @@ export default function OotyRoomDetail() {
                 )}
               </div>
             )}
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Completion Date and Time (optional)
+              </Label>
+              <Input
+                type="datetime-local"
+                value={completeDialog.completedAt}
+                onChange={(event) =>
+                  setCompleteDialog((previous) => ({
+                    ...previous,
+                    completedAt: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
+            </div>
 
             {/* Notes */}
             <div className="space-y-1.5">

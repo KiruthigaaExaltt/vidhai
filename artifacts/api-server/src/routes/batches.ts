@@ -29,6 +29,7 @@ import {
   validateProducedBags,
 } from "../lib/annurProduction";
 import { resolveUploadPath } from "../lib/uploadStorage";
+import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 
 const router = Router();
 const ANNUR_STAGES = [
@@ -220,10 +221,12 @@ router.post("/", async (req, res) => {
       error: "The selected Pre-Wetting chamber is no longer available",
     });
 
-  const selectedDate = String((req.body as any).batchDate ?? "");
+  const selectedDate = String((req.body as any).batchDate || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate))
     return res.status(400).json({ error: "Batch date is required" });
-  const stageStartedAt = new Date(`${selectedDate}T00:00:00+05:30`);
+  const stageStartedAt = resolveProductionDateTime((req.body as any).batchStartedAt);
+  if (!stageStartedAt)
+    return res.status(400).json({ error: "Batch initialization date and time is invalid" });
   if (Number.isNaN(stageStartedAt.getTime()))
     return res.status(400).json({ error: "Invalid batch date" });
   const [year, month, day] = selectedDate.split("-");
@@ -637,6 +640,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     spawnEntryId,
     spawnQuantityUsed,
     spawnUsages,
+    completedAt,
   } = req.body;
   const userId = (req.session as any).userId;
 
@@ -646,6 +650,15 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, batchId))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Batch not found" });
+  const exitedAt = resolveProductionDateTime(completedAt);
+  if (!exitedAt)
+    return res.status(400).json({ error: "Stage completion date and time is invalid" });
+  const dateError = chronologyError(
+    exitedAt,
+    batch.stageEnteredAt ?? batch.initializedAt,
+    "Stage completion date and time",
+  );
+  if (dateError) return res.status(400).json({ error: dateError });
   const currentIndex = ANNUR_STAGES.indexOf(batch.currentStage);
   if (currentIndex < 0 || ANNUR_STAGES[currentIndex + 1] !== nextStage)
     return res.status(409).json({
@@ -722,7 +735,6 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
   if (produced && !produced.ok)
     return res.status(400).json({ error: produced.error });
 
-  const exitedAt = new Date();
   const updated = await db.transaction(async (tx) => {
     if (nextStage === "SPAWN_MIXING") {
       const [existingUsage] = await tx

@@ -141,7 +141,7 @@ export default function CoimbatoreBatches() {
   // ── Create ─────────────────────────────────────────────────────────────────
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchNotes, setBatchNotes] = useState("");
-  const [batchDate, setBatchDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [batchDate, setBatchDate] = useState("");
   const [batchChamberId, setBatchChamberId] = useState("");
   const { data: casingChambers = [] } = useQuery<any[]>({
     queryKey: ["available-casing-soil-chambers", batchOpen],
@@ -195,7 +195,8 @@ export default function CoimbatoreBatches() {
       data: {
         notes: batchNotes || null,
         chamberId: Number(batchChamberId),
-        batchDate,
+        batchDate: batchDate ? batchDate.slice(0, 10) : undefined,
+        batchStartedAt: batchDate ? new Date(batchDate).toISOString() : undefined,
       } as any,
     });
   };
@@ -299,9 +300,10 @@ export default function CoimbatoreBatches() {
               <form onSubmit={handleCreateBatch} className="space-y-4 pt-2">
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Batch Date <span className="text-destructive">*</span>
+                    Batch Date & Time (Optional)
                   </Label>
-                  <Input type="date" required value={batchDate} onChange={(e) => setBatchDate(e.target.value)} className="rounded-md h-9 font-mono" />
+                  <Input type="datetime-local" value={batchDate} onChange={(e) => setBatchDate(e.target.value)} className="rounded-md h-9 font-mono" />
+                  <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -505,10 +507,10 @@ export default function CoimbatoreBatches() {
                         Status
                       </th>
                       <th className="px-4 py-3 font-medium text-center">
-                        Started Date
+                        Started Date & Time
                       </th>
                       <th className="px-4 py-3 font-medium text-center">
-                        Completed Date
+                        Completed Date & Time
                       </th>
                       <th className="px-4 py-3 font-medium text-center">By</th>
                       <th className="px-4 py-3 font-medium text-center">
@@ -542,10 +544,10 @@ export default function CoimbatoreBatches() {
                           <StatusBadge status={b.status} />
                         </td>
                         <td className="px-4 text-center font-mono text-xs text-muted-foreground">
-                          {b.startedAt ? new Date(b.startedAt).toLocaleDateString("en-IN") : "—"}
+                          {b.startedAt ? new Date(b.startedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}
                         </td>
                         <td className="px-4 text-center font-mono text-xs text-muted-foreground">
-                          {b.completedAt ? new Date(b.completedAt).toLocaleDateString("en-IN") : "—"}
+                          {b.completedAt ? new Date(b.completedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}
                         </td>
                         <td className="px-4 text-center text-xs text-muted-foreground">
                           {b.createdByName ?? "—"}

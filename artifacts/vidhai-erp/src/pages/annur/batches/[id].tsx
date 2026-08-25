@@ -131,6 +131,7 @@ export default function BatchDetail() {
     nh3Ppm: "",
     co2Percent: "",
     humidity: "",
+    recordedAt: "",
     notes: "",
   });
   const [readingSaving, setReadingSaving] = useState(false);
@@ -142,6 +143,7 @@ export default function BatchDetail() {
       nh3Ppm: "",
       co2Percent: "",
       humidity: "",
+      recordedAt: "",
       notes: "",
     });
 
@@ -161,6 +163,7 @@ export default function BatchDetail() {
           nh3Ppm: optionalNumber(readingDialog.nh3Ppm),
           co2Percent: optionalNumber(readingDialog.co2Percent),
           humidity: optionalNumber(readingDialog.humidity),
+          recordedAt: readingDialog.recordedAt ? new Date(readingDialog.recordedAt).toISOString() : undefined,
           notes: readingDialog.notes.trim() || null,
         }),
       });
@@ -242,6 +245,7 @@ export default function BatchDetail() {
           chamberId: "",
           turnChamberId: "",
           producedBags: "",
+          completedAt: "",
         });
         setStageImages([null, null]);
       },
@@ -315,6 +319,7 @@ export default function BatchDetail() {
     chamberId: "",
     turnChamberId: "",
     producedBags: "",
+    completedAt: "",
   });
 
   const openCompleteDialog = (stageKey: string) => {
@@ -337,6 +342,7 @@ export default function BatchDetail() {
       chamberId: "",
       turnChamberId: "",
       producedBags: "",
+      completedAt: "",
     });
   };
 
@@ -397,6 +403,7 @@ export default function BatchDetail() {
         nextStage: completeDialog.nextStageKey as any,
         notes: completeDialog.notes || null,
         verificationImages: stageImages.filter(Boolean),
+        completedAt: completeDialog.completedAt ? new Date(completeDialog.completedAt).toISOString() : undefined,
         ...(requiredChamberType && {
           chamberId: Number(completeDialog.chamberId),
         }),
@@ -1120,6 +1127,11 @@ export default function BatchDetail() {
               ))}
             </div>
             <div className="space-y-1.5">
+              <Label>Reading Date & Time (Optional)</Label>
+              <Input type="datetime-local" value={readingDialog.recordedAt} onChange={(event) => setReadingDialog((current) => ({ ...current, recordedAt: event.target.value }))} />
+              <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+            </div>
+            <div className="space-y-1.5">
               <Label>Notes</Label>
               <Input value={readingDialog.notes} placeholder="Optional conditions..."
                 onChange={(event) => setReadingDialog((current) => ({ ...current, notes: event.target.value }))} />
@@ -1154,6 +1166,11 @@ export default function BatchDetail() {
           </DialogHeader>
 
           <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label>Stage Completion Date & Time (Optional)</Label>
+              <Input type="datetime-local" value={completeDialog.completedAt} onChange={(event) => setCompleteDialog((current) => ({ ...current, completedAt: event.target.value }))} />
+              <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+            </div>
             {/* Image capture — two slots */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">

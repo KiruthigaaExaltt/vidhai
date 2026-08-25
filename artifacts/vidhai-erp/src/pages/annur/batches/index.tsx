@@ -338,10 +338,10 @@ export default function Batches() {
                         Produced Bags
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
-                        Started Date
+                        Started Date & Time
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
-                        Completed Date
+                        Completed Date & Time
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
                         By
@@ -376,12 +376,12 @@ export default function Batches() {
                         </td>
                         <td className="px-4 font-mono text-xs text-muted-foreground">
                           {b.startedAt
-                            ? new Date(b.startedAt).toLocaleDateString("en-IN")
+                            ? new Date(b.startedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
                             : "—"}
                         </td>
                         <td className="px-4 font-mono text-xs text-muted-foreground">
                           {b.completedAt
-                            ? new Date(b.completedAt).toLocaleDateString("en-IN")
+                            ? new Date(b.completedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
                             : "—"}
                         </td>
                         <td className="px-4 text-xs text-muted-foreground">

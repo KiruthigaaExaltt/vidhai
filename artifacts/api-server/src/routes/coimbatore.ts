@@ -24,6 +24,7 @@ import { and, eq, desc, gte, ilike, isNull } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { ensureDefaultVaultItems } from "../lib/ensureDefaultVaultItems";
 import { saveImageDataUrl } from "../lib/uploadStorage";
+import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 
 const router = Router();
 
@@ -178,11 +179,10 @@ router.post("/batches", requireAuth, async (req, res) => {
     chamberId?: number;
     batchDate?: string;
   };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(batchDate ?? "")))
-    return res.status(400).json({ error: "Batch date is required" });
-  const stageStartedAt = new Date(`${batchDate}T00:00:00+05:30`);
-  if (Number.isNaN(stageStartedAt.getTime()))
-    return res.status(400).json({ error: "Invalid batch date" });
+  const effectiveBatchDate = String(batchDate || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()));
+  const stageStartedAt = resolveProductionDateTime((req.body as any).batchStartedAt);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveBatchDate) || !stageStartedAt)
+    return res.status(400).json({ error: "Batch initialization date and time is invalid" });
   const chamberId = Number(rawChamberId);
   if (!Number.isInteger(chamberId) || chamberId <= 0)
     return res.status(400).json({ error: "Casing Soil Chamber is required" });
@@ -197,14 +197,14 @@ router.post("/batches", requireAuth, async (req, res) => {
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "C"));
-  const codePrefix = batchCode("C", 0, batchDate!).slice(0, -3);
+  const codePrefix = batchCode("C", 0, effectiveBatchDate).slice(0, -3);
   const nextSequence = existing.reduce((highest, row: any) => {
     const code = String(row.batches?.batchCode ?? row.batchCode ?? "");
     if (!code.startsWith(codePrefix)) return highest;
     const sequence = Number(code.slice(codePrefix.length));
     return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
   }, 0) + 1;
-  const code = batchCode("C", nextSequence, batchDate!);
+  const code = batchCode("C", nextSequence, effectiveBatchDate);
   const result = await db
     .transaction(async (tx) => {
       const [chamber] = await tx
@@ -747,7 +747,7 @@ router.post(
   async (req, res) => {
     const id = Number(req.params.id);
     const userId = (req.session as any).userId;
-    const { stage, notes, verificationImages } = req.body as any;
+    const { stage, notes, verificationImages, completedAt: requestedCompletedAt } = req.body as any;
     const submittedImages: string[] = Array.isArray(verificationImages)
       ? verificationImages.filter(Boolean).slice(0, 2)
       : [];
@@ -769,6 +769,11 @@ router.post(
       .where(eq(batchesTable.id, id))
       .limit(1);
     if (!batch) return res.status(404).json({ error: "Not found" });
+    const completedAt = resolveProductionDateTime(requestedCompletedAt);
+    if (!completedAt)
+      return res.status(400).json({ error: "Stage completion date and time is invalid" });
+    const dateError = chronologyError(completedAt, batch.stageEnteredAt ?? batch.initializedAt, "Stage completion date and time");
+    if (dateError) return res.status(400).json({ error: dateError });
     if (
       stage !== batch.currentStage ||
       !["PRE_WETTING", "MIXING"].includes(String(stage))
@@ -803,7 +808,6 @@ router.post(
       .orderBy(desc(chamberReadingsTable.recordedAt))
       .limit(1);
     const nextStage = stage === "PRE_WETTING" ? "MIXING" : "TURNING";
-    const completedAt = new Date();
     const result = await db.transaction(async (tx) => {
       const [history] = await tx
         .insert(coimbatorePreparationStagesTable)
@@ -1058,7 +1062,12 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
       error: "Pre-wetting and Mixing must be completed before Turning",
     });
   const userId = (req.session as any).userId;
-  const { turnNumber, actualDate, notes, verificationImages } = req.body as any;
+  const { turnNumber, actualDate, notes, verificationImages, completedAt: requestedCompletedAt } = req.body as any;
+  const completedAt = resolveProductionDateTime(requestedCompletedAt);
+  if (!completedAt)
+    return res.status(400).json({ error: "Turn completion date and time is invalid" });
+  const dateError = chronologyError(completedAt, activeBatch.stageEnteredAt ?? activeBatch.initializedAt, "Turn completion date and time");
+  if (dateError) return res.status(400).json({ error: dateError });
   // Verification photos are optional and retained when supplied.
   const submittedImages: string[] = Array.isArray(verificationImages)
     ? verificationImages.filter(Boolean).slice(0, 2)
@@ -1123,7 +1132,6 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
   const totalTurns = config?.totalTurns ?? 12;
 
   const result = await db.transaction(async (tx) => {
-    const completedAt = new Date();
     const [turn] = await tx
       .insert(coimbatoreTurnsTable)
       .values({
@@ -1198,7 +1206,7 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
 router.post("/batches/:id/qc", requireAuth, async (req, res) => {
   const batchId = Number(req.params.id);
   const userId = (req.session as any).userId;
-  const { decision, notes, producedQuantityKg } = req.body as any;
+  const { decision, notes, producedQuantityKg, completedAt: requestedCompletedAt } = req.body as any;
   if (decision !== "approve" && decision !== "reject")
     return res.status(400).json({ error: "Select Approve or Reject" });
 
@@ -1224,6 +1232,11 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, batchId))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Batch not found" });
+  const qcCompletedAt = resolveProductionDateTime(requestedCompletedAt);
+  if (!qcCompletedAt)
+    return res.status(400).json({ error: "QC date and time is invalid" });
+  const qcDateError = chronologyError(qcCompletedAt, batch.stageEnteredAt ?? batch.initializedAt, "QC date and time");
+  if (qcDateError) return res.status(400).json({ error: qcDateError });
   if (batch.currentStage !== "QC_PENDING" || batch.status !== "active")
     return res
       .status(409)
@@ -1278,7 +1291,7 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
       .from(locationsTable)
       .where(eq(locationsTable.code, "C"))
       .limit(1);
-    const completedAt = new Date();
+    const completedAt = qcCompletedAt;
 
     await db.transaction(async (tx) => {
       const [posting] = await tx
@@ -1404,7 +1417,7 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
     .where(eq(coimbatoreTurnsTable.batchId, batchId));
   const currentTotal = config?.totalTurns ?? existingTurns.length;
   const newTotal = existingTurns.length + 3;
-  const now = new Date();
+  const now = qcCompletedAt;
   await db.transaction(async (tx) => {
     await tx.insert(qcDecisionsTable).values({
       batchId,
