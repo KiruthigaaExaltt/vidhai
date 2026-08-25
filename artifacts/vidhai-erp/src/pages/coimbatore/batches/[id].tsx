@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { useParams, useLocation } from "wouter";
 import {
   useGetCoimbatoreBatch,
@@ -570,7 +571,7 @@ export default function CoimbatoreBatchDetail() {
     return buildTurnSchedule(
       totalTurns,
       config?.turnScheduleJson,
-      b.createdAt ?? new Date(),
+      b.stageEnteredAt ?? b.createdAt ?? new Date(),
     );
   }, [b, config, totalTurns]);
 
@@ -2006,27 +2007,7 @@ export default function CoimbatoreBatchDetail() {
       </div>
 
       {/* ── Lightbox ──────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={apiAssetUrl(lightboxSrc)}
-              alt=""
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       {/* ── Adjust Turns dialog ────────────────────────────────────────────── */}
       <Dialog

@@ -33,12 +33,16 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-function batchCode(locationCode: string, seq: number) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+function batchCode(locationCode: string, seq: number, isoDate: string) {
+  const [year, mm, dd] = isoDate.split("-");
+  const yy = year.slice(2);
   return `${locationCode}-${yy}${mm}${dd}-${String(seq).padStart(3, "0")}`;
+}
+
+function batchStartedAt(batch: any) {
+  if (batch.initializedAt) return batch.initializedAt;
+  const match = String(batch.batchCode).match(/^C-(\d{2})(\d{2})(\d{2})-/);
+  return match ? `20${match[1]}-${match[2]}-${match[3]}` : batch.createdAt;
 }
 
 function parseImages(raw: string | null | undefined): string[] {
@@ -103,6 +107,8 @@ router.get("/batches", requireAuth, async (req, res) => {
       alertLevel: batchesTable.alertLevel,
       createdAt: batchesTable.createdAt,
       stageEnteredAt: batchesTable.stageEnteredAt,
+      initializedAt: batchesTable.initializedAt,
+      casingSoilCompletedAt: batchesTable.casingSoilCompletedAt,
       locationCode: locationsTable.code,
       createdByName: usersTable.displayName,
     })
@@ -126,6 +132,8 @@ router.get("/batches", requireAuth, async (req, res) => {
   }
   const batches = batchRows.map((batch: any) => ({
     ...batch,
+    startedAt: batchStartedAt(batch),
+    completedAt: batch.casingSoilCompletedAt ?? null,
     currentTurnNumber:
       batch.currentStage === "TURNING"
         ? (latestTurnByBatch.get(batch.id) ?? 0) + 1
@@ -165,10 +173,16 @@ router.get("/batches", requireAuth, async (req, res) => {
 // ── Create Coimbatore batch (starts in FORMULATION) ───────────────────────────
 router.post("/batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
-  const { notes, chamberId: rawChamberId } = req.body as {
+  const { notes, chamberId: rawChamberId, batchDate } = req.body as {
     notes?: string;
     chamberId?: number;
+    batchDate?: string;
   };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(batchDate ?? "")))
+    return res.status(400).json({ error: "Batch date is required" });
+  const stageStartedAt = new Date(`${batchDate}T00:00:00+05:30`);
+  if (Number.isNaN(stageStartedAt.getTime()))
+    return res.status(400).json({ error: "Invalid batch date" });
   const chamberId = Number(rawChamberId);
   if (!Number.isInteger(chamberId) || chamberId <= 0)
     return res.status(400).json({ error: "Casing Soil Chamber is required" });
@@ -183,7 +197,14 @@ router.post("/batches", requireAuth, async (req, res) => {
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "C"));
-  const code = batchCode("C", existing.length + 1);
+  const codePrefix = batchCode("C", 0, batchDate!).slice(0, -3);
+  const nextSequence = existing.reduce((highest, row: any) => {
+    const code = String(row.batches?.batchCode ?? row.batchCode ?? "");
+    if (!code.startsWith(codePrefix)) return highest;
+    const sequence = Number(code.slice(codePrefix.length));
+    return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
+  }, 0) + 1;
+  const code = batchCode("C", nextSequence, batchDate!);
   const result = await db
     .transaction(async (tx) => {
       const [chamber] = await tx
@@ -210,6 +231,8 @@ router.post("/batches", requireAuth, async (req, res) => {
           status: "active",
           notes: notes ?? null,
           createdByUserId: userId,
+          stageEnteredAt: stageStartedAt,
+          initializedAt: stageStartedAt,
           currentChamberId: chamberId,
           casingSoilChamberId: chamberId,
           casingSoilChamberNameSnapshot: chamber.name,
@@ -615,8 +638,9 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       .update(batchesTable)
       .set({
         currentStage: "PRE_WETTING",
-        stageEnteredAt: new Date(),
-        casingSoilStartedAt: batch.casingSoilStartedAt ?? new Date(),
+        stageEnteredAt: batch.stageEnteredAt ?? new Date(),
+        casingSoilStartedAt:
+          batch.casingSoilStartedAt ?? batch.stageEnteredAt ?? new Date(),
       })
       .where(eq(batchesTable.id, batchId));
   });

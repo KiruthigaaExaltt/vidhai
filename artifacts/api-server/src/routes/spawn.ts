@@ -10,6 +10,15 @@ import { desc } from "@workspace/db";
 
 const router = Router();
 
+function numericValue(value: unknown): number {
+  const raw =
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  const parsed = Number(raw ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 router.get("/", async (_req, res) => {
   const entries = await db
     .select({
@@ -32,11 +41,11 @@ router.get("/", async (_req, res) => {
   res.json(
     entries.map((e) => ({
       ...e,
-      quantityKg: Number(e.quantityKg),
-      reservedQuantityKg: Number(e.reservedQuantityKg || 0),
+      quantityKg: numericValue(e.quantityKg),
+      reservedQuantityKg: numericValue(e.reservedQuantityKg),
       freeAvailableQuantityKg: Math.max(
         0,
-        Number(e.quantityKg) - Number(e.reservedQuantityKg || 0),
+        numericValue(e.quantityKg) - numericValue(e.reservedQuantityKg),
       ),
     })),
   );
@@ -57,9 +66,9 @@ router.get("/transactions", async (_req, res) => {
   res.json(
     rows.map((row: any) => ({
       ...row.transaction,
-      quantityInKg: Number(row.transaction.quantityInKg),
-      quantityOutKg: Number(row.transaction.quantityOutKg),
-      balanceAfterKg: Number(row.transaction.balanceAfterKg),
+      quantityInKg: numericValue(row.transaction.quantityInKg),
+      quantityOutKg: numericValue(row.transaction.quantityOutKg),
+      balanceAfterKg: numericValue(row.transaction.balanceAfterKg),
       recordedByName: row.recordedByName ?? "System",
     })),
   );
@@ -120,7 +129,7 @@ router.post("/", async (req, res) => {
 
   return res
     .status(201)
-    .json({ ...entry, quantityKg: Number(entry.quantityKg) });
+    .json({ ...entry, quantityKg: numericValue(entry.quantityKg) });
 });
 
 export default router;

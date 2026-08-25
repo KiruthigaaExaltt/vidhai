@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { useParams, useLocation } from "wouter";
 import {
   useGetOotyRoom,
@@ -54,6 +55,7 @@ const STAGE_SEQ = [
     key: "SPAWN_RUN",
     label: "Spawn Run",
     dayRange: "16–22 d",
+    expectedDay: 0,
     icon: Sprout,
     phase: "SPAWN_RUN",
   },
@@ -61,6 +63,7 @@ const STAGE_SEQ = [
     key: "CASING_RUN",
     label: "Casing Run",
     dayRange: "8–10 d",
+    expectedDay: 16,
     icon: Layers,
     phase: "CASING_RUN",
   },
@@ -68,6 +71,7 @@ const STAGE_SEQ = [
     key: "PINNING_FLUSH1",
     label: "Flush 1",
     dayRange: "DF Day 9–11",
+    expectedDay: 33,
     icon: Scissors,
     phase: "DF",
   },
@@ -75,6 +79,7 @@ const STAGE_SEQ = [
     key: "FLUSH2",
     label: "Flush 2",
     dayRange: "DF Day 15–17",
+    expectedDay: 39,
     icon: Scissors,
     phase: "DF",
   },
@@ -82,6 +87,7 @@ const STAGE_SEQ = [
     key: "COOKOUT",
     label: "Cookout",
     dayRange: "—",
+    expectedDay: null,
     icon: Flame,
     phase: "COOKOUT",
   },
@@ -654,6 +660,11 @@ export default function OotyRoomDetail() {
                               <p className="text-[11px] text-muted-foreground font-mono mb-1">
                                 {stage.dayRange}
                               </p>
+                              {stage.expectedDay !== null && b?.spawnRunStartDate && (
+                                <p className="text-[10px] text-muted-foreground mb-1">
+                                  Expected: {fmt(new Date(new Date(`${b.spawnRunStartDate}T00:00:00+05:30`).getTime() + stage.expectedDay * 86_400_000).toISOString())}
+                                </p>
+                              )}
 
                               {/* Casing batch ref */}
                               {isCompleted && logEntry?.casingBatchRef && (
@@ -1028,27 +1039,7 @@ export default function OotyRoomDetail() {
       </div>
 
       {/* ── Lightbox ─────────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={apiAssetUrl(lightboxSrc)}
-              alt="Verification photo"
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm transition-colors"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       {/* ── Complete Stage Dialog ─────────────────────────────────────────────── */}
       <Dialog

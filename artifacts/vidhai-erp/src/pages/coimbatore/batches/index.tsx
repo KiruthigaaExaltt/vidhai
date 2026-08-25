@@ -141,6 +141,7 @@ export default function CoimbatoreBatches() {
   // ── Create ─────────────────────────────────────────────────────────────────
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchNotes, setBatchNotes] = useState("");
+  const [batchDate, setBatchDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [batchChamberId, setBatchChamberId] = useState("");
   const { data: casingChambers = [] } = useQuery<any[]>({
     queryKey: ["available-casing-soil-chambers", batchOpen],
@@ -194,6 +195,7 @@ export default function CoimbatoreBatches() {
       data: {
         notes: batchNotes || null,
         chamberId: Number(batchChamberId),
+        batchDate,
       } as any,
     });
   };
@@ -297,6 +299,12 @@ export default function CoimbatoreBatches() {
               <form onSubmit={handleCreateBatch} className="space-y-4 pt-2">
                 <div className="space-y-1.5">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Batch Date <span className="text-destructive">*</span>
+                  </Label>
+                  <Input type="date" required value={batchDate} onChange={(e) => setBatchDate(e.target.value)} className="rounded-md h-9 font-mono" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                     Location
                   </Label>
                   <div className="px-3 py-2 bg-muted rounded-md text-sm border font-medium">
@@ -314,7 +322,7 @@ export default function CoimbatoreBatches() {
                     <SelectTrigger className="rounded-md h-9">
                       <SelectValue placeholder="Select available chamber" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="item-aligned" className="max-h-[216px] overflow-y-auto">
                       {casingChambers.map((chamber: any) => (
                         <SelectItem key={chamber.id} value={String(chamber.id)}>
                           {chamber.name}
@@ -497,7 +505,10 @@ export default function CoimbatoreBatches() {
                         Status
                       </th>
                       <th className="px-4 py-3 font-medium text-center">
-                        Created
+                        Started Date
+                      </th>
+                      <th className="px-4 py-3 font-medium text-center">
+                        Completed Date
                       </th>
                       <th className="px-4 py-3 font-medium text-center">By</th>
                       <th className="px-4 py-3 font-medium text-center">
@@ -531,7 +542,10 @@ export default function CoimbatoreBatches() {
                           <StatusBadge status={b.status} />
                         </td>
                         <td className="px-4 text-center font-mono text-xs text-muted-foreground">
-                          {new Date(b.createdAt).toLocaleDateString("en-IN")}
+                          {b.startedAt ? new Date(b.startedAt).toLocaleDateString("en-IN") : "—"}
+                        </td>
+                        <td className="px-4 text-center font-mono text-xs text-muted-foreground">
+                          {b.completedAt ? new Date(b.completedAt).toLocaleDateString("en-IN") : "—"}
                         </td>
                         <td className="px-4 text-center text-xs text-muted-foreground">
                           {b.createdByName ?? "—"}
@@ -575,7 +589,7 @@ export default function CoimbatoreBatches() {
                     {filtered.length === 0 && (
                       <tr>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="px-4 py-12 text-center text-muted-foreground"
                         >
                           {hasFilters

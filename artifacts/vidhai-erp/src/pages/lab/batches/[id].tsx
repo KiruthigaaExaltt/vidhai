@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { useParams, useLocation } from "wouter";
 import {
   useGetLabBatch,
@@ -52,6 +53,15 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
+
+function numericValue(value: unknown): number {
+  const raw =
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  const parsed = Number(raw ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 // ── Stage definitions ──────────────────────────────────────────────────────────
 
@@ -278,14 +288,14 @@ export default function LabBatchDetail() {
     0,
   );
   const savedTotalKg = savedMaterials.reduce(
-    (s: number, m: any) => s + Number(m.quantityKg),
+    (s: number, m: any) => s + numericValue(m.quantityKg),
     0,
   );
 
   // Planned dates (cumulative from batch creation)
   const stageStartDates = useMemo(() => {
-    if (!b?.createdAt) return {};
-    const base = new Date(b.createdAt);
+    if (!b?.stageEnteredAt && !b?.createdAt) return {};
+    const base = new Date(b.stageEnteredAt ?? b.createdAt);
     const result: Record<string, string> = {};
     let cum = 0;
     for (const st of STAGES) {
@@ -295,7 +305,7 @@ export default function LabBatchDetail() {
       cum += st.days;
     }
     return result;
-  }, [b?.createdAt]);
+  }, [b?.stageEnteredAt, b?.createdAt]);
 
   if (isLoading)
     return (
@@ -381,8 +391,8 @@ export default function LabBatchDetail() {
                 </span>
                 <span className="font-mono font-bold text-primary">
                   {spawnOutputs
-                    .reduce((s: number, o: any) => s + Number(o.quantityKg), 0)
-                    .toFixed(1)}{" "}
+                    .reduce((s: number, o: any) => s + numericValue(o.quantityKg), 0)
+                    .toFixed(2)}{" "}
                   kg
                 </span>
               </div>
@@ -655,7 +665,7 @@ export default function LabBatchDetail() {
                         </thead>
                         <tbody className="divide-y divide-border">
                           {savedMaterials.map((m: any) => {
-                            const qty = Number(m.quantityKg);
+                            const qty = numericValue(m.quantityKg);
                             const pct =
                               savedTotalKg > 0 ? (qty / savedTotalKg) * 100 : 0;
                             return (
@@ -993,7 +1003,7 @@ export default function LabBatchDetail() {
                               {fmt(o.producedAt)}
                             </td>
                             <td className="px-4 font-mono text-right font-semibold">
-                              {Number(o.quantityKg).toFixed(1)}
+                              {numericValue(o.quantityKg).toFixed(2)}
                             </td>
                             <td className="px-4">
                               <div className="flex items-center gap-1.5">
@@ -1041,10 +1051,10 @@ export default function LabBatchDetail() {
                               {spawnOutputs
                                 .reduce(
                                   (s: number, o: any) =>
-                                    s + Number(o.quantityKg),
+                                    s + numericValue(o.quantityKg),
                                   0,
                                 )
-                                .toFixed(1)}{" "}
+                                .toFixed(2)}{" "}
                               kg
                             </td>
                             <td />
@@ -1064,27 +1074,7 @@ export default function LabBatchDetail() {
       {/* LIGHTBOX                                                            */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
 
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={apiAssetUrl(lightboxSrc)}
-              alt=""
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* ADVANCE STAGE DIALOG                                                */}

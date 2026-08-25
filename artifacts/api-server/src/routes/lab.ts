@@ -20,6 +20,15 @@ import { saveImageDataUrl } from "../lib/uploadStorage";
 
 const router = Router();
 
+function numericValue(value: unknown): number {
+  const raw =
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  const parsed = Number(raw ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 // Ordered stage sequence (FORMULATION is the pre-initiation holding stage)
 const LAB_STAGES = [
   "MEDIA_PREP",
@@ -41,12 +50,16 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-function batchCode(seq: number) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+function batchCode(seq: number, isoDate: string) {
+  const [year, mm, dd] = isoDate.split("-");
+  const yy = year.slice(-2);
   return `D-${yy}${mm}${dd}-${String(seq).padStart(3, "0")}`;
+}
+
+function batchStartedAt(batch: any) {
+  if (batch.initializedAt) return batch.initializedAt;
+  const match = String(batch.batchCode).match(/^D-(\d{2})(\d{2})(\d{2})-/);
+  return match ? `20${match[1]}-${match[2]}-${match[3]}` : batch.createdAt;
 }
 
 function parseImages(raw: string | null | undefined): string[] {
@@ -71,6 +84,7 @@ router.get("/batches", requireAuth, async (req, res) => {
       alertLevel: batchesTable.alertLevel,
       createdAt: batchesTable.createdAt,
       stageEnteredAt: batchesTable.stageEnteredAt,
+      initializedAt: batchesTable.initializedAt,
       locationCode: locationsTable.code,
       createdByName: usersTable.displayName,
     })
@@ -82,6 +96,8 @@ router.get("/batches", requireAuth, async (req, res) => {
   const displayRows = rows.map((row: any) => ({
     ...row,
     status: row.currentStage === "COMPLETED" ? "completed" : "active",
+    startedAt: batchStartedAt(row),
+    completedAt: row.currentStage === "COMPLETED" ? row.stageEnteredAt : null,
   }));
   if (req.query.skip === undefined && req.query.limit === undefined)
     return res.json(displayRows);
@@ -98,7 +114,12 @@ router.get("/batches", requireAuth, async (req, res) => {
 // ── Create Lab batch (starts in FORMULATION — no stage log yet) ───────────────
 router.post("/batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
-  const { notes } = req.body as any;
+  const { notes, batchDate } = req.body as any;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(batchDate ?? "")))
+    return res.status(400).json({ error: "Batch date is required" });
+  const stageStartedAt = new Date(`${batchDate}T00:00:00+05:30`);
+  if (Number.isNaN(stageStartedAt.getTime()))
+    return res.status(400).json({ error: "Invalid batch date" });
   const [loc] = await db
     .select()
     .from(locationsTable)
@@ -110,14 +131,14 @@ router.post("/batches", requireAuth, async (req, res) => {
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "D"));
-  const todayPrefix = batchCode(0).slice(0, -3);
+  const todayPrefix = batchCode(0, batchDate).slice(0, -3);
   const nextSequence =
     existing.reduce((highest, batch) => {
       if (!batch.batchCode.startsWith(todayPrefix)) return highest;
       const sequence = Number(batch.batchCode.slice(todayPrefix.length));
       return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
     }, 0) + 1;
-  const code = batchCode(nextSequence);
+  const code = batchCode(nextSequence, batchDate);
   const [batch] = await db
     .insert(batchesTable)
     .values({
@@ -126,6 +147,8 @@ router.post("/batches", requireAuth, async (req, res) => {
       currentStage: "FORMULATION",
       status: "active",
       notes: notes ?? null,
+      stageEnteredAt: stageStartedAt,
+      initializedAt: stageStartedAt,
       createdByUserId: userId,
     })
     .returning();
@@ -180,9 +203,15 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
   return res.json({
     ...batch,
     status: batch.currentStage === "COMPLETED" ? "completed" : "active",
-    materials,
+    materials: materials.map((material: any) => ({
+      ...material,
+      quantityKg: numericValue(material.quantityKg),
+    })),
     stageLogs,
-    spawnOutputs,
+    spawnOutputs: spawnOutputs.map((output: any) => ({
+      ...output,
+      quantityKg: numericValue(output.quantityKg),
+    })),
   });
 });
 
@@ -253,7 +282,7 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       .update(batchesTable)
       .set({
         currentStage: "MEDIA_PREP",
-        stageEnteredAt: new Date(),
+        stageEnteredAt: batch.stageEnteredAt ?? new Date(),
       })
       .where(eq(batchesTable.id, batchId));
 
@@ -261,6 +290,7 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
     await tx.insert(stageLogsTable).values({
       batchId,
       stage: "MEDIA_PREP",
+      enteredAt: batch.stageEnteredAt ?? new Date(),
       enteredByUserId: userId,
     });
   });
@@ -506,7 +536,7 @@ router.get("/available-spawn", requireAuth, async (req, res) => {
       .filter((r) => !usedSpawnReferences.has(String(r.batchCode)))
       .map((r) => ({
         ...r.output,
-        quantityKg: Number(r.output.quantityKg),
+        quantityKg: numericValue(r.output.quantityKg),
         batchCode: r.batchCode,
       })),
   );
@@ -535,7 +565,13 @@ router.get("/spawn-transactions", requireAuth, async (req, res) => {
     .select()
     .from(spawnTransactionsTable)
     .orderBy(desc(spawnTransactionsTable.createdAt));
-  return res.json(rows);
+  return res.json(
+    rows.map((row: any) => ({
+      ...row,
+      quantityKg: numericValue(row.quantityKg),
+      unitPrice: row.unitPrice == null ? null : numericValue(row.unitPrice),
+    })),
+  );
 });
 
 router.post("/spawn-transactions", requireAuth, async (req, res) => {

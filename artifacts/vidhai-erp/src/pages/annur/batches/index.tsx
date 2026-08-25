@@ -25,7 +25,11 @@ import {
 import { Plus, Trash2, Search, Filter, X, CalendarDays } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { toast } from "sonner";
 
@@ -73,9 +77,22 @@ export default function Batches() {
   const [filterSearch, setFilterSearch] = useState("");
   const [batchPage, setBatchPage] = useState(1);
   const [batchPageSize, setBatchPageSize] = useState(10);
-  useEffect(() => setBatchPage(1), [filterStage, filterStatus, filterFrom, filterTo, filterSearch]);
+  useEffect(
+    () => setBatchPage(1),
+    [filterStage, filterStatus, filterFrom, filterTo, filterSearch],
+  );
   const batchQuery = useQuery({
-    queryKey: ["annur-batches", annurLoc?.id, filterStage, filterStatus, filterFrom, filterTo, filterSearch, batchPage, batchPageSize],
+    queryKey: [
+      "annur-batches",
+      annurLoc?.id,
+      filterStage,
+      filterStatus,
+      filterFrom,
+      filterTo,
+      filterSearch,
+      batchPage,
+      batchPageSize,
+    ],
     enabled: Boolean(annurLoc?.id),
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -88,9 +105,15 @@ export default function Batches() {
       if (filterFrom) params.set("from", filterFrom);
       if (filterTo) params.set("to", filterTo);
       if (filterSearch) params.set("search", filterSearch);
-      const response = await fetch(`/api/batches?${params}`, { credentials: "include" });
+      const response = await fetch(`/api/batches?${params}`, {
+        credentials: "include",
+      });
       if (!response.ok) throw new Error("Unable to load batches");
-      return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
+      return response.json() as Promise<{
+        data: any[];
+        totalCount: number;
+        totalPages: number;
+      }>;
     },
     placeholderData: keepPreviousData,
   });
@@ -190,7 +213,9 @@ export default function Batches() {
                   Stage
                 </Label>
                 <Select value={filterStage} onValueChange={setFilterStage}>
-                  <SelectTrigger className={`${FILTER_INPUT} w-full sm:w-[160px]`}>
+                  <SelectTrigger
+                    className={`${FILTER_INPUT} w-full sm:w-[160px]`}
+                  >
                     <SelectValue placeholder="All stages" />
                   </SelectTrigger>
                   <SelectContent>
@@ -210,7 +235,9 @@ export default function Batches() {
                   Status
                 </Label>
                 <Select value={filterStatus} onValueChange={setFilterStatus}>
-                  <SelectTrigger className={`${FILTER_INPUT} w-full sm:w-[140px]`}>
+                  <SelectTrigger
+                    className={`${FILTER_INPUT} w-full sm:w-[140px]`}
+                  >
                     <SelectValue placeholder="All statuses" />
                   </SelectTrigger>
                   <SelectContent>
@@ -273,7 +300,8 @@ export default function Batches() {
               )}
 
               <span className="ml-auto text-xs text-muted-foreground self-end pb-2">
-                {Number(batchQuery.data?.totalCount || 0)} batch{Number(batchQuery.data?.totalCount || 0) !== 1 ? "es" : ""}
+                {Number(batchQuery.data?.totalCount || 0)} batch
+                {Number(batchQuery.data?.totalCount || 0) !== 1 ? "es" : ""}
               </span>
             </div>
           </CardContent>
@@ -310,7 +338,10 @@ export default function Batches() {
                         Produced Bags
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
-                        Created
+                        Started Date
+                      </th>
+                      <th className="px-4 py-3 font-semibold text-center">
+                        Completed Date
                       </th>
                       <th className="px-4 py-3 font-semibold text-center">
                         By
@@ -341,10 +372,17 @@ export default function Batches() {
                           {b.targetBags ?? "—"}
                         </td>
                         <td className="px-4 font-mono text-right">
-                          {b.actualBags ?? "�"}
+                          {b.actualBags ?? "�"}
                         </td>
                         <td className="px-4 font-mono text-xs text-muted-foreground">
-                          {new Date(b.createdAt).toLocaleDateString("en-IN")}
+                          {b.startedAt
+                            ? new Date(b.startedAt).toLocaleDateString("en-IN")
+                            : "—"}
+                        </td>
+                        <td className="px-4 font-mono text-xs text-muted-foreground">
+                          {b.completedAt
+                            ? new Date(b.completedAt).toLocaleDateString("en-IN")
+                            : "—"}
                         </td>
                         <td className="px-4 text-xs text-muted-foreground">
                           {b.createdByName}
@@ -369,7 +407,7 @@ export default function Batches() {
                     {filtered.length === 0 && (
                       <tr>
                         <td
-                          colSpan={8}
+                          colSpan={10}
                           className="px-4 py-20 text-center text-sm text-muted-foreground"
                         >
                           {hasFilters
@@ -389,7 +427,10 @@ export default function Batches() {
             totalCount={Number(batchQuery.data?.totalCount || 0)}
             totalPages={Number(batchQuery.data?.totalPages || 0)}
             onPageChange={setBatchPage}
-            onPageSizeChange={(size) => { setBatchPageSize(size); setBatchPage(1); }}
+            onPageSizeChange={(size) => {
+              setBatchPageSize(size);
+              setBatchPage(1);
+            }}
             loading={isLoading}
           />
         </Card>

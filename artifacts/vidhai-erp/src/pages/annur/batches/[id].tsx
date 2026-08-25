@@ -46,6 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 
 // ── Stage sequence with lead-time durations ───────────────────────────────────
 const STAGE_SEQ = [
@@ -743,13 +744,13 @@ export default function BatchDetail() {
                       const isPending = !isCompleted && !isActive;
 
                       const expectedStart = addDays(
-                        batchCreatedAt,
+                        new Date(batch.stageEnteredAt ?? batchCreatedAt),
                         stage.dayStart,
                       );
                       const expectedEnd =
                         stage.duration > 0
                           ? addDays(
-                              batchCreatedAt,
+                              new Date(batch.stageEnteredAt ?? batchCreatedAt),
                               stage.dayStart + stage.duration,
                             )
                           : null;
@@ -1033,28 +1034,7 @@ export default function BatchDetail() {
       </div>
 
       {/* ── Lightbox ──────────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={apiAssetUrl(lightboxSrc)}
-              crossOrigin="use-credentials"
-              alt="Verification photo"
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm transition-colors"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       <Dialog open={chamberPromptOpen} onOpenChange={setChamberPromptOpen}>
         <DialogContent className="rounded-sm border-border max-w-md shadow-xl">

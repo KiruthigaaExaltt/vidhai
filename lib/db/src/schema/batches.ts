@@ -55,6 +55,7 @@ export const batchesTable = mongoTable("batches", {
   stageEnteredAt: timestamp("stage_entered_at", {
     withTimezone: true,
   }).defaultNow(),
+  initializedAt: timestamp("initialized_at", { withTimezone: true }),
   alertLevel: text("alert_level"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

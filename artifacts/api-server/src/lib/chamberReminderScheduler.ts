@@ -10,6 +10,7 @@ function hourStart(date = new Date()) {
 async function run() {
   try {
     const interval = hourStart();
+    const dueInterval = new Date(interval.getTime() + 60 * 60 * 1000);
     const chambers = await db
       .select()
       .from(chambersTable)
@@ -18,7 +19,7 @@ async function run() {
       if (String(chamber.chamberType).toLowerCase() !== "bulk") continue;
       if (chamber.lastReadingAt && new Date(chamber.lastReadingAt) >= interval)
         continue;
-      const hour = interval.toISOString();
+      const hour = dueInterval.toISOString();
       await publishNotification({
         organizationId: Number(chamber.organizationId ?? 1),
         permissionKey: "production.chambers.notification",
@@ -28,7 +29,7 @@ async function run() {
         targetModule: "production",
         submodule: "chambers",
         title: "Bulk chamber reading due",
-        message: `Bulk Chamber ${chamber.name} reading is due for the ${interval.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })} interval.`,
+        message: `Bulk Chamber ${chamber.name} reading is due for the ${dueInterval.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })} interval.`,
         sourceEntityType: "chamber",
         sourceEntityId: chamber.id,
         sourceReference: chamber.name,

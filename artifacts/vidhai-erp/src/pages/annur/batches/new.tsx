@@ -85,6 +85,7 @@ export default function NewBatch() {
   );
 
   const [targetBags, setTargetBags] = useState<string>("4500");
+  const [batchDate, setBatchDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [preWettingChamberId, setPreWettingChamberId] = useState("");
 
@@ -213,6 +214,7 @@ export default function NewBatch() {
       const batch = await createBatch.mutateAsync({
         data: {
           locationId: annurLoc.id,
+          batchDate,
           preWettingChamberId: Number(preWettingChamberId),
           targetBags: targetBags ? Number(targetBags) : null,
           notes: notes || null,
@@ -302,6 +304,13 @@ export default function NewBatch() {
                       No Pre-Wetting chamber is currently available.
                     </p>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Batch Date <span className="text-destructive">*</span>
+                  </Label>
+                  <Input type="date" required value={batchDate} onChange={(e) => setBatchDate(e.target.value)} className="rounded-md font-mono" />
                 </div>
 
                 <div className="space-y-2">

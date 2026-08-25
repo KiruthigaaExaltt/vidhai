@@ -8,6 +8,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { Shell } from "@/components/layout/Shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,7 @@ type RoomHistoryRow = {
   mushroomCount: number;
   harvestWeightKg: number;
   manureBags?: number | null;
+  manureProducedKg?: number | null;
 };
 
 type GrowingBatchHistory = RoomHistoryRow & {
@@ -107,6 +110,7 @@ export default function OotyRoomHistory() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [selectedRow, setSelectedRow] = useState<RoomHistoryRow | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const historyQuery = useQuery<RoomHistoryRow[]>({
     queryKey: ["ooty-room-history"],
@@ -259,12 +263,12 @@ export default function OotyRoomHistory() {
           <table className="w-full min-w-[1150px] text-sm">
             <thead className="border-b bg-muted text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-4 py-3">Room</th>
                 <th className="px-4 py-3">Growing Batch</th>
                 <th className="px-4 py-3">Source Batch</th>
+                <th className="px-4 py-3">Room</th>
                 <th className="px-4 py-3 text-right">Bags</th>
-                <th className="px-4 py-3">Started</th>
-                <th className="px-4 py-3">Completed</th>
+                <th className="px-4 py-3">Started Date</th>
+                <th className="px-4 py-3">Completed Date</th>
                 <th className="px-4 py-3 text-right">Mushrooms</th>
                 <th className="px-4 py-3 text-right">Weight</th>
                 <th className="px-4 py-3 text-right">Manure Bags</th>
@@ -285,11 +289,11 @@ export default function OotyRoomHistory() {
                     }
                   }}
                 >
-                  <td className="px-4 py-3 font-medium">{row.roomName}</td>
                   <td className="px-4 py-3 font-mono">{row.batchCode}</td>
                   <td className="px-4 py-3">
                     {row.sourceBatches?.join(", ") || "-"}
                   </td>
+                  <td className="px-4 py-3 font-medium">{row.roomName}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {row.allocatedBags}
                   </td>
@@ -403,7 +407,9 @@ export default function OotyRoomHistory() {
 
         <Dialog
           open={!!selectedRow}
-          onOpenChange={(open) => !open && setSelectedRow(null)}
+          onOpenChange={(open) => {
+            if (!open && !previewImage) setSelectedRow(null);
+          }}
         >
           <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
             <DialogHeader>
@@ -437,14 +443,31 @@ export default function OotyRoomHistory() {
                     <HistoryValue label="Completed" value={displayDate(selectedRow?.completedAt)} />
                   </div>
 
-                  <HistoryTable title="Stage history" headers={["Stage", "Entered", "Exited", "Photos", "Manure Bags", "Reference / notes"]} empty={stageLogs.length === 0}>
+                  <HistoryTable title="Stage history" headers={["Stage", "Entered", "Exited", "Photos", "Manure Bags", "Manure Weight", "Reference / notes"]} empty={stageLogs.length === 0}>
                     {stageLogs.map((log) => (
                       <tr key={log.id} className="border-t">
                         <td className="px-3 py-2 font-medium">{stageLabel(log.stage)}</td>
                         <td className="px-3 py-2">{new Date(log.enteredAt).toLocaleString()}</td>
                         <td className="px-3 py-2">{log.exitedAt ? new Date(log.exitedAt).toLocaleString() : "-"}</td>
-                        <td className="px-3 py-2">{log.verificationImages?.length || 0}</td>
+                        <td className="px-3 py-2">
+                          {log.verificationImages?.length ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {log.verificationImages.map((image, index) => (
+                                <button
+                                  key={`${log.id}-${index}`}
+                                  type="button"
+                                  className="h-10 w-10 overflow-hidden rounded border hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                  onClick={() => setPreviewImage(image)}
+                                  aria-label={`Preview ${stageLabel(log.stage)} photo ${index + 1}`}
+                                >
+                                  <img src={apiAssetUrl(image)} alt="" className="h-full w-full object-cover" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : "-"}
+                        </td>
                         <td className="px-3 py-2">{log.stage === "COOKOUT" ? (log.manureBags ?? detail.manureBags ?? "-") : "-"}</td>
+                        <td className="px-3 py-2">{log.stage === "COOKOUT" && detail.manureProducedKg != null ? `${Number(detail.manureProducedKg).toFixed(2)} kg` : "-"}</td>
                         <td className="px-3 py-2">{[log.casingBatchRef, log.casingSoilQuantityKg ? `${Number(log.casingSoilQuantityKg).toFixed(2)} kg` : null, log.notes].filter(Boolean).join(" - ") || "-"}</td>
                       </tr>
                     ))}
@@ -478,6 +501,12 @@ export default function OotyRoomHistory() {
             })()}
           </DialogContent>
         </Dialog>
+
+        <ImageLightbox
+          source={previewImage}
+          onClose={() => setPreviewImage(null)}
+          alt="Stage verification preview"
+        />
       </div>
     </Shell>
   );

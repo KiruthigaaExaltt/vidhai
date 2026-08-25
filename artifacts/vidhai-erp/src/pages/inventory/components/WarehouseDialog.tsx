@@ -4,10 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Textarea } from "@/components/ui/textarea";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 interface WarehouseDialogProps {
   open: boolean;
@@ -20,6 +23,17 @@ export function WarehouseDialog({ open, onOpenChange, formState }: WarehouseDial
   const isEditing = !!formState.id;
 
   const [form, setForm] = useState(formState);
+  const [managerOpen, setManagerOpen] = useState(false);
+  const { data: employeeResponse } = useQuery({
+    queryKey: ["warehouse-manager-employees"],
+    queryFn: async () => {
+      const response = await fetch("/api/crew/employees?status=Active&skip=0&limit=1000", { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load employees");
+      return response.json();
+    },
+    enabled: open,
+  });
+  const employees = Array.isArray(employeeResponse) ? employeeResponse : employeeResponse?.data ?? [];
 
   useEffect(() => {
     if (open) {
@@ -130,7 +144,40 @@ export function WarehouseDialog({ open, onOpenChange, formState }: WarehouseDial
 
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Manager <span className="text-destructive">*</span></Label>
-              <Input required value={form.manager || ""} onChange={e => setForm({...form, manager: e.target.value})} placeholder="Employee Name" className="h-10" />
+              <Popover open={managerOpen} onOpenChange={setManagerOpen}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" role="combobox" aria-expanded={managerOpen} className="h-10 w-full justify-between bg-background px-3 font-normal">
+                    <span className={cn("truncate", !form.manager && "text-muted-foreground")}>{form.manager || "Select or type a manager"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command shouldFilter>
+                    <CommandInput
+                      value={form.manager || ""}
+                      onValueChange={(manager) => setForm({...form, manager})}
+                      placeholder="Type employee code or name..."
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        <div className="px-3">No employee matched. Your typed text will be used.</div>
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {employees.map((employee: any) => {
+                          const label = `${employee.employeeCode ? `${employee.employeeCode} - ` : ""}${employee.name}`;
+                          return (
+                            <CommandItem key={employee.id} value={label} onSelect={() => { setForm({...form, manager: label}); setManagerOpen(false); }}>
+                              <Check className={cn("h-4 w-4", form.manager === label ? "opacity-100" : "opacity-0")} />
+                              <span className="truncate">{label}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-muted-foreground">Select an employee or keep any unmatched text as the manager.</p>
             </div>
 
             <div className="space-y-2">

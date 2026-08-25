@@ -85,6 +85,10 @@ function requireAuth(req: any, res: any, next: any) {
 }
 
 function formatBatch(b: any, locationCode: string, createdByName: string) {
+  const codeDate = String(b.batchCode).match(/^[^-]+-(\d{2})(\d{2})(\d{2})-/);
+  const fallbackStartedAt = codeDate
+    ? `20${codeDate[1]}-${codeDate[2]}-${codeDate[3]}`
+    : b.createdAt;
   return {
     id: b.id,
     batchCode: b.batchCode,
@@ -108,6 +112,8 @@ function formatBatch(b: any, locationCode: string, createdByName: string) {
     createdAt: b.createdAt,
     createdByName,
     stageEnteredAt: b.stageEnteredAt,
+    startedAt: b.initializedAt ?? fallbackStartedAt,
+    completedAt: b.status === "dispatched" ? b.stageEnteredAt : null,
     alertLevel: b.alertLevel,
   };
 }
@@ -173,6 +179,7 @@ router.post("/", async (req, res) => {
       preWettingChamberId: number;
       targetBags?: number | null;
       notes?: string | null;
+      batchDate?: string;
       formulation?: Array<{
         materialId?: number;
         name: string;
@@ -213,10 +220,16 @@ router.post("/", async (req, res) => {
       error: "The selected Pre-Wetting chamber is no longer available",
     });
 
-  const date = new Date();
-  const yy = String(date.getFullYear()).slice(-2);
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
+  const selectedDate = String((req.body as any).batchDate ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate))
+    return res.status(400).json({ error: "Batch date is required" });
+  const stageStartedAt = new Date(`${selectedDate}T00:00:00+05:30`);
+  if (Number.isNaN(stageStartedAt.getTime()))
+    return res.status(400).json({ error: "Invalid batch date" });
+  const [year, month, day] = selectedDate.split("-");
+  const yy = year.slice(-2);
+  const mm = month;
+  const dd = day;
   const codePrefix = `${loc.code}-${yy}${mm}${dd}-`;
   const existingBatches = await db.select().from(batchesTable);
   const highestSequence = existingBatches.reduce((highest, existingBatch) => {
@@ -244,7 +257,8 @@ router.post("/", async (req, res) => {
           currentChamberId: preWettingChamber.id,
           notes: notes ?? null,
           createdByUserId: userId,
-          stageEnteredAt: new Date(),
+          stageEnteredAt: stageStartedAt,
+          initializedAt: stageStartedAt,
         })
         .returning();
 

@@ -20,6 +20,16 @@ const ANNUR_CHAMBER_TYPES = new Set([
   "bulk",
 ]);
 
+function numericValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const raw =
+    typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId)
     return res.status(401).json({ error: "Not authenticated" });
@@ -64,17 +74,17 @@ router.get("/", requireAuth, async (req, res) => {
       currentBatchStartedAt: r.currentBatchStartedAt ?? null,
       lastTemperature:
         r.chamber.lastTemperature !== null
-          ? Number(r.chamber.lastTemperature)
+          ? numericValue(r.chamber.lastTemperature)
           : null,
-      lastNh3: r.chamber.lastNh3 !== null ? Number(r.chamber.lastNh3) : null,
-      lastCo2: r.chamber.lastCo2 !== null ? Number(r.chamber.lastCo2) : null,
+      lastNh3: numericValue(r.chamber.lastNh3),
+      lastCo2: numericValue(r.chamber.lastCo2),
       lastMoisture:
-        r.chamber.lastMoisture !== null ? Number(r.chamber.lastMoisture) : null,
+        numericValue(r.chamber.lastMoisture),
       currentTurnNumber: r.chamber.currentTurnNumber,
       lastReadingAt: r.chamber.lastReadingAt,
-      lengthM: r.chamber.lengthM !== null ? Number(r.chamber.lengthM) : null,
-      widthM: r.chamber.widthM !== null ? Number(r.chamber.widthM) : null,
-      heightM: r.chamber.heightM !== null ? Number(r.chamber.heightM) : null,
+      lengthM: numericValue(r.chamber.lengthM),
+      widthM: numericValue(r.chamber.widthM),
+      heightM: numericValue(r.chamber.heightM),
       notes: r.chamber.notes,
     })),
   );
@@ -179,19 +189,19 @@ router.get("/:id", requireAuth, async (req, res) => {
     currentBatchStartedAt: row.currentBatchStartedAt ?? null,
     lastTemperature:
       row.chamber.lastTemperature !== null
-        ? Number(row.chamber.lastTemperature)
+        ? numericValue(row.chamber.lastTemperature)
         : null,
-    lastNh3: row.chamber.lastNh3 !== null ? Number(row.chamber.lastNh3) : null,
-    lastCo2: row.chamber.lastCo2 !== null ? Number(row.chamber.lastCo2) : null,
+    lastNh3: numericValue(row.chamber.lastNh3),
+    lastCo2: numericValue(row.chamber.lastCo2),
     lastMoisture:
       row.chamber.lastMoisture !== null
-        ? Number(row.chamber.lastMoisture)
+        ? numericValue(row.chamber.lastMoisture)
         : null,
     currentTurnNumber: row.chamber.currentTurnNumber,
     lastReadingAt: row.chamber.lastReadingAt,
-    lengthM: row.chamber.lengthM !== null ? Number(row.chamber.lengthM) : null,
-    widthM: row.chamber.widthM !== null ? Number(row.chamber.widthM) : null,
-    heightM: row.chamber.heightM !== null ? Number(row.chamber.heightM) : null,
+    lengthM: numericValue(row.chamber.lengthM),
+    widthM: numericValue(row.chamber.widthM),
+    heightM: numericValue(row.chamber.heightM),
     notes: row.chamber.notes,
     recentReadings: readings,
   });
@@ -359,12 +369,12 @@ router.get("/:id/readings", requireAuth, async (req, res) => {
       batchStage: r.batchStage ?? null,
       temperatureCelsius:
         r.reading.temperatureCelsius !== null
-          ? Number(r.reading.temperatureCelsius)
+          ? numericValue(r.reading.temperatureCelsius)
           : null,
-      nh3Ppm: r.reading.nh3Ppm !== null ? Number(r.reading.nh3Ppm) : null,
+      nh3Ppm: numericValue(r.reading.nh3Ppm),
       co2Percent:
-        r.reading.co2Percent !== null ? Number(r.reading.co2Percent) : null,
-      humidity: r.reading.humidity !== null ? Number(r.reading.humidity) : null,
+        numericValue(r.reading.co2Percent),
+      humidity: numericValue(r.reading.humidity),
       notes: r.reading.notes,
       recordedAt: r.reading.recordedAt,
       recordedByName: r.recordedByName ?? "System",

@@ -489,16 +489,26 @@ router.post(
           const existingGrowingBatches = await tx
             .select()
             .from(ootyGrowingBatchesTable);
-          const yy = String(now.getFullYear()).slice(2),
-            mm = String(now.getMonth() + 1).padStart(2, "0"),
-            dd = String(now.getDate()).padStart(2, "0");
-          let createdSequence = 0;
+          const createdCodes: string[] = [];
           for (const item of importReady) {
             const key = normalizeGrowingRoomName(item.value.name);
 
             const room = await insertGrowingRoom(tx, loc.id, item.value);
-            createdSequence += 1;
-            const batchCode = `B-${yy}${mm}${dd}-${String(existingGrowingBatches.length + createdSequence).padStart(3, "0")}`;
+            const [year, month, day] = item.value.spawnRunStartDate.split("-");
+            const codePrefix = `B-${year.slice(2)}${month}${day}-`;
+            const highestSequence = [
+              ...existingGrowingBatches.map((row) => row.batchCode),
+              ...createdCodes,
+            ].reduce((highest, existingCode) => {
+              if (!String(existingCode).startsWith(codePrefix)) return highest;
+              const sequence = Number(String(existingCode).slice(codePrefix.length));
+              return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
+            }, 0);
+            const batchCode = `${codePrefix}${String(highestSequence + 1).padStart(3, "0")}`;
+            createdCodes.push(batchCode);
+            const batchStartedAt = new Date(
+              `${item.value.spawnRunStartDate}T00:00:00+05:30`,
+            );
             const [batch] = await tx
               .insert(ootyGrowingBatchesTable)
               .values({
@@ -507,7 +517,7 @@ router.post(
                 annurBatchId: item.annurBatch.id,
                 currentPhase: "SPAWN_RUN",
                 currentStage: "SPAWN_RUN",
-                phaseEnteredAt: now,
+                phaseEnteredAt: batchStartedAt,
                 status: "active",
                 spawnRunStartDate: item.value.spawnRunStartDate,
                 notes: null,
@@ -517,7 +527,7 @@ router.post(
             await tx.insert(ootyStageLogsTable).values({
               growingBatchId: batch.id,
               stage: "SPAWN_RUN",
-              enteredAt: now,
+              enteredAt: batchStartedAt,
               recordedByUserId: userId,
             });
             await tx.insert(ootyBatchSourcesTable).values({
@@ -793,12 +803,22 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
     .where(eq(ootyRoomsTable.id, roomId))
     .limit(1);
   if (!room) return res.status(400).json({ error: "Room not found" });
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(spawnRunStartDate ?? "")))
+    return res.status(400).json({ error: "Spawn run start date is required" });
+  const now = new Date(`${spawnRunStartDate}T00:00:00+05:30`);
+  if (Number.isNaN(now.getTime()))
+    return res.status(400).json({ error: "Invalid spawn run start date" });
+  const [year, mm, dd] = String(spawnRunStartDate).split("-");
+  const yy = year.slice(2);
   const existing = await db.select().from(ootyGrowingBatchesTable);
-  const code = `B-${yy}${mm}${dd}-${String(existing.length + 1).padStart(3, "0")}`;
+  const codePrefix = `B-${yy}${mm}${dd}-`;
+  const nextSequence = existing.reduce((highest, row) => {
+    const existingCode = String(row.batchCode ?? "");
+    if (!existingCode.startsWith(codePrefix)) return highest;
+    const sequence = Number(existingCode.slice(codePrefix.length));
+    return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
+  }, 0) + 1;
+  const code = `${codePrefix}${String(nextSequence).padStart(3, "0")}`;
 
   const requestedSources: Array<{ annurBatchId: number; bagCount?: number }> =
     Array.isArray(batchSources) && batchSources.length > 0
@@ -1051,6 +1071,7 @@ router.get("/growing-batches/:id", requireAuth, async (req, res) => {
 
   return res.json({
     ...batch,
+    manureProducedKg: numericValue(batch.manureProducedKg),
     currentStage: effectiveCurrentStage,
     dayInPhase: daysSince(batch.phaseEnteredAt),
     observations: normalizedObservations,
