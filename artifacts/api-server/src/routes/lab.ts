@@ -16,8 +16,19 @@ import {
 } from "@workspace/db";
 import { eq, desc, ilike } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
+import { saveImageDataUrl } from "../lib/uploadStorage";
+import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 
 const router = Router();
+
+function numericValue(value: unknown): number {
+  const raw =
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  const parsed = Number(raw ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 // Ordered stage sequence (FORMULATION is the pre-initiation holding stage)
 const LAB_STAGES = [
@@ -40,12 +51,16 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-function batchCode(seq: number) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+function batchCode(seq: number, isoDate: string) {
+  const [year, mm, dd] = isoDate.split("-");
+  const yy = year.slice(-2);
   return `D-${yy}${mm}${dd}-${String(seq).padStart(3, "0")}`;
+}
+
+function batchStartedAt(batch: any) {
+  if (batch.initializedAt) return batch.initializedAt;
+  const match = String(batch.batchCode).match(/^D-(\d{2})(\d{2})(\d{2})-/);
+  return match ? `20${match[1]}-${match[2]}-${match[3]}` : batch.createdAt;
 }
 
 function parseImages(raw: string | null | undefined): string[] {
@@ -70,6 +85,7 @@ router.get("/batches", requireAuth, async (req, res) => {
       alertLevel: batchesTable.alertLevel,
       createdAt: batchesTable.createdAt,
       stageEnteredAt: batchesTable.stageEnteredAt,
+      initializedAt: batchesTable.initializedAt,
       locationCode: locationsTable.code,
       createdByName: usersTable.displayName,
     })
@@ -81,6 +97,8 @@ router.get("/batches", requireAuth, async (req, res) => {
   const displayRows = rows.map((row: any) => ({
     ...row,
     status: row.currentStage === "COMPLETED" ? "completed" : "active",
+    startedAt: batchStartedAt(row),
+    completedAt: row.currentStage === "COMPLETED" ? row.stageEnteredAt : null,
   }));
   if (req.query.skip === undefined && req.query.limit === undefined)
     return res.json(displayRows);
@@ -97,7 +115,11 @@ router.get("/batches", requireAuth, async (req, res) => {
 // ── Create Lab batch (starts in FORMULATION — no stage log yet) ───────────────
 router.post("/batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
-  const { notes } = req.body as any;
+  const { notes, batchDate } = req.body as any;
+  const effectiveBatchDate = String(batchDate || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()));
+  const stageStartedAt = resolveProductionDateTime(req.body.batchStartedAt);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveBatchDate) || !stageStartedAt)
+    return res.status(400).json({ error: "Batch initialization date and time is invalid" });
   const [loc] = await db
     .select()
     .from(locationsTable)
@@ -109,14 +131,14 @@ router.post("/batches", requireAuth, async (req, res) => {
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "D"));
-  const todayPrefix = batchCode(0).slice(0, -3);
+  const todayPrefix = batchCode(0, effectiveBatchDate).slice(0, -3);
   const nextSequence =
     existing.reduce((highest, batch) => {
       if (!batch.batchCode.startsWith(todayPrefix)) return highest;
       const sequence = Number(batch.batchCode.slice(todayPrefix.length));
       return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
     }, 0) + 1;
-  const code = batchCode(nextSequence);
+  const code = batchCode(nextSequence, effectiveBatchDate);
   const [batch] = await db
     .insert(batchesTable)
     .values({
@@ -125,6 +147,8 @@ router.post("/batches", requireAuth, async (req, res) => {
       currentStage: "FORMULATION",
       status: "active",
       notes: notes ?? null,
+      stageEnteredAt: stageStartedAt,
+      initializedAt: stageStartedAt,
       createdByUserId: userId,
     })
     .returning();
@@ -179,9 +203,15 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
   return res.json({
     ...batch,
     status: batch.currentStage === "COMPLETED" ? "completed" : "active",
-    materials,
+    materials: materials.map((material: any) => ({
+      ...material,
+      quantityKg: numericValue(material.quantityKg),
+    })),
     stageLogs,
-    spawnOutputs,
+    spawnOutputs: spawnOutputs.map((output: any) => ({
+      ...output,
+      quantityKg: numericValue(output.quantityKg),
+    })),
   });
 });
 
@@ -252,7 +282,7 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       .update(batchesTable)
       .set({
         currentStage: "MEDIA_PREP",
-        stageEnteredAt: new Date(),
+        stageEnteredAt: batch.stageEnteredAt ?? new Date(),
       })
       .where(eq(batchesTable.id, batchId));
 
@@ -260,6 +290,7 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
     await tx.insert(stageLogsTable).values({
       batchId,
       stage: "MEDIA_PREP",
+      enteredAt: batch.stageEnteredAt ?? new Date(),
       enteredByUserId: userId,
     });
   });
@@ -284,11 +315,12 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     destination,
     strainName,
     spawnQty,
+    completedAt,
   } = req.body as any;
 
   // Preserve any supplied verification photos; photos are optional.
-  const imgs: string[] = Array.isArray(verificationImages)
-    ? verificationImages.filter(Boolean)
+  const submittedImages: string[] = Array.isArray(verificationImages)
+    ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
 
   const [batch] = await db
@@ -297,6 +329,15 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, id))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Not found" });
+  const stageCompletedAt = resolveProductionDateTime(completedAt);
+  if (!stageCompletedAt)
+    return res.status(400).json({ error: "Stage completion date and time is invalid" });
+  const dateError = chronologyError(
+    stageCompletedAt,
+    batch.stageEnteredAt ?? batch.initializedAt,
+    "Stage completion date and time",
+  );
+  if (dateError) return res.status(400).json({ error: dateError });
 
   if (batch.currentStage === "FORMULATION") {
     return res
@@ -319,6 +360,19 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     }
   }
 
+  let imgs: string[];
+  try {
+    imgs = await Promise.all(
+      submittedImages.map((image) =>
+        saveImageDataUrl(image, "lab-verification"),
+      ),
+    );
+  } catch (error: any) {
+    return res.status(400).json({
+      error: error?.message || "Unable to store verification photos",
+    });
+  }
+
   await db.transaction(async (tx) => {
     // Close current stage log with photos
     const [currentLog] = await tx
@@ -331,7 +385,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
       await tx
         .update(stageLogsTable)
         .set({
-          exitedAt: new Date(),
+          exitedAt: stageCompletedAt,
           notes: notes ?? null,
           verificationImages: JSON.stringify(imgs),
         })
@@ -344,7 +398,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
       .set({
         currentStage: nextStage,
         status: newStatus,
-        stageEnteredAt: new Date(),
+        stageEnteredAt: stageCompletedAt,
       })
       .where(eq(batchesTable.id, id));
 
@@ -353,6 +407,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
       await tx.insert(stageLogsTable).values({
         batchId: id,
         stage: nextStage,
+        enteredAt: stageCompletedAt,
         enteredByUserId: userId,
       });
     }
@@ -377,7 +432,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
           batchId: id,
           strainName: strainName ?? "Mixed Spawn",
           quantityKg: String(qtyKg),
-          producedAt: new Date().toISOString().split("T")[0],
+          producedAt: stageCompletedAt.toISOString().split("T")[0],
           status: "stocked",
           notes: notes ?? null,
         })
@@ -394,7 +449,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
           sourceReferenceType: "LAB_BATCH",
           sourceReferenceId: id,
           sourceReference: batch.batchCode,
-          receivedAt: new Date().toISOString().split("T")[0],
+          receivedAt: stageCompletedAt.toISOString().split("T")[0],
           status: "available",
           notes: notes ?? null,
         })
@@ -492,7 +547,7 @@ router.get("/available-spawn", requireAuth, async (req, res) => {
       .filter((r) => !usedSpawnReferences.has(String(r.batchCode)))
       .map((r) => ({
         ...r.output,
-        quantityKg: Number(r.output.quantityKg),
+        quantityKg: numericValue(r.output.quantityKg),
         batchCode: r.batchCode,
       })),
   );
@@ -521,7 +576,13 @@ router.get("/spawn-transactions", requireAuth, async (req, res) => {
     .select()
     .from(spawnTransactionsTable)
     .orderBy(desc(spawnTransactionsTable.createdAt));
-  return res.json(rows);
+  return res.json(
+    rows.map((row: any) => ({
+      ...row,
+      quantityKg: numericValue(row.quantityKg),
+      unitPrice: row.unitPrice == null ? null : numericValue(row.unitPrice),
+    })),
+  );
 });
 
 router.post("/spawn-transactions", requireAuth, async (req, res) => {

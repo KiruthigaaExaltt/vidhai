@@ -90,6 +90,7 @@ export const annurSpawnUsagesTable = mongoTable("annur_spawn_usages", {
   supplierNameSnapshot: text("supplier_name_snapshot"),
   supplierLotSnapshot: text("supplier_lot_snapshot"),
   purchaseReferenceSnapshot: text("purchase_reference_snapshot"),
+  additionalSourcesJson: text("additional_sources_json"),
   recordedByUserId: integer("recorded_by_user_id").references(
     () => usersTable.id,
   ),

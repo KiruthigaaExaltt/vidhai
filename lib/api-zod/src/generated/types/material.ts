@@ -12,6 +12,8 @@ export interface Material {
   /** @nullable */
   sku?: string | null;
   category: string;
+  /** @nullable */
+  categoryId?: number | null;
   unit: string;
   /** @nullable */
   defaultMoisturePercent?: number | null;

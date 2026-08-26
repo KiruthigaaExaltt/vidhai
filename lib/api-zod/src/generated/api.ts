@@ -21,10 +21,12 @@ export const HealthCheckResponse = zod.object({
  */
 export const LoginBody = zod.object({
   "username": zod.string(),
-  "password": zod.string()
+  "password": zod.string().describe('RSA-OAEP SHA-256 ciphertext encoded as base64'),
+  "passwordEncoding": zod.enum(['rsa-oaep-256'])
 })
 
 export const LoginResponse = zod.object({
+  "accessToken": zod.string(),
   "user": zod.object({
   "id": zod.number(),
   "username": zod.string(),
@@ -213,6 +215,7 @@ export const ListMaterialsResponseItem = zod.object({
   "name": zod.string(),
   "sku": zod.string().nullish(),
   "category": zod.string(),
+  "categoryId": zod.number().nullish(),
   "unit": zod.string(),
   "defaultMoisturePercent": zod.number().nullish(),
   "defaultNitrogenPercent": zod.number().nullish(),
@@ -246,6 +249,7 @@ export const CreateMaterialResponse = zod.object({
   "name": zod.string(),
   "sku": zod.string().nullish(),
   "category": zod.string(),
+  "categoryId": zod.number().nullish(),
   "unit": zod.string(),
   "defaultMoisturePercent": zod.number().nullish(),
   "defaultNitrogenPercent": zod.number().nullish(),
@@ -283,6 +287,7 @@ export const UpdateMaterialResponse = zod.object({
   "name": zod.string(),
   "sku": zod.string().nullish(),
   "category": zod.string(),
+  "categoryId": zod.number().nullish(),
   "unit": zod.string(),
   "defaultMoisturePercent": zod.number().nullish(),
   "defaultNitrogenPercent": zod.number().nullish(),
@@ -312,6 +317,9 @@ export const ListContactsResponseItem = zod.object({
   "name": zod.string(),
   "company": zod.string(),
   "phone": zod.string(),
+  "whatsappNumber": zod.string(),
+  "gstin": zod.string(),
+  "stateCode": zod.string().optional(),
   "email": zod.string(),
   "address": zod.string(),
   "notes": zod.string(),
@@ -328,6 +336,9 @@ export const CreateContactBody = zod.object({
   "name": zod.string().min(1),
   "company": zod.string().optional(),
   "phone": zod.string().optional(),
+  "whatsappNumber": zod.string().optional(),
+  "gstin": zod.string().optional(),
+  "stateCode": zod.string().optional(),
   "email": zod.string().optional(),
   "address": zod.string().optional(),
   "notes": zod.string().optional()
@@ -339,6 +350,9 @@ export const CreateContactResponse = zod.object({
   "name": zod.string(),
   "company": zod.string(),
   "phone": zod.string(),
+  "whatsappNumber": zod.string(),
+  "gstin": zod.string(),
+  "stateCode": zod.string().optional(),
   "email": zod.string(),
   "address": zod.string(),
   "notes": zod.string(),
@@ -358,6 +372,9 @@ export const UpdateContactBody = zod.object({
   "name": zod.string().min(1).optional(),
   "company": zod.string().optional(),
   "phone": zod.string().optional(),
+  "whatsappNumber": zod.string().optional(),
+  "gstin": zod.string().optional(),
+  "stateCode": zod.string().optional(),
   "email": zod.string().optional(),
   "address": zod.string().optional(),
   "notes": zod.string().optional()
@@ -369,6 +386,9 @@ export const UpdateContactResponse = zod.object({
   "name": zod.string(),
   "company": zod.string(),
   "phone": zod.string(),
+  "whatsappNumber": zod.string(),
+  "gstin": zod.string(),
+  "stateCode": zod.string().optional(),
   "email": zod.string(),
   "address": zod.string(),
   "notes": zod.string(),
@@ -394,6 +414,8 @@ export const ListInventoryResponseItem = zod.object({
   "category": zod.string().optional(),
   "unit": zod.string(),
   "quantityOnHand": zod.number(),
+  "reservedQuantity": zod.number(),
+  "availableQuantity": zod.number(),
   "locationId": zod.number().nullish(),
   "locationName": zod.string().nullish(),
   "costBasis": zod.number().nullish(),
@@ -414,6 +436,7 @@ export const CreateInventoryAdjustmentBody = zod.object({
   "locationId": zod.number().nullish(),
   "quantityDelta": zod.number(),
   "reason": zod.string(),
+  "reference": zod.string().nullish(),
   "notes": zod.string().nullish()
 })
 
@@ -425,6 +448,8 @@ export const CreateInventoryAdjustmentResponse = zod.object({
   "category": zod.string().optional(),
   "unit": zod.string(),
   "quantityOnHand": zod.number(),
+  "reservedQuantity": zod.number(),
+  "availableQuantity": zod.number(),
   "locationId": zod.number().nullish(),
   "locationName": zod.string().nullish(),
   "costBasis": zod.number().nullish(),
@@ -495,6 +520,9 @@ export const ListBatchesResponseItem = zod.object({
   "nitrogenContent": zod.number().nullish(),
   "targetBags": zod.number().nullish(),
   "actualBags": zod.number().nullish(),
+  "preWettingChamberId": zod.number().nullish(),
+  "turnChamberId": zod.number().nullish(),
+  "bulkChamberId": zod.number().nullish(),
   "spawnEntryId": zod.number().nullish(),
   "spawnBatchRef": zod.string().nullish(),
   "spawnBatchType": zod.string().nullish(),
@@ -513,8 +541,16 @@ export const ListBatchesResponse = zod.array(ListBatchesResponseItem)
  */
 export const CreateBatchBody = zod.object({
   "locationId": zod.number(),
+  "preWettingChamberId": zod.number(),
   "targetBags": zod.number().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "formulation": zod.array(zod.object({
+  "materialId": zod.number().nullish(),
+  "name": zod.string(),
+  "wetWeightKg": zod.number(),
+  "moisturePercent": zod.number(),
+  "nitrogenPercent": zod.number()
+})).optional()
 })
 
 export const CreateBatchResponse = zod.object({
@@ -527,6 +563,9 @@ export const CreateBatchResponse = zod.object({
   "nitrogenContent": zod.number().nullish(),
   "targetBags": zod.number().nullish(),
   "actualBags": zod.number().nullish(),
+  "preWettingChamberId": zod.number().nullish(),
+  "turnChamberId": zod.number().nullish(),
+  "bulkChamberId": zod.number().nullish(),
   "spawnEntryId": zod.number().nullish(),
   "spawnBatchRef": zod.string().nullish(),
   "spawnBatchType": zod.string().nullish(),
@@ -553,6 +592,9 @@ export const GetBatchResponse = zod.object({
   "nitrogenContent": zod.number().nullish(),
   "targetBags": zod.number().nullish(),
   "actualBags": zod.number().nullish(),
+  "preWettingChamberId": zod.number().nullish(),
+  "turnChamberId": zod.number().nullish(),
+  "bulkChamberId": zod.number().nullish(),
   "spawnEntryId": zod.number().nullish(),
   "dispatchLocationId": zod.number().nullish(),
   "notes": zod.string().nullish(),
@@ -609,6 +651,9 @@ export const UpdateBatchResponse = zod.object({
   "nitrogenContent": zod.number().nullish(),
   "targetBags": zod.number().nullish(),
   "actualBags": zod.number().nullish(),
+  "preWettingChamberId": zod.number().nullish(),
+  "turnChamberId": zod.number().nullish(),
+  "bulkChamberId": zod.number().nullish(),
   "spawnEntryId": zod.number().nullish(),
   "spawnBatchRef": zod.string().nullish(),
   "spawnBatchType": zod.string().nullish(),
@@ -628,13 +673,27 @@ export const AdvanceBatchStageParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const advanceBatchStageBodySpawnUsagesItemQuantityUsedKgExclusiveMin = 0;
+
+export const advanceBatchStageBodySpawnUsagesMax = 2;
+
+
+
 export const AdvanceBatchStageBody = zod.object({
   "nextStage": zod.enum(['PRE_WETTING', 'T1', 'T2', 'T3', 'T4', 'BULK_CHAMBER', 'QUALITY_CHECK', 'SPAWN_MIXING', 'DISPATCH', 'COMPLETED']),
   "notes": zod.string().nullish(),
   "nh3Ppm": zod.number().nullish(),
   "temperatureCelsius": zod.number().nullish(),
+  "chamberId": zod.number().nullish(),
+  "verificationImages": zod.array(zod.string()).optional(),
   "spawnBatchRef": zod.string().nullish(),
-  "spawnBatchType": zod.enum(['internal', 'external']).nullish()
+  "spawnBatchType": zod.enum(['internal', 'external', 'both']).nullish(),
+  "spawnEntryId": zod.number().nullish(),
+  "spawnQuantityUsed": zod.number().nullish(),
+  "spawnUsages": zod.array(zod.object({
+  "spawnEntryId": zod.number(),
+  "quantityUsedKg": zod.number().gt(advanceBatchStageBodySpawnUsagesItemQuantityUsedKgExclusiveMin)
+})).min(1).max(advanceBatchStageBodySpawnUsagesMax).optional()
 })
 
 export const AdvanceBatchStageResponse = zod.object({
@@ -647,6 +706,9 @@ export const AdvanceBatchStageResponse = zod.object({
   "nitrogenContent": zod.number().nullish(),
   "targetBags": zod.number().nullish(),
   "actualBags": zod.number().nullish(),
+  "preWettingChamberId": zod.number().nullish(),
+  "turnChamberId": zod.number().nullish(),
+  "bulkChamberId": zod.number().nullish(),
   "spawnEntryId": zod.number().nullish(),
   "spawnBatchRef": zod.string().nullish(),
   "spawnBatchType": zod.string().nullish(),
@@ -1421,6 +1483,41 @@ export const CreateOotyRoomResponse = zod.object({
 })
 
 
+export const importOotyRoomsBodyRowsItemRowNumberMin = 2;
+
+
+export const importOotyRoomsBodyRowsMax = 500;
+
+
+
+export const ImportOotyRoomsBody = zod.object({
+  "fileName": zod.string().nullish(),
+  "rows": zod.array(zod.object({
+  "rowNumber": zod.number().min(importOotyRoomsBodyRowsItemRowNumberMin),
+  "name": zod.string(),
+  "capacity": zod.union([zod.number(),zod.string()]).nullish(),
+  "notes": zod.string().nullish(),
+  "annurBatchCode": zod.string().nullish(),
+  "bagsAllocated": zod.number().min(1).nullish(),
+  "spawnRunStartDate": zod.coerce.date().nullish()
+})).max(importOotyRoomsBodyRowsMax)
+})
+
+export const ImportOotyRoomsResponse = zod.object({
+  "fileName": zod.string().nullish(),
+  "total": zod.number(),
+  "created": zod.number(),
+  "skipped": zod.number(),
+  "failed": zod.number(),
+  "results": zod.array(zod.object({
+  "rowNumber": zod.number(),
+  "name": zod.string(),
+  "status": zod.enum(['created', 'skipped', 'failed']),
+  "reason": zod.string().optional()
+}))
+})
+
+
 export const GetOotyRoomParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -1439,7 +1536,7 @@ export const GetOotyRoomResponse = zod.object({
   "roomId": zod.number(),
   "annurBatchId": zod.number().nullish(),
   "coimBatchId": zod.number().nullish(),
-  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'DF', 'COOKOUT', 'COMPLETED']),
+  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'PRONING', 'DF', 'COOKOUT', 'COMPLETED']),
   "phaseEnteredAt": zod.string().nullish(),
   "status": zod.string(),
   "spawnRunStartDate": zod.string().nullish(),
@@ -1492,7 +1589,7 @@ export const ListOotyGrowingBatchesResponseItem = zod.object({
   "roomId": zod.number(),
   "annurBatchId": zod.number().nullish(),
   "coimBatchId": zod.number().nullish(),
-  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'DF', 'COOKOUT', 'COMPLETED']),
+  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'PRONING', 'DF', 'COOKOUT', 'COMPLETED']),
   "phaseEnteredAt": zod.string().nullish(),
   "status": zod.string(),
   "spawnRunStartDate": zod.string().nullish(),
@@ -1519,7 +1616,7 @@ export const CreateOotyGrowingBatchResponse = zod.object({
   "roomId": zod.number(),
   "annurBatchId": zod.number().nullish(),
   "coimBatchId": zod.number().nullish(),
-  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'DF', 'COOKOUT', 'COMPLETED']),
+  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'PRONING', 'DF', 'COOKOUT', 'COMPLETED']),
   "phaseEnteredAt": zod.string().nullish(),
   "status": zod.string(),
   "spawnRunStartDate": zod.string().nullish(),
@@ -1604,7 +1701,7 @@ export const UpdateOotyGrowingBatchResponse = zod.object({
   "roomId": zod.number(),
   "annurBatchId": zod.number().nullish(),
   "coimBatchId": zod.number().nullish(),
-  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'DF', 'COOKOUT', 'COMPLETED']),
+  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'PRONING', 'DF', 'COOKOUT', 'COMPLETED']),
   "phaseEnteredAt": zod.string().nullish(),
   "status": zod.string(),
   "spawnRunStartDate": zod.string().nullish(),
@@ -1621,7 +1718,7 @@ export const AdvanceOotyPhaseParams = zod.object({
 })
 
 export const AdvanceOotyPhaseBody = zod.object({
-  "nextPhase": zod.enum(['CASING_RUN', 'DF', 'COOKOUT', 'COMPLETED']),
+  "nextPhase": zod.enum(['CASING_RUN', 'PRONING', 'DF', 'COOKOUT', 'COMPLETED']),
   "notes": zod.string().nullish(),
   "cookoutDate": zod.string().nullish(),
   "substrateWeightKg": zod.number().nullish()
@@ -1633,7 +1730,7 @@ export const AdvanceOotyPhaseResponse = zod.object({
   "roomId": zod.number(),
   "annurBatchId": zod.number().nullish(),
   "coimBatchId": zod.number().nullish(),
-  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'DF', 'COOKOUT', 'COMPLETED']),
+  "currentPhase": zod.enum(['SPAWN_RUN', 'CASING_RUN', 'PRONING', 'DF', 'COOKOUT', 'COMPLETED']),
   "phaseEnteredAt": zod.string().nullish(),
   "status": zod.string(),
   "spawnRunStartDate": zod.string().nullish(),

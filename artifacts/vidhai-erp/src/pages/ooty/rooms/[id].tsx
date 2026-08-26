@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { useParams, useLocation } from "wouter";
 import {
   useGetOotyRoom,
@@ -53,6 +55,7 @@ const STAGE_SEQ = [
     key: "SPAWN_RUN",
     label: "Spawn Run",
     dayRange: "16–22 d",
+    expectedDay: 0,
     icon: Sprout,
     phase: "SPAWN_RUN",
   },
@@ -60,6 +63,7 @@ const STAGE_SEQ = [
     key: "CASING_RUN",
     label: "Casing Run",
     dayRange: "8–10 d",
+    expectedDay: 16,
     icon: Layers,
     phase: "CASING_RUN",
   },
@@ -67,6 +71,7 @@ const STAGE_SEQ = [
     key: "PINNING_FLUSH1",
     label: "Flush 1",
     dayRange: "DF Day 9–11",
+    expectedDay: 33,
     icon: Scissors,
     phase: "DF",
   },
@@ -74,6 +79,7 @@ const STAGE_SEQ = [
     key: "FLUSH2",
     label: "Flush 2",
     dayRange: "DF Day 15–17",
+    expectedDay: 39,
     icon: Scissors,
     phase: "DF",
   },
@@ -81,6 +87,7 @@ const STAGE_SEQ = [
     key: "COOKOUT",
     label: "Cookout",
     dayRange: "—",
+    expectedDay: null,
     icon: Flame,
     phase: "COOKOUT",
   },
@@ -118,6 +125,16 @@ function fmt(d: string | null | undefined) {
     month: "short",
     year: "numeric",
   });
+}
+
+function numericValue(value: unknown): number | null {
+  const raw =
+    value && typeof value === "object" && "$numberDecimal" in value
+      ? (value as { $numberDecimal: unknown }).$numberDecimal
+      : value;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
 }
 
 export default function OotyRoomDetail() {
@@ -180,10 +197,15 @@ export default function OotyRoomDetail() {
     open: false,
     stageKey: "",
     notes: "",
+    completedAt: "",
     // Casing soil inventory is selected when completing CASING_RUN.
-    casingSourceType: "produced" as "produced" | "purchased",
+    casingSourceType: "produced" as "produced" | "purchased" | "both",
     casingInventorySourceId: "",
     casingQuantityKg: "",
+    producedCasingSourceId: "",
+    producedCasingQuantityKg: "",
+    purchasedCasingSourceId: "",
+    purchasedCasingQuantityKg: "",
     // Harvest extras (Flush 1 / Flush 2)
     harvestDate: new Date().toISOString().split("T")[0],
     harvestWeightKg: "",
@@ -193,6 +215,7 @@ export default function OotyRoomDetail() {
     cookoutDate: new Date().toISOString().split("T")[0],
     substrateWeightKg: "",
     manureKg: "",
+    manureBags: "",
   });
 
   const closeDialog = () => {
@@ -206,9 +229,14 @@ export default function OotyRoomDetail() {
       open: true,
       stageKey,
       notes: "",
+      completedAt: "",
       casingSourceType: "produced",
       casingInventorySourceId: "",
       casingQuantityKg: "",
+      producedCasingSourceId: "",
+      producedCasingQuantityKg: "",
+      purchasedCasingSourceId: "",
+      purchasedCasingQuantityKg: "",
       harvestDate: new Date().toISOString().split("T")[0],
       harvestWeightKg: "",
       harvestCount: "",
@@ -216,6 +244,7 @@ export default function OotyRoomDetail() {
       cookoutDate: new Date().toISOString().split("T")[0],
       substrateWeightKg: "",
       manureKg: "",
+      manureBags: "",
     });
   };
 
@@ -273,9 +302,16 @@ export default function OotyRoomDetail() {
       String(source.id) === completeDialog.casingInventorySourceId,
   );
   const casingQuantity = Number(completeDialog.casingQuantityKg);
+  const producedCasingSource = casingInventory.find((source: any) => String(source.id) === completeDialog.producedCasingSourceId);
+  const purchasedCasingSource = casingInventory.find((source: any) => String(source.id) === completeDialog.purchasedCasingSourceId);
+  const producedCasingQuantity = Number(completeDialog.producedCasingQuantityKg);
+  const purchasedCasingQuantity = Number(completeDialog.purchasedCasingQuantityKg);
   const casingReady =
     !isCasingRun ||
-    (!!selectedCasingSource &&
+    (completeDialog.casingSourceType === "both"
+      ? !!producedCasingSource && producedCasingQuantity > 0 && producedCasingQuantity <= Number(producedCasingSource.availableQuantityKg) &&
+        !!purchasedCasingSource && purchasedCasingQuantity > 0 && purchasedCasingQuantity <= Number(purchasedCasingSource.availableQuantityKg)
+      : !!selectedCasingSource &&
       Number.isFinite(casingQuantity) &&
       casingQuantity > 0 &&
       casingQuantity <= Number(selectedCasingSource.availableQuantityKg));
@@ -285,6 +321,7 @@ export default function OotyRoomDetail() {
       Number.isInteger(Number(completeDialog.harvestCount)) &&
       Number(completeDialog.harvestCount) > 0);
   const manureValue = Number(completeDialog.manureKg);
+  const manureBagsValue = Number(completeDialog.manureBags);
   const manurePrecisionValid =
     Math.abs(manureValue * 10000 - Math.round(manureValue * 10000)) <= 1e-7;
   const cookoutReady =
@@ -293,7 +330,10 @@ export default function OotyRoomDetail() {
       completeDialog.manureKg !== "" &&
       Number.isFinite(manureValue) &&
       manureValue >= 0 &&
-      manurePrecisionValid);
+      manurePrecisionValid &&
+      completeDialog.manureBags !== "" &&
+      Number.isInteger(manureBagsValue) &&
+      manureBagsValue >= 0);
   const canSubmit =
     casingReady &&
     harvestReady &&
@@ -305,6 +345,9 @@ export default function OotyRoomDetail() {
       nextStage: nextStageKey(completeDialog.stageKey),
       verificationImages: stageImages.filter(Boolean),
       notes: completeDialog.notes || null,
+      completedAt: completeDialog.completedAt
+        ? new Date(completeDialog.completedAt).toISOString()
+        : undefined,
     };
     if (isCasingRun) {
       payload.casingSourceType = completeDialog.casingSourceType;
@@ -312,6 +355,14 @@ export default function OotyRoomDetail() {
         completeDialog.casingInventorySourceId,
       );
       payload.casingQuantityKg = casingQuantity;
+      if (completeDialog.casingSourceType === "both") {
+        payload.casingInventorySourceId = Number(completeDialog.producedCasingSourceId);
+        payload.casingQuantityKg = producedCasingQuantity;
+        payload.casingUsages = [
+          { sourceType: "produced", inventorySourceId: Number(completeDialog.producedCasingSourceId), quantityKg: producedCasingQuantity },
+          { sourceType: "purchased", inventorySourceId: Number(completeDialog.purchasedCasingSourceId), quantityKg: purchasedCasingQuantity },
+        ];
+      }
     }
     if (isHarvestStage) {
       payload.harvestData = {
@@ -327,6 +378,7 @@ export default function OotyRoomDetail() {
         ? Number(completeDialog.substrateWeightKg)
         : null;
       payload.manureKg = completeDialog.manureKg === "" ? null : manureValue;
+      payload.manureBags = manureBagsValue;
     }
     advanceStageMutation.mutate(payload);
   };
@@ -376,10 +428,19 @@ export default function OotyRoomDetail() {
 
   // ── Observation state ─────────────────────────────────────────────────────
   const [obsForm, setObsForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    recordedAt: "",
     temp: "",
     note: "",
   });
+  const observationSectionRef = useRef<HTMLDivElement>(null);
+  const observationTempRef = useRef<HTMLInputElement>(null);
+  const openStageReading = () => {
+    observationSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    window.setTimeout(() => observationTempRef.current?.focus(), 350);
+  };
   const observationMutation = useAddOotyObservation({
     mutation: { onSuccess: refetch },
   });
@@ -391,16 +452,21 @@ export default function OotyRoomDetail() {
       {
         id: batchId,
         data: {
-          observationDate: obsForm.date,
+          observationDate: obsForm.recordedAt
+            ? obsForm.recordedAt.slice(0, 10)
+            : undefined,
+          recordedAt: obsForm.recordedAt
+            ? new Date(obsForm.recordedAt).toISOString()
+            : undefined,
           temperatureCelsius: obsForm.temp ? Number(obsForm.temp) : null,
           observationNote: obsForm.note || null,
-          observationType: "routine",
+          observationType: currentStageKey,
         } as any,
       },
       {
         onSuccess: () =>
           setObsForm({
-            date: new Date().toISOString().split("T")[0],
+            recordedAt: "",
             temp: "",
             note: "",
           }),
@@ -411,7 +477,7 @@ export default function OotyRoomDetail() {
   const observations: any[] = b?.observations ?? [];
   const harvests: any[] = b?.harvests ?? [];
   const totalHarvestKg = harvests.reduce(
-    (s, h) => s + Number(h.weightKg ?? 0),
+    (s, h) => s + (numericValue(h.weightKg) ?? 0),
     0,
   );
   const batchSources: any[] =
@@ -604,6 +670,11 @@ export default function OotyRoomDetail() {
                               <p className="text-[11px] text-muted-foreground font-mono mb-1">
                                 {stage.dayRange}
                               </p>
+                              {stage.expectedDay !== null && b?.spawnRunStartDate && (
+                                <p className="text-[10px] text-muted-foreground mb-1">
+                                  Expected: {fmt(new Date(new Date(`${b.spawnRunStartDate}T00:00:00+05:30`).getTime() + stage.expectedDay * 86_400_000).toISOString())}
+                                </p>
+                              )}
 
                               {/* Casing batch ref */}
                               {isCompleted && logEntry?.casingBatchRef && (
@@ -617,13 +688,23 @@ export default function OotyRoomDetail() {
 
                               {/* Complete button */}
                               {isActive && !isFullyCompleted && (
-                                <Button
-                                  size="sm"
-                                  className="w-full mt-3 h-7 text-xs rounded-sm"
-                                  onClick={() => openCompleteDialog(stage.key)}
-                                >
-                                  Complete ✓
-                                </Button>
+                                <div className="mt-3 space-y-1.5">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full h-7 text-xs rounded-sm"
+                                    onClick={openStageReading}
+                                  >
+                                    <Thermometer className="w-3 h-3 mr-1" /> Log Reading
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="w-full h-7 text-xs rounded-sm"
+                                    onClick={() => openCompleteDialog(stage.key)}
+                                  >
+                                    Complete ✓
+                                  </Button>
+                                </div>
                               )}
 
                               {/* Verification image thumbnails */}
@@ -641,7 +722,7 @@ export default function OotyRoomDetail() {
                                           title="Click to enlarge"
                                         >
                                           <img
-                                            src={img}
+                                            src={apiAssetUrl(img)}
                                             className="w-full h-full object-cover"
                                             alt={`Verification ${i + 1}`}
                                           />
@@ -682,6 +763,9 @@ export default function OotyRoomDetail() {
                         <th className="px-4 py-2.5 font-medium">Entered</th>
                         <th className="px-4 py-2.5 font-medium">Exited</th>
                         <th className="px-4 py-2.5 font-medium">Photos</th>
+                        <th className="px-4 py-2.5 font-medium">
+                          Manure Bags
+                        </th>
                         <th className="px-4 py-2.5 font-medium">Ref / Notes</th>
                       </tr>
                     </thead>
@@ -725,7 +809,7 @@ export default function OotyRoomDetail() {
                                       title="Click to enlarge"
                                     >
                                       <img
-                                        src={img}
+                                        src={apiAssetUrl(img)}
                                         className="w-full h-full object-cover"
                                         alt=""
                                       />
@@ -738,12 +822,17 @@ export default function OotyRoomDetail() {
                               </span>
                             )}
                           </td>
+                          <td className="px-4 font-mono text-xs text-muted-foreground">
+                            {log.stage === "COOKOUT"
+                              ? (log.manureBags ?? b.manureBags ?? "—")
+                              : "—"}
+                          </td>
                           <td className="px-4 text-xs text-muted-foreground max-w-[200px] truncate">
                             {log.casingBatchRef ? (
                               <span className="font-mono">
                                 {log.casingBatchRef}
                                 {log.casingSoilQuantityKg
-                                  ? ` � ${Number(log.casingSoilQuantityKg).toFixed(2)} kg used`
+                                  ? ` · ${Number(log.casingSoilQuantityKg).toFixed(2)} kg used`
                                   : ""}
                               </span>
                             ) : (
@@ -804,17 +893,15 @@ export default function OotyRoomDetail() {
                               {h.flushNumber}
                             </td>
                             <td className="px-4 font-mono text-right font-semibold">
-                              {Number(h.weightKg).toFixed(2)}
+                              {numericValue(h.weightKg)?.toFixed(2) ?? "—"}
                             </td>
                             <td className="px-4 font-mono text-right">
                               {h.mushroomCount ?? "—"}
                             </td>
                             <td
-                              className={`px-4 font-mono text-right ${h.avgWeightG && Number(h.avgWeightG) < 15 ? "text-amber-600" : ""}`}
+                              className={`px-4 font-mono text-right ${numericValue(h.avgWeightG) !== null && numericValue(h.avgWeightG)! < 15 ? "text-amber-600" : ""}`}
                             >
-                              {h.avgWeightG
-                                ? Number(h.avgWeightG).toFixed(1)
-                                : "—"}
+                              {numericValue(h.avgWeightG)?.toFixed(1) ?? "—"}
                             </td>
                             <td className="px-4 text-muted-foreground text-xs">
                               {h.qualityNote ?? "—"}
@@ -840,7 +927,7 @@ export default function OotyRoomDetail() {
             )}
 
             {/* Observation Log */}
-            <Card className="rounded-sm border-border shadow-none">
+            <Card ref={observationSectionRef} className="rounded-sm border-border shadow-none">
               <CardHeader className="pb-3 border-b">
                 <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                   Temperature & Observation Log
@@ -854,23 +941,26 @@ export default function OotyRoomDetail() {
                   >
                     <div className="space-y-1">
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                        Date
+                        Date and Time (optional)
                       </Label>
                       <Input
-                        type="date"
-                        required
-                        value={obsForm.date}
+                        type="datetime-local"
+                        value={obsForm.recordedAt}
                         onChange={(e) =>
-                          setObsForm({ ...obsForm, date: e.target.value })
+                          setObsForm({ ...obsForm, recordedAt: e.target.value })
                         }
-                        className="rounded-sm font-mono h-9 w-[150px]"
+                        className="rounded-sm font-mono h-9 w-[210px]"
                       />
+                      <p className="max-w-[210px] text-[10px] text-muted-foreground">
+                        If left blank, the current device date and time will be recorded automatically.
+                      </p>
                     </div>
                     <div className="space-y-1">
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
                         Temp (°C)
                       </Label>
                       <Input
+                        ref={observationTempRef}
                         type="number"
                         step="0.1"
                         value={obsForm.temp}
@@ -915,7 +1005,7 @@ export default function OotyRoomDetail() {
                         <th className="px-4 py-2 font-medium text-right">
                           Temp (°C)
                         </th>
-                        <th className="px-4 py-2 font-medium">Type</th>
+                        <th className="px-4 py-2 font-medium">Stage</th>
                         <th className="px-4 py-2 font-medium">Note</th>
                       </tr>
                     </thead>
@@ -923,7 +1013,7 @@ export default function OotyRoomDetail() {
                       {observations.map((o: any) => (
                         <tr key={o.id} className="h-[36px] hover:bg-muted/20">
                           <td className="px-4 font-mono text-muted-foreground">
-                            {fmt(o.observationDate)}
+                            {new Date(o.recordedAt ?? `${o.observationDate}T00:00:00`).toLocaleString("en-IN")}
                           </td>
                           <td className="px-4 font-mono text-right">
                             {o.temperatureCelsius !== null &&
@@ -932,7 +1022,9 @@ export default function OotyRoomDetail() {
                               : "—"}
                           </td>
                           <td className="px-4 text-xs uppercase tracking-wider text-muted-foreground">
-                            {o.observationType}
+                            {STAGE_SEQ.find(
+                              (stage) => stage.key === o.observationType,
+                            )?.label ?? o.observationType}
                           </td>
                           <td className="px-4 text-muted-foreground text-xs">
                             {o.observationNote ?? "—"}
@@ -959,27 +1051,7 @@ export default function OotyRoomDetail() {
       </div>
 
       {/* ── Lightbox ─────────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={lightboxSrc}
-              alt="Verification photo"
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm transition-colors"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       {/* ── Complete Stage Dialog ─────────────────────────────────────────────── */}
       <Dialog
@@ -1081,12 +1153,12 @@ export default function OotyRoomDetail() {
                   onValueChange={(value) =>
                     setCompleteDialog((previous) => ({
                       ...previous,
-                      casingSourceType: value as "produced" | "purchased",
+                      casingSourceType: value as "produced" | "purchased" | "both",
                       casingInventorySourceId: "",
                       casingQuantityKg: "",
                     }))
                   }
-                  className="flex gap-2"
+                  className="grid grid-cols-3 gap-2"
                 >
                   <div className="flex items-center gap-2 bg-white px-3 py-2 border rounded-sm flex-1">
                     <RadioGroupItem value="produced" id="casing-produced" />
@@ -1096,7 +1168,12 @@ export default function OotyRoomDetail() {
                     <RadioGroupItem value="purchased" id="casing-purchased" />
                     <Label htmlFor="casing-purchased">Purchased</Label>
                   </div>
+                  <div className="flex items-center gap-2 bg-white px-3 py-2 border rounded-sm flex-1">
+                    <RadioGroupItem value="both" id="casing-both" />
+                    <Label htmlFor="casing-both">Both</Label>
+                  </div>
                 </RadioGroup>
+                {completeDialog.casingSourceType !== "both" && <>
                 <Select
                   value={completeDialog.casingInventorySourceId}
                   onValueChange={(value) =>
@@ -1126,7 +1203,7 @@ export default function OotyRoomDetail() {
                       )
                       .map((source: any) => (
                         <SelectItem key={source.id} value={String(source.id)}>
-                          {source.reference} �{" "}
+                          {source.reference} ·{" "}
                           {Number(source.availableQuantityKg).toFixed(2)} kg
                           available
                         </SelectItem>
@@ -1177,10 +1254,43 @@ export default function OotyRoomDetail() {
                     </div>
                   </div>
                 )}
+                </>}
+                {completeDialog.casingSourceType === "both" && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(["produced", "purchased"] as const).map((sourceType) => {
+                      const isProduced = sourceType === "produced";
+                      const sourceId = isProduced ? completeDialog.producedCasingSourceId : completeDialog.purchasedCasingSourceId;
+                      const quantity = isProduced ? completeDialog.producedCasingQuantityKg : completeDialog.purchasedCasingQuantityKg;
+                      return (
+                        <div key={sourceType} className="space-y-2 rounded-sm border bg-white p-3">
+                          <Label className="text-xs font-semibold uppercase text-muted-foreground">{isProduced ? "Produced" : "Purchased"}</Label>
+                          <Select value={sourceId} onValueChange={(value) => setCompleteDialog((previous) => ({
+                            ...previous,
+                            [isProduced ? "producedCasingSourceId" : "purchasedCasingSourceId"]: value,
+                            [isProduced ? "producedCasingQuantityKg" : "purchasedCasingQuantityKg"]: "",
+                          }))}>
+                            <SelectTrigger className="rounded-sm h-9"><SelectValue placeholder={`Select ${sourceType} stock`} /></SelectTrigger>
+                            <SelectContent>
+                              {casingInventory.filter((source: any) => source.sourceType === sourceType && Number(source.availableQuantityKg) > 0).map((source: any) => (
+                                <SelectItem key={source.id} value={String(source.id)}>{source.reference} - {Number(source.availableQuantityKg).toFixed(2)} kg</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Input type="number" min="0.0001" step="0.0001" value={quantity}
+                            onChange={(event) => setCompleteDialog((previous) => ({
+                              ...previous,
+                              [isProduced ? "producedCasingQuantityKg" : "purchasedCasingQuantityKg"]: event.target.value,
+                            }))}
+                            className="rounded-sm h-9 font-mono" placeholder={`${isProduced ? "Produced" : "Purchased"} quantity (kg)`} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {!casingReady && (
                   <p className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Select one source
-                    and enter a quantity within its available balance
+                    <AlertTriangle className="w-3.5 h-3.5" /> Select the required source(s)
+                    and enter quantities within the available balances
                   </p>
                 )}
               </div>
@@ -1236,7 +1346,6 @@ export default function OotyRoomDetail() {
                     </Label>
                     <Input
                       type="number"
-                      placeholder="optional"
                       value={completeDialog.harvestCount}
                       onChange={(e) =>
                         setCompleteDialog((p) => ({
@@ -1337,6 +1446,25 @@ export default function OotyRoomDetail() {
                       className="rounded-sm h-8 font-mono text-sm"
                     />
                   </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Manure Bags *
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="e.g. 20"
+                      value={completeDialog.manureBags}
+                      onChange={(e) =>
+                        setCompleteDialog((p) => ({
+                          ...p,
+                          manureBags: e.target.value,
+                        }))
+                      }
+                      className="rounded-sm h-8 font-mono text-sm"
+                    />
+                  </div>
                 </div>
                 {!completeDialog.substrateWeightKg && (
                   <p className="text-xs text-amber-600 flex items-center gap-1">
@@ -1353,8 +1481,36 @@ export default function OotyRoomDetail() {
                     non-negative Manure quantity (up to 4 decimals)
                   </p>
                 )}
+                {(completeDialog.manureBags === "" ||
+                  !Number.isInteger(manureBagsValue) ||
+                  manureBagsValue < 0) && (
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Enter a valid
+                    non-negative whole number of Manure Bags
+                  </p>
+                )}
               </div>
             )}
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Completion Date and Time (optional)
+              </Label>
+              <Input
+                type="datetime-local"
+                value={completeDialog.completedAt}
+                onChange={(event) =>
+                  setCompleteDialog((previous) => ({
+                    ...previous,
+                    completedAt: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
+            </div>
 
             {/* Notes */}
             <div className="space-y-1.5">

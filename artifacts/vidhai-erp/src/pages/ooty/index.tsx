@@ -268,7 +268,7 @@ export default function OotyRooms() {
   const [assignForm, setAssignForm] = useState({
     annurBatchId: "",
     bagCount: "",
-    startDate: new Date().toISOString().split("T")[0],
+    startDate: "",
     notes: "",
   });
   const [assignPending, setAssignPending] = useState(false);
@@ -307,7 +307,12 @@ export default function OotyRooms() {
             ? Number(assignForm.annurBatchId)
             : null,
           bagCount,
-          spawnRunStartDate: assignForm.startDate,
+          spawnRunStartDate: assignForm.startDate
+            ? assignForm.startDate.slice(0, 10)
+            : undefined,
+          batchStartedAt: assignForm.startDate
+            ? new Date(assignForm.startDate).toISOString()
+            : undefined,
           notes: assignForm.notes || null,
         }),
       });
@@ -325,7 +330,7 @@ export default function OotyRooms() {
       setAssignForm({
         annurBatchId: "",
         bagCount: "",
-        startDate: new Date().toISOString().split("T")[0],
+        startDate: "",
         notes: "",
       });
     } finally {
@@ -814,17 +819,19 @@ export default function OotyRooms() {
             </div>
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Spawn Run Start Date
+                Batch Initialization Date and Time (optional)
               </Label>
               <Input
-                type="date"
-                required
+                type="datetime-local"
                 value={assignForm.startDate}
                 onChange={(e) =>
                   setAssignForm({ ...assignForm, startDate: e.target.value })
                 }
                 className="rounded-md font-mono"
               />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
             </div>
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">

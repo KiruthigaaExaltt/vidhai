@@ -85,6 +85,7 @@ export default function NewBatch() {
   );
 
   const [targetBags, setTargetBags] = useState<string>("4500");
+  const [batchDate, setBatchDate] = useState("");
   const [notes, setNotes] = useState("");
   const [preWettingChamberId, setPreWettingChamberId] = useState("");
 
@@ -213,6 +214,8 @@ export default function NewBatch() {
       const batch = await createBatch.mutateAsync({
         data: {
           locationId: annurLoc.id,
+          batchDate: batchDate ? batchDate.slice(0, 10) : undefined,
+          batchStartedAt: batchDate ? new Date(batchDate).toISOString() : undefined,
           preWettingChamberId: Number(preWettingChamberId),
           targetBags: targetBags ? Number(targetBags) : null,
           notes: notes || null,
@@ -302,6 +305,14 @@ export default function NewBatch() {
                       No Pre-Wetting chamber is currently available.
                     </p>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Batch Date & Time (Optional)
+                  </Label>
+                  <Input type="datetime-local" value={batchDate} onChange={(e) => setBatchDate(e.target.value)} className="rounded-md font-mono" />
+                  <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
                 </div>
 
                 <div className="space-y-2">

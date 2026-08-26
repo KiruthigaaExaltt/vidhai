@@ -19,6 +19,7 @@ import {
   spawnEntriesTable,
   spawnVaultTransactionsTable,
   annurSpawnUsagesTable,
+  chamberReadingsTable,
 } from "@workspace/db";
 import { eq, and, desc, ilike, gte } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
@@ -28,6 +29,7 @@ import {
   validateProducedBags,
 } from "../lib/annurProduction";
 import { resolveUploadPath } from "../lib/uploadStorage";
+import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 
 const router = Router();
 const ANNUR_STAGES = [
@@ -84,6 +86,10 @@ function requireAuth(req: any, res: any, next: any) {
 }
 
 function formatBatch(b: any, locationCode: string, createdByName: string) {
+  const codeDate = String(b.batchCode).match(/^[^-]+-(\d{2})(\d{2})(\d{2})-/);
+  const fallbackStartedAt = codeDate
+    ? `20${codeDate[1]}-${codeDate[2]}-${codeDate[3]}`
+    : b.createdAt;
   return {
     id: b.id,
     batchCode: b.batchCode,
@@ -107,6 +113,8 @@ function formatBatch(b: any, locationCode: string, createdByName: string) {
     createdAt: b.createdAt,
     createdByName,
     stageEnteredAt: b.stageEnteredAt,
+    startedAt: b.initializedAt ?? fallbackStartedAt,
+    completedAt: b.status === "dispatched" ? b.stageEnteredAt : null,
     alertLevel: b.alertLevel,
   };
 }
@@ -172,6 +180,7 @@ router.post("/", async (req, res) => {
       preWettingChamberId: number;
       targetBags?: number | null;
       notes?: string | null;
+      batchDate?: string;
       formulation?: Array<{
         materialId?: number;
         name: string;
@@ -212,10 +221,18 @@ router.post("/", async (req, res) => {
       error: "The selected Pre-Wetting chamber is no longer available",
     });
 
-  const date = new Date();
-  const yy = String(date.getFullYear()).slice(-2);
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
+  const selectedDate = String((req.body as any).batchDate || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate))
+    return res.status(400).json({ error: "Batch date is required" });
+  const stageStartedAt = resolveProductionDateTime((req.body as any).batchStartedAt);
+  if (!stageStartedAt)
+    return res.status(400).json({ error: "Batch initialization date and time is invalid" });
+  if (Number.isNaN(stageStartedAt.getTime()))
+    return res.status(400).json({ error: "Invalid batch date" });
+  const [year, month, day] = selectedDate.split("-");
+  const yy = year.slice(-2);
+  const mm = month;
+  const dd = day;
   const codePrefix = `${loc.code}-${yy}${mm}${dd}-`;
   const existingBatches = await db.select().from(batchesTable);
   const highestSequence = existingBatches.reduce((highest, existingBatch) => {
@@ -243,7 +260,8 @@ router.post("/", async (req, res) => {
           currentChamberId: preWettingChamber.id,
           notes: notes ?? null,
           createdByUserId: userId,
-          stageEnteredAt: new Date(),
+          stageEnteredAt: stageStartedAt,
+          initializedAt: stageStartedAt,
         })
         .returning();
 
@@ -381,6 +399,18 @@ router.get("/:id", async (req, res) => {
     .where(eq(annurSpawnUsagesTable.batchId, batchId))
     .limit(1);
 
+  const environmentalReadings = await db
+    .select({
+      reading: chamberReadingsTable,
+      chamberName: chambersTable.name,
+      recordedByName: usersTable.displayName,
+    })
+    .from(chamberReadingsTable)
+    .leftJoin(chambersTable, eq(chamberReadingsTable.chamberId, chambersTable.id))
+    .leftJoin(usersTable, eq(chamberReadingsTable.recordedByUserId, usersTable.id))
+    .where(eq(chamberReadingsTable.batchId, batchId))
+    .orderBy(chamberReadingsTable.recordedAt);
+
   const formattedMaterials = materials.map(({ bm, materialName, unit }) => {
     const wet = Number(bm.wetWeightKg);
     const moisture = Number(bm.moisturePercent);
@@ -423,8 +453,47 @@ router.get("/:id", async (req, res) => {
     ...formatBatch(row.batch, row.locationCode, row.createdByName ?? "System"),
     materials: formattedMaterials,
     stageLogs: formattedLogs,
+    environmentReadings: environmentalReadings.map(({ reading, chamberName, recordedByName }) => {
+      const recordedAt = new Date(reading.recordedAt);
+      const stage = [...formattedLogs]
+        .reverse()
+        .find((log) =>
+          recordedAt >= new Date(log.enteredAt) &&
+          (!log.exitedAt || recordedAt <= new Date(log.exitedAt)),
+        )?.stage ?? null;
+      return {
+        id: reading.id,
+        chamberId: reading.chamberId,
+        chamberName: chamberName ?? "Unknown chamber",
+        stage,
+        temperatureCelsius: reading.temperatureCelsius != null ? Number(reading.temperatureCelsius) : null,
+        nh3Ppm: reading.nh3Ppm != null ? Number(reading.nh3Ppm) : null,
+        co2Percent: reading.co2Percent != null ? Number(reading.co2Percent) : null,
+        moisturePercent: reading.humidity != null ? Number(reading.humidity) : null,
+        notes: reading.notes,
+        recordedAt: reading.recordedAt,
+        recordedByName: recordedByName ?? "System",
+      };
+    }),
     spawnUsage: spawnUsage
-      ? { ...spawnUsage, quantityUsedKg: Number(spawnUsage.quantityUsedKg) }
+      ? {
+          ...spawnUsage,
+          quantityUsedKg: Number(spawnUsage.quantityUsedKg),
+          sources: [
+            {
+              spawnEntryId: spawnUsage.spawnEntryId,
+              quantityUsedKg: Number(spawnUsage.quantityUsedKg),
+              sourceTypeSnapshot: spawnUsage.sourceTypeSnapshot,
+              sourceReferenceSnapshot: spawnUsage.sourceReferenceSnapshot,
+              strainNameSnapshot: spawnUsage.strainNameSnapshot,
+              supplierNameSnapshot: spawnUsage.supplierNameSnapshot,
+              supplierLotSnapshot: spawnUsage.supplierLotSnapshot,
+            },
+            ...(spawnUsage.additionalSourcesJson
+              ? JSON.parse(spawnUsage.additionalSourcesJson)
+              : []),
+          ],
+        }
       : null,
   });
 });
@@ -570,6 +639,8 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     producedBags,
     spawnEntryId,
     spawnQuantityUsed,
+    spawnUsages,
+    completedAt,
   } = req.body;
   const userId = (req.session as any).userId;
 
@@ -579,19 +650,33 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, batchId))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Batch not found" });
+  const exitedAt = resolveProductionDateTime(completedAt);
+  if (!exitedAt)
+    return res.status(400).json({ error: "Stage completion date and time is invalid" });
+  const dateError = chronologyError(
+    exitedAt,
+    batch.stageEnteredAt ?? batch.initializedAt,
+    "Stage completion date and time",
+  );
+  if (dateError) return res.status(400).json({ error: dateError });
   const currentIndex = ANNUR_STAGES.indexOf(batch.currentStage);
   if (currentIndex < 0 || ANNUR_STAGES[currentIndex + 1] !== nextStage)
     return res.status(409).json({
       error: `Expected next stage ${ANNUR_STAGES[currentIndex + 1] ?? "none"}`,
     });
 
-  if (
-    nextStage === "SPAWN_MIXING" &&
-    (!spawnEntryId || !(Number(spawnQuantityUsed) > 0))
-  ) {
+  const requestedSpawnUsages = Array.isArray(spawnUsages)
+    ? spawnUsages.map((usage: any) => ({
+        spawnEntryId: Number(usage.spawnEntryId),
+        quantityUsedKg: Number(usage.quantityUsedKg),
+      }))
+    : [{ spawnEntryId: Number(spawnEntryId), quantityUsedKg: Number(spawnQuantityUsed) }];
+  if (nextStage === "SPAWN_MIXING" &&
+      (requestedSpawnUsages.length < 1 || requestedSpawnUsages.length > 2 ||
+       requestedSpawnUsages.some((usage) => !usage.spawnEntryId || !(usage.quantityUsedKg > 0)) ||
+       new Set(requestedSpawnUsages.map((usage) => usage.spawnEntryId)).size !== requestedSpawnUsages.length)) {
     return res.status(400).json({
-      error:
-        "Select one Spawn Vault entry and enter a quantity greater than zero",
+      error: "Select valid, distinct Spawn Vault entries and enter a quantity for each",
     });
   }
 
@@ -650,7 +735,6 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
   if (produced && !produced.ok)
     return res.status(400).json({ error: produced.error });
 
-  const exitedAt = new Date();
   const updated = await db.transaction(async (tx) => {
     if (nextStage === "SPAWN_MIXING") {
       const [existingUsage] = await tx
@@ -660,60 +744,54 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
         .limit(1);
       if (existingUsage)
         throw new Error("This batch has already recorded spawn usage");
-      const qty = Number(spawnQuantityUsed);
-      const [entry] = await tx
-        .update(spawnEntriesTable)
-        .set({ status: "reserved" })
-        .where(
-          and(
-            eq(spawnEntriesTable.id, Number(spawnEntryId)),
-            eq(spawnEntriesTable.status, "available"),
-            gte(spawnEntriesTable.quantityKg, String(qty)),
-          ),
-        )
-        .returning();
-      if (!entry)
-        throw new Error(
-          "Selected spawn stock is unavailable or has insufficient quantity",
-        );
-      const available = Number(entry.quantityKg);
-      const reserved = Number(entry.reservedQuantityKg || 0);
-      if (available - reserved < qty)
-        throw new Error(
-          `Selected spawn stock has only ${Math.max(0, available - reserved)} kg free after Sales reservations`,
-        );
-      const balance = available - qty;
-      await tx
-        .update(spawnEntriesTable)
-        .set({
-          quantityKg: String(balance),
-          status: balance === 0 ? "depleted" : "available",
-        })
-        .where(eq(spawnEntriesTable.id, entry.id));
+      const consumedSources: any[] = [];
+      for (const requestedUsage of requestedSpawnUsages) {
+        const qty = requestedUsage.quantityUsedKg;
+        const [entry] = await tx.update(spawnEntriesTable).set({ status: "reserved" })
+          .where(and(eq(spawnEntriesTable.id, requestedUsage.spawnEntryId), eq(spawnEntriesTable.status, "available"), gte(spawnEntriesTable.quantityKg, String(qty))))
+          .returning();
+        if (!entry) throw new Error("Selected spawn stock is unavailable or has insufficient quantity");
+        const available = Number(entry.quantityKg);
+        const reserved = Number(entry.reservedQuantityKg || 0);
+        if (available - reserved < qty)
+          throw new Error(`Selected spawn stock has only ${Math.max(0, available - reserved)} kg free after Sales reservations`);
+        const balance = available - qty;
+        await tx.update(spawnEntriesTable).set({ quantityKg: String(balance), status: balance === 0 ? "depleted" : "available" }).where(eq(spawnEntriesTable.id, entry.id));
+        const snapshot = {
+          spawnEntryId: entry.id, quantityUsedKg: qty,
+          sourceTypeSnapshot: entry.sourceType, sourceReferenceSnapshot: entry.sourceReference,
+          strainNameSnapshot: entry.strainName, supplierNameSnapshot: entry.supplierName,
+          supplierLotSnapshot: entry.supplierLot,
+        };
+        consumedSources.push(snapshot);
+        await tx.insert(spawnVaultTransactionsTable).values({
+          transactionKey: `annur-consumption:${batchId}:initial:${entry.id}`,
+          spawnEntryId: entry.id, transactionType: "ANNUR_CONSUMPTION",
+          quantityInKg: "0", quantityOutKg: String(qty), balanceAfterKg: String(balance),
+          referenceType: "ANNUR_BATCH", referenceId: batchId, reference: batch.batchCode,
+          recordedByUserId: userId,
+        });
+      }
+      if (consumedSources.length === 2) {
+        const externalCount = consumedSources.filter(
+          (source) => String(source.sourceTypeSnapshot).toUpperCase() === "EXTERNAL",
+        ).length;
+        if (externalCount !== 1)
+          throw new Error("Both requires one Internal Lab source and one External Vendor source");
+      }
+      const primary = consumedSources[0];
       await tx.insert(annurSpawnUsagesTable).values({
         batchId,
-        spawnEntryId: entry.id,
-        quantityUsedKg: String(qty),
-        sourceTypeSnapshot: entry.sourceType,
-        sourceReferenceSnapshot: entry.sourceReference,
-        strainNameSnapshot: entry.strainName,
-        supplierNameSnapshot: entry.supplierName,
-        supplierLotSnapshot: entry.supplierLot,
-        purchaseReferenceSnapshot: entry.purchaseReference,
+        spawnEntryId: primary.spawnEntryId,
+        quantityUsedKg: String(primary.quantityUsedKg),
+        sourceTypeSnapshot: primary.sourceTypeSnapshot,
+        sourceReferenceSnapshot: primary.sourceReferenceSnapshot,
+        strainNameSnapshot: primary.strainNameSnapshot,
+        supplierNameSnapshot: primary.supplierNameSnapshot,
+        supplierLotSnapshot: primary.supplierLotSnapshot,
+        additionalSourcesJson: JSON.stringify(consumedSources.slice(1)),
         recordedByUserId: userId,
         updatedByUserId: userId,
-      });
-      await tx.insert(spawnVaultTransactionsTable).values({
-        transactionKey: `annur-consumption:${batchId}:initial`,
-        spawnEntryId: entry.id,
-        transactionType: "ANNUR_CONSUMPTION",
-        quantityInKg: "0",
-        quantityOutKg: String(qty),
-        balanceAfterKg: String(balance),
-        referenceType: "ANNUR_BATCH",
-        referenceId: batchId,
-        reference: batch.batchCode,
-        recordedByUserId: userId,
       });
     }
     if (
@@ -774,8 +852,8 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
       batchUpdates.status = "dispatched";
       batchUpdates.actualBags = produced.producedBags;
     }
-    if (nextStage === "SPAWN_MIXING" && spawnEntryId) {
-      batchUpdates.spawnEntryId = Number(spawnEntryId);
+    if (nextStage === "SPAWN_MIXING" && requestedSpawnUsages[0]?.spawnEntryId) {
+      batchUpdates.spawnEntryId = requestedSpawnUsages[0].spawnEntryId;
     }
     if (isDispatchCompletion && produced?.ok) {
       const postingKey = annurDispatchPostingKey(batchId);

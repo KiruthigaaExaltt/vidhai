@@ -46,6 +46,7 @@ export default function LabBatches() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState("");
+  const [batchDate, setBatchDate] = useState("");
   const [batchPage, setBatchPage] = useState(1);
   const [batchPageSize, setBatchPageSize] = useState(10);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -85,7 +86,7 @@ export default function LabBatches() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    createMutation.mutate({ data: { notes: notes || null } });
+    createMutation.mutate({ data: { notes: notes || null, batchDate: batchDate ? batchDate.slice(0, 10) : undefined, batchStartedAt: batchDate ? new Date(batchDate).toISOString() : undefined } as any });
   };
 
   const handleDelete = async () => {
@@ -137,6 +138,13 @@ export default function LabBatches() {
               <form onSubmit={handleCreate} className="space-y-4 pt-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Batch Date & Time (Optional)
+                  </Label>
+                  <Input type="datetime-local" value={batchDate} onChange={(e) => setBatchDate(e.target.value)} className="rounded-sm font-mono" />
+                  <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                     Location
                   </Label>
                   <div className="px-3 py-2 bg-muted rounded-sm text-sm border font-medium">
@@ -182,7 +190,8 @@ export default function LabBatches() {
                       <th className="px-4 py-2 font-medium">Batch Code</th>
                       <th className="px-4 py-2 font-medium">Stage</th>
                       <th className="px-4 py-2 font-medium">Status</th>
-                      <th className="px-4 py-2 font-medium">Created</th>
+                      <th className="px-4 py-2 font-medium">Started Date & Time</th>
+                      <th className="px-4 py-2 font-medium">Completed Date & Time</th>
                       <th className="px-4 py-2 font-medium">By</th>
                       <th className="px-4 py-2 font-medium">Notes</th>
                       <th className="px-4 py-2 font-medium text-right">Action</th>
@@ -208,7 +217,10 @@ export default function LabBatches() {
                           <StatusBadge status={b.status} />
                         </td>
                         <td className="px-4 font-mono text-muted-foreground">
-                          {new Date(b.createdAt).toLocaleDateString()}
+                          {b.startedAt ? new Date(b.startedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="px-4 font-mono text-muted-foreground">
+                          {b.completedAt ? new Date(b.completedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—"}
                         </td>
                         <td className="px-4 text-muted-foreground">
                           {b.createdByName ?? "—"}
@@ -236,7 +248,7 @@ export default function LabBatches() {
                     {batches?.length === 0 && (
                       <tr>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="px-4 py-8 text-center text-muted-foreground"
                         >
                           No spawn batches yet. Create the first one.

@@ -93,7 +93,7 @@ export const coimbatoreTurnsTable = mongoTable("coimbatore_turns", {
   co2Percent: numeric("co2_percent", { precision: 6, scale: 3 }),
   moisturePercent: numeric("moisture_percent", { precision: 6, scale: 2 }),
   notes: text("notes"),
-  verificationImages: text("verification_images"), // JSON array of base64 strings
+  verificationImages: text("verification_images"), // JSON array of stored file URLs
   recordedByUserId: integer("recorded_by_user_id").references(
     () => usersTable.id,
   ),

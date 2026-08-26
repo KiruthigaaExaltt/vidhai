@@ -37,6 +37,8 @@ import {
   Circle,
   Lock,
   AlertTriangle,
+  Plus,
+  Thermometer,
 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,6 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 
 // ── Stage sequence with lead-time durations ───────────────────────────────────
 const STAGE_SEQ = [
@@ -114,9 +117,70 @@ export default function BatchDetail() {
       (chamber.id === batch?.bulkChamberId ||
         chamber.currentBatchId === batchId),
   );
+  const activeChamber = chambers?.find(
+    (chamber: any) =>
+      chamber.id === (batch as any)?.currentChamberId ||
+      chamber.currentBatchId === batchId,
+  );
   const [chamberPromptOpen, setChamberPromptOpen] = useState(false);
   const [promptChamberId, setPromptChamberId] = useState("");
   const [assigningChamber, setAssigningChamber] = useState(false);
+  const [readingDialog, setReadingDialog] = useState({
+    open: false,
+    temperatureCelsius: "",
+    nh3Ppm: "",
+    co2Percent: "",
+    humidity: "",
+    recordedAt: "",
+    notes: "",
+  });
+  const [readingSaving, setReadingSaving] = useState(false);
+
+  const openReadingDialog = () =>
+    setReadingDialog({
+      open: true,
+      temperatureCelsius: "",
+      nh3Ppm: "",
+      co2Percent: "",
+      humidity: "",
+      recordedAt: "",
+      notes: "",
+    });
+
+  const submitReading = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!activeChamber) return;
+    setReadingSaving(true);
+    try {
+      const optionalNumber = (value: string) =>
+        value.trim() === "" ? null : Number(value);
+      const response = await fetch(`/api/chambers/${activeChamber.id}/readings`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          temperatureCelsius: optionalNumber(readingDialog.temperatureCelsius),
+          nh3Ppm: optionalNumber(readingDialog.nh3Ppm),
+          co2Percent: optionalNumber(readingDialog.co2Percent),
+          humidity: optionalNumber(readingDialog.humidity),
+          recordedAt: readingDialog.recordedAt ? new Date(readingDialog.recordedAt).toISOString() : undefined,
+          notes: readingDialog.notes.trim() || null,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to log reading");
+      setReadingDialog((current) => ({ ...current, open: false }));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: getGetBatchQueryKey(batchId) }),
+        queryClient.invalidateQueries({ queryKey: getListChambersQueryKey() }),
+      ]);
+      toast.success("Reading saved to batch and chamber history");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to log reading");
+    } finally {
+      setReadingSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (batch?.currentStage !== "BULK_CHAMBER" || !chambers) {
@@ -174,9 +238,14 @@ export default function BatchDetail() {
           spawnType: "internal",
           spawnRef: "",
           spawnQty: "",
+          internalSpawnRef: "",
+          internalSpawnQty: "",
+          externalSpawnRef: "",
+          externalSpawnQty: "",
           chamberId: "",
           turnChamberId: "",
           producedBags: "",
+          completedAt: "",
         });
         setStageImages([null, null]);
       },
@@ -243,9 +312,14 @@ export default function BatchDetail() {
     spawnType: "internal",
     spawnRef: "",
     spawnQty: "",
+    internalSpawnRef: "",
+    internalSpawnQty: "",
+    externalSpawnRef: "",
+    externalSpawnQty: "",
     chamberId: "",
     turnChamberId: "",
     producedBags: "",
+    completedAt: "",
   });
 
   const openCompleteDialog = (stageKey: string) => {
@@ -261,9 +335,14 @@ export default function BatchDetail() {
       spawnType: "internal",
       spawnRef: "",
       spawnQty: "",
+      internalSpawnRef: "",
+      internalSpawnQty: "",
+      externalSpawnRef: "",
+      externalSpawnQty: "",
       chamberId: "",
       turnChamberId: "",
       producedBags: "",
+      completedAt: "",
     });
   };
 
@@ -300,7 +379,12 @@ export default function BatchDetail() {
   const imagesReady = stageImages[0] !== null && stageImages[1] !== null;
   const spawnReady =
     !isSpawnMixing ||
-    (!!completeDialog.spawnRef && Number(completeDialog.spawnQty) > 0);
+    (completeDialog.spawnType === "both"
+      ? !!completeDialog.internalSpawnRef &&
+        Number(completeDialog.internalSpawnQty) > 0 &&
+        !!completeDialog.externalSpawnRef &&
+        Number(completeDialog.externalSpawnQty) > 0
+      : !!completeDialog.spawnRef && Number(completeDialog.spawnQty) > 0);
   const chamberReady = !requiredChamberType || !!completeDialog.chamberId;
   const producedBagsReady =
     !isCompletingDispatch ||
@@ -319,6 +403,7 @@ export default function BatchDetail() {
         nextStage: completeDialog.nextStageKey as any,
         notes: completeDialog.notes || null,
         verificationImages: stageImages.filter(Boolean),
+        completedAt: completeDialog.completedAt ? new Date(completeDialog.completedAt).toISOString() : undefined,
         ...(requiredChamberType && {
           chamberId: Number(completeDialog.chamberId),
         }),
@@ -326,8 +411,26 @@ export default function BatchDetail() {
           producedBags: Number(completeDialog.producedBags),
         }),
         ...(isSpawnMixing && {
-          spawnEntryId: Number(completeDialog.spawnRef),
-          spawnQuantityUsed: Number(completeDialog.spawnQty),
+          spawnBatchType: completeDialog.spawnType,
+          // Populate the legacy fields as well as spawnUsages. This keeps the
+          // request compatible with the single-source validator while the
+          // server uses spawnUsages to deduct both selected vault entries.
+          spawnEntryId: Number(
+            completeDialog.spawnType === "both"
+              ? completeDialog.internalSpawnRef
+              : completeDialog.spawnRef,
+          ),
+          spawnQuantityUsed: Number(
+            completeDialog.spawnType === "both"
+              ? completeDialog.internalSpawnQty
+              : completeDialog.spawnQty,
+          ),
+          ...(completeDialog.spawnType === "both" && {
+            spawnUsages: [
+              { spawnEntryId: Number(completeDialog.internalSpawnRef), quantityUsedKg: Number(completeDialog.internalSpawnQty) },
+              { spawnEntryId: Number(completeDialog.externalSpawnRef), quantityUsedKg: Number(completeDialog.externalSpawnQty) },
+            ],
+          }),
         }),
       } as any,
     });
@@ -344,6 +447,28 @@ export default function BatchDetail() {
         .map((log: any) => log.stage),
     );
   }, [batch?.stageLogs]);
+
+  // Build one casing-soil-style listing: each reading carries all details from
+  // its production stage. A stage without readings still gets one row.
+  const combinedHistoryRows = useMemo(() => {
+    const logs = (batch?.stageLogs ?? []) as any[];
+    const readings = (((batch as any)?.environmentReadings ?? []) as any[]);
+    const usedReadingIds = new Set<number>();
+    const rows = logs.flatMap((log) => {
+      const stageReadings = readings.filter((reading) => reading.stage === log.stage);
+      if (stageReadings.length === 0)
+        return [{ key: `stage-${log.id}`, log, reading: null }];
+      return stageReadings.map((reading) => {
+        usedReadingIds.add(reading.id);
+        return { key: `reading-${reading.id}`, log, reading };
+      });
+    });
+    for (const reading of readings) {
+      if (!usedReadingIds.has(reading.id))
+        rows.push({ key: `reading-${reading.id}`, log: null, reading });
+    }
+    return rows;
+  }, [batch?.stageLogs, (batch as any)?.environmentReadings]);
 
   const currentStageKey = batch?.currentStage ?? "PRE_WETTING";
   const preWettingChamberLabel = assignedPreWettingChamber?.name;
@@ -626,13 +751,13 @@ export default function BatchDetail() {
                       const isPending = !isCompleted && !isActive;
 
                       const expectedStart = addDays(
-                        batchCreatedAt,
+                        new Date(batch.stageEnteredAt ?? batchCreatedAt),
                         stage.dayStart,
                       );
                       const expectedEnd =
                         stage.duration > 0
                           ? addDays(
-                              batchCreatedAt,
+                              new Date(batch.stageEnteredAt ?? batchCreatedAt),
                               stage.dayStart + stage.duration,
                             )
                           : null;
@@ -712,6 +837,16 @@ export default function BatchDetail() {
                             </div>
 
                             {/* Complete button */}
+                            {isActive && activeChamber && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full mt-3 h-7 text-xs rounded-sm"
+                                onClick={openReadingDialog}
+                              >
+                                <Plus className="w-3 h-3 mr-1" /> Log Reading
+                              </Button>
+                            )}
                             {isActive &&
                               batch.status !== "completed" &&
                               (stage.key === "DISPATCH" ||
@@ -774,14 +909,15 @@ export default function BatchDetail() {
                     Spawn Source
                   </p>
                   <p className="mt-1 font-medium">
-                    {(batch as any).spawnUsage?.sourceTypeSnapshot ??
-                      "Not recorded"}
+                    {(batch as any).spawnUsage?.sources?.length > 1
+                      ? "Internal Lab + External Vendor"
+                      : (batch as any).spawnUsage?.sourceTypeSnapshot ?? "Not recorded"}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {(batch as any).spawnUsage?.sourceReferenceSnapshot ||
-                      (batch as any).spawnUsage?.supplierLotSnapshot ||
-                      "-"}
-                  </p>
+                  {((batch as any).spawnUsage?.sources ?? []).map((source: any) => (
+                    <p key={source.spawnEntryId} className="text-xs text-muted-foreground">
+                      {source.sourceReferenceSnapshot || source.supplierLotSnapshot || source.strainNameSnapshot || "-"}
+                    </p>
+                  ))}
                 </CardContent>
               </Card>
               <Card className="rounded-sm shadow-none">
@@ -791,10 +927,15 @@ export default function BatchDetail() {
                   </p>
                   <p className="mt-1 font-mono font-semibold">
                     {(batch as any).spawnUsage
-                      ? `${(batch as any).spawnUsage.quantityUsedKg} kg`
+                      ? `${((batch as any).spawnUsage.sources ?? [{ quantityUsedKg: (batch as any).spawnUsage.quantityUsedKg }]).reduce((sum: number, source: any) => sum + Number(source.quantityUsedKg), 0)} kg total`
                       : "-"}
                   </p>
-                  {(batch as any).spawnUsage && (
+                  {((batch as any).spawnUsage?.sources ?? []).map((source: any) => (
+                    <p key={source.spawnEntryId} className="text-xs font-mono text-muted-foreground">
+                      {source.sourceTypeSnapshot}: {source.quantityUsedKg} kg
+                    </p>
+                  ))}
+                  {(batch as any).spawnUsage && ((batch as any).spawnUsage.sources?.length ?? 1) === 1 && (
                     <div className="mt-2 flex gap-2">
                       <Input
                         type="number"
@@ -839,94 +980,57 @@ export default function BatchDetail() {
             </div>
             <Card className="rounded-sm border-border shadow-none">
               <CardHeader className="pb-2 border-b">
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Stage History Log
+                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                  <Thermometer className="w-4 h-4" /> Production Stage & Environmental History
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <table className="w-full text-sm text-left whitespace-nowrap">
-                  <thead className="bg-muted/40 text-muted-foreground text-[10px] uppercase tracking-wider border-b border-border">
+                  <thead className="bg-muted/40 text-muted-foreground text-[10px] uppercase tracking-wider border-b">
                     <tr>
                       <th className="px-4 py-2.5 font-medium">Stage</th>
                       <th className="px-4 py-2.5 font-medium">Chamber</th>
                       <th className="px-4 py-2.5 font-medium">Entered</th>
                       <th className="px-4 py-2.5 font-medium">Exited</th>
-                      <th className="px-4 py-2.5 font-medium">By</th>
+                      <th className="px-4 py-2.5 font-medium">Stage By</th>
                       <th className="px-4 py-2.5 font-medium">Photos</th>
-                      <th className="px-4 py-2.5 font-medium">Notes</th>
+                      <th className="px-4 py-2.5 font-medium">Stage Notes</th>
+                      <th className="px-4 py-2.5 font-medium">Reading Time</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Temp °C</th>
+                      <th className="px-4 py-2.5 font-medium text-right">NH3 ppm</th>
+                      <th className="px-4 py-2.5 font-medium text-right">CO2 %</th>
+                      <th className="px-4 py-2.5 font-medium text-right">Moisture %</th>
+                      <th className="px-4 py-2.5 font-medium">Logged By</th>
+                      <th className="px-4 py-2.5 font-medium">Reading Notes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {batch.stageLogs?.map((log: any) => (
-                      <tr
-                        key={log.id}
-                        className="h-[38px] hover:bg-muted/20 transition-colors"
-                      >
-                        <td className="px-4">
-                          <StatusBadge status={log.stage} />
-                        </td>
-                        <td className="px-4 text-xs">
-                          {log.chamberName || "-"}
-                        </td>
-                        <td className="px-4 font-mono text-xs text-muted-foreground">
-                          {new Date(log.enteredAt).toLocaleString([], {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })}
-                        </td>
-                        <td className="px-4 font-mono text-xs text-muted-foreground">
-                          {log.exitedAt
-                            ? new Date(log.exitedAt).toLocaleString([], {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                              })
-                            : "—"}
-                        </td>
-                        <td className="px-4 text-xs text-muted-foreground">
-                          {log.enteredByName}
-                        </td>
-                        <td className="px-4">
-                          {log.verificationImages?.length > 0 ? (
-                            <div className="flex gap-1">
-                              {log.verificationImages
-                                .slice(0, 2)
-                                .map((img: string, i: number) => (
-                                  <button
-                                    key={i}
-                                    type="button"
-                                    onClick={() => setLightboxSrc(img)}
-                                    className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary hover:ring-2 hover:ring-primary/30 transition-all cursor-zoom-in focus:outline-none"
-                                    title="Click to enlarge"
-                                  >
-                                    <img
-                                      src={apiAssetUrl(img)}
-                                      crossOrigin="use-credentials"
-                                      className="w-full h-full object-cover"
-                                      alt=""
-                                    />
-                                  </button>
-                                ))}
-                            </div>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground/60">
-                              —
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 text-xs text-muted-foreground truncate max-w-[180px]">
-                          {log.notes || "—"}
-                        </td>
+                    {combinedHistoryRows.map(({ key, log, reading }) => (
+                      <tr key={key} className="h-[38px] hover:bg-muted/20">
+                        <td className="px-4"><StatusBadge status={log?.stage || reading?.stage || "READING"} /></td>
+                        <td className="px-4 text-xs">{log?.chamberName || reading?.chamberName || "-"}</td>
+                        <td className="px-4 font-mono text-xs text-muted-foreground">{log?.enteredAt ? new Date(log.enteredAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="px-4 font-mono text-xs text-muted-foreground">{log?.exitedAt ? new Date(log.exitedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="px-4 text-xs text-muted-foreground">{log?.enteredByName || "—"}</td>
+                        <td className="px-4">{log?.verificationImages?.length > 0 ? (
+                          <div className="flex gap-1">{log.verificationImages.slice(0, 2).map((img: string, i: number) => (
+                            <button key={i} type="button" onClick={() => setLightboxSrc(img)} className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in">
+                              <img src={apiAssetUrl(img)} crossOrigin="use-credentials" className="w-full h-full object-cover" alt="" />
+                            </button>
+                          ))}</div>
+                        ) : "—"}</td>
+                        <td className="px-4 text-xs text-muted-foreground max-w-[180px] truncate">{log?.notes || "—"}</td>
+                        <td className="px-4 font-mono text-xs text-muted-foreground">{reading?.recordedAt ? new Date(reading.recordedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="px-4 font-mono text-right">{reading?.temperatureCelsius ?? "-"}</td>
+                        <td className="px-4 font-mono text-right">{reading?.nh3Ppm ?? "-"}</td>
+                        <td className="px-4 font-mono text-right">{reading?.co2Percent ?? "-"}</td>
+                        <td className="px-4 font-mono text-right">{reading?.moisturePercent ?? "-"}</td>
+                        <td className="px-4 text-xs text-muted-foreground">{reading?.recordedByName || "-"}</td>
+                        <td className="px-4 text-xs text-muted-foreground max-w-[180px] truncate">{reading?.notes || "-"}</td>
                       </tr>
                     ))}
-                    {(!batch.stageLogs || batch.stageLogs.length === 0) && (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          className="px-4 py-6 text-center text-sm text-muted-foreground"
-                        >
-                          No stage history recorded yet.
-                        </td>
-                      </tr>
+                    {combinedHistoryRows.length === 0 && (
+                      <tr><td colSpan={14} className="px-4 py-6 text-center text-muted-foreground">No production history recorded yet.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -937,28 +1041,7 @@ export default function BatchDetail() {
       </div>
 
       {/* ── Lightbox ──────────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={apiAssetUrl(lightboxSrc)}
-              crossOrigin="use-credentials"
-              alt="Verification photo"
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm transition-colors"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       <Dialog open={chamberPromptOpen} onOpenChange={setChamberPromptOpen}>
         <DialogContent className="rounded-sm border-border max-w-md shadow-xl">
@@ -1016,6 +1099,51 @@ export default function BatchDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={readingDialog.open}
+        onOpenChange={(open) => setReadingDialog((current) => ({ ...current, open }))}
+      >
+        <DialogContent className="max-w-sm rounded-md">
+          <DialogHeader><DialogTitle>Log Environment Reading</DialogTitle></DialogHeader>
+          <form onSubmit={submitReading} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Stage / Chamber</Label>
+              <div className="rounded-md border bg-muted px-3 py-2 text-sm font-semibold">
+                {STAGE_SEQ.find((stage) => stage.key === currentStageKey)?.label} · {activeChamber?.name}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                ["temperatureCelsius", "Temperature (°C)", "0.1"],
+                ["nh3Ppm", "NH3 (ppm)", "0.01"],
+                ["co2Percent", "CO2 (%)", "0.01"],
+                ["humidity", "Moisture (%)", "0.1"],
+              ] as const).map(([field, label, step]) => (
+                <div key={field} className="space-y-1.5">
+                  <Label>{label}</Label>
+                  <Input type="number" step={step} value={readingDialog[field]}
+                    onChange={(event) => setReadingDialog((current) => ({ ...current, [field]: event.target.value }))} />
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Reading Date & Time (Optional)</Label>
+              <Input type="datetime-local" value={readingDialog.recordedAt} onChange={(event) => setReadingDialog((current) => ({ ...current, recordedAt: event.target.value }))} />
+              <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Input value={readingDialog.notes} placeholder="Optional conditions..."
+                onChange={(event) => setReadingDialog((current) => ({ ...current, notes: event.target.value }))} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={readingSaving}
+                onClick={() => setReadingDialog((current) => ({ ...current, open: false }))}>Cancel</Button>
+              <Button type="submit" disabled={readingSaving}>{readingSaving ? "Saving..." : "Submit Log"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       {/* ── Complete Stage Dialog ──────────────────────────────────────────────── */}
       <Dialog
         open={completeDialog.open}
@@ -1038,6 +1166,11 @@ export default function BatchDetail() {
           </DialogHeader>
 
           <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label>Stage Completion Date & Time (Optional)</Label>
+              <Input type="datetime-local" value={completeDialog.completedAt} onChange={(event) => setCompleteDialog((current) => ({ ...current, completedAt: event.target.value }))} />
+              <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+            </div>
             {/* Image capture — two slots */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
@@ -1235,7 +1368,7 @@ export default function BatchDetail() {
                       spawnRef: "",
                     }))
                   }
-                  className="grid grid-cols-2 gap-2"
+                  className="grid grid-cols-3 gap-2"
                 >
                   <div className="flex items-center gap-2 bg-white px-3 py-2 border rounded-sm">
                     <RadioGroupItem value="internal" id="spawn-int" />
@@ -1255,8 +1388,49 @@ export default function BatchDetail() {
                       External Vendor
                     </Label>
                   </div>
+                  <div className="flex items-center gap-2 bg-white px-3 py-2 border rounded-sm">
+                    <RadioGroupItem value="both" id="spawn-both" />
+                    <Label htmlFor="spawn-both" className="cursor-pointer text-sm">
+                      Both
+                    </Label>
+                  </div>
                 </RadioGroup>
-                {completeDialog.spawnType === "internal" ? (
+                {completeDialog.spawnType === "both" ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2 rounded-sm border bg-white p-3">
+                      <Label className="text-xs font-semibold uppercase text-muted-foreground">Internal Lab</Label>
+                      <Select value={completeDialog.internalSpawnRef} onValueChange={(value) => setCompleteDialog((p) => ({ ...p, internalSpawnRef: value }))}>
+                        <SelectTrigger className="rounded-sm h-9"><SelectValue placeholder="Select lab batch..." /></SelectTrigger>
+                        <SelectContent>
+                          {internalSpawnEntries.map((entry: any) => (
+                            <SelectItem key={entry.id} value={String(entry.id)}>
+                              {entry.sourceReference || entry.supplierLot || entry.strainName} - {Number(entry.quantityKg)} kg
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input type="number" min="0.0001" step="0.0001" value={completeDialog.internalSpawnQty}
+                        onChange={(e) => setCompleteDialog((p) => ({ ...p, internalSpawnQty: e.target.value }))}
+                        className="rounded-sm h-9 font-mono" placeholder="Internal quantity (kg)" />
+                    </div>
+                    <div className="space-y-2 rounded-sm border bg-white p-3">
+                      <Label className="text-xs font-semibold uppercase text-muted-foreground">External Vendor</Label>
+                      <Select value={completeDialog.externalSpawnRef} onValueChange={(value) => setCompleteDialog((p) => ({ ...p, externalSpawnRef: value }))}>
+                        <SelectTrigger className="rounded-sm h-9"><SelectValue placeholder="Select external batch..." /></SelectTrigger>
+                        <SelectContent>
+                          {externalSpawnEntries.map((entry: any) => (
+                            <SelectItem key={entry.id} value={String(entry.id)}>
+                              {entry.sourceReference || entry.supplierLot || entry.strainName} - {Number(entry.quantityKg)} kg
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input type="number" min="0.0001" step="0.0001" value={completeDialog.externalSpawnQty}
+                        onChange={(e) => setCompleteDialog((p) => ({ ...p, externalSpawnQty: e.target.value }))}
+                        className="rounded-sm h-9 font-mono" placeholder="External quantity (kg)" />
+                    </div>
+                  </div>
+                ) : completeDialog.spawnType === "internal" ? (
                   <Select
                     value={completeDialog.spawnRef}
                     onValueChange={(v) =>
@@ -1307,7 +1481,7 @@ export default function BatchDetail() {
                     </SelectContent>
                   </Select>
                 )}
-                <Input
+                {completeDialog.spawnType !== "both" && <Input
                   type="number"
                   min="0.0001"
                   step="0.0001"
@@ -1320,8 +1494,8 @@ export default function BatchDetail() {
                   }
                   className="rounded-sm h-9 bg-white font-mono"
                   placeholder="Quantity used (kg)"
-                />
-                {!completeDialog.spawnRef && (
+                />}
+                {completeDialog.spawnType !== "both" && !completeDialog.spawnRef && (
                   <p className="text-xs text-amber-600 flex items-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5" /> Spawn batch
                     reference required

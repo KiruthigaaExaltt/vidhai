@@ -37,7 +37,7 @@ export const stageLogsTable = mongoTable("stage_logs", {
     precision: 6,
     scale: 2,
   }),
-  verificationImages: text("verification_images"), // JSON array of base64 image data URLs
+  verificationImages: text("verification_images"), // JSON array of stored file URLs
 });
 
 export const insertStageLogSchema = createInsertSchema(stageLogsTable).omit({

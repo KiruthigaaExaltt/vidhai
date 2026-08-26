@@ -23,6 +23,8 @@ import {
 import { and, eq, desc, gte, ilike, isNull } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { ensureDefaultVaultItems } from "../lib/ensureDefaultVaultItems";
+import { saveImageDataUrl } from "../lib/uploadStorage";
+import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 
 const router = Router();
 
@@ -32,12 +34,16 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-function batchCode(locationCode: string, seq: number) {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
+function batchCode(locationCode: string, seq: number, isoDate: string) {
+  const [year, mm, dd] = isoDate.split("-");
+  const yy = year.slice(2);
   return `${locationCode}-${yy}${mm}${dd}-${String(seq).padStart(3, "0")}`;
+}
+
+function batchStartedAt(batch: any) {
+  if (batch.initializedAt) return batch.initializedAt;
+  const match = String(batch.batchCode).match(/^C-(\d{2})(\d{2})(\d{2})-/);
+  return match ? `20${match[1]}-${match[2]}-${match[3]}` : batch.createdAt;
 }
 
 function parseImages(raw: string | null | undefined): string[] {
@@ -102,6 +108,8 @@ router.get("/batches", requireAuth, async (req, res) => {
       alertLevel: batchesTable.alertLevel,
       createdAt: batchesTable.createdAt,
       stageEnteredAt: batchesTable.stageEnteredAt,
+      initializedAt: batchesTable.initializedAt,
+      casingSoilCompletedAt: batchesTable.casingSoilCompletedAt,
       locationCode: locationsTable.code,
       createdByName: usersTable.displayName,
     })
@@ -125,6 +133,8 @@ router.get("/batches", requireAuth, async (req, res) => {
   }
   const batches = batchRows.map((batch: any) => ({
     ...batch,
+    startedAt: batchStartedAt(batch),
+    completedAt: batch.casingSoilCompletedAt ?? null,
     currentTurnNumber:
       batch.currentStage === "TURNING"
         ? (latestTurnByBatch.get(batch.id) ?? 0) + 1
@@ -164,10 +174,15 @@ router.get("/batches", requireAuth, async (req, res) => {
 // ── Create Coimbatore batch (starts in FORMULATION) ───────────────────────────
 router.post("/batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
-  const { notes, chamberId: rawChamberId } = req.body as {
+  const { notes, chamberId: rawChamberId, batchDate } = req.body as {
     notes?: string;
     chamberId?: number;
+    batchDate?: string;
   };
+  const effectiveBatchDate = String(batchDate || new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()));
+  const stageStartedAt = resolveProductionDateTime((req.body as any).batchStartedAt);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveBatchDate) || !stageStartedAt)
+    return res.status(400).json({ error: "Batch initialization date and time is invalid" });
   const chamberId = Number(rawChamberId);
   if (!Number.isInteger(chamberId) || chamberId <= 0)
     return res.status(400).json({ error: "Casing Soil Chamber is required" });
@@ -182,7 +197,14 @@ router.post("/batches", requireAuth, async (req, res) => {
     .from(batchesTable)
     .innerJoin(locationsTable, eq(batchesTable.locationId, locationsTable.id))
     .where(eq(locationsTable.code, "C"));
-  const code = batchCode("C", existing.length + 1);
+  const codePrefix = batchCode("C", 0, effectiveBatchDate).slice(0, -3);
+  const nextSequence = existing.reduce((highest, row: any) => {
+    const code = String(row.batches?.batchCode ?? row.batchCode ?? "");
+    if (!code.startsWith(codePrefix)) return highest;
+    const sequence = Number(code.slice(codePrefix.length));
+    return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
+  }, 0) + 1;
+  const code = batchCode("C", nextSequence, effectiveBatchDate);
   const result = await db
     .transaction(async (tx) => {
       const [chamber] = await tx
@@ -209,6 +231,8 @@ router.post("/batches", requireAuth, async (req, res) => {
           status: "active",
           notes: notes ?? null,
           createdByUserId: userId,
+          stageEnteredAt: stageStartedAt,
+          initializedAt: stageStartedAt,
           currentChamberId: chamberId,
           casingSoilChamberId: chamberId,
           casingSoilChamberNameSnapshot: chamber.name,
@@ -294,6 +318,17 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     weightKg: numericValue(material.weightKg),
   }));
 
+  const historyUsers = await db
+    .select({ id: usersTable.id, displayName: usersTable.displayName })
+    .from(usersTable);
+  const historyUserNameById = new Map(
+    historyUsers.map((user: any) => [Number(user.id), user.displayName]),
+  );
+  const historyUserName = (userId: unknown) =>
+    userId == null
+      ? batch.createdByName ?? null
+      : historyUserNameById.get(Number(userId)) ?? batch.createdByName ?? null;
+
   const [config] = await db
     .select()
     .from(coimbatoreConfigTable)
@@ -307,6 +342,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .orderBy(coimbatoreTurnsTable.turnNumber);
   const turns = rawTurns.map((t) => ({
     ...t,
+    stagedByName: historyUserName(t.recordedByUserId),
     temperatureCelsius: numericValue(t.temperatureCelsius),
     nh3Ppm: numericValue(t.nh3Ppm),
     co2Percent: numericValue(t.co2Percent),
@@ -357,6 +393,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
         : [];
       return {
         ...record,
+        stagedByName: historyUserName(record.recordedByUserId),
         temperatureCelsius: numericValue(reading?.temperatureCelsius),
         nh3Ppm: numericValue(reading?.nh3Ppm),
         co2Percent: numericValue(reading?.co2Percent),
@@ -380,6 +417,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
       co2Percent: chamberReadingsTable.co2Percent,
       moisturePercent: chamberReadingsTable.humidity,
       notes: chamberReadingsTable.notes,
+      recordedByUserId: chamberReadingsTable.recordedByUserId,
       recordedAt: chamberReadingsTable.recordedAt,
     })
     .from(chamberReadingsTable)
@@ -390,6 +428,7 @@ router.get("/batches/:id", requireAuth, async (req, res) => {
     .filter((reading) => !linkedReadingIds.has(reading.id))
     .map((reading) => ({
       ...reading,
+      stagedByName: historyUserName(reading.recordedByUserId),
       temperatureCelsius: numericValue(reading.temperatureCelsius),
       nh3Ppm: numericValue(reading.nh3Ppm),
       co2Percent: numericValue(reading.co2Percent),
@@ -599,8 +638,9 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       .update(batchesTable)
       .set({
         currentStage: "PRE_WETTING",
-        stageEnteredAt: new Date(),
-        casingSoilStartedAt: batch.casingSoilStartedAt ?? new Date(),
+        stageEnteredAt: batch.stageEnteredAt ?? new Date(),
+        casingSoilStartedAt:
+          batch.casingSoilStartedAt ?? batch.stageEnteredAt ?? new Date(),
       })
       .where(eq(batchesTable.id, batchId));
   });
@@ -707,16 +747,33 @@ router.post(
   async (req, res) => {
     const id = Number(req.params.id);
     const userId = (req.session as any).userId;
-    const { stage, notes, verificationImages } = req.body as any;
-    const images: string[] = Array.isArray(verificationImages)
+    const { stage, notes, verificationImages, completedAt: requestedCompletedAt } = req.body as any;
+    const submittedImages: string[] = Array.isArray(verificationImages)
       ? verificationImages.filter(Boolean).slice(0, 2)
       : [];
+    let images: string[];
+    try {
+      images = await Promise.all(
+        submittedImages.map((image) =>
+          saveImageDataUrl(image, "coimbatore-verification"),
+        ),
+      );
+    } catch (error: any) {
+      return res.status(400).json({
+        error: error?.message || "Unable to store verification photos",
+      });
+    }
     const [batch] = await db
       .select()
       .from(batchesTable)
       .where(eq(batchesTable.id, id))
       .limit(1);
     if (!batch) return res.status(404).json({ error: "Not found" });
+    const completedAt = resolveProductionDateTime(requestedCompletedAt);
+    if (!completedAt)
+      return res.status(400).json({ error: "Stage completion date and time is invalid" });
+    const dateError = chronologyError(completedAt, batch.stageEnteredAt ?? batch.initializedAt, "Stage completion date and time");
+    if (dateError) return res.status(400).json({ error: dateError });
     if (
       stage !== batch.currentStage ||
       !["PRE_WETTING", "MIXING"].includes(String(stage))
@@ -751,7 +808,6 @@ router.post(
       .orderBy(desc(chamberReadingsTable.recordedAt))
       .limit(1);
     const nextStage = stage === "PRE_WETTING" ? "MIXING" : "TURNING";
-    const completedAt = new Date();
     const result = await db.transaction(async (tx) => {
       const [history] = await tx
         .insert(coimbatorePreparationStagesTable)
@@ -1006,11 +1062,28 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
       error: "Pre-wetting and Mixing must be completed before Turning",
     });
   const userId = (req.session as any).userId;
-  const { turnNumber, actualDate, notes, verificationImages } = req.body as any;
+  const { turnNumber, actualDate, notes, verificationImages, completedAt: requestedCompletedAt } = req.body as any;
+  const completedAt = resolveProductionDateTime(requestedCompletedAt);
+  if (!completedAt)
+    return res.status(400).json({ error: "Turn completion date and time is invalid" });
+  const dateError = chronologyError(completedAt, activeBatch.stageEnteredAt ?? activeBatch.initializedAt, "Turn completion date and time");
+  if (dateError) return res.status(400).json({ error: dateError });
   // Verification photos are optional and retained when supplied.
-  const imgs: string[] = Array.isArray(verificationImages)
+  const submittedImages: string[] = Array.isArray(verificationImages)
     ? verificationImages.filter(Boolean).slice(0, 2)
     : [];
+  let imgs: string[];
+  try {
+    imgs = await Promise.all(
+      submittedImages.map((image) =>
+        saveImageDataUrl(image, "coimbatore-verification"),
+      ),
+    );
+  } catch (error: any) {
+    return res.status(400).json({
+      error: error?.message || "Unable to store verification photos",
+    });
+  }
 
   // Enforce sequential completion
   const existingTurns = await db
@@ -1059,7 +1132,6 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
   const totalTurns = config?.totalTurns ?? 12;
 
   const result = await db.transaction(async (tx) => {
-    const completedAt = new Date();
     const [turn] = await tx
       .insert(coimbatoreTurnsTable)
       .values({
@@ -1134,7 +1206,7 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
 router.post("/batches/:id/qc", requireAuth, async (req, res) => {
   const batchId = Number(req.params.id);
   const userId = (req.session as any).userId;
-  const { decision, notes, producedQuantityKg } = req.body as any;
+  const { decision, notes, producedQuantityKg, completedAt: requestedCompletedAt } = req.body as any;
   if (decision !== "approve" && decision !== "reject")
     return res.status(400).json({ error: "Select Approve or Reject" });
 
@@ -1160,6 +1232,11 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
     .where(eq(batchesTable.id, batchId))
     .limit(1);
   if (!batch) return res.status(404).json({ error: "Batch not found" });
+  const qcCompletedAt = resolveProductionDateTime(requestedCompletedAt);
+  if (!qcCompletedAt)
+    return res.status(400).json({ error: "QC date and time is invalid" });
+  const qcDateError = chronologyError(qcCompletedAt, batch.stageEnteredAt ?? batch.initializedAt, "QC date and time");
+  if (qcDateError) return res.status(400).json({ error: qcDateError });
   if (batch.currentStage !== "QC_PENDING" || batch.status !== "active")
     return res
       .status(409)
@@ -1214,7 +1291,7 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
       .from(locationsTable)
       .where(eq(locationsTable.code, "C"))
       .limit(1);
-    const completedAt = new Date();
+    const completedAt = qcCompletedAt;
 
     await db.transaction(async (tx) => {
       const [posting] = await tx
@@ -1340,7 +1417,7 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
     .where(eq(coimbatoreTurnsTable.batchId, batchId));
   const currentTotal = config?.totalTurns ?? existingTurns.length;
   const newTotal = existingTurns.length + 3;
-  const now = new Date();
+  const now = qcCompletedAt;
   await db.transaction(async (tx) => {
     await tx.insert(qcDecisionsTable).values({
       batchId,

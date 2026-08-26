@@ -88,9 +88,9 @@ const deallocateRequest = async (allocationId: number) => {
   }
   return response.json();
 };
-const Field = ({ label, children }: any) => (
+const Field = ({ label, children, required = false }: any) => (
   <div className="space-y-1.5">
-    <Label>{label}</Label>
+    <Label>{label}{required && <span className="text-destructive"> *</span>}</Label>
     {children}
   </div>
 );
@@ -493,25 +493,25 @@ export function AssetManagement() {
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Asset name">
+            <Field label="Asset name" required>
               <Input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </Field>
-            <Field label="SKU">
+            <Field label="SKU" required>
               <Input
                 value={form.sku}
                 onChange={(e) => setForm({ ...form, sku: e.target.value })}
               />
             </Field>
-            <Field label="Category">
+            <Field label="Category" required>
               <Input
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
               />
             </Field>
-            <Field label="Quantity">
+            <Field label="Quantity" required>
               <Input
                 type="number"
                 min="1"
@@ -521,7 +521,7 @@ export function AssetManagement() {
                 }
               />
             </Field>
-            <Field label="Purchase value">
+            <Field label="Purchase value" required>
               <Input
                 type="number"
                 min="0"
@@ -531,7 +531,7 @@ export function AssetManagement() {
                 }
               />
             </Field>
-            <Field label="Purchase date">
+            <Field label="Purchase date" required>
               <Input
                 type="date"
                 value={form.purchaseDate}
@@ -540,7 +540,7 @@ export function AssetManagement() {
                 }
               />
             </Field>
-            <Field label="Status">
+            <Field label="Status" required>
               <Select
                 value={form.status}
                 onValueChange={(status) => setForm({ ...form, status })}

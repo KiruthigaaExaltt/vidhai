@@ -22,6 +22,12 @@ export interface Batch {
   /** @nullable */
   actualBags?: number | null;
   /** @nullable */
+  preWettingChamberId?: number | null;
+  /** @nullable */
+  turnChamberId?: number | null;
+  /** @nullable */
+  bulkChamberId?: number | null;
+  /** @nullable */
   spawnEntryId?: number | null;
   /** @nullable */
   spawnBatchRef?: string | null;

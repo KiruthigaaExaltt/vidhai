@@ -97,6 +97,8 @@ import type {
   OotyPhaseAdvanceInput,
   OotyRoom,
   OotyRoomDetail,
+  OotyRoomImportRequest,
+  OotyRoomImportResponse,
   OotyRoomInput,
   OotyRoomUpdate,
   PhaseApproval,
@@ -4730,6 +4732,70 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getCreateOotyRoomMutationOptions(options));
+    }
+
+export const getImportOotyRoomsUrl = () => {
+
+
+
+
+  return `/api/ooty/rooms/import`
+}
+
+export const importOotyRooms = async (ootyRoomImportRequest: OotyRoomImportRequest, options?: RequestInit): Promise<OotyRoomImportResponse> => {
+
+  return customFetch<OotyRoomImportResponse>(getImportOotyRoomsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ootyRoomImportRequest)
+  }
+);}
+
+
+
+
+export const getImportOotyRoomsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importOotyRooms>>, TError,{data: BodyType<OotyRoomImportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importOotyRooms>>, TError,{data: BodyType<OotyRoomImportRequest>}, TContext> => {
+
+const mutationKey = ['importOotyRooms'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importOotyRooms>>, {data: BodyType<OotyRoomImportRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importOotyRooms(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportOotyRoomsMutationResult = NonNullable<Awaited<ReturnType<typeof importOotyRooms>>>
+    export type ImportOotyRoomsMutationBody = BodyType<OotyRoomImportRequest>
+    export type ImportOotyRoomsMutationError = ErrorType<unknown>
+
+    export const useImportOotyRooms = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importOotyRooms>>, TError,{data: BodyType<OotyRoomImportRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importOotyRooms>>,
+        TError,
+        {data: BodyType<OotyRoomImportRequest>},
+        TContext
+      > => {
+      return useMutation(getImportOotyRoomsMutationOptions(options));
     }
 
 export const getGetOotyRoomUrl = (id: number,) => {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import {
   Edit2,
   Eye,
@@ -482,7 +483,7 @@ export default function UserManagement() {
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                     {u.avatarUrl ? (
                       <img
-                        src={u.avatarUrl}
+                        src={apiAssetUrl(u.avatarUrl)}
                         alt={`${u.displayName}'s profile`}
                         className="h-full w-full object-cover"
                       />
@@ -594,7 +595,7 @@ export default function UserManagement() {
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-primary-foreground">
                   {editing.avatarUrl ? (
                     <img
-                      src={editing.avatarUrl}
+                      src={apiAssetUrl(editing.avatarUrl)}
                       alt={`${editing.displayName}'s profile`}
                       className="h-full w-full object-cover"
                     />

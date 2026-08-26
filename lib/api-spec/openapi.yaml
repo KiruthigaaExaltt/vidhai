@@ -2320,8 +2320,20 @@ components:
         spawnBatchRef: { type: ["string", "null"] }
         spawnBatchType:
           type: string
-          enum: [internal, external]
+          enum: [internal, external, both]
           nullable: true
+        spawnEntryId: { type: ["integer", "null"] }
+        spawnQuantityUsed: { type: ["number", "null"] }
+        spawnUsages:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            type: object
+            required: [spawnEntryId, quantityUsedKg]
+            properties:
+              spawnEntryId: { type: integer }
+              quantityUsedKg: { type: number, exclusiveMinimum: 0 }
 
     BatchMaterial:
       type: object

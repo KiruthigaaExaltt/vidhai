@@ -12,6 +12,7 @@ export type OotyGrowingBatchCurrentPhase = typeof OotyGrowingBatchCurrentPhase[k
 export const OotyGrowingBatchCurrentPhase = {
   SPAWN_RUN: 'SPAWN_RUN',
   CASING_RUN: 'CASING_RUN',
+  PRONING: 'PRONING',
   DF: 'DF',
   COOKOUT: 'COOKOUT',
   COMPLETED: 'COMPLETED',

@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef } from "react";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
+import { ImageLightbox } from "@/components/ImageLightbox";
 import { useParams, useLocation } from "wouter";
 import {
   useGetCoimbatoreBatch,
@@ -272,12 +274,13 @@ export default function CoimbatoreBatchDetail() {
     open: false,
     stage: "" as "PRE_WETTING" | "MIXING" | "",
     notes: "",
+    completedAt: "",
   });
 
   const [completeDialog, setCompleteDialog] = useState({
     open: false,
     turnNumber: 0,
-    actualDate: new Date().toISOString().split("T")[0],
+    completedAt: "",
     notes: "",
   });
   const pipelineScrollRef = useRef<HTMLDivElement>(null);
@@ -290,6 +293,7 @@ export default function CoimbatoreBatchDetail() {
     co2Percent: "",
     humidity: "",
     notes: "",
+    recordedAt: "",
   });
   const [readingSaving, setReadingSaving] = useState(false);
 
@@ -303,6 +307,7 @@ export default function CoimbatoreBatchDetail() {
       co2Percent: "",
       humidity: "",
       notes: "",
+      recordedAt: "",
     });
 
   const submitReading = async (event: React.FormEvent) => {
@@ -324,6 +329,9 @@ export default function CoimbatoreBatchDetail() {
             co2Percent: optionalNumber(readingDialog.co2Percent),
             humidity: optionalNumber(readingDialog.humidity),
             notes: readingDialog.notes.trim() || null,
+            recordedAt: readingDialog.recordedAt
+              ? new Date(readingDialog.recordedAt).toISOString()
+              : undefined,
           }),
         },
       );
@@ -353,7 +361,7 @@ export default function CoimbatoreBatchDetail() {
     setCompleteDialog({
       open: true,
       turnNumber,
-      actualDate: new Date().toISOString().split("T")[0],
+      completedAt: "",
       notes: "",
     });
   };
@@ -370,6 +378,7 @@ export default function CoimbatoreBatchDetail() {
     decision: "" as "approve" | "reject" | "",
     notes: "",
     producedKg: "",
+    completedAt: "",
   });
 
   const openQcDialog = () => {
@@ -378,6 +387,7 @@ export default function CoimbatoreBatchDetail() {
       decision: "",
       notes: "",
       producedKg: String(Math.round(savedTotalKg)),
+      completedAt: "",
     });
   };
 
@@ -442,6 +452,7 @@ export default function CoimbatoreBatchDetail() {
       stage: "PRE_WETTING" | "MIXING";
       notes: string | null;
       verificationImages: string[];
+      completedAt?: string;
     }) => {
       const res = await fetch(
         `/api/coimbatore/batches/${batchId}/complete-preparation`,
@@ -459,7 +470,7 @@ export default function CoimbatoreBatchDetail() {
       return res.json();
     },
     onSuccess: async (_data, payload) => {
-      setPreparationDialog({ open: false, stage: "", notes: "" });
+      setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "" });
       setStageImages([null, null]);
       await queryClient.invalidateQueries({
         queryKey: getGetCoimbatoreBatchQueryKey(batchId),
@@ -557,7 +568,7 @@ export default function CoimbatoreBatchDetail() {
           ? "QC Approved — casing soil stocked into Inventory"
           : "QC Rejected — 3 additional turns added",
       );
-      setQcDialog({ open: false, decision: "", notes: "", producedKg: "" });
+      setQcDialog({ open: false, decision: "", notes: "", producedKg: "", completedAt: "" });
     },
     onError: (e: any) => toast.error(e.message ?? "Failed"),
   });
@@ -569,7 +580,7 @@ export default function CoimbatoreBatchDetail() {
     return buildTurnSchedule(
       totalTurns,
       config?.turnScheduleJson,
-      b.createdAt ?? new Date(),
+      b.stageEnteredAt ?? b.createdAt ?? new Date(),
     );
   }, [b, config, totalTurns]);
 
@@ -1016,7 +1027,7 @@ export default function CoimbatoreBatchDetail() {
               </CardHeader>
               <CardContent className="p-5 grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>Initial Temperature (�C) *</Label>
+                  <Label>Initial Temperature (°C) *</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -1208,7 +1219,7 @@ export default function CoimbatoreBatchDetail() {
                           {Number(
                             config.initialTemperatureCelsius ?? 0,
                           ).toFixed(2)}{" "}
-                          �C
+                          °C
                         </p>
                       </div>
                       <div>
@@ -1449,6 +1460,7 @@ export default function CoimbatoreBatchDetail() {
                                           open: true,
                                           stage: stage.key,
                                           notes: "",
+                                          completedAt: "",
                                         });
                                       }}
                                     >
@@ -1584,7 +1596,7 @@ export default function CoimbatoreBatchDetail() {
                                             className="w-8 h-8 rounded-sm overflow-hidden border border-green-300 hover:border-primary cursor-zoom-in"
                                           >
                                             <img
-                                              src={img}
+                                              src={apiAssetUrl(img)}
                                               className="w-full h-full object-cover"
                                               alt=""
                                             />
@@ -1735,7 +1747,7 @@ export default function CoimbatoreBatchDetail() {
                                   className="w-10 h-10 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                 >
                                   <img
-                                    src={img}
+                                    src={apiAssetUrl(img)}
                                     className="w-full h-full object-cover"
                                     alt={`${record.stage} photo ${index + 1}`}
                                   />
@@ -1770,7 +1782,10 @@ export default function CoimbatoreBatchDetail() {
                             <th className="px-4 py-2.5 font-medium">Planned</th>
                             <th className="px-4 py-2.5 font-medium">Actual</th>
                             <th className="px-4 py-2.5 font-medium">Chamber</th>
-                            <th className="px-4 py-2.5 font-medium">Temp �C</th>
+                            <th className="px-4 py-2.5 font-medium">
+                              Stage By
+                            </th>
+                            <th className="px-4 py-2.5 font-medium">Temp °C</th>
                             <th className="px-4 py-2.5 font-medium">NH3 ppm</th>
                             <th className="px-4 py-2.5 font-medium">CO2 %</th>
                             <th className="px-4 py-2.5 font-medium">
@@ -1796,6 +1811,9 @@ export default function CoimbatoreBatchDetail() {
                               </td>
                               <td className="px-4 text-xs font-semibold">
                                 {reading.chamberName || "—"}
+                              </td>
+                              <td className="px-4 text-xs text-muted-foreground">
+                                {reading.stagedByName || b.createdByName || "—"}
                               </td>
                               <td className="px-4 font-mono text-xs">{reading.temperatureCelsius ?? "—"}</td>
                               <td className="px-4 font-mono text-xs">{reading.nh3Ppm ?? "—"}</td>
@@ -1826,6 +1844,9 @@ export default function CoimbatoreBatchDetail() {
                               <td className="px-4 text-xs font-semibold">
                                 {record.chamberNameSnapshot || "—"}
                               </td>
+                              <td className="px-4 text-xs text-muted-foreground">
+                                {record.stagedByName || b.createdByName || "—"}
+                              </td>
                               <td className="px-4 font-mono text-xs">
                                 {record.temperatureCelsius ?? "—"}
                               </td>
@@ -1851,7 +1872,7 @@ export default function CoimbatoreBatchDetail() {
                                           className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                         >
                                           <img
-                                            src={img}
+                                            src={apiAssetUrl(img)}
                                             className="w-full h-full object-cover"
                                             alt=""
                                           />
@@ -1894,6 +1915,9 @@ export default function CoimbatoreBatchDetail() {
                                   {logged?.chamberNameSnapshot ??
                                     "Legacy � not recorded"}
                                 </td>
+                                <td className="px-4 text-xs text-muted-foreground">
+                                  {logged?.stagedByName || b.createdByName || "—"}
+                                </td>
                                 <td className="px-4 font-mono text-xs">
                                   {logged?.temperatureCelsius ?? "�"}
                                 </td>
@@ -1920,7 +1944,7 @@ export default function CoimbatoreBatchDetail() {
                                             className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
                                           >
                                             <img
-                                              src={img}
+                                              src={apiAssetUrl(img)}
                                               className="w-full h-full object-cover"
                                               alt=""
                                             />
@@ -1993,27 +2017,7 @@ export default function CoimbatoreBatchDetail() {
       </div>
 
       {/* ── Lightbox ──────────────────────────────────────────────────────── */}
-      <Dialog
-        open={!!lightboxSrc}
-        onOpenChange={(open) => !open && setLightboxSrc(null)}
-      >
-        <DialogContent className="max-w-2xl border-0 shadow-2xl p-0 bg-black/95">
-          {lightboxSrc && (
-            <img
-              src={lightboxSrc}
-              alt=""
-              className="w-full h-auto max-h-[80vh] object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-3 right-3 text-white/70 hover:text-white text-sm font-medium bg-black/40 hover:bg-black/60 px-3 py-1 rounded-sm"
-          >
-            Close ✕
-          </button>
-        </DialogContent>
-      </Dialog>
+      <ImageLightbox source={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
       {/* ── Adjust Turns dialog ────────────────────────────────────────────── */}
       <Dialog
@@ -2153,6 +2157,22 @@ export default function CoimbatoreBatchDetail() {
               ))}
             </div>
             <div className="space-y-1.5">
+              <Label>Date and Time (optional)</Label>
+              <Input
+                type="datetime-local"
+                value={readingDialog.recordedAt}
+                onChange={(event) =>
+                  setReadingDialog((current) => ({
+                    ...current,
+                    recordedAt: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
+            </div>
+            <div className="space-y-1.5">
               <Label>Notes</Label>
               <Input
                 value={readingDialog.notes}
@@ -2189,7 +2209,7 @@ export default function CoimbatoreBatchDetail() {
         open={preparationDialog.open}
         onOpenChange={(open) => {
           if (!open) {
-            setPreparationDialog({ open: false, stage: "", notes: "" });
+            setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "" });
             setStageImages([null, null]);
           }
         }}
@@ -2266,6 +2286,24 @@ export default function CoimbatoreBatchDetail() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Completion Date and Time (optional)
+              </Label>
+              <Input
+                type="datetime-local"
+                value={preparationDialog.completedAt}
+                onChange={(event) =>
+                  setPreparationDialog((previous) => ({
+                    ...previous,
+                    completedAt: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Notes (optional)
               </Label>
               <Input
@@ -2286,7 +2324,7 @@ export default function CoimbatoreBatchDetail() {
               variant="outline"
               className="rounded-sm"
               onClick={() => {
-                setPreparationDialog({ open: false, stage: "", notes: "" });
+                setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "" });
                 setStageImages([null, null]);
               }}
             >
@@ -2300,6 +2338,9 @@ export default function CoimbatoreBatchDetail() {
                   stage: preparationDialog.stage as "PRE_WETTING" | "MIXING",
                   notes: preparationDialog.notes || null,
                   verificationImages: stageImages.filter(Boolean) as string[],
+                  completedAt: preparationDialog.completedAt
+                    ? new Date(preparationDialog.completedAt).toISOString()
+                    : undefined,
                 })
               }
             >
@@ -2488,19 +2529,22 @@ export default function CoimbatoreBatchDetail() {
 
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Actual Date
+                Completion Date and Time (optional)
               </Label>
               <Input
-                type="date"
-                value={completeDialog.actualDate}
+                type="datetime-local"
+                value={completeDialog.completedAt}
                 onChange={(e) =>
                   setCompleteDialog((p) => ({
                     ...p,
-                    actualDate: e.target.value,
+                    completedAt: e.target.value,
                   }))
                 }
                 className="rounded-sm h-9 font-mono"
               />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -2532,7 +2576,12 @@ export default function CoimbatoreBatchDetail() {
               onClick={() => {
                 completeTurnMutation.mutate({
                   turnNumber: completeDialog.turnNumber,
-                  actualDate: completeDialog.actualDate,
+                  completedAt: completeDialog.completedAt
+                    ? new Date(completeDialog.completedAt).toISOString()
+                    : undefined,
+                  actualDate: completeDialog.completedAt
+                    ? completeDialog.completedAt.slice(0, 10)
+                    : undefined,
                   notes: completeDialog.notes || null,
                   verificationImages: stageImages.filter(Boolean),
                 });
@@ -2660,6 +2709,24 @@ export default function CoimbatoreBatchDetail() {
 
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Completion Date and Time (optional)
+              </Label>
+              <Input
+                type="datetime-local"
+                value={qcDialog.completedAt}
+                onChange={(event) =>
+                  setQcDialog((previous) => ({
+                    ...previous,
+                    completedAt: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 {qcDialog.decision === "reject"
                   ? "Rejection Reason *"
                   : "Notes (optional)"}
@@ -2701,6 +2768,9 @@ export default function CoimbatoreBatchDetail() {
                   producedQuantityKg: qcDialog.producedKg
                     ? Number(qcDialog.producedKg)
                     : null,
+                  completedAt: qcDialog.completedAt
+                    ? new Date(qcDialog.completedAt).toISOString()
+                    : undefined,
                 });
               }}
             >

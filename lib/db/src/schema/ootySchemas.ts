@@ -54,6 +54,7 @@ export const ootyGrowingBatchesTable = mongoTable("ooty_growing_batches", {
     scale: 4,
   }),
   manureProducedKg: numeric("manure_produced_kg", { precision: 10, scale: 4 }),
+  manureBags: integer("manure_bags"),
   notes: text("notes"),
   createdByUserId: integer("created_by_user_id").references(
     () => usersTable.id,
@@ -82,7 +83,7 @@ export const ootyStageLogsTable = mongoTable("ooty_stage_logs", {
     .notNull()
     .defaultNow(),
   exitedAt: timestamp("exited_at", { withTimezone: true }),
-  verificationImages: text("verification_images"), // JSON array of base64 strings
+  verificationImages: text("verification_images"), // JSON array of stored file URLs
   notes: text("notes"),
   casingBatchRef: text("casing_batch_ref"),
   casingSoilSourceType: text("casing_soil_source_type"),
@@ -93,6 +94,7 @@ export const ootyStageLogsTable = mongoTable("ooty_stage_logs", {
     precision: 12,
     scale: 4,
   }),
+  manureBags: integer("manure_bags"),
   recordedByUserId: integer("recorded_by_user_id").references(
     () => usersTable.id,
   ),
@@ -185,6 +187,7 @@ export const ootyObservationsTable = mongoTable("ooty_observations", {
     .notNull()
     .references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),
   observationDate: date("observation_date", { mode: "string" }).notNull(),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }),
   temperatureCelsius: numeric("temperature_celsius", {
     precision: 6,
     scale: 2,

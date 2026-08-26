@@ -106,6 +106,7 @@ export default function CoimbatoreChambers() {
       co2Percent: "",
       humidity: "",
       notes: "",
+      recordedAt: "",
     });
     setIsReadingModalOpen(true);
     window.history.replaceState({}, "", window.location.pathname);
@@ -184,6 +185,7 @@ export default function CoimbatoreChambers() {
     co2Percent: "",
     humidity: "",
     notes: "",
+    recordedAt: "",
   });
 
   const handleOpenReading = (e: React.MouseEvent, id: number) => {
@@ -195,6 +197,7 @@ export default function CoimbatoreChambers() {
       co2Percent: "",
       humidity: "",
       notes: "",
+      recordedAt: "",
     });
     setIsReadingModalOpen(true);
   };
@@ -281,11 +284,20 @@ export default function CoimbatoreChambers() {
           : null,
         humidity: readingForm.humidity ? Number(readingForm.humidity) : null,
         notes: readingForm.notes || null,
-      },
+        recordedAt: readingForm.recordedAt
+          ? new Date(readingForm.recordedAt).toISOString()
+          : undefined,
+      } as any,
     });
   };
 
   const selectedChamber = chamberRows.find((c) => c.id === selectedChamberId);
+  const visibleHistory = selectedChamber?.currentBatchId
+    ? (history ?? []).filter(
+        (reading: any) =>
+          Number(reading.batchId) === Number(selectedChamber.currentBatchId),
+      )
+    : [];
 
   return (
     <Shell>
@@ -755,7 +767,7 @@ export default function CoimbatoreChambers() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                          {history?.map((r) => (
+                          {visibleHistory.map((r) => (
                             <tr
                               key={r.id}
                               className="h-[36px] hover:bg-muted/30"
@@ -791,7 +803,7 @@ export default function CoimbatoreChambers() {
                               </td>
                             </tr>
                           ))}
-                          {(!history || history.length === 0) && (
+                          {visibleHistory.length === 0 && (
                             <tr>
                               <td
                                 colSpan={8}
@@ -891,6 +903,22 @@ export default function CoimbatoreChambers() {
                     className="rounded-md font-mono h-10"
                   />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Date and Time (optional)
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={readingForm.recordedAt}
+                  onChange={(e) =>
+                    setReadingForm({ ...readingForm, recordedAt: e.target.value })
+                  }
+                  className="rounded-md h-10"
+                />
+                <p className="text-xs text-muted-foreground">
+                  If left blank, the current device date and time will be recorded automatically.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">

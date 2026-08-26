@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { usePwa } from "@/pwa/PwaProvider";
 import { useNotifications } from "@/notifications/NotificationProvider";
+import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,7 +80,7 @@ export function TopHeader({
             <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {(user as any)?.avatarUrl ? (
                 <img
-                  src={(user as any).avatarUrl}
+                  src={apiAssetUrl((user as any).avatarUrl)}
                   alt=""
                   className="h-full w-full object-cover"
                 />
