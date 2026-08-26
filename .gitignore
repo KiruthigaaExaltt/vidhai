@@ -55,5 +55,8 @@ Thumbs.db
 # local binary uploads (configured by UPLOAD_ROOT)
 uploads/
 
+# local MongoDB development data
+.mongodb-data/
+
 # pnpm local package store
 .pnpm-store/
