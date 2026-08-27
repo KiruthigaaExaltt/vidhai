@@ -275,12 +275,14 @@ export default function CoimbatoreBatchDetail() {
     stage: "" as "PRE_WETTING" | "MIXING" | "",
     notes: "",
     completedAt: "",
+    nextEnteredAt: "",
   });
 
   const [completeDialog, setCompleteDialog] = useState({
     open: false,
     turnNumber: 0,
     completedAt: "",
+    nextEnteredAt: "",
     notes: "",
   });
   const pipelineScrollRef = useRef<HTMLDivElement>(null);
@@ -362,6 +364,7 @@ export default function CoimbatoreBatchDetail() {
       open: true,
       turnNumber,
       completedAt: "",
+      nextEnteredAt: "",
       notes: "",
     });
   };
@@ -453,6 +456,7 @@ export default function CoimbatoreBatchDetail() {
       notes: string | null;
       verificationImages: string[];
       completedAt?: string;
+      nextEnteredAt?: string;
     }) => {
       const res = await fetch(
         `/api/coimbatore/batches/${batchId}/complete-preparation`,
@@ -470,7 +474,7 @@ export default function CoimbatoreBatchDetail() {
       return res.json();
     },
     onSuccess: async (_data, payload) => {
-      setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "" });
+      setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "", nextEnteredAt: "" });
       setStageImages([null, null]);
       await queryClient.invalidateQueries({
         queryKey: getGetCoimbatoreBatchQueryKey(batchId),
@@ -1461,6 +1465,7 @@ export default function CoimbatoreBatchDetail() {
                                           stage: stage.key,
                                           notes: "",
                                           completedAt: "",
+                                          nextEnteredAt: "",
                                         });
                                       }}
                                     >
@@ -2209,7 +2214,7 @@ export default function CoimbatoreBatchDetail() {
         open={preparationDialog.open}
         onOpenChange={(open) => {
           if (!open) {
-            setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "" });
+            setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "", nextEnteredAt: "" });
             setStageImages([null, null]);
           }
         }}
@@ -2304,6 +2309,25 @@ export default function CoimbatoreBatchDetail() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Next Stage Entry Date and Time (optional)
+              </Label>
+              <Input
+                type="datetime-local"
+                value={preparationDialog.nextEnteredAt}
+                onChange={(event) =>
+                  setPreparationDialog((previous) => ({
+                    ...previous,
+                    nextEnteredAt: event.target.value,
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If left blank, the current device date and time will be recorded automatically.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Notes (optional)
               </Label>
               <Input
@@ -2324,7 +2348,7 @@ export default function CoimbatoreBatchDetail() {
               variant="outline"
               className="rounded-sm"
               onClick={() => {
-                setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "" });
+                setPreparationDialog({ open: false, stage: "", notes: "", completedAt: "", nextEnteredAt: "" });
                 setStageImages([null, null]);
               }}
             >
@@ -2340,6 +2364,9 @@ export default function CoimbatoreBatchDetail() {
                   verificationImages: stageImages.filter(Boolean) as string[],
                   completedAt: preparationDialog.completedAt
                     ? new Date(preparationDialog.completedAt).toISOString()
+                    : undefined,
+                  nextEnteredAt: preparationDialog.nextEnteredAt
+                    ? new Date(preparationDialog.nextEnteredAt).toISOString()
                     : undefined,
                 })
               }
@@ -2547,6 +2574,27 @@ export default function CoimbatoreBatchDetail() {
               </p>
             </div>
 
+            {completeDialog.turnNumber < totalTurns && (
+              <div className="space-y-1.5">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Next Turn Entry Date and Time (optional)
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={completeDialog.nextEnteredAt}
+                  onChange={(e) =>
+                    setCompleteDialog((p) => ({
+                      ...p,
+                      nextEnteredAt: e.target.value,
+                    }))
+                  }
+                  className="rounded-sm h-9 font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  If left blank, the current device date and time will be recorded automatically.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Notes (optional)
@@ -2578,6 +2626,9 @@ export default function CoimbatoreBatchDetail() {
                   turnNumber: completeDialog.turnNumber,
                   completedAt: completeDialog.completedAt
                     ? new Date(completeDialog.completedAt).toISOString()
+                    : undefined,
+                  nextEnteredAt: completeDialog.nextEnteredAt
+                    ? new Date(completeDialog.nextEnteredAt).toISOString()
                     : undefined,
                   actualDate: completeDialog.completedAt
                     ? completeDialog.completedAt.slice(0, 10)

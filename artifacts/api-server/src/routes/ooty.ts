@@ -526,6 +526,7 @@ router.post(
                 spawnRunStartDate: item.value.spawnRunStartDate,
                 notes: null,
                 createdByUserId: userId,
+                createdAt: batchStartedAt,
               })
               .returning();
             await tx.insert(ootyStageLogsTable).values({
@@ -947,6 +948,7 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
         spawnRunStartDate: effectiveStartDate,
         notes: notes ?? null,
         createdByUserId: userId,
+        createdAt: now,
       })
       .returning();
 
@@ -1151,6 +1153,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     // Legacy fields
     nextPhase,
     completedAt,
+    nextEnteredAt: requestedNextEnteredAt,
   } = req.body as any;
 
   const [batch] = await db
@@ -1387,8 +1390,37 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
     "Stage completion",
   );
   if (timeError) return res.status(400).json({ error: timeError });
+  const [latestStageObservation] = await db
+    .select()
+    .from(ootyObservationsTable)
+    .where(
+      and(
+        eq(ootyObservationsTable.growingBatchId, id),
+        gte(ootyObservationsTable.recordedAt, activeStageLog?.enteredAt ?? batch.phaseEnteredAt ?? batch.createdAt),
+      ),
+    )
+    .orderBy(desc(ootyObservationsTable.recordedAt))
+    .limit(1);
+  const observationTimeError = chronologyError(
+    now,
+    latestStageObservation?.recordedAt,
+    "Stage completion",
+  );
+  if (observationTimeError) return res.status(400).json({ error: observationTimeError });
   const nextPhaseValue = stageToPhase(targetStage);
   const phaseChanged = nextPhaseValue !== stageToPhase(effectiveCurrentStage);
+  const nextStageEnteredAt =
+    targetStage === "COMPLETED"
+      ? now
+      : resolveProductionDateTime(requestedNextEnteredAt);
+  if (!nextStageEnteredAt)
+    return res.status(400).json({ error: "Next stage entry date and time is invalid" });
+  const nextEntryTimeError = chronologyError(
+    nextStageEnteredAt,
+    now,
+    "Next stage entry",
+  );
+  if (nextEntryTimeError) return res.status(400).json({ error: nextEntryTimeError });
 
   const updated = await db.transaction(async (tx) => {
     if (isCasingRunCompletion && casingInventorySource) {
@@ -1510,7 +1542,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       currentStage: targetStage,
       currentPhase: nextPhaseValue,
     };
-    if (phaseChanged) batchUpdates.phaseEnteredAt = now;
+    if (phaseChanged) batchUpdates.phaseEnteredAt = nextStageEnteredAt;
     if (targetStage === "CASING_RUN")
       batchUpdates.casingAppliedDate = now.toISOString().split("T")[0];
     if (cookoutDate !== undefined && cookoutDate !== null)
@@ -1689,7 +1721,7 @@ router.post("/growing-batches/:id/advance", requireAuth, async (req, res) => {
       await tx.insert(ootyStageLogsTable).values({
         growingBatchId: id,
         stage: targetStage,
-        enteredAt: now,
+        enteredAt: nextStageEnteredAt,
         recordedByUserId: userId,
       });
     }

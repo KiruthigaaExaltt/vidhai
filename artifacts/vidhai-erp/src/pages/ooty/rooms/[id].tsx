@@ -198,6 +198,7 @@ export default function OotyRoomDetail() {
     stageKey: "",
     notes: "",
     completedAt: "",
+    nextEnteredAt: "",
     // Casing soil inventory is selected when completing CASING_RUN.
     casingSourceType: "produced" as "produced" | "purchased" | "both",
     casingInventorySourceId: "",
@@ -230,6 +231,7 @@ export default function OotyRoomDetail() {
       stageKey,
       notes: "",
       completedAt: "",
+      nextEnteredAt: "",
       casingSourceType: "produced",
       casingInventorySourceId: "",
       casingQuantityKg: "",
@@ -347,6 +349,9 @@ export default function OotyRoomDetail() {
       notes: completeDialog.notes || null,
       completedAt: completeDialog.completedAt
         ? new Date(completeDialog.completedAt).toISOString()
+        : undefined,
+      nextEnteredAt: completeDialog.nextEnteredAt
+        ? new Date(completeDialog.nextEnteredAt).toISOString()
         : undefined,
     };
     if (isCasingRun) {
@@ -1511,6 +1516,26 @@ export default function OotyRoomDetail() {
                 If left blank, the current device date and time will be recorded automatically.
               </p>
             </div>
+            {nextStageKey(completeDialog.stageKey) !== "COMPLETED" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Next Stage Entry Date and Time (optional)
+                </Label>
+                <Input
+                  type="datetime-local"
+                  value={completeDialog.nextEnteredAt}
+                  onChange={(event) =>
+                    setCompleteDialog((previous) => ({
+                      ...previous,
+                      nextEnteredAt: event.target.value,
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  If left blank, the current device date and time will be recorded automatically.
+                </p>
+              </div>
+            )}
 
             {/* Notes */}
             <div className="space-y-1.5">

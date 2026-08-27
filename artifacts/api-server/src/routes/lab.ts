@@ -149,6 +149,7 @@ router.post("/batches", requireAuth, async (req, res) => {
       notes: notes ?? null,
       stageEnteredAt: stageStartedAt,
       initializedAt: stageStartedAt,
+      createdAt: stageStartedAt,
       createdByUserId: userId,
     })
     .returning();
@@ -316,6 +317,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     strainName,
     spawnQty,
     completedAt,
+    nextEnteredAt: requestedNextEnteredAt,
   } = req.body as any;
 
   // Preserve any supplied verification photos; photos are optional.
@@ -338,6 +340,18 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
     "Stage completion date and time",
   );
   if (dateError) return res.status(400).json({ error: dateError });
+  const nextStageEnteredAt =
+    nextStage === "COMPLETED"
+      ? stageCompletedAt
+      : resolveProductionDateTime(requestedNextEnteredAt);
+  if (!nextStageEnteredAt)
+    return res.status(400).json({ error: "Next stage entry date and time is invalid" });
+  const nextEntryDateError = chronologyError(
+    nextStageEnteredAt,
+    stageCompletedAt,
+    "Next stage entry date and time",
+  );
+  if (nextEntryDateError) return res.status(400).json({ error: nextEntryDateError });
 
   if (batch.currentStage === "FORMULATION") {
     return res
@@ -398,7 +412,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
       .set({
         currentStage: nextStage,
         status: newStatus,
-        stageEnteredAt: stageCompletedAt,
+        stageEnteredAt: nextStageEnteredAt,
       })
       .where(eq(batchesTable.id, id));
 
@@ -407,7 +421,7 @@ router.post("/batches/:id/advance", requireAuth, async (req, res) => {
       await tx.insert(stageLogsTable).values({
         batchId: id,
         stage: nextStage,
-        enteredAt: stageCompletedAt,
+        enteredAt: nextStageEnteredAt,
         enteredByUserId: userId,
       });
     }

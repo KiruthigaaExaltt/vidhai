@@ -262,6 +262,7 @@ router.post("/", async (req, res) => {
           createdByUserId: userId,
           stageEnteredAt: stageStartedAt,
           initializedAt: stageStartedAt,
+          createdAt: stageStartedAt,
         })
         .returning();
 
@@ -324,7 +325,7 @@ router.post("/", async (req, res) => {
       await tx.insert(stageLogsTable).values({
         batchId: createdBatch.id,
         stage: "PRE_WETTING",
-        enteredAt: new Date(),
+        enteredAt: stageStartedAt,
         enteredByUserId: userId,
         notes: "Batch created",
         chamberId: preWettingChamber.id,
@@ -641,6 +642,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     spawnQuantityUsed,
     spawnUsages,
     completedAt,
+    nextEnteredAt: requestedNextEnteredAt,
   } = req.body;
   const userId = (req.session as any).userId;
 
@@ -659,11 +661,41 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     "Stage completion date and time",
   );
   if (dateError) return res.status(400).json({ error: dateError });
+  const [latestStageReading] = await db
+    .select()
+    .from(chamberReadingsTable)
+    .where(
+      and(
+        eq(chamberReadingsTable.batchId, batchId),
+        gte(chamberReadingsTable.recordedAt, batch.stageEnteredAt ?? batch.initializedAt),
+      ),
+    )
+    .orderBy(desc(chamberReadingsTable.recordedAt))
+    .limit(1);
+  const readingDateError = chronologyError(
+    exitedAt,
+    latestStageReading?.recordedAt,
+    "Stage completion date and time",
+  );
+  if (readingDateError) return res.status(400).json({ error: readingDateError });
   const currentIndex = ANNUR_STAGES.indexOf(batch.currentStage);
   if (currentIndex < 0 || ANNUR_STAGES[currentIndex + 1] !== nextStage)
     return res.status(409).json({
       error: `Expected next stage ${ANNUR_STAGES[currentIndex + 1] ?? "none"}`,
     });
+
+  const nextStageEnteredAt =
+    nextStage === "COMPLETED"
+      ? exitedAt
+      : resolveProductionDateTime(requestedNextEnteredAt);
+  if (!nextStageEnteredAt)
+    return res.status(400).json({ error: "Next stage entry date and time is invalid" });
+  const nextEntryDateError = chronologyError(
+    nextStageEnteredAt,
+    exitedAt,
+    "Next stage entry date and time",
+  );
+  if (nextEntryDateError) return res.status(400).json({ error: nextEntryDateError });
 
   const requestedSpawnUsages = Array.isArray(spawnUsages)
     ? spawnUsages.map((usage: any) => ({
@@ -835,7 +867,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     await tx.insert(stageLogsTable).values({
       batchId,
       stage: nextStage,
-      enteredAt: exitedAt,
+      enteredAt: nextStageEnteredAt,
       enteredByUserId: userId,
       chamberId: selectedChamber?.id ?? null,
       chamberNameSnapshot: selectedChamber?.name ?? null,
@@ -843,7 +875,7 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
     });
     const batchUpdates: Record<string, unknown> = {
       currentStage: nextStage,
-      stageEnteredAt: exitedAt,
+      stageEnteredAt: nextStageEnteredAt,
     };
     batchUpdates.currentChamberId = selectedChamber?.id ?? null;
     if (selectedChamber?.chamberType === "bulk")

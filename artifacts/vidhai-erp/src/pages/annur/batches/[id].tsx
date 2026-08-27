@@ -246,6 +246,7 @@ export default function BatchDetail() {
           turnChamberId: "",
           producedBags: "",
           completedAt: "",
+          nextEnteredAt: "",
         });
         setStageImages([null, null]);
       },
@@ -320,6 +321,7 @@ export default function BatchDetail() {
     turnChamberId: "",
     producedBags: "",
     completedAt: "",
+    nextEnteredAt: "",
   });
 
   const openCompleteDialog = (stageKey: string) => {
@@ -343,6 +345,7 @@ export default function BatchDetail() {
       turnChamberId: "",
       producedBags: "",
       completedAt: "",
+      nextEnteredAt: "",
     });
   };
 
@@ -404,6 +407,7 @@ export default function BatchDetail() {
         notes: completeDialog.notes || null,
         verificationImages: stageImages.filter(Boolean),
         completedAt: completeDialog.completedAt ? new Date(completeDialog.completedAt).toISOString() : undefined,
+        nextEnteredAt: completeDialog.nextEnteredAt ? new Date(completeDialog.nextEnteredAt).toISOString() : undefined,
         ...(requiredChamberType && {
           chamberId: Number(completeDialog.chamberId),
         }),
@@ -1171,6 +1175,13 @@ export default function BatchDetail() {
               <Input type="datetime-local" value={completeDialog.completedAt} onChange={(event) => setCompleteDialog((current) => ({ ...current, completedAt: event.target.value }))} />
               <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
             </div>
+            {completeDialog.nextStageKey !== "COMPLETED" && (
+              <div className="space-y-1.5">
+                <Label>Next Stage Entry Date & Time (Optional)</Label>
+                <Input type="datetime-local" value={completeDialog.nextEnteredAt} onChange={(event) => setCompleteDialog((current) => ({ ...current, nextEnteredAt: event.target.value }))} />
+                <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+              </div>
+            )}
             {/* Image capture — two slots */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">

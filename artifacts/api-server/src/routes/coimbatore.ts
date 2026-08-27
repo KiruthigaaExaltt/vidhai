@@ -233,6 +233,7 @@ router.post("/batches", requireAuth, async (req, res) => {
           createdByUserId: userId,
           stageEnteredAt: stageStartedAt,
           initializedAt: stageStartedAt,
+          createdAt: stageStartedAt,
           currentChamberId: chamberId,
           casingSoilChamberId: chamberId,
           casingSoilChamberNameSnapshot: chamber.name,
@@ -747,7 +748,7 @@ router.post(
   async (req, res) => {
     const id = Number(req.params.id);
     const userId = (req.session as any).userId;
-    const { stage, notes, verificationImages, completedAt: requestedCompletedAt } = req.body as any;
+    const { stage, notes, verificationImages, completedAt: requestedCompletedAt, nextEnteredAt: requestedNextEnteredAt } = req.body as any;
     const submittedImages: string[] = Array.isArray(verificationImages)
       ? verificationImages.filter(Boolean).slice(0, 2)
       : [];
@@ -807,7 +808,22 @@ router.post(
       )
       .orderBy(desc(chamberReadingsTable.recordedAt))
       .limit(1);
+    const readingDateError = chronologyError(
+      completedAt,
+      reading?.recordedAt,
+      "Stage completion date and time",
+    );
+    if (readingDateError) return res.status(400).json({ error: readingDateError });
     const nextStage = stage === "PRE_WETTING" ? "MIXING" : "TURNING";
+    const nextStageEnteredAt = resolveProductionDateTime(requestedNextEnteredAt);
+    if (!nextStageEnteredAt)
+      return res.status(400).json({ error: "Next stage entry date and time is invalid" });
+    const nextEntryDateError = chronologyError(
+      nextStageEnteredAt,
+      completedAt,
+      "Next stage entry date and time",
+    );
+    if (nextEntryDateError) return res.status(400).json({ error: nextEntryDateError });
     const result = await db.transaction(async (tx) => {
       const [history] = await tx
         .insert(coimbatorePreparationStagesTable)
@@ -840,14 +856,14 @@ router.post(
           chamberId: chamber.id,
           chamberNameSnapshot:
             batch.casingSoilChamberNameSnapshot ?? chamber.name,
-          enteredAt: completedAt,
+          enteredAt: nextStageEnteredAt,
         });
       }
       const [updated] = await tx
         .update(batchesTable)
         .set({
           currentStage: nextStage,
-          stageEnteredAt: completedAt,
+          stageEnteredAt: nextStageEnteredAt,
         })
         .where(eq(batchesTable.id, id))
         .returning();
@@ -1062,7 +1078,7 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
       error: "Pre-wetting and Mixing must be completed before Turning",
     });
   const userId = (req.session as any).userId;
-  const { turnNumber, actualDate, notes, verificationImages, completedAt: requestedCompletedAt } = req.body as any;
+  const { turnNumber, actualDate, notes, verificationImages, completedAt: requestedCompletedAt, nextEnteredAt: requestedNextEnteredAt } = req.body as any;
   const completedAt = resolveProductionDateTime(requestedCompletedAt);
   if (!completedAt)
     return res.status(400).json({ error: "Turn completion date and time is invalid" });
@@ -1124,12 +1140,30 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
     )
     .orderBy(desc(chamberReadingsTable.recordedAt))
     .limit(1);
+  const readingDateError = chronologyError(
+    completedAt,
+    reading?.recordedAt,
+    "Turn completion date and time",
+  );
+  if (readingDateError) return res.status(400).json({ error: readingDateError });
   const [config] = await db
     .select()
     .from(coimbatoreConfigTable)
     .where(eq(coimbatoreConfigTable.batchId, batchId))
     .limit(1);
   const totalTurns = config?.totalTurns ?? 12;
+  const isFinalTurn = Number(turnNumber) >= totalTurns;
+  const nextTurnEnteredAt = isFinalTurn
+    ? completedAt
+    : resolveProductionDateTime(requestedNextEnteredAt);
+  if (!nextTurnEnteredAt)
+    return res.status(400).json({ error: "Next turn entry date and time is invalid" });
+  const nextTurnDateError = chronologyError(
+    nextTurnEnteredAt,
+    completedAt,
+    "Next turn entry date and time",
+  );
+  if (nextTurnDateError) return res.status(400).json({ error: nextTurnDateError });
 
   const result = await db.transaction(async (tx) => {
     const [turn] = await tx
@@ -1158,7 +1192,7 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
       .where(eq(coimbatoreTurnAssignmentsTable.id, assignment.id));
 
     // The physical chamber remains occupied by this batch for its full lifecycle.
-    if (Number(turnNumber) >= totalTurns) {
+    if (isFinalTurn) {
       await tx
         .update(chambersTable)
         .set({ currentTurnNumber: null })
@@ -1190,7 +1224,7 @@ router.post("/batches/:id/turns", requireAuth, async (req, res) => {
         chamberNameSnapshot:
           activeBatch.casingSoilChamberNameSnapshot ??
           assignment.chamberNameSnapshot,
-        enteredAt: completedAt,
+        enteredAt: nextTurnEnteredAt,
       });
     }
 
@@ -1237,6 +1271,23 @@ router.post("/batches/:id/qc", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "QC date and time is invalid" });
   const qcDateError = chronologyError(qcCompletedAt, batch.stageEnteredAt ?? batch.initializedAt, "QC date and time");
   if (qcDateError) return res.status(400).json({ error: qcDateError });
+  const [latestQcReading] = await db
+    .select()
+    .from(chamberReadingsTable)
+    .where(
+      and(
+        eq(chamberReadingsTable.batchId, batchId),
+        gte(chamberReadingsTable.recordedAt, batch.stageEnteredAt ?? batch.initializedAt),
+      ),
+    )
+    .orderBy(desc(chamberReadingsTable.recordedAt))
+    .limit(1);
+  const qcReadingDateError = chronologyError(
+    qcCompletedAt,
+    latestQcReading?.recordedAt,
+    "QC date and time",
+  );
+  if (qcReadingDateError) return res.status(400).json({ error: qcReadingDateError });
   if (batch.currentStage !== "QC_PENDING" || batch.status !== "active")
     return res
       .status(409)

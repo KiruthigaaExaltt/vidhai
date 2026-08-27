@@ -176,6 +176,7 @@ export default function LabBatchDetail() {
     strainName: "",
     spawnQty: "",
     completedAt: "",
+    nextEnteredAt: "",
   });
 
   const openAdvDialog = (stageKey: string) => {
@@ -188,6 +189,7 @@ export default function LabBatchDetail() {
       strainName: "",
       spawnQty: String(Math.round(totalKg * 0.85)),
       completedAt: "",
+      nextEnteredAt: "",
     });
   };
 
@@ -261,6 +263,7 @@ export default function LabBatchDetail() {
       notes: advDialog.notes || null,
       verificationImages: stageImages.filter(Boolean),
       completedAt: advDialog.completedAt ? new Date(advDialog.completedAt).toISOString() : undefined,
+      nextEnteredAt: advDialog.nextEnteredAt ? new Date(advDialog.nextEnteredAt).toISOString() : undefined,
       ...(isFinalStage && {
         strainName: advDialog.strainName,
         spawnQty: Number(advDialog.spawnQty),
@@ -1103,6 +1106,13 @@ export default function LabBatchDetail() {
               <Input type="datetime-local" value={advDialog.completedAt} onChange={(event) => setAdvDialog((current) => ({ ...current, completedAt: event.target.value }))} />
               <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
             </div>
+            {advDialog.nextStageKey !== "COMPLETED" && (
+              <div className="space-y-1.5">
+                <Label>Next Stage Entry Date & Time (Optional)</Label>
+                <Input type="datetime-local" value={advDialog.nextEnteredAt} onChange={(event) => setAdvDialog((current) => ({ ...current, nextEnteredAt: event.target.value }))} />
+                <p className="text-xs text-muted-foreground">If left blank, the current device date and time will be recorded automatically.</p>
+              </div>
+            )}
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Verification Photos (optional)
