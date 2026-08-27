@@ -941,7 +941,7 @@ export default function LabBatchDetail() {
                                   {fmt(l.exitedAt)}
                                 </td>
                                 <td className="px-4">
-                                  {photos.length >= 2 ? (
+                                  {photos.length > 0 ? (
                                     <div className="flex gap-1">
                                       {photos
                                         .slice(0, 2)
@@ -950,7 +950,7 @@ export default function LabBatchDetail() {
                                             key={pi}
                                             type="button"
                                             onClick={() => setLightboxSrc(img)}
-                                            className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary cursor-zoom-in"
+                                            className="w-7 h-7 rounded-sm overflow-hidden border hover:border-primary hover:ring-2 hover:ring-primary/30 transition-all cursor-zoom-in focus:outline-none"
                                           >
                                             <img
                                               src={apiAssetUrl(img)}

@@ -735,10 +735,15 @@ router.get("/room-history", requireAuth, async (_req, res) => {
       ),
     db
       .select({
+        id: ootyStageLogsTable.id,
         growingBatchId: ootyStageLogsTable.growingBatchId,
         stage: ootyStageLogsTable.stage,
         enteredAt: ootyStageLogsTable.enteredAt,
         exitedAt: ootyStageLogsTable.exitedAt,
+        notes: ootyStageLogsTable.notes,
+        casingBatchRef: ootyStageLogsTable.casingBatchRef,
+        casingSoilQuantityKg: ootyStageLogsTable.casingSoilQuantityKg,
+        verificationImages: ootyStageLogsTable.verificationImages,
         manureBags: ootyStageLogsTable.manureBags,
       })
       .from(ootyStageLogsTable),
@@ -759,6 +764,7 @@ router.get("/room-history", requireAuth, async (_req, res) => {
     );
     const batchStageLogs = stageLogs
       .filter((row) => Number(row.growingBatchId) === Number(batch.id))
+      .map(parseStageLog)
       .sort(
         (left, right) =>
           new Date(left.enteredAt).getTime() - new Date(right.enteredAt).getTime(),

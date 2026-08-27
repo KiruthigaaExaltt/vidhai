@@ -801,7 +801,7 @@ export default function OotyRoomDetail() {
                               : "—"}
                           </td>
                           <td className="px-4">
-                            {log.verificationImages?.length >= 2 ? (
+                            {log.verificationImages?.length > 0 ? (
                               <div className="flex gap-1">
                                 {log.verificationImages
                                   .slice(0, 2)
@@ -942,9 +942,9 @@ export default function OotyRoomDetail() {
                 {!isFullyCompleted && (
                   <form
                     onSubmit={handleLogObservation}
-                    className="flex flex-wrap items-end gap-3 p-4 border-b border-border bg-muted/20"
+                    className="flex flex-wrap items-end gap-3 border-b border-border bg-muted/20 p-4 sm:pb-9"
                   >
-                    <div className="space-y-1">
+                    <div className="relative w-full shrink-0 space-y-1 sm:w-[280px]">
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
                         Date and Time (optional)
                       </Label>
@@ -954,9 +954,9 @@ export default function OotyRoomDetail() {
                         onChange={(e) =>
                           setObsForm({ ...obsForm, recordedAt: e.target.value })
                         }
-                        className="rounded-sm font-mono h-9 w-[210px]"
+                        className="rounded-sm font-mono h-9 w-full min-w-0"
                       />
-                      <p className="max-w-[210px] text-[10px] text-muted-foreground">
+                      <p className="text-[10px] text-muted-foreground sm:absolute sm:left-0 sm:top-full sm:mt-1">
                         If left blank, the current device date and time will be recorded automatically.
                       </p>
                     </div>
