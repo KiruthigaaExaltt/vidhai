@@ -2150,6 +2150,7 @@ export const ListVehiclesResponseItem = zod.object({
   "vehicleType": zod.enum(['truck', 'van', 'motorcycle', 'tractor', 'other']),
   "status": zod.enum(['available', 'in_use', 'maintenance', 'retired']),
   "notes": zod.string().nullish(),
+  "insuranceExpiryDate": zod.coerce.date().nullish(),
   "createdAt": zod.string()
 })
 export const ListVehiclesResponse = zod.array(ListVehiclesResponseItem)
@@ -2160,7 +2161,8 @@ export const CreateVehicleBody = zod.object({
   "regNo": zod.string(),
   "homeLocationId": zod.number().nullish(),
   "vehicleType": zod.string().optional(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "insuranceExpiryDate": zod.coerce.date().nullish()
 })
 
 export const CreateVehicleResponse = zod.object({
@@ -2173,6 +2175,7 @@ export const CreateVehicleResponse = zod.object({
   "vehicleType": zod.enum(['truck', 'van', 'motorcycle', 'tractor', 'other']),
   "status": zod.enum(['available', 'in_use', 'maintenance', 'retired']),
   "notes": zod.string().nullish(),
+  "insuranceExpiryDate": zod.coerce.date().nullish(),
   "createdAt": zod.string()
 })
 
@@ -2186,7 +2189,8 @@ export const UpdateVehicleBody = zod.object({
   "status": zod.string().optional(),
   "vehicleType": zod.string().optional(),
   "homeLocationId": zod.number().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "insuranceExpiryDate": zod.coerce.date().nullish()
 })
 
 export const UpdateVehicleResponse = zod.object({
@@ -2199,6 +2203,7 @@ export const UpdateVehicleResponse = zod.object({
   "vehicleType": zod.enum(['truck', 'van', 'motorcycle', 'tractor', 'other']),
   "status": zod.enum(['available', 'in_use', 'maintenance', 'retired']),
   "notes": zod.string().nullish(),
+  "insuranceExpiryDate": zod.coerce.date().nullish(),
   "createdAt": zod.string()
 })
 

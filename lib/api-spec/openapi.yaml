@@ -3309,6 +3309,7 @@ components:
           type: string
           enum: [available, in_use, maintenance, retired]
         notes: { type: ["string", "null"] }
+        insuranceExpiryDate: { type: ["string", "null"], format: date }
         createdAt: { type: string }
 
     VehicleInput:
@@ -3320,6 +3321,7 @@ components:
         homeLocationId: { type: ["integer", "null"] }
         vehicleType: { type: string }
         notes: { type: ["string", "null"] }
+        insuranceExpiryDate: { type: ["string", "null"], format: date }
 
     VehicleUpdate:
       type: object
@@ -3329,6 +3331,7 @@ components:
         vehicleType: { type: string }
         homeLocationId: { type: ["integer", "null"] }
         notes: { type: ["string", "null"] }
+        insuranceExpiryDate: { type: ["string", "null"], format: date }
 
     FuelLog:
       type: object

@@ -22,5 +22,7 @@ export interface Vehicle {
   status: VehicleStatus;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  insuranceExpiryDate?: Date | null;
   createdAt: string;
 }

@@ -11,6 +11,7 @@ export const vehiclesTable = mongoTable("vehicles", {
   vehicleType: text("vehicle_type").notNull().default("truck"),
   status: text("status").notNull().default("available"),
   notes: text("notes"),
+  insuranceExpiryDate: date("insurance_expiry_date", { mode: "string" }),
   lastMaintenanceDate: date("last_maintenance_date", { mode: "string" }),
   nextMaintenanceDate: date("next_maintenance_date", { mode: "string" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

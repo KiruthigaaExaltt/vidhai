@@ -14,4 +14,6 @@ export interface VehicleInput {
   vehicleType?: string;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  insuranceExpiryDate?: Date | null;
 }

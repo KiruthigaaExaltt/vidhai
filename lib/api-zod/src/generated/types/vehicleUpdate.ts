@@ -14,4 +14,6 @@ export interface VehicleUpdate {
   homeLocationId?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  insuranceExpiryDate?: Date | null;
 }

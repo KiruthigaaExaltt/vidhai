@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import {
   useListMaterials,
@@ -146,6 +146,19 @@ const NAV = [
 ];
 
 // ─── main component ─────────────────────────────────────────────────────────
+
+const skuGenerationSignature = (form: {
+  name: string;
+  categoryId: string;
+  attributeValues: Record<string, string>;
+}) =>
+  JSON.stringify({
+    name: form.name,
+    categoryId: form.categoryId,
+    attributeValues: Object.entries(form.attributeValues || {}).sort(
+      ([a], [b]) => a.localeCompare(b),
+    ),
+  });
 
 export default function InventoryModule() {
   const queryClient = useQueryClient();
@@ -638,6 +651,10 @@ export default function InventoryModule() {
   };
 
   const [productForm, setProductForm] = useState(EMPTY_PRODUCT);
+  const editSkuBaseline = useRef<{
+    signature: string;
+    sku: string;
+  } | null>(null);
   const [movForm, setMovForm] = useState(EMPTY_MOV);
   const [transferForm, setTransferForm] = useState(EMPTY_TRANSFER);
   const [warehouseForm, setWarehouseForm] = useState(EMPTY_WAREHOUSE);
@@ -748,7 +765,7 @@ export default function InventoryModule() {
   };
 
   const openInventoryItem = (inv: any, readOnly: boolean) => {
-    setProductForm({
+    const form = {
       name: inv.materialName || "",
       unit: inv.unit || "kg",
       sku: inv.sku || "",
@@ -770,7 +787,12 @@ export default function InventoryModule() {
           warehouseId: String(row.locationId || ""),
           stock: String(row.quantityOnHand ?? 0),
         })),
-    });
+    };
+    editSkuBaseline.current = {
+      signature: skuGenerationSignature(form),
+      sku: form.sku,
+    };
+    setProductForm(form);
     setEditingId(inv.materialId);
     setViewMode(readOnly);
     setAddProductOpen(true);
@@ -861,6 +883,21 @@ export default function InventoryModule() {
     toast.success("Material indent raised");
   };
 
+  const productDialogWasOpen = useRef(false);
+  useEffect(() => {
+    if (addProductOpen && !productDialogWasOpen.current) {
+      editSkuBaseline.current = editingId
+        ? {
+            signature: skuGenerationSignature(productForm),
+            sku: productForm.sku,
+          }
+        : null;
+    } else if (!addProductOpen) {
+      editSkuBaseline.current = null;
+    }
+    productDialogWasOpen.current = addProductOpen;
+  }, [addProductOpen, editingId]);
+
   // SKU Generation Effect
   useEffect(() => {
     if (!productForm.categoryId) return;
@@ -878,6 +915,15 @@ export default function InventoryModule() {
 
     if (!divisionsComplete) return;
 
+    const requestSignature = skuGenerationSignature(productForm);
+    const baseline = editSkuBaseline.current;
+    if (editingId && baseline?.signature === requestSignature) {
+      if (productForm.sku !== baseline.sku) {
+        setProductForm((current) => ({ ...current, sku: baseline.sku }));
+      }
+      return;
+    }
+
     const timer = setTimeout(() => {
       fetch("/api/materials/generate-sku", {
         method: "POST",
@@ -890,14 +936,24 @@ export default function InventoryModule() {
         .then((res) => res.json())
         .then((data) => {
           if (data.sku) {
-            setProductForm((current) => ({ ...current, sku: data.sku }));
+            setProductForm((current) =>
+              skuGenerationSignature(current) === requestSignature
+                ? { ...current, sku: data.sku }
+                : current,
+            );
           }
         })
         .catch(console.error);
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [productForm.categoryId, productForm.attributeValues, categories]);
+  }, [
+    editingId,
+    productForm.name,
+    productForm.categoryId,
+    productForm.attributeValues,
+    categories,
+  ]);
 
   // ── render ──
   return (

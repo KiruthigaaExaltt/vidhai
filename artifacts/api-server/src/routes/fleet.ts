@@ -89,7 +89,16 @@ router.get("/settings", requireAuth, async (_req, res) => {
 });
 
 router.patch("/settings", requireAuth, async (req, res) => {
-  const serviceReminderDays = Math.max(0, Math.min(365, Number((req.body as any)?.serviceReminderDays ?? 7)));
+  const serviceReminderDays = Number((req.body as any)?.serviceReminderDays);
+  if (
+    !Number.isInteger(serviceReminderDays) ||
+    serviceReminderDays < 0 ||
+    serviceReminderDays > 365
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Reminder days must be a whole number from 0 to 365" });
+  }
   const settings = await fleetSettings();
   const [updated] = await db.update(fleetSettingsTable).set({ serviceReminderDays, updatedAt: new Date() }).where(eq(fleetSettingsTable.id, settings.id)).returning();
   return res.json(updated || settings);
@@ -98,7 +107,7 @@ router.patch("/settings", requireAuth, async (req, res) => {
 
 router.get("/vehicles", requireAuth, async (req, res) => {
   const settings = await fleetSettings();
-  const reminderDays = Number(settings.serviceReminderDays || 7);
+  const reminderDays = Number(settings.serviceReminderDays ?? 7);
   const summaries = await vehicleMaintenanceSummary(reminderDays);
   const pagination = paginateQuery(req.query);
   const status = String(req.query.status || "ALL");
@@ -112,6 +121,7 @@ router.get("/vehicles", requireAuth, async (req, res) => {
       vehicleType: vehiclesTable.vehicleType,
       status: vehiclesTable.status,
       notes: vehiclesTable.notes,
+      insuranceExpiryDate: vehiclesTable.insuranceExpiryDate,
       lastMaintenanceDate: vehiclesTable.lastMaintenanceDate,
       nextMaintenanceDate: vehiclesTable.nextMaintenanceDate,
       createdAt: vehiclesTable.createdAt,
@@ -125,19 +135,32 @@ router.get("/vehicles", requireAuth, async (req, res) => {
     const computed = summaries.get(Number(row.id)) || {};
     const nextMaintenanceDate = row.nextMaintenanceDate || computed.nextMaintenanceDate || null;
     const lastMaintenanceDate = row.lastMaintenanceDate || computed.lastMaintenanceDate || null;
-    return { ...row, lastMaintenanceDate, nextMaintenanceDate, maintenanceAlertStatus: maintenanceAlertStatus(nextMaintenanceDate, reminderDays) };
+    return {
+      ...row,
+      lastMaintenanceDate,
+      nextMaintenanceDate,
+      insuranceAlertStatus: maintenanceAlertStatus(
+        row.insuranceExpiryDate,
+        reminderDays,
+      ),
+      maintenanceAlertStatus: maintenanceAlertStatus(
+        nextMaintenanceDate,
+        reminderDays,
+      ),
+    };
   });
   return res.json(paginatedResponse(data, totalCount, pagination));
 });
 
 router.post("/vehicles", requireAuth, async (req, res) => {
-  const { name, regNo, homeLocationId, vehicleType, notes, lastMaintenanceDate, nextMaintenanceDate } = req.body as any;
+  const { name, regNo, homeLocationId, vehicleType, notes, insuranceExpiryDate, lastMaintenanceDate, nextMaintenanceDate } = req.body as any;
   const [row] = await db.insert(vehiclesTable).values({
     name,
     regNo,
     homeLocationId: homeLocationId ?? null,
     vehicleType: vehicleType ?? "truck",
     notes: notes ?? null,
+    insuranceExpiryDate: insuranceExpiryDate || null,
     lastMaintenanceDate: lastMaintenanceDate || null,
     nextMaintenanceDate: nextMaintenanceDate || null,
   }).returning();
@@ -156,13 +179,14 @@ router.patch("/vehicles/:id/status", requireAuth, async (req, res) => {
 });
 router.patch("/vehicles/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
-  const { name, regNo, vehicleType, homeLocationId, notes, lastMaintenanceDate, nextMaintenanceDate } = req.body as any;
+  const { name, regNo, vehicleType, homeLocationId, notes, insuranceExpiryDate, lastMaintenanceDate, nextMaintenanceDate } = req.body as any;
   const updates: any = {};
   if (name !== undefined) updates.name = name;
   if (regNo !== undefined) updates.regNo = regNo;
   if (vehicleType !== undefined) updates.vehicleType = vehicleType;
   if (homeLocationId !== undefined) updates.homeLocationId = homeLocationId;
   if (notes !== undefined) updates.notes = notes;
+  if (insuranceExpiryDate !== undefined) updates.insuranceExpiryDate = insuranceExpiryDate || null;
   if (lastMaintenanceDate !== undefined) updates.lastMaintenanceDate = lastMaintenanceDate || null;
   if (nextMaintenanceDate !== undefined) updates.nextMaintenanceDate = nextMaintenanceDate || null;
   const [row] = await db.update(vehiclesTable).set(updates).where(eq(vehiclesTable.id, id)).returning();

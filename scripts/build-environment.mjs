@@ -43,6 +43,34 @@ const label = environment === "prod" ? "production" : environment;
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const { apiOrigin: frontendApiOrigin } = await frontendBuildConfig();
 
+function parseEnvFile(contents) {
+  return Object.fromEntries(
+    contents
+      .split(/\r?\n/)
+      .filter(
+        (line) =>
+          line.trim() && !line.trim().startsWith("#") && line.includes("="),
+      )
+      .map((line) => {
+        const i = line.indexOf("=");
+        return [line.slice(0, i).trim(), line.slice(i + 1).trim()];
+      }),
+  );
+}
+
+function requireEnvValue(values, name) {
+  if (!values[name]) throw new Error(`${envFileName}: ${name} is required`);
+  return values[name];
+}
+
+function requirePositiveInteger(values, name) {
+  const raw = requireEnvValue(values, name);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw new Error(`${envFileName}: ${name} must be a positive integer`);
+  return value;
+}
+
 async function exists(file) {
   try {
     await access(file, constants.F_OK);
@@ -58,37 +86,16 @@ async function requireFile(file, purpose) {
 }
 
 async function frontendBuildConfig() {
-  const values = Object.fromEntries(
-    (await readFile(frontendEnv, "utf8"))
-      .split(/\r?\n/)
-      .filter(
-        (line) =>
-          line.trim() && !line.trim().startsWith("#") && line.includes("="),
-      )
-      .map((line) => {
-        const i = line.indexOf("=");
-        return [line.slice(0, i).trim(), line.slice(i + 1).trim()];
-      }),
-  );
+  const values = parseEnvFile(await readFile(frontendEnv, "utf8"));
   if (!values.BASE_PATH?.startsWith("/") || !values.BASE_PATH.endsWith("/"))
     throw new Error(`${envFileName}: BASE_PATH must start and end with /`);
   const raw = values.VITE_API_BASE;
-  if (["demo", "staging"].includes(environment) && !raw)
+  if (["demo", "staging", "prod"].includes(environment) && !raw)
     throw new Error(
       `${envFileName}: VITE_API_BASE is required so deployed API calls do not fall through to SPA index.html`,
     );
-  const backendValues = Object.fromEntries(
-    (await readFile(backendEnv, "utf8"))
-      .split(/\r?\n/)
-      .filter(
-        (line) =>
-          line.trim() && !line.trim().startsWith("#") && line.includes("="),
-      )
-      .map((line) => {
-        const i = line.indexOf("=");
-        return [line.slice(0, i).trim(), line.slice(i + 1).trim()];
-      }),
-  );
+  const backendValues = parseEnvFile(await readFile(backendEnv, "utf8"));
+  validateBackendEnv(backendValues);
   const corsRaw =
     backendValues.CORS_ALLOWED_ORIGINS || backendValues.CORS_ORIGIN;
   if (["demo", "staging", "prod"].includes(environment) && !corsRaw)
@@ -128,15 +135,57 @@ async function frontendBuildConfig() {
   return { apiOrigin: url.origin };
 }
 
+function validateBackendEnv(values) {
+  for (const name of [
+    "MONGODB_URI",
+    "SESSION_SECRET",
+    "PORT",
+    "UPLOAD_ROOT",
+    "JWT_ACCESS_SECRET",
+    "JWT_REFRESH_SECRET",
+    "JWT_ACCESS_EXPIRY",
+    "JWT_REFRESH_EXPIRY",
+    "JWT_REFRESH_COOKIE_MAX_AGE_MS",
+    "SESSION_COOKIE_MAX_AGE_MS",
+  ])
+    requireEnvValue(values, name);
+
+  requirePositiveInteger(values, "PORT");
+  requirePositiveInteger(values, "JWT_REFRESH_COOKIE_MAX_AGE_MS");
+  requirePositiveInteger(values, "SESSION_COOKIE_MAX_AGE_MS");
+
+  if (environment === "prod" && values.NODE_ENV !== "production")
+    throw new Error(`${envFileName}: NODE_ENV must be production`);
+
+  for (const name of ["SESSION_SECRET", "JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET"])
+    if (values[name].length < 32)
+      throw new Error(`${envFileName}: ${name} must be at least 32 characters`);
+
+  if (values.JWT_ACCESS_SECRET === values.JWT_REFRESH_SECRET)
+    throw new Error(
+      `${envFileName}: JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different`,
+    );
+
+  const sameSite = values.JWT_COOKIE_SAME_SITE || "lax";
+  if (!["lax", "strict", "none"].includes(sameSite))
+    throw new Error(
+      `${envFileName}: JWT_COOKIE_SAME_SITE must be lax, strict, or none`,
+    );
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const isWindowsCommand =
+      process.platform === "win32" && command.toLowerCase().endsWith(".cmd");
+    const executable = isWindowsCommand ? process.env.ComSpec || "cmd.exe" : command;
+    const executableArgs = isWindowsCommand
+      ? ["/d", "/s", "/c", command, ...args]
+      : args;
+    const child = spawn(executable, executableArgs, {
       cwd: options.cwd ?? root,
       stdio: "inherit",
       env: { ...process.env, ...options.env },
-      shell:
-        options.shell ??
-        (process.platform === "win32" && command.endsWith(".cmd")),
+      shell: options.shell ?? false,
     });
     child.on("error", reject);
     child.on("exit", (code) =>

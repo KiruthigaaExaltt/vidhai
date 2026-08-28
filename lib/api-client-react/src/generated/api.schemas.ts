@@ -1666,6 +1666,8 @@ export interface Vehicle {
   status: VehicleStatus;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  insuranceExpiryDate?: string | null;
   createdAt: string;
 }
 
@@ -1677,6 +1679,8 @@ export interface VehicleInput {
   vehicleType?: string;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  insuranceExpiryDate?: string | null;
 }
 
 export interface VehicleUpdate {
@@ -1687,6 +1691,8 @@ export interface VehicleUpdate {
   homeLocationId?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  insuranceExpiryDate?: string | null;
 }
 
 export interface FuelLog {

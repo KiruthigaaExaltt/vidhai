@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   getListVehiclesQueryKey,
   useCreateVehicle,
@@ -90,10 +90,6 @@ const fmtValue = (value: any) => {
   }
   return String(value);
 };
-const fmtNumberInput = (value: any, fallback = "7") => {
-  const normalized = fmtValue(value);
-  return normalized === "-" ? fallback : normalized;
-};
 const fmtDate = (value: any) => value ? new Date(value).toLocaleDateString("en-IN") : "-";
 const fmtDateTime = (value: any) => value ? new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "-";
 const EMPTY_FORM = {
@@ -102,6 +98,7 @@ const EMPTY_FORM = {
   vehicleType: "truck" as VehicleType,
   homeLocationId: null as number | null,
   notes: "",
+  insuranceExpiryDate: "",
   lastMaintenanceDate: "",
   nextMaintenanceDate: "",
 };
@@ -185,6 +182,7 @@ export default function FleetList() {
     cost: "",
     notes: "",
   });
+  const [reminderDaysInput, setReminderDaysInput] = useState("7");
   const vehiclesQuery = useQuery({
     queryKey: [...getListVehiclesQueryKey(), filterStatus, currentPage, pageSize],
     queryFn: async () => {
@@ -265,13 +263,26 @@ export default function FleetList() {
       return response.json();
     },
   });
+  useEffect(() => {
+    if (settingsQuery.data?.serviceReminderDays != null) {
+      setReminderDaysInput(String(settingsQuery.data.serviceReminderDays));
+    }
+  }, [settingsQuery.data?.serviceReminderDays]);
   const settingsMut = useMutation({
     mutationFn: async (serviceReminderDays: number) => {
       const response = await fetch("/api/fleet/settings", { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ serviceReminderDays }) });
-      if (!response.ok) throw new Error("Unable to update fleet settings");
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Unable to update fleet settings");
+      }
       return response.json();
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["fleet-settings"] }); refetch(); },
+    onSuccess: (settings) => {
+      setReminderDaysInput(String(settings.serviceReminderDays));
+      toast.success("Reminder settings saved");
+      queryClient.invalidateQueries({ queryKey: ["fleet-settings"] });
+      refetch();
+    },
     onError: (error: Error) => toast.error(error.message),
   });
 
@@ -293,6 +304,7 @@ export default function FleetList() {
       vehicleType: v.vehicleType,
       homeLocationId: v.homeLocationId ?? null,
       notes: v.notes ?? "",
+      insuranceExpiryDate: v.insuranceExpiryDate ?? "",
       lastMaintenanceDate: v.lastMaintenanceDate ?? "",
       nextMaintenanceDate: v.nextMaintenanceDate ?? "",
     });
@@ -316,6 +328,7 @@ export default function FleetList() {
             vehicleType: form.vehicleType,
             homeLocationId: form.homeLocationId,
             notes: form.notes || null,
+            insuranceExpiryDate: form.insuranceExpiryDate || null,
             lastMaintenanceDate: form.lastMaintenanceDate || null,
             nextMaintenanceDate: form.nextMaintenanceDate || null,
           } as any,
@@ -334,6 +347,7 @@ export default function FleetList() {
             vehicleType: form.vehicleType,
             homeLocationId: form.homeLocationId,
             notes: form.notes || null,
+            insuranceExpiryDate: form.insuranceExpiryDate || null,
             lastMaintenanceDate: form.lastMaintenanceDate || null,
             nextMaintenanceDate: form.nextMaintenanceDate || null,
           } as any,
@@ -408,12 +422,27 @@ export default function FleetList() {
         <Card className="rounded-sm border-border shadow-none">
           <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold">Maintenance reminders</p>
-              <p className="text-xs text-muted-foreground">Global alert window for upcoming vehicle maintenance dates.</p>
+              <p className="text-sm font-semibold">Maintenance and insurance reminders</p>
+              <p className="text-xs text-muted-foreground">Global alert window for upcoming vehicle maintenance and insurance expiry dates.</p>
             </div>
             <div className="flex items-center gap-2">
-              <Input type="number" min="0" max="365" className="h-9 w-24 rounded-sm" defaultValue={fmtNumberInput(settingsQuery.data?.serviceReminderDays)} onBlur={(e) => settingsMut.mutate(Number(e.target.value || 7))} />
+              <Input type="number" min="0" max="365" step="1" className="h-9 w-24 rounded-sm" value={reminderDaysInput} onChange={(e) => setReminderDaysInput(e.target.value)} />
               <span className="text-xs text-muted-foreground">days before due</span>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 rounded-sm"
+                disabled={
+                  settingsMut.isPending ||
+                  reminderDaysInput === "" ||
+                  !Number.isInteger(Number(reminderDaysInput)) ||
+                  Number(reminderDaysInput) < 0 ||
+                  Number(reminderDaysInput) > 365
+                }
+                onClick={() => settingsMut.mutate(Number(reminderDaysInput))}
+              >
+                {settingsMut.isPending ? "Saving..." : "Save"}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -485,6 +514,8 @@ export default function FleetList() {
                     <th className="px-4 py-2 font-medium">Home Location</th>
                     <th className="px-4 py-2 font-medium">Last Maintenance</th>
                     <th className="px-4 py-2 font-medium">Next Maintenance</th>
+                    <th className="px-4 py-2 font-medium">Insurance Expiry</th>
+                    <th className="px-4 py-2 font-medium">Insurance Alert</th>
                     <th className="px-4 py-2 font-medium">Maintenance Alert</th>
                     <th className="px-4 py-2 font-medium">Status</th>
                     <th className="px-4 py-2 font-medium">Notes</th>
@@ -512,6 +543,8 @@ export default function FleetList() {
                       </td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDate(v.lastMaintenanceDate)}</td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDate(v.nextMaintenanceDate)}</td>
+                      <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDate(v.insuranceExpiryDate)}</td>
+                      <td className="px-4"><Badge variant="outline" className={`rounded-sm text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 ${MAINTENANCE_COLORS[v.insuranceAlertStatus] ?? MAINTENANCE_COLORS.ok}`}>{MAINTENANCE_LABELS[v.insuranceAlertStatus] ?? "OK"}</Badge></td>
                       <td className="px-4"><Badge variant="outline" className={`rounded-sm text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 ${MAINTENANCE_COLORS[v.maintenanceAlertStatus] ?? MAINTENANCE_COLORS.ok}`}>{MAINTENANCE_LABELS[v.maintenanceAlertStatus] ?? "OK"}</Badge></td>
                       <td className="px-4">
                         <Badge
@@ -712,6 +745,17 @@ export default function FleetList() {
                   />
                 </div>
               </div>              <div className="space-y-1.5">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Insurance expiry date
+                </Label>
+                <Input
+                  type="date"
+                  value={form.insuranceExpiryDate}
+                  onChange={(e) => setForm({ ...form, insuranceExpiryDate: e.target.value })}
+                  className="rounded-sm h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   Notes
                 </Label>
