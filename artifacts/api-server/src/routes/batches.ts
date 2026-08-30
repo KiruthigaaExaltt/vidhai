@@ -30,6 +30,7 @@ import {
 } from "../lib/annurProduction";
 import { resolveUploadPath } from "../lib/uploadStorage";
 import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
+import { consumeAnnurBatchMaterials, consumeAnnurMaterialIncreases } from "../lib/annurInventoryConsumption";
 
 const router = Router();
 const ANNUR_STAGES = [
@@ -321,6 +322,14 @@ router.post("/", async (req, res) => {
           nitrogenPercent: String(row.nitrogenPercent ?? 0),
         });
       }
+
+      await consumeAnnurBatchMaterials(tx, {
+        batchType: "ANNUR",
+        batchId: createdBatch.id,
+        batchReference: createdBatch.batchCode,
+        materials: formulation.map((row) => ({ name: row.name, materialId: row.materialId, quantity: Number(row.wetWeightKg) })),
+        userId,
+      });
 
       await tx.insert(stageLogsTable).values({
         batchId: createdBatch.id,
@@ -1091,6 +1100,17 @@ router.put("/:id/materials", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "rows array required" });
 
   await db.transaction(async (tx) => {
+    const [batch] = await tx.select().from(batchesTable).where(eq(batchesTable.id, batchId)).limit(1);
+    if (!batch) throw new Error("Batch not found");
+    const masterRows = await tx.select().from(materialsTable);
+    await consumeAnnurMaterialIncreases(tx, {
+      batchType: "ANNUR",
+      batchId,
+      batchReference: batch.batchCode,
+      materials: rows.map((row) => ({ name: masterRows.find((material) => Number(material.id) === Number(row.materialId))?.name || String(row.materialId), materialId: row.materialId, quantity: Number(row.wetWeightKg) })),
+      userId: (req.session as any)?.userId ?? null,
+      operationKey: `FORMULATION-UPDATE-${Date.now()}`,
+    });
     await tx
       .delete(batchMaterialsTable)
       .where(eq(batchMaterialsTable.batchId, batchId));
@@ -1186,29 +1206,26 @@ router.post("/:id/materials", async (req, res) => {
   const { materialId, wetWeightKg, moisturePercent, nitrogenPercent } =
     req.body;
 
-  const [bm] = await db
-    .insert(batchMaterialsTable)
-    .values({
-      batchId,
-      materialId,
-      wetWeightKg: String(wetWeightKg),
-      moisturePercent: String(moisturePercent),
-      nitrogenPercent: String(nitrogenPercent),
-    })
-    .returning();
-
-  const [mat] = await db
-    .select()
-    .from(materialsTable)
-    .where(eq(materialsTable.id, materialId))
-    .limit(1);
+  let bm: any, mat: any;
+  try {
+    ({ bm, mat } = await db.transaction(async (tx) => {
+      const [batch] = await tx.select().from(batchesTable).where(eq(batchesTable.id, batchId)).limit(1);
+      const [material] = await tx.select().from(materialsTable).where(eq(materialsTable.id, materialId)).limit(1);
+      if (!batch || !material) throw new Error("Batch or material not found");
+      const [created] = await tx.insert(batchMaterialsTable).values({ batchId, materialId, wetWeightKg: String(wetWeightKg), moisturePercent: String(moisturePercent), nitrogenPercent: String(nitrogenPercent) }).returning();
+      await consumeAnnurBatchMaterials(tx, { batchType: "ANNUR", batchId, batchReference: batch.batchCode, materials: [{ name: material.name, materialId: material.id, quantity: Number(wetWeightKg) }], userId: (req.session as any)?.userId ?? null, operationKey: `ADDED-${created.id}` });
+      return { bm: created, mat: material };
+    }));
+  } catch (error: any) {
+    return res.status(409).json({ error: error?.message || "Unable to add and consume material" });
+  }
   await recalcBatchNitrogen(batchId);
 
   const wet = Number(bm.wetWeightKg);
   const moisture = Number(bm.moisturePercent);
   const nitrogen = Number(bm.nitrogenPercent);
   const dry = wet * (1 - moisture / 100);
-  res.status(201).json({
+  return res.status(201).json({
     id: bm.id,
     batchId: bm.batchId,
     materialId: bm.materialId,

@@ -48,7 +48,7 @@ export default function LabBatches() {
   const [notes, setNotes] = useState("");
   const [batchDate, setBatchDate] = useState("");
   const [batchPage, setBatchPage] = useState(1);
-  const [batchPageSize, setBatchPageSize] = useState(10);
+  const [batchPageSize, setBatchPageSize] = useState(15);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
   const batchQuery = useQuery({

@@ -49,7 +49,7 @@ export function DataPagination({
   totalPages = Math.ceil(totalCount / pageSize),
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = [10, 25, 50, 100, 150, 200],
+  pageSizeOptions = [15, 25, 50, 100, 150, 200],
   loading = false,
   className,
 }: DataPaginationProps) {

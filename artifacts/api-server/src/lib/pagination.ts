@@ -1,4 +1,4 @@
-export const DEFAULT_PAGE_SIZE = 10;
+export const DEFAULT_PAGE_SIZE = 15;
 export const MAX_PAGE_SIZE = 200;
 
 export type PaginationParams = {

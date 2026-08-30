@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 export function useClientPagination<T>(
   rows: T[],
   resetKey = "",
-  initialPageSize = 10,
+  initialPageSize = 15,
   scopeKey = "default",
 ) {
   const [states, setStates] = useState<

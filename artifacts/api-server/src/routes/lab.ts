@@ -18,6 +18,7 @@ import { eq, desc, ilike } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { saveImageDataUrl } from "../lib/uploadStorage";
 import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
+import { consumeAnnurBatchMaterials } from "../lib/annurInventoryConsumption";
 
 const router = Router();
 
@@ -277,6 +278,14 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
         quantityKg: String(mat.quantityKg),
       });
     }
+
+    await consumeAnnurBatchMaterials(tx, {
+      batchType: "LAB",
+      batchId,
+      batchReference: String(batch.batchCode || `LAB-${batchId}`),
+      materials: (materials ?? []).map((mat) => ({ name: mat.name, quantity: Number(mat.quantityKg) })),
+      userId,
+    });
 
     // Advance to MEDIA_PREP
     await tx

@@ -8,6 +8,10 @@ import {
   locationsTable,
   usersTable,
   fleetSettingsTable,
+  materialsTable,
+  inventoryTable,
+  inventoryAdjustmentsTable,
+  inventoryLocationsTable,
 } from "@workspace/db";
 import { and, eq, desc } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
@@ -46,38 +50,71 @@ async function vehicleMaintenanceSummary(reminderDays: number) {
   for (const [, value] of byVehicle) value.maintenanceAlertStatus = maintenanceAlertStatus(value.nextMaintenanceDate, reminderDays);
   return byVehicle;
 }
-async function changeVehicleStatus(vehicle: any, nextStatus: string, userId?: number, notes?: string) {
-  const now = new Date();
-  const currentStatus = String(vehicle.status || "available");
-  if (currentStatus === nextStatus) return vehicle;
-  const openLogs = await db.select().from(vehicleStatusHistoryTable).where(eq(vehicleStatusHistoryTable.vehicleId, Number(vehicle.id)));
-  const currentOpen = (openLogs as any[])
-    .filter((log) => !log.endedAt)
-    .sort((a, b) => new Date(String(b.startedAt)).getTime() - new Date(String(a.startedAt)).getTime())[0];
-  if (currentOpen) {
-    const started = new Date(String(currentOpen.startedAt));
-    const durationHours = Math.max(0, Math.round(((now.getTime() - started.getTime()) / 3_600_000) * 100) / 100);
-    await db.update(vehicleStatusHistoryTable).set({ endedAt: now, durationHours: String(durationHours) }).where(eq(vehicleStatusHistoryTable.id, currentOpen.id));
-  } else {
-    await db.insert(vehicleStatusHistoryTable).values({
-      vehicleId: Number(vehicle.id),
-      status: currentStatus,
-      startedAt: vehicle.createdAt ? new Date(String(vehicle.createdAt)) : now,
-      endedAt: now,
-      durationHours: "0",
-      notes: "Backfilled during status change",
-      changedByUserId: userId ?? null,
-    });
+const DIESEL_IDENTIFIER = "VLT-RM-DIESEL";
+const validFuelQuantity = (value: unknown) => {
+  if (value === "" || value === null || value === undefined) return 0;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 && Math.round(number * 10_000) === number * 10_000
+    ? number
+    : null;
+};
+
+async function dieselInventory(executor: any = db) {
+  const [material] = await executor
+    .select()
+    .from(materialsTable)
+    .where(eq(materialsTable.itemIdentifier, DIESEL_IDENTIFIER))
+    .limit(1);
+  if (!material) return null;
+  const [annur] = await executor
+    .select()
+    .from(inventoryLocationsTable)
+    .where(eq(inventoryLocationsTable.systemCode, "ANNUR"))
+    .limit(1);
+  if (!annur) return null;
+  const [stock] = await executor
+    .select()
+    .from(inventoryTable)
+    .where(and(eq(inventoryTable.materialId, material.id), eq(inventoryTable.locationId, annur.id)))
+    .limit(1);
+  return { material, location: annur, stock, availableLitres: Number(stock?.quantityOnHand ?? 0) };
+}
+
+async function issueDiesel(tx: any, vehicle: any, session: any, quantity: number, userId: number, requestId?: string) {
+  if (quantity === 0) return null;
+  if (requestId) {
+    const duplicate = (await tx.select().from(fuelLogsTable)).find((row: any) => row.requestId === requestId);
+    if (duplicate) return duplicate;
   }
-  await db.insert(vehicleStatusHistoryTable).values({
-    vehicleId: Number(vehicle.id),
-    status: nextStatus,
-    startedAt: now,
-    notes: notes || null,
-    changedByUserId: userId ?? null,
-  });
-  const [updated] = await db.update(vehiclesTable).set({ status: nextStatus }).where(eq(vehiclesTable.id, Number(vehicle.id))).returning();
-  return updated;
+  const diesel = await dieselInventory(tx);
+  if (!diesel?.stock) throw Object.assign(new Error("Annur Diesel inventory is not initialized"), { status: 409 });
+  if (diesel.availableLitres < quantity)
+    throw Object.assign(new Error(`Only ${diesel.availableLitres} L of Diesel is available at Annur`), { status: 409 });
+  const remaining = Math.round((diesel.availableLitres - quantity) * 10_000) / 10_000;
+  await tx.update(inventoryTable).set({ quantityOnHand: String(remaining), lastUpdated: new Date() }).where(eq(inventoryTable.id, diesel.stock.id));
+  const [adjustment] = await tx.insert(inventoryAdjustmentsTable).values({
+    materialId: diesel.material.id,
+    locationId: diesel.location.id,
+    quantityDelta: String(-quantity),
+    reason: "Vehicle fuel issue",
+    reference: `FLEET-IN-USE-${session.id}`,
+    notes: `Diesel issued to ${vehicle.name} (${vehicle.regNo})`,
+    adjustedBy: userId,
+  }).returning();
+  const [fuel] = await tx.insert(fuelLogsTable).values({
+    vehicleId: vehicle.id,
+    statusHistoryId: session.id,
+    inventoryAdjustmentId: adjustment.id,
+    requestId: requestId || null,
+    fuelDate: isoToday(),
+    litres: String(quantity),
+    notes: "Issued from Annur Diesel inventory",
+    recordedByUserId: userId,
+  }).returning();
+  await tx.update(vehicleStatusHistoryTable).set({
+    dieselIssuedLitres: String(Number(session.dieselIssuedLitres ?? 0) + quantity),
+  }).where(eq(vehicleStatusHistoryTable.id, session.id));
+  return fuel;
 }
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId) return res.status(401).json({ error: "Not authenticated" });
@@ -86,6 +123,20 @@ function requireAuth(req: any, res: any, next: any) {
 
 router.get("/settings", requireAuth, async (_req, res) => {
   return res.json(await fleetSettings());
+});
+
+router.get("/diesel-inventory", requireAuth, async (_req, res) => {
+  const diesel = await dieselInventory();
+  if (!diesel) return res.status(404).json({ error: "Annur Diesel inventory is not initialized" });
+  return res.json({
+    materialId: diesel.material.id,
+    name: diesel.material.name,
+    sku: diesel.material.sku,
+    unit: diesel.material.unit,
+    locationId: diesel.location.id,
+    locationName: diesel.location.locationName,
+    availableLitres: diesel.availableLitres,
+  });
 });
 
 router.patch("/settings", requireAuth, async (req, res) => {
@@ -174,8 +225,64 @@ router.patch("/vehicles/:id/status", requireAuth, async (req, res) => {
   if (!["available", "in_use", "maintenance", "retired"].includes(nextStatus)) return res.status(400).json({ error: "Invalid vehicle status" });
   const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, id)).limit(1);
   if (!vehicle) return res.status(404).json({ error: "Vehicle not found" });
-  const updated = await changeVehicleStatus(vehicle, nextStatus, (req.session as any).userId, String((req.body as any)?.notes || ""));
-  return res.json(updated);
+  const fuelQuantity = validFuelQuantity((req.body as any)?.fuelLitres);
+  if (fuelQuantity === null) return res.status(400).json({ error: "Fuel must be a non-negative number with at most four decimal places" });
+  if (nextStatus !== "in_use" && fuelQuantity > 0) return res.status(400).json({ error: "Fuel can only be issued to an In Use vehicle" });
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [currentVehicle] = await tx.select().from(vehiclesTable).where(eq(vehiclesTable.id, id)).limit(1);
+      if (!currentVehicle) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+      const updated = await changeVehicleStatusWithExecutor(tx, currentVehicle, nextStatus, (req.session as any).userId, String((req.body as any)?.notes || ""));
+      const session = nextStatus === "in_use" ? updated.session : null;
+      const fuel = session ? await issueDiesel(tx, currentVehicle, session, fuelQuantity, Number((req.session as any).userId), String((req.body as any)?.requestId || "") || undefined) : null;
+      return { vehicle: updated.vehicle, fuel };
+    });
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 400).json({ error: error?.message || "Vehicle status could not be changed" });
+  }
+});
+
+async function changeVehicleStatusWithExecutor(tx: any, vehicle: any, nextStatus: string, userId?: number, notes?: string) {
+  const now = new Date();
+  const currentStatus = String(vehicle.status || "available");
+  if (currentStatus === nextStatus) {
+    const [session] = (await tx.select().from(vehicleStatusHistoryTable).where(eq(vehicleStatusHistoryTable.vehicleId, Number(vehicle.id))))
+      .filter((row: any) => row.status === "in_use" && !row.endedAt)
+      .sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+    return { vehicle, session };
+  }
+  const openLogs = await tx.select().from(vehicleStatusHistoryTable).where(eq(vehicleStatusHistoryTable.vehicleId, Number(vehicle.id)));
+  const currentOpen = openLogs.filter((log: any) => !log.endedAt).sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+  if (currentOpen) {
+    const durationHours = Math.max(0, Math.round(((now.getTime() - new Date(currentOpen.startedAt).getTime()) / 3_600_000) * 100) / 100);
+    await tx.update(vehicleStatusHistoryTable).set({ endedAt: now, durationHours: String(durationHours) }).where(eq(vehicleStatusHistoryTable.id, currentOpen.id));
+  } else {
+    await tx.insert(vehicleStatusHistoryTable).values({ vehicleId: vehicle.id, status: currentStatus, startedAt: vehicle.createdAt ? new Date(vehicle.createdAt) : now, endedAt: now, durationHours: "0", notes: "Backfilled during status change", changedByUserId: userId ?? null });
+  }
+  const [session] = await tx.insert(vehicleStatusHistoryTable).values({ vehicleId: vehicle.id, status: nextStatus, sourceStatus: currentStatus, startedAt: now, notes: notes || null, changedByUserId: userId ?? null }).returning();
+  const [updated] = await tx.update(vehiclesTable).set({ status: nextStatus }).where(eq(vehiclesTable.id, vehicle.id)).returning();
+  return { vehicle: updated, session };
+}
+
+router.post("/vehicles/:id/fuel", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const quantity = validFuelQuantity((req.body as any)?.fuelLitres);
+  if (quantity === null || quantity <= 0) return res.status(400).json({ error: "Fuel must be greater than zero and use at most four decimal places" });
+  try {
+    const fuel = await db.transaction(async (tx) => {
+      const [vehicle] = await tx.select().from(vehiclesTable).where(eq(vehiclesTable.id, id)).limit(1);
+      if (!vehicle) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+      if (vehicle.status !== "in_use") throw Object.assign(new Error("Fuel can only be added while the vehicle is In Use"), { status: 409 });
+      const sessions = await tx.select().from(vehicleStatusHistoryTable).where(eq(vehicleStatusHistoryTable.vehicleId, id));
+      const session = sessions.filter((row: any) => row.status === "in_use" && !row.endedAt).sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+      if (!session) throw Object.assign(new Error("The current In Use session was not found"), { status: 409 });
+      return issueDiesel(tx, vehicle, session, quantity, Number((req.session as any).userId), String((req.body as any)?.requestId || "") || undefined);
+    });
+    return res.status(201).json(fuel);
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 400).json({ error: error?.message || "Fuel could not be issued" });
+  }
 });
 router.patch("/vehicles/:id", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
@@ -207,6 +314,8 @@ router.get("/status-history", requireAuth, async (req, res) => {
       startedAt: vehicleStatusHistoryTable.startedAt,
       endedAt: vehicleStatusHistoryTable.endedAt,
       durationHours: vehicleStatusHistoryTable.durationHours,
+      sourceStatus: vehicleStatusHistoryTable.sourceStatus,
+      dieselIssuedLitres: vehicleStatusHistoryTable.dieselIssuedLitres,
       notes: vehicleStatusHistoryTable.notes,
       createdAt: vehicleStatusHistoryTable.createdAt,
       vehicleName: vehiclesTable.name,
@@ -273,22 +382,26 @@ router.get("/fuel-logs", requireAuth, async (req, res) => {
 router.post("/fuel-logs", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
   const { vehicleId, fuelDate, litres, costPerLitre, odometer, startKm, endKm, notes } = req.body as any;
+  const quantity = validFuelQuantity(litres);
+  if (quantity === null || quantity <= 0) return res.status(400).json({ error: "Fuel must be greater than zero and use at most four decimal places" });
   const totalCost = litres && costPerLitre ? (Number(litres) * Number(costPerLitre)).toFixed(2) : null;
   const distanceKm = startKm != null && endKm != null ? String(Number(endKm) - Number(startKm)) : null;
-  const [row] = await db.insert(fuelLogsTable).values({
-    vehicleId,
-    fuelDate,
-    litres: String(litres),
-    costPerLitre: costPerLitre ? String(costPerLitre) : null,
-    totalCost,
-    odometer: odometer ? String(odometer) : null,
-    startKm: startKm != null ? String(startKm) : null,
-    endKm: endKm != null ? String(endKm) : null,
-    distanceKm,
-    notes: notes ?? null,
-    recordedByUserId: userId,
-  }).returning();
-  return res.status(201).json(row);
+  try {
+    const row = await db.transaction(async (tx) => {
+      const [vehicle] = await tx.select().from(vehiclesTable).where(eq(vehiclesTable.id, Number(vehicleId))).limit(1);
+      if (!vehicle) throw Object.assign(new Error("Vehicle not found"), { status: 404 });
+      if (vehicle.status !== "in_use") throw Object.assign(new Error("Fuel can only be added while the vehicle is In Use"), { status: 409 });
+      const sessions = await tx.select().from(vehicleStatusHistoryTable).where(eq(vehicleStatusHistoryTable.vehicleId, vehicle.id));
+      const session = sessions.filter((item: any) => item.status === "in_use" && !item.endedAt).sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+      if (!session) throw Object.assign(new Error("The current In Use session was not found"), { status: 409 });
+      const issued = await issueDiesel(tx, vehicle, session, quantity, Number(userId), String((req.body as any)?.requestId || "") || undefined);
+      const [updated] = await tx.update(fuelLogsTable).set({ fuelDate: fuelDate || isoToday(), costPerLitre: costPerLitre ? String(costPerLitre) : null, totalCost, odometer: odometer ? String(odometer) : null, startKm: startKm != null ? String(startKm) : null, endKm: endKm != null ? String(endKm) : null, distanceKm, notes: notes ?? issued.notes }).where(eq(fuelLogsTable.id, issued.id)).returning();
+      return updated;
+    });
+    return res.status(201).json(row);
+  } catch (error: any) {
+    return res.status(Number(error?.status) || 400).json({ error: error?.message || "Fuel could not be issued" });
+  }
 });
 
 // ── Maintenance Logs ──────────────────────────────────────────────────────────

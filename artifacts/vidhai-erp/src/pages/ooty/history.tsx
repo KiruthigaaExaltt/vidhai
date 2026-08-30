@@ -117,7 +117,7 @@ export default function OotyRoomHistory() {
   const [toDate, setToDate] = useState("");
   const [batchCode, setBatchCode] = useState("all");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(15);
   const [selectedRow, setSelectedRow] = useState<RoomHistoryRow | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 

@@ -81,13 +81,13 @@ async function deliver(event: NotificationEvent, recipientId: number) {
 async function processJob(job: any) {
   const event = notificationEventSchema.parse(job.payload);
   logger.info({ jobId: job.id, eventType: event.eventType, organizationId: event.organizationId }, "NOTIFICATION_JOB_STARTED");
-  const recipients = await resolveNotificationRecipients(
+  const recipients = (await resolveNotificationRecipients(
     event.organizationId,
     event.permissionKey,
     event.recipientUserIds,
     event.directRecipientUserIds,
     event.additionalPermissionKeys,
-  );
+  )).filter((recipient: any) => Number(recipient.id) !== Number(event.actorId));
   if (!recipients.length) {
     await db.update(notificationOutboxTable).set({
       status: "COMPLETED_NO_RECIPIENTS",

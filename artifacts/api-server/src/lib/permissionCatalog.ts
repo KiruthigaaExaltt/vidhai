@@ -296,6 +296,7 @@ const notificationScopes = new Set([
   "sales.delivery_challans",
   "sales.invoices",
   "sales.returns",
+  "sales.payments",
   "accounts.chart_of_accounts",
   "accounts.accounts_payable",
   "accounts.accounts_receivable",
@@ -310,11 +311,13 @@ const notificationScopes = new Set([
   "flex.goods_receipts",
   "flex.purchase_invoices",
   "flex.purchase_returns",
+  "flex.vendor_payments",
   "inventory.stock",
   "inventory.materials",
   "inventory.categories",
   "inventory.warehouses",
   "inventory.assets",
+  "settings.user_management",
 ]);
 for (const row of permissionCatalog)
   if (notificationScopes.has(row.key) && !row.actions.includes("notification"))

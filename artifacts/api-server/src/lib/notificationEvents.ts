@@ -332,6 +332,30 @@ function events(req: Request, body: any): Draft[] {
       ),
     ];
   }
+  if (method === "POST" && (p === "/api/users" || p === "/api/settings/users"))
+    return [event("settings.user_management.notification", "SETTINGS_USER_CREATED", "User created", `${label(body, "User")} was created at ${at}.`, "/settings", "settings")];
+  if (method === "POST" && p === "/api/chambers")
+    return [event("production.chambers.notification", "PRODUCTION_CHAMBER_CREATED", "Chamber added", `${label(body, "Chamber")} was added at ${at}.`, "/annur/chambers", "production")];
+  if (method === "POST" && (p === "/api/ooty/rooms" || p === "/api/ooty/rooms/import"))
+    return [event("production.growing_rooms.notification", "OOTY_ROOM_CREATED", "Growing room added", `${label(body, "Growing room")} was added at ${at}.`, "/ooty", "production")];
+  if (method === "POST" && p === "/api/batches")
+    return [event("production.batches.notification", "ANNUR_BATCH_INITIATED", "Annur batch initiated", `${label(body, "Annur batch")} was initiated at ${at}.`, "/annur", "production")];
+  if (method === "POST" && /^\/api\/lab\/batches\/[^/]+\/initiate$/.test(p))
+    return [event("production.spawn_batches.notification", "LAB_BATCH_INITIATED", "Spawn batch initiated", `${label(body, id)} was initiated at ${at}.`, `/lab/batches/${id}`, "production")];
+  if (method === "POST" && /^\/api\/coimbatore\/batches\/[^/]+\/initiate$/.test(p))
+    return [event("production.casing_soil.notification", "CASING_BATCH_INITIATED", "Casing soil batch initiated", `${label(body, id)} was initiated at ${at}.`, `/coimbatore/batches/${id}`, "production")];
+  if (method === "POST" && p === "/api/ooty/growing-batches")
+    return [event("production.growing_rooms.notification", "OOTY_ROOM_BATCH_ASSIGNED", "Growing room assigned", `${label(body, "Growing batch")} was assigned to a room and initiated at ${at}.`, "/ooty", "production")];
+  if (method === "POST" && /^\/api\/(?:batches\/[^/]+\/assign-chamber|coimbatore\/batches\/[^/]+\/(?:preparation\/[^/]+\/assign|turns\/[^/]+\/assign))$/.test(p))
+    return [event(p.includes("coimbatore") ? "production.casing_soil.notification" : "production.batches.notification", "PRODUCTION_CHAMBER_ASSIGNED", "Chamber assigned", `${label(body, "Batch")} was assigned to a chamber at ${at}.`, p.includes("coimbatore") ? "/coimbatore" : "/annur", "production")];
+  if (method === "POST" && /^\/api\/chambers\/[^/]+\/readings$/.test(p))
+    return [event("production.chambers.notification", "CHAMBER_READING_LOGGED", "Chamber reading logged", `${label(body, "Chamber")} received a new reading at ${at}.`, "/annur/chambers", "production")];
+  if (method === "POST" && /^\/api\/ooty\/growing-batches\/[^/]+\/observations$/.test(p))
+    return [event("production.growing_rooms.notification", "OOTY_READING_LOGGED", "Growing room reading logged", `${label(body, "Growing batch")} received a new reading at ${at}.`, "/ooty", "production")];
+  if (method === "POST" && /^\/api\/coimbatore\/batches\/[^/]+\/complete-preparation$/.test(p))
+    return [event("production.casing_soil.notification", "CASING_STAGE_COMPLETED", "Casing soil stage completed", `${label(body, id)} completed ${clean(body?.stage || "a preparation stage")} at ${at}.`, `/coimbatore/batches/${id}`, "production")];
+  if (method === "PATCH" && /^\/api\/fleet\/vehicles\/[^/]+\/status$/.test(p))
+    return [event("fleet.vehicles.notification", "VEHICLE_STATUS_CHANGED", "Vehicle status changed", `${label(body, "Vehicle")} changed to ${status || "a new status"} at ${at}.`, "/fleet", "fleet")];
   const crew = p.match(
     /^\/api\/crew\/(attendance|leaves|claims|overtime|bonus|deductions)(?:\/([^/]+))?/,
   );

@@ -166,12 +166,12 @@ export default function InventoryModule() {
   const [masterPaging, setMasterPaging] = useState<
     Record<string, { page: number; size: number }>
   >({
-    inventory: { page: 1, size: 10 },
-    items: { page: 1, size: 10 },
-    category: { page: 1, size: 10 },
-    services: { page: 1, size: 10 },
-    warehouses: { page: 1, size: 10 },
-    movements: { page: 1, size: 10 },
+    inventory: { page: 1, size: 15 },
+    items: { page: 1, size: 15 },
+    category: { page: 1, size: 15 },
+    services: { page: 1, size: 15 },
+    warehouses: { page: 1, size: 15 },
+    movements: { page: 1, size: 15 },
   });
   const setMasterPage = (
     key: string,

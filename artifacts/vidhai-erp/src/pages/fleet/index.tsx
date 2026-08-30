@@ -34,7 +34,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Truck, Plus, Pencil, Trash2 } from "lucide-react";
+import { Truck, Plus, Pencil, Trash2, Fuel } from "lucide-react";
 import { toast } from "sonner";
 
 type VehicleType = "truck" | "van" | "motorcycle" | "tractor" | "other";
@@ -165,9 +165,11 @@ export default function FleetList() {
   const [formError, setFormError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState("ALL");
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(15);
   const [completedPage, setCompletedPage] = useState(1);
-  const [completedPageSize, setCompletedPageSize] = useState(10);
+  const [completedPageSize, setCompletedPageSize] = useState(15);
+  const [fuelDialog, setFuelDialog] = useState<{ vehicle: any; nextStatus?: VehicleStatus } | null>(null);
+  const [fuelLitres, setFuelLitres] = useState("0");
   const [statusFilters, setStatusFilters] = useState({ dateFrom: "", dateTo: "", search: "" });
   const [statusQueryParams, setStatusQueryParams] = useState({ dateFrom: "", dateTo: "", search: "" });
   const [maintenanceFilters, setMaintenanceFilters] = useState({ dateFrom: "", dateTo: "", vehicleSearch: "" });
@@ -208,9 +210,17 @@ export default function FleetList() {
     },
   });
   const statusHistory = statusHistoryQuery.data ?? { current: [], completed: [] };
+  const dieselQuery = useQuery({
+    queryKey: ["fleet-diesel-inventory"],
+    queryFn: async () => {
+      const response = await fetch("/api/fleet/diesel-inventory", { credentials: "include" });
+      if (!response.ok) throw new Error("Unable to load Annur Diesel inventory");
+      return response.json();
+    },
+  });
   const statusMut = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: VehicleStatus }) => {
-      const response = await fetch(`/api/fleet/vehicles/${id}/status`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    mutationFn: async ({ id, status, fuelLitres = 0 }: { id: number; status: VehicleStatus; fuelLitres?: number }) => {
+      const response = await fetch(`/api/fleet/vehicles/${id}/status`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, fuelLitres, requestId: crypto.randomUUID() }) });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || "Unable to update vehicle status");
@@ -219,9 +229,29 @@ export default function FleetList() {
     },
     onSuccess: () => {
       toast.success("Vehicle status updated");
+      setFuelDialog(null);
       void refetch();
       queryClient.invalidateQueries({ queryKey: ["fleet-status-history"] });
       queryClient.invalidateQueries({ queryKey: ["fleet-maintenance-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["fleet-diesel-inventory"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const fuelMut = useMutation({
+    mutationFn: async ({ id, fuelLitres }: { id: number; fuelLitres: number }) => {
+      const response = await fetch(`/api/fleet/vehicles/${id}/fuel`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fuelLitres, requestId: crypto.randomUUID() }) });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Unable to add fuel");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success("Diesel issued from Annur inventory");
+      setFuelDialog(null);
+      queryClient.invalidateQueries({ queryKey: ["fleet-diesel-inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["fleet-status-history"] });
+      queryClient.invalidateQueries({ queryKey: ["fleet-fuel-logs"] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -558,7 +588,7 @@ export default function FleetList() {
                         {v.notes ?? "—"}
                       </td>
                       <td className="px-4">
-                        <select className="h-8 rounded-sm border border-border bg-background px-2 text-xs" value={v.status} disabled={statusMut.isPending} onClick={(e) => e.stopPropagation()} onChange={(e) => { e.stopPropagation(); const nextStatus = e.target.value as VehicleStatus; if (nextStatus === v.status) return; statusMut.mutate({ id: v.id, status: nextStatus }); }}>
+                        <select className="h-8 rounded-sm border border-border bg-background px-2 text-xs" value={v.status} disabled={statusMut.isPending} onClick={(e) => e.stopPropagation()} onChange={(e) => { e.stopPropagation(); const nextStatus = e.target.value as VehicleStatus; if (nextStatus === v.status) return; if (nextStatus === "in_use") { setFuelLitres("0"); setFuelDialog({ vehicle: v, nextStatus }); } else statusMut.mutate({ id: v.id, status: nextStatus }); }}>
                           {Object.entries(STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                         </select>
                       </td>
@@ -567,6 +597,11 @@ export default function FleetList() {
                           className="flex justify-end gap-1 items-center"
                           onClick={(e) => e.stopPropagation()}
                         >
+                          {v.status === "in_use" && (
+                            <Button type="button" size="sm" variant="outline" className="h-8 rounded-sm" onClick={() => { setFuelLitres(""); setFuelDialog({ vehicle: v }); }}>
+                              <Fuel className="mr-1 h-3.5 w-3.5" /> Add Fuel
+                            </Button>
+                          )}
                           <button
                             onClick={() => openEdit(v)}
                             className="inline-flex h-8 w-8 items-center justify-center rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
@@ -609,16 +644,17 @@ export default function FleetList() {
             {statusHistoryQuery.isLoading ? <div className="p-8 text-sm text-muted-foreground">Loading status history...</div> : (
               <table className="w-full text-sm text-left whitespace-nowrap">
                 <thead className="bg-muted/50 text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
-                  <tr><th className="px-4 py-2 font-medium">Vehicle</th><th className="px-4 py-2 font-medium">Type</th><th className="px-4 py-2 font-medium">Status</th><th className="px-4 py-2 font-medium">Date + Time In</th><th className="px-4 py-2 font-medium">Date + Time Out</th><th className="px-4 py-2 font-medium">Hours</th></tr>
+                  <tr><th className="px-4 py-2 font-medium">Vehicle</th><th className="px-4 py-2 font-medium">Type</th><th className="px-4 py-2 font-medium">Status</th><th className="px-4 py-2 font-medium">Date + Time In</th><th className="px-4 py-2 font-medium">Date + Time Out</th><th className="px-4 py-2 font-medium">Diesel Consumed</th><th className="px-4 py-2 font-medium">Hours</th></tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {completedHistory.length === 0 ? <tr><td className="px-4 py-6 text-center text-muted-foreground" colSpan={6}>No completed history.</td></tr> : pagedCompletedHistory.map((row: any) => (
+                  {completedHistory.length === 0 ? <tr><td className="px-4 py-6 text-center text-muted-foreground" colSpan={7}>No completed history.</td></tr> : pagedCompletedHistory.map((row: any) => (
                     <tr key={row.id} className="h-[36px] hover:bg-muted/20">
                       <td className="px-4"><span className="font-semibold">{row.vehicleName}</span><span className="ml-2 font-mono text-xs text-muted-foreground">{row.vehicleRegNo}</span></td>
                       <td className="px-4">{TYPE_LABELS[row.vehicleType as VehicleType] ?? row.vehicleType}</td>
                       <td className="px-4"><Badge variant="outline" className={`rounded-sm text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 ${STATUS_COLORS[row.status as VehicleStatus] ?? ""}`}>{STATUS_LABELS[row.status as VehicleStatus] ?? row.status}</Badge></td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDateTime(row.startedAt)}</td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDateTime(row.endedAt)}</td>
+                      <td className="px-4 font-mono text-xs text-muted-foreground">{row.status === "in_use" ? `${fmtValue(row.dieselIssuedLitres)} L` : "-"}</td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtValue(row.durationHours)}</td>
                     </tr>
                   ))}
@@ -640,6 +676,32 @@ export default function FleetList() {
           />
         </Card>
         )}
+        <Dialog open={Boolean(fuelDialog)} onOpenChange={(open) => { if (!open && !statusMut.isPending && !fuelMut.isPending) setFuelDialog(null); }}>
+          <DialogContent className="max-w-md rounded-sm">
+            <DialogHeader><DialogTitle>{fuelDialog?.nextStatus ? "Start In-Use Session" : "Add Fuel"}</DialogTitle></DialogHeader>
+            <div className="space-y-4">
+              <div className="rounded-sm border p-3 text-sm">
+                <p className="font-semibold">{fuelDialog?.vehicle.name} — {fuelDialog?.vehicle.regNo}</p>
+                <p className="text-muted-foreground">Current status: {fuelDialog ? STATUS_LABELS[fuelDialog.vehicle.status as VehicleStatus] : "-"}</p>
+              </div>
+              <div className="rounded-sm border p-3 text-sm">
+                <p className="font-semibold">Diesel — Annur Warehouse</p>
+                <p className="text-muted-foreground">Available: {dieselQuery.isLoading ? "Loading..." : `${fmtValue(dieselQuery.data?.availableLitres)} L`}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Fuel to Fill (Litre)</Label>
+                <Input type="number" min="0" step="0.0001" value={fuelLitres} onChange={(event) => setFuelLitres(event.target.value)} autoFocus />
+                {fuelDialog?.nextStatus && <p className="text-xs text-muted-foreground">Zero litres is allowed when no refuelling is required.</p>}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFuelDialog(null)} disabled={statusMut.isPending || fuelMut.isPending}>Cancel</Button>
+              <Button disabled={statusMut.isPending || fuelMut.isPending || dieselQuery.isLoading || !Number.isFinite(Number(fuelLitres)) || Number(fuelLitres) < 0 || Number(fuelLitres) > Number(dieselQuery.data?.availableLitres ?? 0) || (!fuelDialog?.nextStatus && Number(fuelLitres) <= 0)} onClick={() => { if (!fuelDialog) return; const quantity = Number(fuelLitres); if (fuelDialog.nextStatus) statusMut.mutate({ id: fuelDialog.vehicle.id, status: fuelDialog.nextStatus, fuelLitres: quantity }); else fuelMut.mutate({ id: fuelDialog.vehicle.id, fuelLitres: quantity }); }}>
+                {statusMut.isPending || fuelMut.isPending ? "Saving..." : fuelDialog?.nextStatus ? "Confirm In Use" : "Add Fuel"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {/* Add / Edit dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="rounded-sm border-border shadow-none max-w-md">

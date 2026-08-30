@@ -123,6 +123,7 @@ export function AttendanceModule({
     [photo, setPhoto] = useState(""),
     [location, setLocation] = useState<any>(null),
     [locationError, setLocationError] = useState(""),
+    [resolvingAddress, setResolvingAddress] = useState(false),
     [cameraError, setCameraError] = useState(""),
     [faceState, setFaceState] = useState<FaceState>("loading-model"),
     [cameraKey, setCameraKey] = useState(0),
@@ -161,14 +162,24 @@ export function AttendanceModule({
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (position) =>
-        setLocation({
+      async (position) => {
+        const coordinates = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
-          address: `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`,
           capturedAt: new Date().toISOString(),
-        }),
+        };
+        setResolvingAddress(true);
+        setLocation({ ...coordinates, address: null });
+        try {
+          const result = await request("attendance/reverse-geocode", { method: "POST", body: JSON.stringify(coordinates) });
+          setLocation({ ...coordinates, address: result.address || null });
+        } catch {
+          setLocation({ ...coordinates, address: null });
+        } finally {
+          setResolvingAddress(false);
+        }
+      },
       (error) =>
         setLocationError(
           error.code === 1
@@ -621,8 +632,10 @@ export function AttendanceModule({
                 <p><span className="text-muted-foreground">Record:</span> {details.locked ? "Locked" : "Open"}</p>
                 <p><span className="text-muted-foreground">Punch in:</span> {details.checkInTime || "—"}</p>
                 <p><span className="text-muted-foreground">Punch out:</span> {details.checkOutTime || "—"}</p>
-                <p><span className="text-muted-foreground">Punch-in location:</span> {formatLocation(details.checkInLocation)}</p>
-                <p><span className="text-muted-foreground">Punch-out location:</span> {formatLocation(details.checkOutLocation)}</p>
+                <p><span className="text-muted-foreground">Punch-in coordinates:</span> {formatCoordinates(details.checkInLocation)}</p>
+                <p><span className="text-muted-foreground">Punch-in address:</span> {details.checkInAddress || "Address unavailable"}</p>
+                <p><span className="text-muted-foreground">Punch-out coordinates:</span> {formatCoordinates(details.checkOutLocation)}</p>
+                <p><span className="text-muted-foreground">Punch-out address:</span> {details.checkOutAddress || "Address unavailable"}</p>
                 <p className="sm:col-span-2"><span className="text-muted-foreground">Notes:</span> {details.notes || "—"}</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -702,7 +715,7 @@ export function AttendanceModule({
               >
                 <LocateFixed className="mb-1 h-4 w-4" />
                 {location
-                  ? location.address
+                  ? resolvingAddress ? "Resolving address..." : location.address || "Address unavailable"
                   : locationError || "Getting current location..."}
               </div>
             </div>
@@ -754,7 +767,7 @@ export function AttendanceModule({
               Cancel
             </Button>
             <Button
-              disabled={busy || !location || (!photo && faceState !== "ok")}
+              disabled={busy || resolvingAddress || !location || (!photo && faceState !== "ok")}
               onClick={() => void confirm()}
             >
               {busy ? (
@@ -802,4 +815,14 @@ function formatLocation(value: unknown) {
       return `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
   } catch {}
   return String(value);
+}
+
+function formatCoordinates(value: unknown) {
+  if (!value) return "—";
+  try {
+    const location = typeof value === "string" ? JSON.parse(value) : value as any;
+    if (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude)))
+      return `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
+  } catch {}
+  return "—";
 }

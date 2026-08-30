@@ -140,7 +140,7 @@ export default function PurchaseOrdersPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
-  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [rowsPerPage, setRowsPerPage] = useState("15");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = Number(rowsPerPage);
   const {

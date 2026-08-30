@@ -25,6 +25,7 @@ import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { ensureDefaultVaultItems } from "../lib/ensureDefaultVaultItems";
 import { saveImageDataUrl } from "../lib/uploadStorage";
 import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
+import { consumeAnnurBatchMaterials } from "../lib/annurInventoryConsumption";
 
 const router = Router();
 
@@ -608,6 +609,14 @@ router.post("/batches/:id/initiate", requireAuth, async (req, res) => {
       });
     }
 
+    await consumeAnnurBatchMaterials(tx, {
+      batchType: "COIMBATORE",
+      batchId,
+      batchReference: String(batch.batchCode || `COIMBATORE-${batchId}`),
+      materials: (materials ?? []).map((mat) => ({ name: mat.name, quantity: Number(mat.weightKg) })),
+      userId: (req.session as any).userId ?? null,
+    });
+
     // Upsert turn config
     const [existing] = await tx
       .select()
@@ -899,16 +908,22 @@ router.get("/batches/:id/materials", requireAuth, async (req, res) => {
 router.post("/batches/:id/materials", requireAuth, async (req, res) => {
   const batchId = Number(req.params.id);
   const { materialId, weightKg, notes } = req.body as any;
-  const [row] = await db
-    .insert(coimbatoreBatchMaterialsTable)
-    .values({
-      batchId,
-      materialId,
-      weightKg: String(weightKg),
-      notes: notes ?? null,
-    })
-    .returning();
-  return res.status(201).json(row);
+  try {
+    const row = await db.transaction(async (tx) => {
+      const [batch] = await tx.select().from(batchesTable).where(eq(batchesTable.id, batchId)).limit(1);
+      const [material] = await tx.select().from(materialsTable).where(eq(materialsTable.id, Number(materialId))).limit(1);
+      if (!batch || !material) throw new Error("Batch or material not found");
+      const [created] = await tx.insert(coimbatoreBatchMaterialsTable).values({ batchId, materialId, weightKg: String(weightKg), notes: notes ?? null }).returning();
+      // Draft materials are consumed by the initiation transaction. Materials
+      // added after initiation are consumed immediately and never returned.
+      if (batch.currentStage !== "FORMULATION")
+        await consumeAnnurBatchMaterials(tx, { batchType: "COIMBATORE", batchId, batchReference: batch.batchCode, materials: [{ name: material.name, materialId: material.id, quantity: Number(weightKg) }], userId: (req.session as any).userId ?? null, operationKey: `ADDED-${created.id}` });
+      return created;
+    });
+    return res.status(201).json(row);
+  } catch (error: any) {
+    return res.status(409).json({ error: error?.message || "Unable to add and consume material" });
+  }
 });
 
 // ── Delete material ───────────────────────────────────────────────────────────

@@ -76,8 +76,7 @@ export const taskActiveTimersTable = mongoTable("task_active_timers", {
 export const taskTimeLogsTable = mongoTable("task_time_logs", {
   id: serial("id").primaryKey(),
   taskId: integer("task_id")
-    .notNull()
-    .references(() => tasksTable.id, { onDelete: "cascade" }),
+    .references(() => tasksTable.id, { onDelete: "set null" }),
   userId: integer("user_id").references(() => usersTable.id),
   employeeId: integer("employee_id").references(() => employeesTable.id),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
@@ -87,6 +86,9 @@ export const taskTimeLogsTable = mongoTable("task_time_logs", {
   source: text("source").notNull().default("automatic"),
   status: text("status").notNull().default("completed"),
   notes: text("notes"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

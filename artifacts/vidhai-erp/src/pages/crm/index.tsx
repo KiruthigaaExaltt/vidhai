@@ -95,7 +95,7 @@ export default function CRMPage() {
   const [paginationStates, setPaginationStates] = useState<
     Record<string, { page: number; size: number }>
   >({});
-  const paginationState = paginationStates[tab] ?? { page: 1, size: 10 };
+  const paginationState = paginationStates[tab] ?? { page: 1, size: 15 };
   const setPagination = (next: Partial<typeof paginationState>) =>
     setPaginationStates((current) => ({
       ...current,

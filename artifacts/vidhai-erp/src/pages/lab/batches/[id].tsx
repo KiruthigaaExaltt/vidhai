@@ -206,8 +206,10 @@ export default function LabBatchDetail() {
 
   const initiateMutation = useMutation({
     mutationFn: async () => {
+      if (formulationRows.some((row) => !row.name.trim() || !(parseFloat(row.qtyKg) > 0)))
+        throw new Error("Enter a material name and quantity greater than zero for every formulation row");
       const materials = formulationRows
-        .map((r) => ({ name: r.name, quantityKg: parseFloat(r.qtyKg) || 0 }))
+        .map((r) => ({ name: r.name.trim(), quantityKg: parseFloat(r.qtyKg) || 0 }))
         .filter((m) => m.quantityKg > 0);
       const res = await fetch(`/api/lab/batches/${batchId}/initiate`, {
         method: "POST",
@@ -520,12 +522,15 @@ export default function LabBatchDetail() {
                         <td className="px-4 text-right">
                           <button
                             onClick={() => {
-                              if (!newMatName || !newMatQty) return;
+                              if (!newMatName.trim() || !(Number(newMatQty) > 0)) {
+                                toast.error("Enter a material name and quantity greater than zero");
+                                return;
+                              }
                               setFormulationRows((rows) => [
                                 ...rows,
                                 {
                                   id: Date.now(),
-                                  name: newMatName,
+                                  name: newMatName.trim(),
                                   qtyKg: newMatQty,
                                 },
                               ]);

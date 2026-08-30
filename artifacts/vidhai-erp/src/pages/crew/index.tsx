@@ -122,7 +122,7 @@ export default function Crew() {
     [search, setSearch] = useState(""),
     [status, setStatus] = useState("All"),
     [employeePage, setEmployeePage] = useState(1),
-    [employeePageSize, setEmployeePageSize] = useState(10),
+    [employeePageSize, setEmployeePageSize] = useState(15),
     [employeeMeta, setEmployeeMeta] = useState<any>({
       totalCount: 0,
       totalPages: 0,

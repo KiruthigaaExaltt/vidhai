@@ -80,7 +80,7 @@ export default function CoimbatoreBatches() {
   const [filterTo, setFilterTo] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
   const [batchPage, setBatchPage] = useState(1);
-  const [batchPageSize, setBatchPageSize] = useState(10);
+  const [batchPageSize, setBatchPageSize] = useState(15);
   useEffect(
     () => setBatchPage(1),
     [filterStage, filterStatus, filterFrom, filterTo, filterSearch],

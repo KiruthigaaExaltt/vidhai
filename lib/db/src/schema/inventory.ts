@@ -54,6 +54,20 @@ export const inventoryAdjustmentsTable = mongoTable("inventory_adjustments", {
     .defaultNow(),
 });
 
+export const batchInventoryConsumptionsTable = mongoTable("batch_inventory_consumptions", {
+  id: serial("id").primaryKey(),
+  consumptionKey: text("consumption_key").notNull().unique(),
+  batchType: text("batch_type").notNull(),
+  batchId: integer("batch_id").notNull(),
+  materialId: integer("material_id").notNull().references(() => materialsTable.id),
+  warehouseId: integer("warehouse_id").notNull().references(() => inventoryLocationsTable.id),
+  inventoryAdjustmentId: integer("inventory_adjustment_id").references(() => inventoryAdjustmentsTable.id),
+  quantityConsumed: numeric("quantity_consumed", { precision: 12, scale: 4 }).notNull(),
+  unit: text("unit").notNull(),
+  consumedByUserId: integer("consumed_by_user_id").references(() => usersTable.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const inventoryMovementsTable = mongoTable("inventory_movements", {
   id: serial("id").primaryKey(),
   materialId: integer("material_id")

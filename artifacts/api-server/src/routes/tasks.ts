@@ -206,34 +206,36 @@ router.get("/crew", requireAuth, async (req, res) => {
 router.get("/timesheet", requireAuth, async (req, res) => {
   const ctx = await context(req);
   if (!ctx) return res.status(401).json({ error: "Not authenticated" });
-  let employeeId = Number(req.query.employeeId || ctx.employee?.id);
-  if (!employeeId)
+  const canViewOthers = ctx.permissions.includes("*") || ctx.permissions.includes("task.time_logs.for_others");
+  const requestedEmployeeId = req.query.employeeId ? Number(req.query.employeeId) : null;
+  const employeeId = requestedEmployeeId ?? (canViewOthers ? null : Number(ctx.employee?.id));
+  if (!employeeId && !canViewOthers)
     return res.json({
       entries: [],
       totals: { employeeMinutes: 0, daily: {}, tasks: {} },
     });
-  if (!ctx.elevated && employeeId !== Number(ctx.employee?.id))
+  if (!canViewOthers && employeeId !== Number(ctx.employee?.id))
     return res
       .status(403)
       .json({ error: "You can only view your own timesheet" });
-  const logs = await db
-    .select()
-    .from(taskTimeLogsTable)
-    .where(eq(taskTimeLogsTable.employeeId, employeeId))
-    .orderBy(desc(taskTimeLogsTable.startTime));
-  const activeTimers = await db
-    .select()
-    .from(taskActiveTimersTable)
-    .where(eq(taskActiveTimersTable.employeeId, employeeId));
+  const logs = employeeId
+    ? await db.select().from(taskTimeLogsTable).where(eq(taskTimeLogsTable.employeeId, employeeId)).orderBy(desc(taskTimeLogsTable.startTime))
+    : await db.select().from(taskTimeLogsTable).orderBy(desc(taskTimeLogsTable.startTime));
+  const activeTimers = employeeId
+    ? await db.select().from(taskActiveTimersTable).where(eq(taskActiveTimersTable.employeeId, employeeId))
+    : await db.select().from(taskActiveTimersTable);
   const tasks = await db.select().from(tasksTable);
+  const employees = await db.select().from(employeesTable);
   const withTask = (log: any) => {
     const task = tasks.find(
       (item: any) => Number(item.id) === Number(log.taskId),
     );
     return {
       ...log,
-      taskTitle: task?.title ?? `Task #${log.taskId}`,
+      taskTitle: task?.title ?? null,
       workOrder: task?.batchRef ?? null,
+      employeeName: employees.find((item: any) => Number(item.id) === Number(log.employeeId))?.name ?? "Unknown employee",
+      employeeCode: employees.find((item: any) => Number(item.id) === Number(log.employeeId))?.employeeCode ?? null,
     };
   };
   const closedEntries = logs
@@ -264,13 +266,85 @@ router.get("/timesheet", requireAuth, async (req, res) => {
       const day = entry.workDate || dateKey(new Date(entry.startTime));
       result.employeeMinutes += value;
       result.daily[day] = (result.daily[day] || 0) + value;
-      result.tasks[String(entry.taskId)] =
-        (result.tasks[String(entry.taskId)] || 0) + value;
+      if (entry.taskId)
+        result.tasks[String(entry.taskId)] =
+          (result.tasks[String(entry.taskId)] || 0) + value;
       return result;
     },
     { employeeMinutes: 0, daily: {}, tasks: {} },
   );
   return res.json({ entries, totals });
+});
+
+const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const timeMinutes = (value: string) => {
+  const match = timePattern.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+};
+const localDateTime = (date: string, time: string) => new Date(`${date}T${time}:00+05:30`);
+
+router.post("/timesheet", requireAuth, async (req, res) => {
+  const ctx = await context(req);
+  if (!ctx?.employee) return res.status(403).json({ error: "Your user account is not linked to an employee" });
+  const workDate = String(req.body.workDate || ""), start = String(req.body.startTime || "08:00"), end = String(req.body.endTime || "09:00");
+  const startMinute = timeMinutes(start), endMinute = timeMinutes(end);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return res.status(400).json({ error: "A valid date is required" });
+  if (startMinute === null || endMinute === null || endMinute <= startMinute) return res.status(400).json({ error: "End time must be later than start time" });
+  const taskId = req.body.taskId === null || req.body.taskId === undefined || req.body.taskId === "" ? null : Number(req.body.taskId);
+  if (taskId !== null) {
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+    if (!task) return res.status(400).json({ error: "Selected task does not exist" });
+    const access = await canAccessTask(req, taskId, true);
+    if (!access.allowed) return res.status(403).json({ error: "You can only select a task assigned to you" });
+  }
+  const startAt = localDateTime(workDate, start), endAt = localDateTime(workDate, end);
+  const [log] = await db.insert(taskTimeLogsTable).values({ taskId, userId: Number(ctx.user.id), employeeId: Number(ctx.employee.id), startTime: startAt, endTime: endAt, durationMinutes: String(endMinute - startMinute), workDate, source: "manual", status: "completed", notes: String(req.body.notes || "").trim() || null, updatedAt: new Date() }).returning();
+  return res.status(201).json(log);
+});
+
+router.patch("/timesheet/:id", requireAuth, async (req, res) => {
+  const ctx = await context(req);
+  if (!ctx?.employee) return res.status(403).json({ error: "Your user account is not linked to an employee" });
+  const id = Number(req.params.id);
+  const [existing] = await db.select().from(taskTimeLogsTable).where(eq(taskTimeLogsTable.id, id)).limit(1);
+  if (!existing) return res.status(404).json({ error: "Timesheet entry not found" });
+  if (Number(existing.employeeId) !== Number(ctx.employee.id)) return res.status(403).json({ error: "You can only update your own timesheet" });
+  const notes = req.body.notes === undefined ? existing.notes : String(req.body.notes || "").trim() || null;
+  if (existing.source !== "manual") {
+    const [updated] = await db.update(taskTimeLogsTable).set({ notes, updatedAt: new Date() }).where(eq(taskTimeLogsTable.id, id)).returning();
+    return res.json(updated);
+  }
+  const taskId = req.body.taskId === null || req.body.taskId === undefined || req.body.taskId === "" ? null : Number(req.body.taskId);
+  if (taskId !== null) {
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+    if (!task) return res.status(400).json({ error: "Selected task does not exist" });
+    const access = await canAccessTask(req, taskId, true);
+    if (!access.allowed) return res.status(403).json({ error: "You can only select a task assigned to you" });
+  }
+  const workDate = String(req.body.workDate || existing.workDate), start = String(req.body.startTime || new Date(existing.startTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })), end = String(req.body.endTime || new Date(existing.endTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }));
+  const startMinute = timeMinutes(start), endMinute = timeMinutes(end);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || startMinute === null || endMinute === null || endMinute <= startMinute) return res.status(400).json({ error: "A valid date and an end time later than start time are required" });
+  const oldStart = new Date(existing.startTime), newStart = localDateTime(workDate, start), newEnd = localDateTime(workDate, end), shiftMs = newEnd.getTime() - new Date(existing.endTime).getTime();
+  const result = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(taskTimeLogsTable).set({ taskId, startTime: newStart, endTime: newEnd, durationMinutes: String(endMinute - startMinute), workDate, notes, updatedAt: new Date() }).where(eq(taskTimeLogsTable.id, id)).returning();
+    if (shiftMs !== 0 && workDate === existing.workDate) {
+      const later = (await tx.select().from(taskTimeLogsTable).where(eq(taskTimeLogsTable.employeeId, Number(ctx.employee!.id)))).filter((row: any) => row.source === "manual" && row.workDate === workDate && Number(row.id) !== id && new Date(row.startTime).getTime() >= oldStart.getTime());
+      for (const row of later) await tx.update(taskTimeLogsTable).set({ startTime: new Date(new Date(row.startTime).getTime() + shiftMs), endTime: row.endTime ? new Date(new Date(row.endTime).getTime() + shiftMs) : null, updatedAt: new Date() }).where(eq(taskTimeLogsTable.id, row.id));
+    }
+    return updated;
+  });
+  return res.json(result);
+});
+
+router.delete("/timesheet/:id", requireAuth, async (req, res) => {
+  const ctx = await context(req);
+  if (!ctx?.employee) return res.status(403).json({ error: "Your user account is not linked to an employee" });
+  const [existing] = await db.select().from(taskTimeLogsTable).where(eq(taskTimeLogsTable.id, Number(req.params.id))).limit(1);
+  if (!existing) return res.status(404).json({ error: "Timesheet entry not found" });
+  if (Number(existing.employeeId) !== Number(ctx.employee.id)) return res.status(403).json({ error: "You can only delete your own timesheet" });
+  if (existing.source !== "manual") return res.status(409).json({ error: "Automatic task time can only have its notes edited" });
+  await db.delete(taskTimeLogsTable).where(eq(taskTimeLogsTable.id, existing.id));
+  return res.status(204).send();
 });
 
 router.get("/", requireAuth, async (req, res) => {

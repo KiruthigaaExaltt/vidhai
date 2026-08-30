@@ -43,6 +43,7 @@ import {
   resolveUploadPath,
   type CrewUploadFolder,
 } from "../lib/uploadStorage";
+import { reverseGeocode } from "../lib/reverseGeocoding";
 
 const router = Router();
 const json = (v: any, f: any = []) => {
@@ -747,13 +748,7 @@ router.post(
         organizationId: org,
         actorId,
         permissionKey: "crew.employees.notification",
-        additionalPermissionKeys: ["crew.employees.view"],
-        directRecipientUserIds: [
-          ...new Set([
-            actorId,
-            ...(row.userId ? [Number(row.userId)] : []),
-          ]),
-        ],
+        directRecipientUserIds: row.userId ? [Number(row.userId)] : [],
         eventType: "CREW_EMPLOYEE_CREATED",
         eventKey: `crew-employee:${row.id}:created`,
         sourceModule: "crew",
@@ -1040,6 +1035,14 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
   });
   return res.json({ month, daysInMonth, rows });
 });
+router.post("/attendance/reverse-geocode", async (req: any, res: any): Promise<any> => {
+  const latitude = Number(req.body?.latitude), longitude = Number(req.body?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+    return res.status(400).json({ error: "Valid latitude and longitude are required" });
+  const address = await reverseGeocode(latitude, longitude);
+  return res.json({ address, available: Boolean(address) });
+});
+
 router.post("/attendance", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.attendance.create")) return;
   if (
@@ -1117,6 +1120,9 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         Number(template.lateThresholdMinutes || 0)
     )
       status = "Late";
+    const checkInAddress = isPunchIn
+      ? (String(req.body.location?.address || "").trim().slice(0, 1000) || await reverseGeocode(Number(req.body.location.latitude), Number(req.body.location.longitude)))
+      : null;
     const [row] = await db
       .insert(attendanceLogsTable)
       .values({
@@ -1134,6 +1140,7 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         timezone: req.body.timezone || "Asia/Kolkata",
         checkInPhoto: photo,
         checkInLocation: JSON.stringify(req.body.location || null),
+        checkInAddress,
         notes: req.body.notes,
         auditLogs: JSON.stringify([
           { action: "check-in", actor: req.crew.user.displayName, at: now },
@@ -1311,6 +1318,7 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
       b.checkOutAtUtc = now;
       b.checkOutPhoto = photo;
       b.checkOutLocation = JSON.stringify(b.location);
+      b.checkOutAddress = String(b.location?.address || "").trim().slice(0, 1000) || await reverseGeocode(Number(b.location.latitude), Number(b.location.longitude));
       const employee = (
         await db
           .select()
@@ -1784,38 +1792,13 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
           )
           .limit(1)
       : [null];
-    const organizationUsers = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.organizationId, req.crew.org));
-    const adminUserIds = organizationUsers
-      .filter((user: any) => {
-        const role = String(user.role || "").trim().toLowerCase();
-        return (
-          !user.isDeleted &&
-          user.isActive !== false &&
-          (role === "admin" ||
-            role === "super_admin" ||
-            user.systemKey === "ADMIN" ||
-            user.systemKey === "SUPER_ADMIN")
-        );
-      })
-      .map((user: any) => Number(user.id));
-    const recipientUserIds = [
-      ...new Set([
-        ...adminUserIds,
-        ...(reportingManager?.userId
-          ? [Number(reportingManager.userId)]
-          : []),
-      ]),
-    ].filter((id) => Number.isInteger(id) && id > 0);
-    if (recipientUserIds.length) {
+    const directRecipientUserIds = reportingManager?.userId ? [Number(reportingManager.userId)] : [];
+    {
       await publishNotification({
         organizationId: req.crew.org,
         actorId: Number(req.crew.user.id),
         permissionKey: "crew.leave.notification",
-        recipientUserIds: [],
-        directRecipientUserIds: recipientUserIds,
+        directRecipientUserIds,
         eventType: "CREW_LEAVES_REQUESTED",
         eventKey: `crew-leave:${row.id}:requested`,
         sourceModule: "crew",
@@ -1904,6 +1887,26 @@ router.patch("/leaves/:id/status", async (req: any, res: any): Promise<any> => {
     old,
     row,
   );
+  const [employee] = await db.select().from(employeesTable).where(and(eq(employeesTable.id, row.employeeId), eq(employeesTable.organizationId, req.crew.org))).limit(1);
+  await publishNotification({
+    organizationId: req.crew.org,
+    actorId: Number(req.crew.user.id),
+    permissionKey: "crew.leave.notification",
+    directRecipientUserIds: employee?.userId ? [Number(employee.userId)] : [],
+    eventType: status === "Approved" ? "CREW_LEAVE_APPROVED" : "CREW_LEAVE_REJECTED",
+    eventKey: `crew-leave:${row.id}:${status.toLowerCase()}`,
+    sourceModule: "crew",
+    targetModule: "crew",
+    submodule: "leave",
+    title: `Leave ${status.toLowerCase()}`,
+    message: `${row.employeeName}'s leave request was ${status.toLowerCase()}.`,
+    sourceEntityType: "leave_request",
+    sourceEntityId: row.id,
+    sourceReference: row.employeeCode || row.employeeName,
+    navigationUrl: "/crew",
+    metadata: { employeeId: row.employeeId, status },
+  });
+  res.locals.notificationHandled = true;
   return res.json(row);
 });
 async function overtimeCalculation(org: number, employee: any, date: string) {

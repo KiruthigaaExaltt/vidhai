@@ -187,7 +187,7 @@ router.use("/settings/roles", rolesRouter);
 router.use(
   "/tasks",
   requireModulePermission((req) =>
-    req.path.includes("time-logs") ? "task.time_logs" : "task.task_board",
+    req.path.includes("time-logs") || req.path.includes("timesheet") ? "task.time_logs" : "task.task_board",
   ),
   tasksRouter,
 );

@@ -24,6 +24,9 @@ export type Vehicle = typeof vehiclesTable.$inferSelect;
 export const fuelLogsTable = mongoTable("fuel_logs", {
   id: serial("id").primaryKey(),
   vehicleId: integer("vehicle_id").notNull().references(() => vehiclesTable.id, { onDelete: "cascade" }),
+  statusHistoryId: integer("status_history_id"),
+  inventoryAdjustmentId: integer("inventory_adjustment_id"),
+  requestId: text("request_id"),
   fuelDate: date("fuel_date", { mode: "string" }).notNull(),
   litres: numeric("litres", { precision: 10, scale: 2 }).notNull(),
   costPerLitre: numeric("cost_per_litre", { precision: 8, scale: 2 }),
@@ -82,6 +85,8 @@ export const vehicleStatusHistoryTable = mongoTable("vehicle_status_history", {
   id: serial("id").primaryKey(),
   vehicleId: integer("vehicle_id").notNull().references(() => vehiclesTable.id, { onDelete: "cascade" }),
   status: text("status").notNull(),
+  sourceStatus: text("source_status"),
+  dieselIssuedLitres: numeric("diesel_issued_litres", { precision: 12, scale: 4 }).notNull().default("0"),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   endedAt: timestamp("ended_at", { withTimezone: true }),
   durationHours: numeric("duration_hours", { precision: 10, scale: 2 }),

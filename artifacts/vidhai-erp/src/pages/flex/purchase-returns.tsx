@@ -137,7 +137,7 @@ export default function PurchaseReturns() {
   const [toDate, setToDate] = useState("");
   const [selectedVendor, setSelectedVendor] = useState("All");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [rowsPerPage, setRowsPerPage] = useState("10");
+  const [rowsPerPage, setRowsPerPage] = useState("15");
   const [currentPage, setCurrentPage] = useState(1);
 
   // Form

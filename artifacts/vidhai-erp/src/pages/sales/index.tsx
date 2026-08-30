@@ -72,7 +72,7 @@ export default function Sales() {
   const [toDate, setToDate] = useState("");
   const [paginationByTab, setPaginationByTab] = useState<Record<string, { page: number; size: number }>>({});
   const [listMeta, setListMeta] = useState({ totalCount: 0, totalPages: 0 });
-  const paginationState = paginationByTab[activeTab] ?? { page: 1, size: 10 };
+  const paginationState = paginationByTab[activeTab] ?? { page: 1, size: 15 };
   const setListPagination = (next: Partial<typeof paginationState>) =>
     setPaginationByTab((current) => ({
       ...current,

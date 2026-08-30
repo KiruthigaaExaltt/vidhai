@@ -411,9 +411,11 @@ export default function CoimbatoreBatchDetail() {
 
   const initiateMutation = useMutation({
     mutationFn: async () => {
+      if (formulationRows.some((row) => !row.name.trim() || !(parseFloat(row.qty) > 0)))
+        throw new Error("Select a material and enter a quantity greater than zero for every formulation row");
       const materials = formulationRows
         .map((r) => ({
-          name: r.name,
+          name: r.name.trim(),
           weightKg: toKg(parseFloat(r.qty) || 0, r.name),
         }))
         .filter((m) => m.weightKg > 0);
@@ -832,9 +834,6 @@ export default function CoimbatoreBatchDetail() {
                                     {m.name}
                                   </SelectItem>
                                 ))}
-                                <SelectItem value="__custom__">
-                                  Custom…
-                                </SelectItem>
                               </SelectContent>
                             </Select>
                           </td>
@@ -871,11 +870,11 @@ export default function CoimbatoreBatchDetail() {
                           <td className="px-4 text-right">
                             <button
                               onClick={() => {
-                                if (!newMatName || !newMatQty) return;
-                                const name =
-                                  newMatName === "__custom__"
-                                    ? "Custom"
-                                    : newMatName;
+                                if (!newMatName.trim() || !(Number(newMatQty) > 0)) {
+                                  toast.error("Select a material and enter a quantity greater than zero");
+                                  return;
+                                }
+                                const name = newMatName.trim();
                                 setFormulationRows((rows) => [
                                   ...rows,
                                   { id: Date.now(), name, qty: newMatQty },

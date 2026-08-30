@@ -46,7 +46,7 @@ function resolveMaterial(
 
 const BASELINE_MATERIALS = [
   { name: "Paddy Straw", wetPerBag: 3.3, moisture: 12, nitrogen: 0.6 },
-  { name: "Sugarcane", wetPerBag: 0.327, moisture: 10, nitrogen: 0.5 },
+  { name: "Sugar Cane", wetPerBag: 0.327, moisture: 10, nitrogen: 0.5 },
   { name: "Chicken Manure", wetPerBag: 1.257, moisture: 16, nitrogen: 2.8 },
   { name: "Castor DOC", wetPerBag: 0.662, moisture: 9, nitrogen: 4.2 },
   { name: "Urea", wetPerBag: 0.0356, moisture: 0, nitrogen: 42.63 },
@@ -171,9 +171,11 @@ export default function NewBatch() {
     field: keyof FormulationRow,
     val: string | number,
   ) => {
-    const newFormulation = [...formulation];
-    newFormulation[index] = { ...newFormulation[index], [field]: val };
-    setFormulation(newFormulation);
+    setFormulation((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: val } : row,
+      ),
+    );
   };
 
   const removeRow = (index: number) => {
@@ -207,6 +209,18 @@ export default function NewBatch() {
     }
     if (!preWettingChamberId) {
       toast.error("Select an available Pre-Wetting chamber");
+      return;
+    }
+    if (
+      formulation.some(
+        (row) =>
+          !row.name.trim() ||
+          !row.materialId ||
+          !Number.isFinite(Number(row.wetWeightKg)) ||
+          Number(row.wetWeightKg) <= 0,
+      )
+    ) {
+      toast.error("Select a material and enter a quantity greater than zero for every formulation row");
       return;
     }
 
@@ -425,17 +439,18 @@ export default function NewBatch() {
                                     (mat) => mat.id.toString() === val,
                                   );
                                   if (m) {
-                                    handleUpdateRow(i, "materialId", m.id);
-                                    handleUpdateRow(i, "name", m.name);
-                                    handleUpdateRow(
-                                      i,
-                                      "moisturePercent",
-                                      m.defaultMoisturePercent || 0,
-                                    );
-                                    handleUpdateRow(
-                                      i,
-                                      "nitrogenPercent",
-                                      m.defaultNitrogenPercent || 0,
+                                    setFormulation((current) =>
+                                      current.map((currentRow, rowIndex) =>
+                                        rowIndex === i
+                                          ? {
+                                              ...currentRow,
+                                              materialId: m.id,
+                                              name: m.name,
+                                              moisturePercent: m.defaultMoisturePercent || 0,
+                                              nitrogenPercent: m.defaultNitrogenPercent || 0,
+                                            }
+                                          : currentRow,
+                                      ),
                                     );
                                   }
                                 }}

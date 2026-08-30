@@ -30,7 +30,7 @@ import { getListInventoryQueryKey } from "@workspace/api-client-react";
 export default function Stock() {
   const queryClient = useQueryClient();
   const [stockPage, setStockPage] = useState(1);
-  const [stockPageSize, setStockPageSize] = useState(10);
+  const [stockPageSize, setStockPageSize] = useState(15);
   const stockQuery = useQuery({
     queryKey: ["inventory-stock-paged", stockPage, stockPageSize],
     queryFn: async () => {

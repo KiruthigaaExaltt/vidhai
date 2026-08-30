@@ -57,7 +57,7 @@ export default function CrewPay() {
     [department, setDepartment] = useState("All"),
     [status, setStatus] = useState("All"),
     [currentPage, setCurrentPage] = useState(1),
-    [pageSize, setPageSize] = useState(10),
+    [pageSize, setPageSize] = useState(15),
     [pagination, setPagination] = useState({ totalCount: 0, totalPages: 0 }),
     [serverTotals, setServerTotals] = useState({ gross: 0, deductions: 0, net: 0 }),
     [departmentOptions, setDepartmentOptions] = useState<string[]>([]),

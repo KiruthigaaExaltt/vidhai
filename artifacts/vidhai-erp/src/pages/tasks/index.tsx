@@ -43,6 +43,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   CheckSquare,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   Clock3,
   MoreVertical,
@@ -137,8 +139,18 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 const formatMinutes = (value: number) => {
-  const total = Math.max(0, Math.round(Number(value || 0)));
+  const numeric = Number(value);
+  const total = Number.isFinite(numeric) ? Math.max(0, Math.round(numeric)) : 0;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+};
+const entryDurationMinutes = (entry: any) => {
+  const stored = Number(entry.durationMinutes);
+  if (Number.isFinite(stored) && stored >= 0) return stored;
+  const start = new Date(entry.startTime).getTime();
+  const end = entry.endTime ? new Date(entry.endTime).getTime() : Date.now();
+  return Number.isFinite(start) && Number.isFinite(end)
+    ? Math.max(0, (end - start) / 60_000)
+    : 0;
 };
 const formatDateTime = (value?: string | null) =>
   value
@@ -147,6 +159,17 @@ const formatDateTime = (value?: string | null) =>
         timeStyle: "medium",
       }).format(new Date(value))
     : "�";
+const formatTimesheetTime = (value?: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(date);
+};
 function StatusBadge({ status }: { status: string }) {
   const option = STATUS_OPTIONS.find((item) => item.value === status);
   return (
@@ -193,7 +216,7 @@ export default function Tasks() {
   const { data: batches = [] } = useListBatches();
   const [filter, setFilter] = useState("all");
   const [taskPage, setTaskPage] = useState(1);
-  const [taskPageSize, setTaskPageSize] = useState(10);
+  const [taskPageSize, setTaskPageSize] = useState(15);
   const statusFilter =
     filter === "start"
       ? "in_progress"
@@ -236,10 +259,12 @@ export default function Tasks() {
   const [assignBatchRef, setAssignBatchRef] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState({
+    entryId: null as number | null,
+    source: "manual",
     taskId: "",
     date: new Date().toISOString().slice(0, 10),
-    hours: "",
-    minutes: "",
+    startTime: "08:00",
+    endTime: "09:00",
     notes: "",
   });
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -297,6 +322,7 @@ export default function Tasks() {
         (item) => Number(item.userId) === Number(user?.id),
       ) && task.status !== "cancelled",
   );
+  const ownEmployee = crew.find((member) => Number(member.userId) === Number(user?.id));
   const elapsedMinutes = (task: TaskRow) =>
     Number(task.actualMinutes || 0) +
     (task.activeTimers || []).reduce(
@@ -354,29 +380,27 @@ export default function Tasks() {
   }
   async function saveManual(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    const durationMinutes =
-      Number(manual.hours || 0) * 60 + Number(manual.minutes || 0);
-    if (!manual.taskId || durationMinutes <= 0) {
-      toast.error("Select a task and enter time");
-      return;
-    }
     setBusyAction("manual");
     try {
-      await api(`/tasks/${manual.taskId}/time-logs`, {
-        method: "POST",
+      await api(manual.entryId ? `/tasks/timesheet/${manual.entryId}` : "/tasks/timesheet", {
+        method: manual.entryId ? "PATCH" : "POST",
         body: JSON.stringify({
+          taskId: manual.taskId || null,
           workDate: manual.date,
-          durationMinutes,
+          startTime: manual.startTime,
+          endTime: manual.endTime,
           notes: manual.notes,
         }),
       });
-      toast.success("Manual time saved");
+      toast.success(manual.entryId ? "Timesheet updated" : "Time logged");
       setManualOpen(false);
       setManual({
+        entryId: null,
+        source: "manual",
         taskId: "",
         date: new Date().toISOString().slice(0, 10),
-        hours: "",
-        minutes: "",
+        startTime: "08:00",
+        endTime: "09:00",
         notes: "",
       });
       await refresh();
@@ -529,8 +553,8 @@ export default function Tasks() {
               </Button>
             ) : (
               <Button
-                onClick={() => setManualOpen(true)}
-                disabled={!myTasks.length}
+                onClick={() => { setManual({ entryId: null, source: "manual", taskId: "", date: new Date().toISOString().slice(0, 10), startTime: "08:00", endTime: "09:00", notes: "" }); setManualOpen(true); }}
+                disabled={!can("task.time_logs.create") || !ownEmployee}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 Log time
@@ -778,7 +802,7 @@ export default function Tasks() {
             </Card>
           </>
         ) : (
-          <TimesheetPanel data={timesheet} />
+          <TimesheetPanel data={timesheet} onEdit={(entry) => { setManual({ entryId: Number(entry.id), source: entry.source, taskId: entry.taskId ? String(entry.taskId) : "", date: entry.workDate, startTime: new Date(entry.startTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }), endTime: entry.endTime ? new Date(entry.endTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "09:00", notes: entry.notes || "" }); setManualOpen(true); }} onDelete={async (entry) => { try { await api(`/tasks/timesheet/${entry.id}`, { method: "DELETE" }); toast.success("Timesheet entry removed"); await refresh(); } catch (error: any) { toast.error(error.message); } }} />
         )}
 
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -871,19 +895,25 @@ export default function Tasks() {
         <Dialog open={manualOpen} onOpenChange={setManualOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Log time</DialogTitle>
+              <DialogTitle>{manual.entryId ? "Edit time" : "Log time"}</DialogTitle>
             </DialogHeader>
             <form onSubmit={saveManual} className="space-y-4">
               <div className="space-y-2">
-                <Label>Assigned task</Label>
+                <Label>Employee</Label>
+                <Input value={ownEmployee ? `${ownEmployee.name} — ${ownEmployee.employeeCode}` : "Employee account not linked"} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label>Task (optional)</Label>
                 <Select
-                  value={manual.taskId}
-                  onValueChange={(taskId) => setManual({ ...manual, taskId })}
+                  value={manual.taskId || "__none"}
+                  onValueChange={(taskId) => setManual({ ...manual, taskId: taskId === "__none" ? "" : taskId })}
+                  disabled={manual.source !== "manual"}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a task" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__none">No task</SelectItem>
                     {myTasks.map((task) => (
                       <SelectItem key={task.id} value={String(task.id)}>
                         {task.title}
@@ -897,6 +927,7 @@ export default function Tasks() {
                 <Input
                   type="date"
                   required
+                  disabled={manual.source !== "manual"}
                   value={manual.date}
                   onChange={(event) =>
                     setManual({ ...manual, date: event.target.value })
@@ -905,26 +936,24 @@ export default function Tasks() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Hours</Label>
+                  <Label>Start time</Label>
                   <Input
-                    type="number"
-                    min="0"
-                    max="24"
-                    value={manual.hours}
+                    type="time"
+                    value={manual.startTime}
+                    disabled={manual.source !== "manual"}
                     onChange={(event) =>
-                      setManual({ ...manual, hours: event.target.value })
+                      setManual({ ...manual, startTime: event.target.value })
                     }
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Minutes</Label>
+                  <Label>End time</Label>
                   <Input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={manual.minutes}
+                    type="time"
+                    value={manual.endTime}
+                    disabled={manual.source !== "manual"}
                     onChange={(event) =>
-                      setManual({ ...manual, minutes: event.target.value })
+                      setManual({ ...manual, endTime: event.target.value })
                     }
                   />
                 </div>
@@ -940,8 +969,7 @@ export default function Tasks() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Manual entries are stored separately from automatic timer
-                sessions to prevent hidden double-counting.
+                Default hours are 08:00–09:00. You may use any time of day. Editing a manual entry shifts all later manual entries for the same date; automatic task time only allows notes changes.
               </p>
               <DialogFooter>
                 <Button type="submit" disabled={busyAction === "manual"}>
@@ -956,9 +984,17 @@ export default function Tasks() {
   );
 }
 
-function TimesheetPanel({ data }: { data?: Timesheet }) {
+function TimesheetPanel({ data, onEdit, onDelete }: { data?: Timesheet; onEdit: (entry: any) => void; onDelete: (entry: any) => void }) {
   const entries = data?.entries || [];
-  const pagination = useClientPagination(entries);
+  const dateGroups = Object.entries(
+    entries.reduce((groups: Record<string, any[]>, entry: any) => {
+      (groups[entry.workDate] ||= []).push(entry);
+      return groups;
+    }, {}),
+  ).sort(([a], [b]) => b.localeCompare(a));
+  const pagination = useClientPagination(dateGroups);
+  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
+  const [collapsedEmployees, setCollapsedEmployees] = useState<Set<string>>(new Set());
   const today = new Date().toISOString().slice(0, 10);
   const taskCount = Object.keys(data?.totals.tasks || {}).length;
   return (
@@ -980,36 +1016,69 @@ function TimesheetPanel({ data }: { data?: Timesheet }) {
             <table className="w-full text-left text-sm">
               <thead className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">Employee / Date</th>
                   <th className="px-4 py-3">Task</th>
                   <th className="px-4 py-3">Work order</th>
-                  <th className="px-4 py-3">Started</th>
-                  <th className="px-4 py-3">Paused / stopped</th>
+                  <th className="px-4 py-3">From Time</th>
+                  <th className="px-4 py-3">To Time</th>
                   <th className="px-4 py-3">Duration</th>
                   <th className="px-4 py-3">Result</th>
                   <th className="px-4 py-3">Notes</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {pagination.paginatedRows.map((entry) => (
+                {pagination.paginatedRows.flatMap(([workDate, dateEntries]: [string, any[]]) => {
+                  const dateCollapsed = collapsedDates.has(workDate);
+                  const employees = Object.entries(
+                    dateEntries.reduce((groups: Record<string, any[]>, entry: any) => {
+                      const key = String(entry.employeeId);
+                      (groups[key] ||= []).push(entry);
+                      return groups;
+                    }, {}),
+                  ).sort(([, a]: any, [, b]: any) => String(a[0]?.employeeName).localeCompare(String(b[0]?.employeeName)));
+                  const rows: React.ReactNode[] = [
+                    <tr key={`date-${workDate}`} className="border-t bg-muted/50">
+                      <td colSpan={9} className="p-0">
+                        <button type="button" className="flex w-full items-center gap-2 px-4 py-3 text-left font-semibold" onClick={() => setCollapsedDates((current) => { const next = new Set(current); next.has(workDate) ? next.delete(workDate) : next.add(workDate); return next; })}>
+                          {dateCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          {workDate}
+                          <span className="text-xs font-normal text-muted-foreground">({dateEntries.length} {dateEntries.length === 1 ? "entry" : "entries"})</span>
+                        </button>
+                      </td>
+                    </tr>,
+                  ];
+                  if (dateCollapsed) return rows;
+                  for (const [employeeId, employeeEntries] of employees as [string, any[]][]) {
+                    const employeeKey = `${workDate}:${employeeId}`;
+                    const employeeCollapsed = collapsedEmployees.has(employeeKey);
+                    const employee = employeeEntries[0];
+                    rows.push(
+                      <tr key={`employee-${employeeKey}`} className="bg-muted/20">
+                        <td colSpan={9} className="p-0">
+                          <button type="button" className="flex w-full items-center gap-2 py-2 pl-8 pr-4 text-left font-medium" onClick={() => setCollapsedEmployees((current) => { const next = new Set(current); next.has(employeeKey) ? next.delete(employeeKey) : next.add(employeeKey); return next; })}>
+                            {employeeCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {employee.employeeName} — {employee.employeeCode || employee.employeeId}
+                          </button>
+                        </td>
+                      </tr>,
+                    );
+                    if (employeeCollapsed) continue;
+                    for (const entry of [...employeeEntries].sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)))) rows.push(
                   <tr key={entry.id}>
+                    <td className="px-4 py-3 pl-12 text-xs text-muted-foreground">{entry.source === "manual" ? "Manual entry" : "Task timer"}</td>
                     <td className="px-4 py-3 font-medium">{entry.taskTitle}</td>
                     <td className="px-4 py-3 font-mono text-xs">
                       {entry.workOrder || "�"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs">
-                      {entry.source === "manual"
-                        ? entry.workDate
-                        : formatDateTime(entry.startTime)}
+                      {formatTimesheetTime(entry.startTime)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs">
-                      {entry.source === "manual"
-                        ? "Manual entry"
-                        : entry.status === "active"
-                          ? "Still running"
-                          : formatDateTime(entry.endTime)}
+                      {formatTimesheetTime(entry.endTime)}
                     </td>
                     <td className="px-4 py-3 font-mono">
-                      {formatMinutes(entry.durationMinutes)}
+                      {formatMinutes(entryDurationMinutes(entry))}
                     </td>
                     <td className="px-4 py-3">
                       <span className="whitespace-nowrap rounded-full border px-2 py-0.5 text-xs capitalize">
@@ -1025,12 +1094,19 @@ function TimesheetPanel({ data }: { data?: Timesheet }) {
                     <td className="px-4 py-3 text-muted-foreground">
                       {entry.notes || "�"}
                     </td>
-                  </tr>
-                ))}
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <Button size="sm" variant="ghost" disabled={entry.status === "active"} onClick={() => onEdit(entry)}><Pencil className="h-4 w-4" /></Button>
+                      {entry.source === "manual" && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(entry)}><Trash2 className="h-4 w-4" /></Button>}
+                    </td>
+                  </tr>,
+                    );
+                  }
+                  return rows;
+                })}
                 {!entries.length && (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={9}
                       className="py-16 text-center text-muted-foreground"
                     >
                       No time has been logged yet.
