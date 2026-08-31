@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
+import { ensureCanonicalAccounts, postJournal } from "./accounts";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { publishNotification } from "../lib/notificationService";
 import { db, eq, desc, and } from "@workspace/db";
@@ -19,9 +20,6 @@ import {
   inventoryTable,
   inventoryMovementsTable,
   accountsPayableTable,
-  chartOfAccountsTable,
-  journalEntriesTable,
-  journalLinesTable,
   inventoryCategoriesTable,
   spawnEntriesTable,
   spawnVaultTransactionsTable,
@@ -205,7 +203,7 @@ async function publishAccountsPayablePaymentNotification(
     targetModule: "accounts",
     submodule: "accounts_payable",
     title: fullyPaid ? "AP payment completed" : "AP partial payment recorded",
-    message: `${payment.paymentNumber} paid ₹${Number(payment.amount || 0).toLocaleString("en-IN")} toward ${bill.billNumber}. ${fullyPaid ? "The bill is fully paid." : `Remaining balance: ₹${balance.toLocaleString("en-IN")}.`}`,
+    message: `${payment.paymentNumber} paid INR${Number(payment.amount || 0).toLocaleString("en-IN")} toward ${bill.billNumber}. ${fullyPaid ? "The bill is fully paid." : `Remaining balance: INR${balance.toLocaleString("en-IN")}.`}`,
     sourceEntityType: "vendor_payment",
     sourceEntityId: payment.id,
     sourceReference: payment.paymentNumber,
@@ -243,7 +241,7 @@ async function getVendorMap() {
     ]),
   );
 }
-// ── Dashboard ────────────────────────────────────────────────────────────────
+// -- Dashboard ----------------------------------------------------------------
 router.get("/dashboard", requireAuth, async (req, res) => {
   const org = orgId(req);
 
@@ -410,7 +408,7 @@ router.get("/dashboard", requireAuth, async (req, res) => {
   });
 });
 
-// ── Vendor Contacts List ────────────────────────────────────────────────────
+// -- Vendor Contacts List ----------------------------------------------------
 router.get("/vendors", requireAuth, async (_req, res) => {
   const vendors = await db
     .select()
@@ -524,7 +522,7 @@ router.get("/master-data", requireAuth, async (req, res) => {
     })),
   });
 });
-// ── Purchase Requests ────────────────────────────────────────────────────────
+// -- Purchase Requests --------------------------------------------------------
 router.get("/purchase-requests", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
@@ -986,7 +984,7 @@ router.delete("/purchase-requests/:id", requireAuth, async (req, res) => {
   return res.json({ success: true });
 });
 
-// ── Purchase Orders ──────────────────────────────────────────────────────────
+// -- Purchase Orders ----------------------------------------------------------
 router.get("/purchase-orders", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
@@ -1291,7 +1289,7 @@ router.delete("/purchase-orders/:id", requireAuth, async (req, res) => {
   return res.json({ success: true });
 });
 
-// ── Goods Receipts (GRN) ─────────────────────────────────────────────────────
+// -- Goods Receipts (GRN) -----------------------------------------------------
 router.get("/goods-receipts", requireAuth, async (req, res) => {
   const org = orgId(req);
   const userMap = await getUserMap(org);
@@ -2467,86 +2465,32 @@ async function settleApprovedVendorPayment(
   );
   if (money(payment.amount) <= 0 || money(payment.amount) > outstanding + 0.005)
     throw new Error(
-      `Payment cannot exceed the outstanding balance of ₹${outstanding.toLocaleString("en-IN")}`,
+      `Payment cannot exceed the outstanding balance of INR${outstanding.toLocaleString("en-IN")}`,
     );
 
-  const accountCodeMatch = String(payment.bankAccount || "").match(/\((\d+)\)/);
-  const accountCode =
-    accountCodeMatch?.[1] || (payment.paymentMode === "Cash" ? "1010" : "1020");
-  const requiredAccounts = [
-    ["2100", "Accounts Payable", "Liability"],
-    ["1010", "Cash Account", "Asset"],
-    ["1020", "Bank Account", "Asset"],
-  ] as const;
-  const accounts = await db
-    .select()
-    .from(chartOfAccountsTable)
-    .where(eq(chartOfAccountsTable.organizationId, org));
-  for (const [code, name, type] of requiredAccounts) {
-    if (!accounts.some((account: any) => account.accountCode === code)) {
-      const [created] = await db
-        .insert(chartOfAccountsTable)
-        .values({
-          organizationId: org,
-          accountCode: code,
-          accountName: name,
-          accountType: type,
-          currentBalance: 0,
-          isActive: true,
-        })
-        .returning();
-      accounts.push(created as any);
-    }
-  }
-  const payableAccount = accounts.find(
-    (account: any) => account.accountCode === "2100",
-  )!;
-  const settlementAccount = accounts.find(
-    (account: any) => account.accountCode === accountCode,
-  );
-  if (!settlementAccount)
-    throw new Error("Selected bank/cash account is invalid");
+  const accounts = await ensureCanonicalAccounts(org);
+  const payableAccount = accounts.find((account: any) => account.accountCode === "2100");
+  const settlementAccount = accounts.find((account: any) => account.accountCode === "1030");
+  if (!payableAccount || !settlementAccount)
+    throw new Error("Accounts Payable and Cash in Hand accounts must be configured");
   const amount = money(payment.amount);
+  const journal = await postJournal(
+    org,
+    {
+      entryDate: payment.paymentDate,
+      reference: `AUTO:FLEX:PAY:${payment.invoiceReference}:${payment.paymentNumber}`,
+      description: `Vendor payment ${payment.paymentNumber}`,
+      sourceType: "Vendor Payment",
+      sourceId: payment.id,
+      lines: [
+        { accountId: payableAccount.id, debit: amount, memo: payment.paymentNumber },
+        { accountId: settlementAccount.id, credit: amount, memo: payment.paymentNumber },
+      ],
+    },
+    approverUserId,
+  );
 
   return db.transaction(async (tx) => {
-    const [journal] = await tx
-      .insert(journalEntriesTable)
-      .values({
-        organizationId: org,
-        entryDate: payment.paymentDate,
-        reference: `AUTO:FLEX:PAY:${payment.invoiceReference}:${payment.paymentNumber}`,
-        description: `Vendor payment ${payment.paymentNumber}`,
-        totalDebit: amount,
-        totalCredit: amount,
-        status: "Posted",
-        sourceType: "Vendor Payment",
-        sourceId: payment.id,
-        createdByUserId: approverUserId,
-      })
-      .returning();
-    for (const line of [
-      { account: payableAccount, debit: amount, credit: 0 },
-      { account: settlementAccount, debit: 0, credit: amount },
-    ]) {
-      await tx.insert(journalLinesTable).values({
-        organizationId: org,
-        journalEntryId: journal.id,
-        accountId: line.account.id,
-        accountCode: line.account.accountCode,
-        accountName: line.account.accountName,
-        debit: line.debit,
-        credit: line.credit,
-        memo: payment.paymentNumber,
-      });
-      await tx
-        .update(chartOfAccountsTable)
-        .set({
-          currentBalance: money(
-            Number(line.account.currentBalance || 0) + line.debit - line.credit,
-          ),
-        })
-        .where(eq(chartOfAccountsTable.id, line.account.id));
-    }
     const paidAmount = money(Number(bill.paidAmount || 0) + amount);
     const covered = money(paidAmount + Number(bill.adjustedAmount || 0));
     const balance = money(Math.max(0, Number(bill.amount || 0) - covered));
@@ -2904,7 +2848,7 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
   const calculatedAmount = taxableAmount + cgstAmount + sgstAmount + igstAmount;
   if (Math.abs(amount - calculatedAmount) > 0.01) {
     return res.status(400).json({
-      error: `Invoice total does not match the line items. Expected ₹${calculatedAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+      error: `Invoice total does not match the line items. Expected INR${calculatedAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
     });
   }
   const effectivePercent = (tax: number) =>
@@ -3190,7 +3134,7 @@ router.delete("/purchase-invoices/:id", requireAuth, async (req, res) => {
   return res.json({ success: true });
 });
 
-// ── Vendor Payments ──────────────────────────────────────────────────────────
+// -- Vendor Payments ----------------------------------------------------------
 router.get(
   "/vendor-payments/outstanding-bills",
   requireAuth,
@@ -3494,7 +3438,7 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     return res
       .status(400)
       .json({
-        error: `Payment must be greater than zero and cannot exceed ₹${availableToRequest.toLocaleString("en-IN")}`,
+        error: `Payment must be greater than zero and cannot exceed INR${availableToRequest.toLocaleString("en-IN")}`,
       });
   const paymentDate = String(
     req.body.paymentDate ?? new Date().toISOString().split("T")[0],

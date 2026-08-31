@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -15,8 +16,11 @@ import {
 import { Label } from "@/components/ui/label";
 import {
   BookOpen,
+  ChevronDown,
+  ChevronRight,
   CreditCard,
   DollarSign,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -64,6 +68,9 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
         );
       return r.status === 204 ? null : r.json();
     });
+const accountTypes = ["Asset", "Liability", "Equity", "Revenue", "Expense"] as const;
+const systemAccountCodes = new Set(["1030", "1100", "2100", "3000", "3010", "4100", "4110", "5100", "5140", "5200", "5300", "5400"]);
+
 const numberValue = (value: any) => {
   const parsed = Number(
     value?.$numberDecimal ?? value?.toString?.() ?? value ?? 0,
@@ -85,10 +92,6 @@ export default function Accounts() {
     [ar, setAr] = useState<any[]>([]),
     [customers, setCustomers] = useState<any[]>([]),
     [vendors, setVendors] = useState<any[]>([]),
-    [masters, setMasters] = useState<any>({
-      transactionTypes: [],
-      sourceRegistry: {},
-    }),
     [bankCash, setBankCash] = useState<any[]>([]),
     [activeTab, setActiveTab] = useState("dashboard"),
     [search, setSearch] = useState(""),
@@ -113,12 +116,14 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
+  const [bankCashReview, setBankCashReview] = useState<{ row: any; action: "approve" | "reject" } | null>(null);
+  const [bankCashReviewRemarks, setBankCashReviewRemarks] = useState("Approved");
   const [listPaging, setListPaging] = useState<
     Record<"j" | "ap" | "ar", { page: number; size: number }>
   >({
-    j: { page: 1, size: 15 },
-    ap: { page: 1, size: 15 },
-    ar: { page: 1, size: 15 },
+    j: { page: 1, size: 10 },
+    ap: { page: 1, size: 10 },
+    ar: { page: 1, size: 10 },
   });
   const [listMeta, setListMeta] = useState<
     Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>
@@ -130,7 +135,7 @@ export default function Accounts() {
   const [apPayment, setApPayment] = useState({
     paymentDate: new Date().toISOString().slice(0, 10),
     paymentMode: "Bank Transfer",
-    bankAccount: "Bank Account (1020)",
+    bankAccount: "Cash in Hand (1030)",
     transactionReference: "",
     notes: "",
     attachmentName: "",
@@ -143,25 +148,8 @@ export default function Accounts() {
     reference: "",
     notes: "",
   });
-  const [openingForm, setOpeningForm] = useState({
-    accountId: "",
-    amount: "",
-    transactionDate: new Date().toISOString().slice(0, 10),
-    reference: "",
-    remarks: "",
-  });
-  const [bankForm, setBankForm] = useState({
-    mode: "Credit",
-    transactionTypeId: "",
-    transactionTypeName: "",
-    bankCashAccountId: "",
-    transferToAccountId: "",
-    counterAccountId: "",
-    amount: "",
-    transactionDate: new Date().toISOString().slice(0, 10),
-    reference: "",
-    remarks: "",
-  });
+  const [bankForm, setBankForm] = useState({ mode: "Credit", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
+  const [collapsedAccountTypes, setCollapsedAccountTypes] = useState<Record<string, boolean>>({ Revenue: true });
   const [accountDocument, setAccountDocument] = useState<any | null>(null);
   const accountTabGroups = [
     {
@@ -181,11 +169,7 @@ export default function Accounts() {
     {
       group: "Reports",
       tabs: [
-        [
-          "statements",
-          "Financial Statements",
-          "accounts.financial_statements.view",
-        ],
+        ["statements", "Financial Statements", "accounts.financial_statements.view"],
         ["journals", "Journal Entries", "accounts.journal_entries.view"],
       ],
     },
@@ -193,8 +177,9 @@ export default function Accounts() {
       group: "Setup & Audit",
       tabs: [
         ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view"],
-        ["opening", "Opening Balances", "accounts.opening_balances.view"],
-        ["masters", "Masters", "accounts.masters.view"],
+        // Opening balances are handled through Bank & Cash.
+        // DISABLED: Masters module is not required for this phase
+        // ["masters", "Masters", "accounts.masters.view"],
         ["tally", "Tally Export", "accounts.tally.view"],
       ],
     },
@@ -205,9 +190,7 @@ export default function Accounts() {
       tabs: section.tabs.filter(([, , permission]) => can(permission)),
     }))
     .filter((section) => section.tabs.length);
-  const visibleAccountTabs = visibleAccountGroups.flatMap(
-    (section) => section.tabs,
-  );
+  const visibleAccountTabs = visibleAccountGroups.flatMap((section) => section.tabs);
   const today = new Date().toISOString().slice(0, 10);
   const openManual = (
     type: "account" | "journal" | "ap" | "ar",
@@ -238,15 +221,14 @@ export default function Accounts() {
     setError("");
     try {
       if (manualType === "account")
-        await api("/coa", {
-          method: "POST",
+        await api(manual.id ? `/coa/${manual.id}` : "/coa", {
+          method: manual.id ? "PATCH" : "POST",
           body: JSON.stringify({
             accountCode: manual.accountCode?.trim(),
             accountName: manual.accountName?.trim(),
             accountType: manual.accountType,
-            currentBalance: numberValue(manual.currentBalance),
             description: manual.description || "",
-            isActive: true,
+            isActive: manual.isActive !== false,
           }),
         });
       if (manualType === "journal") {
@@ -358,10 +340,9 @@ export default function Accounts() {
       can("accounts.journal_entries.view")
         ? [["c", "/coa"]]
         : []),
-      ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
-      ...(can("accounts.bank_cash.view")
-        ? [["bc", "/bank-cash-transactions"]]
-        : []),
+      // DISABLED: Masters module is not required for this phase
+      // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
+      ...(can("accounts.bank_cash.view") ? [["bc", "/bank-cash-transactions"]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
             [
@@ -404,7 +385,8 @@ export default function Accounts() {
       }
       if (k === "s") setSummary(v);
       if (k === "c") setCoa(v as any[]);
-      if (k === "m") setMasters(v);
+      // DISABLED: Masters module is not required for this phase
+      // if (k === "m") setMasters(v);
       if (k === "bc") setBankCash(v as any[]);
       if (k === "j" || k === "ap" || k === "ar") {
         const response = v as any;
@@ -634,119 +616,41 @@ export default function Accounts() {
     new Promise<any | null>((resolve, reject) => {
       if (!file) return resolve(null);
       const reader = new FileReader();
-      reader.onload = () =>
-        resolve({ name: file.name, content: String(reader.result || "") });
-      reader.onerror = () =>
-        reject(reader.error || new Error("Unable to read document"));
+      reader.onload = () => resolve({ name: file.name, content: String(reader.result || "") });
+      reader.onerror = () => reject(reader.error || new Error("Unable to read document"));
       reader.readAsDataURL(file);
     });
-  const submitOpeningBalance = async () => {
-    setSubmitting(true);
-    setError("");
-    try {
-      await api("/opening-balances", {
-        method: "POST",
-        body: JSON.stringify({
-          bankCashAccountId: Number(openingForm.accountId),
-          amount: numberValue(openingForm.amount),
-          transactionDate: openingForm.transactionDate,
-          reference: openingForm.reference,
-          remarks: openingForm.remarks,
-          document: accountDocument,
-        }),
-      });
-      setOpeningForm({
-        accountId: "",
-        amount: "",
-        transactionDate: new Date().toISOString().slice(0, 10),
-        reference: "",
-        remarks: "",
-      });
-      setAccountDocument(null);
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
   const submitBankCash = async () => {
     setSubmitting(true);
     setError("");
     try {
-      const type = (masters.transactionTypes || []).find(
-        (row: any) => String(row.id) === String(bankForm.transactionTypeId),
-      );
-      await api("/bank-cash-transactions", {
-        method: "POST",
-        body: JSON.stringify({
-          ...bankForm,
-          transactionTypeName:
-            bankForm.transactionTypeName ||
-            type?.name ||
-            "Bank/Cash Transaction",
-          transactionTypeId: bankForm.transactionTypeId
-            ? Number(bankForm.transactionTypeId)
-            : undefined,
-          bankCashAccountId: Number(bankForm.bankCashAccountId),
-          transferToAccountId: bankForm.transferToAccountId
-            ? Number(bankForm.transferToAccountId)
-            : undefined,
-          counterAccountId: bankForm.counterAccountId
-            ? Number(bankForm.counterAccountId)
-            : undefined,
-          amount: numberValue(bankForm.amount),
-          document: accountDocument,
-        }),
-      });
-      setBankForm({
-        mode: "Credit",
-        transactionTypeId: "",
-        transactionTypeName: "",
-        bankCashAccountId: "",
-        transferToAccountId: "",
-        counterAccountId: "",
-        amount: "",
-        transactionDate: new Date().toISOString().slice(0, 10),
-        reference: "",
-        remarks: "",
-      });
+      await api("/bank-cash-transactions", { method: "POST", body: JSON.stringify({ ...bankForm, transactionTypeName: bankForm.transactionTypeName || "Bank/Cash Transaction", mode: bankForm.transactionTypeName === "Opening Balance" ? "Credit" : bankForm.mode, bankCashAccountId: Number(bankForm.bankCashAccountId), transferToAccountId: bankForm.transactionTypeName === "Opening Balance" ? undefined : bankForm.transferToAccountId ? Number(bankForm.transferToAccountId) : undefined, counterAccountId: bankForm.transactionTypeName === "Opening Balance" ? undefined : bankForm.counterAccountId ? Number(bankForm.counterAccountId) : undefined, amount: numberValue(bankForm.amount), document: accountDocument }) });
+      setBankForm({ mode: "Credit", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
       setAccountDocument(null);
       await load();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
+    } catch (e: any) { setError(e.message); } finally { setSubmitting(false); }
   };
-  const bankCashDecision = async (row: any, action: "approve" | "reject") => {
-    const remarks =
-      action === "reject"
-        ? window.prompt("Rejection remarks")
-        : window.prompt("Approval remarks", "Approved");
-    if (remarks === null || (action === "reject" && !remarks.trim())) return;
+  const bankCashDecision = (row: any, action: "approve" | "reject") => {
+    setBankCashReview({ row, action });
+    setBankCashReviewRemarks(action === "approve" ? "Approved" : "");
+    setError("");
+  };
+  const submitBankCashDecision = async () => {
+    if (!bankCashReview) return;
+    const remarks = bankCashReviewRemarks.trim();
+    if (bankCashReview.action === "reject" && !remarks) {
+      setError("Rejection remarks are required.");
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
-      await api(`/bank-cash-transactions/${row.id}/${action}`, {
+      await api(`/bank-cash-transactions/${bankCashReview.row.id}/${bankCashReview.action}`, {
         method: "POST",
-        body: JSON.stringify({ remarks }),
+        body: JSON.stringify({ remarks: remarks || "Approved" }),
       });
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  const saveTransactionType = async (row: any, patch: any) => {
-    setSubmitting(true);
-    setError("");
-    try {
-      await api(`/masters/transaction-types/${row.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      });
+      setBankCashReview(null);
+      setBankCashReviewRemarks("Approved");
       await load();
     } catch (e: any) {
       setError(e.message);
@@ -762,16 +666,11 @@ export default function Accounts() {
     URL.revokeObjectURL(link.href);
   };
   const fetchTallyExport = async (format: "xml" | "csv" | "json") => {
-    const response = await fetch(
-      `${base}/api/accounts/tally/export?format=${format}`,
-      { credentials: "include" },
-    );
+    const response = await fetch(`${base}/api/accounts/tally/export?format=${format}`, { credentials: "include" });
     if (response.status === 423) notifyModuleLocked("ledger");
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(
-        body.error || `Unable to export Tally ${format.toUpperCase()}`,
-      );
+      throw new Error(body.error || `Unable to export Tally ${format.toUpperCase()}`);
     }
     return response;
   };
@@ -781,10 +680,7 @@ export default function Accounts() {
     try {
       const response = await fetchTallyExport(format);
       const blob = await response.blob();
-      downloadBlob(
-        blob,
-        `tally-export-${new Date().toISOString().slice(0, 10)}.${format}`,
-      );
+      downloadBlob(blob, `tally-export-${new Date().toISOString().slice(0, 10)}.${format}`);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -799,32 +695,16 @@ export default function Accounts() {
       const payload = await response.json();
       const XLSX = await import("xlsx");
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(payload.ledgers || []),
-        "Ledgers",
-      );
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(payload.vouchers || []),
-        "Vouchers",
-      );
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.json_to_sheet(payload.voucherLines || []),
-        "Voucher Lines",
-      );
-      XLSX.writeFile(
-        workbook,
-        `tally-export-${new Date().toISOString().slice(0, 10)}.xlsx`,
-      );
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.ledgers || []), "Ledgers");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.vouchers || []), "Vouchers");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.voucherLines || []), "Voucher Lines");
+      XLSX.writeFile(workbook, `tally-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (e: any) {
       setError(e.message);
     } finally {
       setSubmitting(false);
     }
-  };
-  const statusBadge = (value: any) => {
+  };  const statusBadge = (value: any) => {
     const status = String(value || "Pending");
     const settled = status === "Paid" || status === "Approved";
     return (
@@ -881,7 +761,7 @@ export default function Accounts() {
                 <tr key={r.id ?? i} className="border-t">
                   {cols.map((c) => (
                     <td key={c[1]} className="px-3 py-2">
-                      {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "�")}
+                      {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "-")}
                     </td>
                   ))}
                 </tr>
@@ -917,7 +797,7 @@ export default function Accounts() {
                 disabled
                 aria-label="Previous page"
               >
-                ‹
+                &lt;
               </Button>
               <span className="flex h-8 w-8 items-center justify-center rounded-md bg-red-500 font-medium text-white">
                 1
@@ -929,7 +809,7 @@ export default function Accounts() {
                 disabled={rows.length <= 10}
                 aria-label="Next page"
               >
-                ›
+                &gt;
               </Button>
             </div>
           </div>
@@ -1099,53 +979,19 @@ export default function Accounts() {
     URL.revokeObjectURL(link.href);
   };
   const pageTitles: Record<string, [string, string]> = {
-    dashboard: [
-      "Finance Dashboard",
-      "Today's receivables, payables, cash position and account health",
-    ],
-    bankcash: [
-      "Bank & Cash",
-      "Record deposits, withdrawals, transfers and cash movements",
-    ],
+    dashboard: ["Finance Dashboard", "Today's receivables, payables, cash position and account health"],
+    bankcash: ["Bank & Cash", "Record deposits, withdrawals, transfers and cash movements"],
     ar: ["Receivables", "Customer invoices, credit notes and receipts"],
     ap: ["Payables", "Vendor bills, debit notes and payments"],
-    customers: [
-      "Customer Ledger",
-      "Customer-wise invoices, receipts, credits and outstanding balances",
-    ],
-    vendors: [
-      "Vendor Ledger",
-      "Vendor-wise bills, payments, credits and outstanding balances",
-    ],
-    statements: [
-      "Financial Statements",
-      "Profit & Loss, Balance Sheet and Trial Balance from posted vouchers",
-    ],
-    journals: [
-      "Journal Entries",
-      "Posted double-entry vouchers behind every account movement",
-    ],
-    coa: [
-      "Chart of Accounts",
-      "Ledger structure, bank/cash accounts and account balances",
-    ],
-    opening: [
-      "Opening Balances",
-      "Starting balances for bank and cash ledgers with approval",
-    ],
-    masters: [
-      "Accounts Masters",
-      "Transaction types and source mapping used by accounting workflows",
-    ],
-    tally: [
-      "Tally Export",
-      "Export ledgers and posted vouchers for TallyPrime and audit review",
-    ],
+    customers: ["Customer Ledger", "Customer-wise invoices, receipts, credits and outstanding balances"],
+    vendors: ["Vendor Ledger", "Vendor-wise bills, payments, credits and outstanding balances"],
+    statements: ["Financial Statements", "Profit & Loss, Balance Sheet and Trial Balance from posted vouchers"],
+    journals: ["Journal Entries", "Posted double-entry vouchers behind every account movement"],
+    coa: ["Chart of Accounts", "Ledger structure, bank/cash accounts and account balances"],
+    // Opening balances are entered from Bank & Cash and retained in history there.
+    tally: ["Tally Export", "Export ledgers and posted vouchers for TallyPrime and audit review"],
   };
-  const activePageTitle = pageTitles[activeTab] || [
-    "Accounts",
-    "Finance and accounting operations",
-  ];
+  const activePageTitle = pageTitles[activeTab] || ["Accounts", "Finance and accounting operations"];
   return (
     <Shell>
       <div className="min-h-full space-y-5 p-4 pt-16 sm:p-6">
@@ -1180,9 +1026,7 @@ export default function Accounts() {
         <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-end">
           <div>
             <h2 className="text-lg font-semibold">{activePageTitle[0]}</h2>
-            <p className="text-sm text-muted-foreground">
-              {activePageTitle[1]}
-            </p>
+            <p className="text-sm text-muted-foreground">{activePageTitle[1]}</p>
           </div>
           <Input
             placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
@@ -1193,10 +1037,7 @@ export default function Accounts() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="space-y-2 rounded-lg border bg-white p-2">
             {visibleAccountGroups.map((section) => (
-              <div
-                key={section.group}
-                className="flex flex-col gap-1 md:flex-row md:items-center"
-              >
+              <div key={section.group} className="flex flex-col gap-1 md:flex-row md:items-center">
                 <div className="w-28 shrink-0 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {section.group}
                 </div>
@@ -1209,8 +1050,7 @@ export default function Accounts() {
                 </TabsList>
               </div>
             ))}
-          </div>{" "}
-          <TabsContent value="dashboard">
+          </div>          <TabsContent value="dashboard">
             <FinanceDashboard
               request={api}
               summary={summary}
@@ -1251,420 +1091,93 @@ export default function Accounts() {
                 </Button>
               </div>
             )}
-            <Table
-              rows={f(coa)}
-              cols={[
-                ["Code", "accountCode"],
-                ["Account", "accountName"],
-                ["Type", "accountType"],
-                ["Balance", "currentBalance", inr],
-              ]}
-            />
-          </TabsContent>
-          <TabsContent value="opening" className="space-y-3">
-            <Card className="rounded-md border bg-white shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">Opening Balances</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-6">
-                <select
-                  className="h-10 rounded-md border px-3 text-sm md:col-span-2"
-                  value={openingForm.accountId}
-                  onChange={(e) =>
-                    setOpeningForm({
-                      ...openingForm,
-                      accountId: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Bank / cash ledger</option>
-                  {coa
-                    .filter((a: any) => a.isBankCash)
-                    .map((a: any) => (
-                      <option key={a.id} value={a.id}>
-                        {a.accountCode} - {a.accountName}
-                      </option>
-                    ))}
-                </select>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="Amount"
-                  value={openingForm.amount}
-                  onChange={(e) =>
-                    setOpeningForm({ ...openingForm, amount: e.target.value })
-                  }
-                />
-                <Input
-                  type="date"
-                  value={openingForm.transactionDate}
-                  onChange={(e) =>
-                    setOpeningForm({
-                      ...openingForm,
-                      transactionDate: e.target.value,
-                    })
-                  }
-                />
-                <Input
-                  placeholder="Reference"
-                  value={openingForm.reference}
-                  onChange={(e) =>
-                    setOpeningForm({
-                      ...openingForm,
-                      reference: e.target.value,
-                    })
-                  }
-                />
-                <Input
-                  placeholder="Remarks"
-                  value={openingForm.remarks}
-                  onChange={(e) =>
-                    setOpeningForm({ ...openingForm, remarks: e.target.value })
-                  }
-                />
-                <Input
-                  type="file"
-                  className="md:col-span-2"
-                  onChange={(e) =>
-                    void readAccountFile(e.target.files?.[0]).then(
-                      setAccountDocument,
-                    )
-                  }
-                />
-                <Button
-                  disabled={
-                    submitting || !openingForm.accountId || !openingForm.amount
-                  }
-                  onClick={() => void submitOpeningBalance()}
-                >
-                  Submit for Approval
-                </Button>
-              </CardContent>
-            </Card>
-            <Table
-              rows={f(
-                bankCash.filter(
-                  (row) => row.transactionTypeName === "Opening Balance",
-                ),
-              )}
-              cols={[
-                ["Date", "transactionDate"],
-                ["Reference", "reference"],
-                ["Type", "transactionTypeName"],
-                ["Amount", "amount", inr],
-                ["Status", "approvalStatus", statusBadge],
-                [
-                  "Actions",
-                  "id",
-                  (_: any, row: any) =>
-                    row.approvalStatus === "Pending Approval" &&
-                    can("accounts.bank_cash.approve") ? (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void bankCashDecision(row, "approve")}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void bankCashDecision(row, "reject")}
-                        >
-                          Reject
-                        </Button>
+            <div className="overflow-hidden rounded-md border bg-white">
+              {accountTypes.map((type) => {
+                const rows = f(coa).filter((account: any) => account.accountType === type);
+                const collapsed = collapsedAccountTypes[type];
+                return (
+                  <div key={type} className="border-b last:border-b-0">
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between bg-muted/50 px-4 py-3 text-left"
+                      onClick={() => setCollapsedAccountTypes((current) => ({ ...current, [type]: !current[type] }))}
+                    >
+                      <span className="flex items-center gap-2 font-semibold">
+                        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        {type}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{rows.length} accounts</span>
+                    </button>
+                    {!collapsed && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="border-t bg-white">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Code</th>
+                              <th className="px-3 py-2 text-left">Account</th>
+                              <th className="px-3 py-2 text-right">Balance</th>
+                              <th className="px-3 py-2 text-right">Active</th>
+                              <th className="px-3 py-2 text-right">Edit</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.length ? rows.map((account: any) => (
+                              <tr key={account.id} className="border-t">
+                                <td className="px-3 py-2 font-mono text-muted-foreground">{account.accountCode}</td>
+                                <td className="px-3 py-2">{account.accountName}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{inr(account.currentBalance)}</td>
+                                <td className="px-3 py-2 text-right">{account.isActive === false ? "No" : "Yes"}</td>
+                                <td className="px-3 py-2 text-right">
+                                  <Button size="icon" variant="ghost" title={systemAccountCodes.has(String(account.accountCode)) ? "System account" : "Edit account"} disabled={systemAccountCodes.has(String(account.accountCode))} onClick={() => openManual("account", account)}>
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            )) : (
+                              <tr><td className="px-3 py-4 text-center text-muted-foreground" colSpan={5}>No accounts.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
                       </div>
-                    ) : (
-                      "�"
-                    ),
-                ],
-              ]}
-            />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </TabsContent>
           <TabsContent value="bankcash" className="space-y-3">
             <Card className="rounded-md border bg-white shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Bank & Cash Transaction
-                </CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-6">
-                <select
-                  className="h-10 rounded-md border px-3 text-sm"
-                  value={bankForm.mode}
-                  onChange={(e) =>
-                    setBankForm({ ...bankForm, mode: e.target.value })
-                  }
-                >
-                  <option>Credit</option>
-                  <option>Debit</option>
-                  <option>Transfer</option>
+                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.transactionTypeName || "Bank/Cash Transaction"} onChange={(e) => setBankForm({ ...bankForm, transactionTypeName: e.target.value, mode: e.target.value === "Opening Balance" ? "Credit" : bankForm.mode })}><option>Bank/Cash Transaction</option><option>Opening Balance</option></select>
+                {bankForm.transactionTypeName !== "Opening Balance" && <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>}
+                <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
+                  <option value="">Chart of Account</option>{coa.filter((a: any) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
                 </select>
-                <select
-                  className="h-10 rounded-md border px-3 text-sm"
-                  value={bankForm.transactionTypeId}
-                  onChange={(e) =>
-                    setBankForm({
-                      ...bankForm,
-                      transactionTypeId: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Type</option>
-                  {(masters.transactionTypes || [])
-                    .filter((t: any) => t.isActive !== false)
-                    .map((t: any) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  className="h-10 rounded-md border px-3 text-sm md:col-span-2"
-                  value={bankForm.bankCashAccountId}
-                  onChange={(e) =>
-                    setBankForm({
-                      ...bankForm,
-                      bankCashAccountId: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">From / bank cash ledger</option>
-                  {coa
-                    .filter((a: any) => a.isBankCash)
-                    .map((a: any) => (
-                      <option key={a.id} value={a.id}>
-                        {a.accountCode} - {a.accountName}
-                      </option>
-                    ))}
-                </select>
-                {bankForm.mode === "Transfer" ? (
-                  <select
-                    className="h-10 rounded-md border px-3 text-sm md:col-span-2"
-                    value={bankForm.transferToAccountId}
-                    onChange={(e) =>
-                      setBankForm({
-                        ...bankForm,
-                        transferToAccountId: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="">Transfer to</option>
-                    {coa
-                      .filter((a: any) => a.isBankCash)
-                      .map((a: any) => (
-                        <option key={a.id} value={a.id}>
-                          {a.accountCode} - {a.accountName}
-                        </option>
-                      ))}
-                  </select>
-                ) : (
-                  <select
-                    className="h-10 rounded-md border px-3 text-sm md:col-span-2"
-                    value={bankForm.counterAccountId}
-                    onChange={(e) =>
-                      setBankForm({
-                        ...bankForm,
-                        counterAccountId: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="">Counter ledger optional</option>
-                    {coa.map((a: any) => (
-                      <option key={a.id} value={a.id}>
-                        {a.accountCode} - {a.accountName}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="Amount"
-                  value={bankForm.amount}
-                  onChange={(e) =>
-                    setBankForm({ ...bankForm, amount: e.target.value })
-                  }
-                />
-                <Input
-                  type="date"
-                  value={bankForm.transactionDate}
-                  onChange={(e) =>
-                    setBankForm({
-                      ...bankForm,
-                      transactionDate: e.target.value,
-                    })
-                  }
-                />
-                <Input
-                  placeholder="Reference"
-                  value={bankForm.reference}
-                  onChange={(e) =>
-                    setBankForm({ ...bankForm, reference: e.target.value })
-                  }
-                />
-                <Input
-                  placeholder="Remarks"
-                  value={bankForm.remarks}
-                  onChange={(e) =>
-                    setBankForm({ ...bankForm, remarks: e.target.value })
-                  }
-                />
-                <Input
-                  type="file"
-                  className="md:col-span-2"
-                  onChange={(e) =>
-                    void readAccountFile(e.target.files?.[0]).then(
-                      setAccountDocument,
-                    )
-                  }
-                />
-                <Button
-                  disabled={
-                    submitting ||
-                    !bankForm.bankCashAccountId ||
-                    !bankForm.amount
-                  }
-                  onClick={() => void submitBankCash()}
-                >
-                  Submit for Approval
-                </Button>
+                {bankForm.transactionTypeName !== "Opening Balance" && (bankForm.mode === "Transfer" ? <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Transfer to account</option>{coa.filter((a: any) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select> : <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.counterAccountId} onChange={(e) => setBankForm({ ...bankForm, counterAccountId: e.target.value })}><option value="">Counter account optional</option>{coa.filter((a: any) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select>)}
+                <Input type="number" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
+                <Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
+                <Input placeholder="Reference" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
+                <Input placeholder="Remarks" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
+                <Input type="file" className="md:col-span-2" onChange={(e) => void readAccountFile(e.target.files?.[0]).then(setAccountDocument)} />
+                <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
-            <Table
-              rows={f(
-                bankCash.filter(
-                  (row) => row.transactionTypeName !== "Opening Balance",
-                ),
-              )}
-              cols={[
-                ["Date", "transactionDate"],
-                ["Reference", "reference"],
-                ["Type", "transactionTypeName"],
-                ["Mode", "mode"],
-                ["Amount", "amount", inr],
-                ["Status", "approvalStatus", statusBadge],
-                [
-                  "Actions",
-                  "id",
-                  (_: any, row: any) =>
-                    row.approvalStatus === "Pending Approval" &&
-                    can("accounts.bank_cash.approve") ? (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void bankCashDecision(row, "approve")}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void bankCashDecision(row, "reject")}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    ) : (
-                      "�"
-                    ),
-                ],
-              ]}
-            />
+            <Table rows={f(bankCash)} cols={[
+              ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Account", "bankCashAccountId", (_: any, row: any) => coa.find((a: any) => Number(a.id) === Number(row.bankCashAccountId))?.accountName || row.bankCashAccountId], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
+              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "reject")}>Reject</Button></div> : "-"],
+            ]} />
           </TabsContent>
-          <TabsContent value="masters" className="space-y-3">
-            <Table
-              rows={f(masters.transactionTypes || [])}
-              cols={[
-                ["Code", "code"],
-                ["Name", "name"],
-                ["Direction", "direction"],
-                ["Tally Voucher", "tallyVoucherType"],
-                [
-                  "Active",
-                  "isActive",
-                  (v: any) => (v === false ? "No" : "Yes"),
-                ],
-                [
-                  "Actions",
-                  "id",
-                  (_: any, row: any) => (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        void saveTransactionType(row, {
-                          isActive: row.isActive === false,
-                        })
-                      }
-                    >
-                      {row.isActive === false ? "Enable" : "Disable"}
-                    </Button>
-                  ),
-                ],
-              ]}
-            />
-            <Card className="rounded-md border bg-white shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  Accounts Data Sources
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2 md:grid-cols-2">
-                {Object.entries(masters.sourceRegistry || {}).map(
-                  ([key, value]: any) => (
-                    <div key={key} className="rounded border p-3">
-                      <p className="font-medium capitalize">
-                        {key.replace(/([A-Z])/g, " $1")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {(value || []).join(", ")}
-                      </p>
-                    </div>
-                  ),
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {/* DISABLED: Masters module is not required for this phase */}
+          {/* <TabsContent value="masters" className="space-y-3">
+            <Table rows={f(masters.transactionTypes || [])} cols={[
+              ["Code", "code"], ["Name", "name"], ["Direction", "direction"], ["Tally Voucher", "tallyVoucherType"], ["Active", "isActive", (v: any) => v === false ? "No" : "Yes"],
+              ["Actions", "id", (_: any, row: any) => <Button size="sm" variant="outline" onClick={() => void saveTransactionType(row, { isActive: row.isActive === false })}>{row.isActive === false ? "Enable" : "Disable"}</Button>],
+            ]} />
+            <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">Accounts Data Sources</CardTitle></CardHeader><CardContent className="grid gap-2 md:grid-cols-2">{Object.entries(masters.sourceRegistry || {}).map(([key, value]: any) => <div key={key} className="rounded border p-3"><p className="font-medium capitalize">{key.replace(/([A-Z])/g, " $1")}</p><p className="text-xs text-muted-foreground">{(value || []).join(", ")}</p></div>)}</CardContent></Card>
+          </TabsContent> */}
           <TabsContent value="tally" className="space-y-3">
-            <Card className="rounded-md border bg-white shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">TallyPrime Export</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-3">
-                {can("accounts.tally.export") ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      disabled={submitting}
-                      onClick={() => void exportTallyFile("xml")}
-                    >
-                      Export Chart of Accounts + Posted Vouchers XML
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={submitting}
-                      onClick={() => void exportTallyXlsx()}
-                    >
-                      Export Chart of Accounts + Posted Vouchers XLSX
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={submitting}
-                      onClick={() => void exportTallyFile("csv")}
-                    >
-                      Export Chart of Accounts + Posted Vouchers CSV
-                    </Button>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    You need Tally export permission.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">TallyPrime Export</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-3">{can("accounts.tally.export") ? <><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("xml")}>Export Chart of Accounts + Posted Vouchers XML</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyXlsx()}>Export Chart of Accounts + Posted Vouchers XLSX</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("csv")}>Export Chart of Accounts + Posted Vouchers CSV</Button></> : <p className="text-sm text-muted-foreground">You need Tally export permission.</p>}</CardContent></Card>
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
             {can("accounts.accounts_payable.create") && (
@@ -1960,7 +1473,7 @@ export default function Accounts() {
             <DialogHeader>
               <DialogTitle>
                 {manualType === "account"
-                  ? "Add Ledger Account"
+                  ? (manual.id ? "Edit Ledger Account" : "Add Ledger Account")
                   : manualType === "journal"
                     ? "New Journal Entry"
                     : manualType === "ap"
@@ -2012,15 +1525,17 @@ export default function Accounts() {
                       </select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Opening Balance *</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={manual.currentBalance || ""}
+                      <Label>Status</Label>
+                      <select
+                        className="h-10 w-full rounded-md border bg-background px-3"
+                        value={manual.isActive === false ? "inactive" : "active"}
                         onChange={(e) =>
-                          setManualField("currentBalance", e.target.value)
+                          setManualField("isActive", e.target.value === "active")
                         }
-                      />
+                      >
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
                       <Label>Description</Label>
@@ -2075,7 +1590,7 @@ export default function Accounts() {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountCode} � {a.accountName}
+                            {a.accountCode} - {a.accountName}
                           </option>
                         ))}
                       </select>
@@ -2092,7 +1607,7 @@ export default function Accounts() {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountCode} � {a.accountName}
+                            {a.accountCode} - {a.accountName}
                           </option>
                         ))}
                       </select>
@@ -2370,6 +1885,76 @@ export default function Accounts() {
           </DialogContent>
         </Dialog>
         <Dialog
+          open={Boolean(bankCashReview)}
+          onOpenChange={(open) => {
+            if (!open && !submitting) {
+              setBankCashReview(null);
+              setBankCashReviewRemarks("Approved");
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>
+                {bankCashReview?.action === "approve" ? "Approve Transaction" : "Reject Transaction"}
+              </DialogTitle>
+            </DialogHeader>
+            {bankCashReview && (
+              <div className="space-y-4 py-1">
+                <div className="grid gap-3 rounded-md bg-muted/45 p-4 text-sm sm:grid-cols-3">
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Reference</p>
+                    <p className="font-medium">{bankCashReview.row.reference || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Account</p>
+                    <p className="font-medium">{coa.find((a: any) => Number(a.id) === Number(bankCashReview.row.bankCashAccountId))?.accountName || bankCashReview.row.bankCashAccountId}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Amount</p>
+                    <p className="font-medium">{inr(bankCashReview.row.amount)}</p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="bank-cash-review-remarks">
+                    {bankCashReview.action === "approve" ? "Approval Remarks" : "Rejection Remarks"}
+                  </Label>
+                  <Textarea
+                    id="bank-cash-review-remarks"
+                    className="min-h-[96px] resize-none"
+                    placeholder={bankCashReview.action === "approve" ? "Approved" : "Enter rejection remarks"}
+                    value={bankCashReviewRemarks}
+                    onChange={(event) => setBankCashReviewRemarks(event.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBankCashReview(null);
+                  setBankCashReviewRemarks("Approved");
+                }}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={bankCashReview?.action === "reject" ? "destructive" : "default"}
+                onClick={() => void submitBankCashDecision()}
+                disabled={submitting || (bankCashReview?.action === "reject" && !bankCashReviewRemarks.trim())}
+              >
+                {submitting
+                  ? "Submitting..."
+                  : bankCashReview?.action === "approve"
+                    ? "Approve"
+                    : "Reject"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
           open={settlement?.kind === "ap"}
           onOpenChange={(open) => {
             if (!open && !submitting) {
@@ -2423,7 +2008,7 @@ export default function Accounts() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="ap-payment-amount">Payment Amount (₹)</Label>
+                  <Label htmlFor="ap-payment-amount">Payment Amount (INR)</Label>
                   <Input
                     id="ap-payment-amount"
                     type="number"
@@ -2493,7 +2078,7 @@ export default function Accounts() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="payment-amount">Payment Amount (₹)</Label>
+                  <Label htmlFor="payment-amount">Payment Amount (INR)</Label>
                   <Input
                     id="payment-amount"
                     type="number"

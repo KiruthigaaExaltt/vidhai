@@ -78,7 +78,7 @@ export default function ReportFuelConsumption() {
         {/* Summary */}
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: "Total Litres", value: `${totalLitres.toFixed(1)} L` },
+            { label: "Total Litres", value: `${totalLitres.toFixed(1)} Litres` },
             { label: "Total Cost", value: totalCost > 0 ? `₹${totalCost.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—" },
             {
               label: "Avg Cost/Litre",
@@ -138,7 +138,7 @@ export default function ReportFuelConsumption() {
                     <th className="px-4 py-2 font-medium text-right">Litres</th>
                     <th className="px-4 py-2 font-medium text-right">Total Cost (₹)</th>
                     <th className="px-4 py-2 font-medium text-right">Fills</th>
-                    <th className="px-4 py-2 font-medium text-right">Avg ₹/L</th>
+                    <th className="px-4 py-2 font-medium text-right">Avg ₹/Litre</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">

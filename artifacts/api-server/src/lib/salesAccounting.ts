@@ -20,11 +20,12 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 async function accountIds(organizationId: number) {
   const accounts = await ensureCanonicalAccounts(organizationId);
-  const id = (code: string) => {
+  const id = ((code: string) => {
     const account = accounts.find((row: any) => row.accountCode === code);
     if (!account) throw new Error(`Account ${code} is not configured`);
     return account.id;
-  };
+  }) as any;
+  id.firstByType = (type: string) => accounts.find((row: any) => row.accountType === type && row.isActive !== false)?.id;
   return id;
 }
 
@@ -149,32 +150,34 @@ export async function triggerInvoiceApproved(
   if (!invoice || !["Approved", "Paid"].includes(invoice.status)) return null;
   const id = await accountIds(organizationId);
   const grandTotal = money(invoice.grandTotal);
-  const cgst = money(invoice.cgstTotal);
-  const sgst = money(invoice.sgstTotal);
-  const igst = money(invoice.igstTotal);
-  const revenue = money(grandTotal - cgst - sgst - igst);
-  const journal = await postJournal(
-    organizationId,
-    {
-      entryDate: invoice.invoiceDate,
-      reference: `AUTO:SALES:${invoice.invoiceNumber}:${invoice.id}`,
-      description: `Sales invoice ${invoice.invoiceNumber}`,
-      sourceType: "Sales Invoice",
-      sourceId: invoice.id,
-      lines: [
-        { accountId: id("1100"), debit: grandTotal },
-        { accountId: id("4100"), credit: revenue },
-        { accountId: id("2210"), credit: cgst },
-        { accountId: id("2220"), credit: sgst },
-        { accountId: id("2230"), credit: igst },
-      ].filter((line) => money(line.debit ?? line.credit) > 0),
-    },
-    userId,
-  );
-  await db
-    .update(salesInvoicesTable)
-    .set({ journalEntryId: journal.id })
-    .where(eq(salesInvoicesTable.id, invoice.id));
+  const revenueAccountId = id("4100");
+  let journal: any = null;
+  let journalId = invoice.journalEntryId;
+  if (!journalId) {
+    journal = await postJournal(
+      organizationId,
+      {
+        entryDate: invoice.invoiceDate,
+        reference: `AUTO:SALES:${invoice.invoiceNumber}:${invoice.id}`,
+        description: `Sales invoice ${invoice.invoiceNumber}`,
+        sourceType: "Sales Invoice",
+        sourceId: invoice.id,
+        lines: [
+          { accountId: id("1100"), debit: grandTotal },
+          { accountId: revenueAccountId, credit: grandTotal },
+        ],
+      },
+      userId,
+    );
+    journalId = journal.id;
+  }
+  
+  if (journalId) {
+    await db
+      .update(salesInvoicesTable)
+      .set({ journalEntryId: journalId })
+      .where(eq(salesInvoicesTable.id, invoice.id));
+  }
 
   let ar = await invoiceAr(organizationId, invoice);
   if (!ar) {
@@ -196,14 +199,14 @@ export async function triggerInvoiceApproved(
         requiredApprovals: 1,
         approvedByUserIds: JSON.stringify(userId ? [userId] : []),
         entryType: "Invoice",
-        journalEntryId: journal.id,
+        journalEntryId: journalId,
         sourceType: "Sales Invoice",
         sourceId: invoice.id,
       })
       .returning();
   }
   await recalculateInvoiceAccounting(invoice.id, organizationId);
-  return { journal, ar };
+  return { journalId, ar };
 }
 
 export async function triggerPaymentReceived(
@@ -237,9 +240,9 @@ export async function triggerPaymentReceived(
       sourceType: "Customer Payment",
       sourceId: payment.id,
       lines: [
-        { accountId: id("1020"), debit: net },
-        { accountId: id("1120"), debit: tds },
+        { accountId: id("1030"), debit: net },
         { accountId: id("5200"), debit: charges },
+        { accountId: id("5300"), debit: tds },
         { accountId: id("1100"), credit: amount },
       ].filter((line) => money(line.debit ?? line.credit) > 0),
     },
@@ -266,10 +269,7 @@ export async function triggerSalesReturnCredited(
   if (!salesReturn?.invoiceId || !["Credit Issued", "Credited"].includes(salesReturn.status)) return null;
   const id = await accountIds(organizationId);
   const total = money(salesReturn.grandTotal);
-  const cgst = money(salesReturn.cgstTotal);
-  const sgst = money(salesReturn.sgstTotal);
-  const igst = money(salesReturn.igstTotal);
-  const revenue = money(total - cgst - sgst - igst);
+  const revenueAccountId = id("4110");
   const journal = await postJournal(
     organizationId,
     {
@@ -279,10 +279,7 @@ export async function triggerSalesReturnCredited(
       sourceType: "Sales Credit Note",
       sourceId: salesReturn.id,
       lines: [
-        { accountId: id("4100"), debit: revenue },
-        { accountId: id("2210"), debit: cgst },
-        { accountId: id("2220"), debit: sgst },
-        { accountId: id("2230"), debit: igst },
+        { accountId: revenueAccountId, debit: total },
         { accountId: id("1100"), credit: total },
       ].filter((line) => money(line.debit ?? line.credit) > 0),
     },

@@ -180,8 +180,8 @@ export const permissionCatalog: PermissionCatalogRow[] = [
     key: "accounts.financial_statements",
     actions: ["view", "export", "download"],
   },
-  { module: "Accounts - Masters", key: "accounts.masters", actions: crud },
-  { module: "Accounts - Opening Balances", key: "accounts.opening_balances", actions: [...crud, "approve", "reject", "upload", "download"] },
+  // DISABLED: Accounts Masters submodule is commented out for all users.
+  // DISABLED: Opening Balances is handled through Bank & Cash.
   { module: "Accounts - Bank & Cash", key: "accounts.bank_cash", actions: [...crud, "approve", "reject", "upload", "download"] },
   { module: "Accounts - Tally", key: "accounts.tally", actions: ["view", "import", "export", "download"] },
   { module: "Vehicle Fleet", key: "fleet.vehicles", actions: [...crud, "notification"] },
@@ -302,7 +302,7 @@ const notificationScopes = new Set([
   "accounts.accounts_receivable",
   "accounts.journal_entries",
   "accounts.financial_statements",
-  "accounts.opening_balances",
+  // "accounts.opening_balances",
   "accounts.bank_cash",
   "accounts.tally",
   "fleet.vehicles",

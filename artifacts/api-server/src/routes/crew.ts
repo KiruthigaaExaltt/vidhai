@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
 import { publishNotification } from "../lib/notificationService";
+import { ensureCanonicalAccounts, postJournal } from "./accounts";
 import {
   and,
   asc,
@@ -131,6 +132,31 @@ function need(req: any, res: any, key: string) {
   if (can(req, key)) return true;
   res.status(403).json({ error: `Missing permission: ${key}` });
   return false;
+}
+async function postApprovedCrewClaim(req: any, claim: any) {
+  if (claim.status !== "Approved" || claim.ledgerJournalId || Number(claim.amount) <= 0) return claim;
+  const accounts = await ensureCanonicalAccounts(req.crew.org);
+  const claims = accounts.find((account: any) => account.accountCode === "5140");
+  const payable = accounts.find((account: any) => account.accountCode === "2100");
+  if (!claims || !payable) throw new Error("Claim Expense and Accounts Payable accounts must be configured");
+  const amount = Math.round(Number(claim.amount || 0) * 100) / 100;
+  const journal = await postJournal(req.crew.org, {
+    entryDate: claim.approvedAt ? new Date(claim.approvedAt).toISOString().slice(0, 10) : today(),
+    reference: `AUTO:CREW:CLAIM:${claim.id}`,
+    description: `Crew claim ${claim.title || claim.id} - ${claim.employeeName}`,
+    sourceType: "Crew Claim",
+    sourceId: claim.id,
+    lines: [
+      { accountId: claims.id, debit: amount, memo: claim.title || "Claim" },
+      { accountId: payable.id, credit: amount, memo: claim.employeeName || "Employee" },
+    ],
+  }, Number(req.crew.user.id));
+  const [updated] = await db
+    .update(crewClaimsTable)
+    .set({ ledgerJournalId: journal.id, updatedAt: new Date() })
+    .where(eq(crewClaimsTable.id, claim.id))
+    .returning();
+  return updated || claim;
 }
 async function ownEmployee(req: any) {
   const linkedEmployeeId = Number(req.crew.user.employeeId);
@@ -2325,7 +2351,7 @@ router.post("/bonus", async (req: any, res: any): Promise<any> => {
         targetModule: "crew",
         submodule: "bonus",
         title: "Bonus added",
-        message: `A bonus of ₹${amount.toLocaleString("en-IN")} was added to your salary for ${payrollMonth}.`,
+        message: `A bonus of INR${amount.toLocaleString("en-IN")} was added to your salary for ${payrollMonth}.`,
         sourceEntityType: "crew_bonus",
         sourceEntityId: row.id,
         sourceReference: employee.employeeCode,
@@ -2467,7 +2493,7 @@ for (const type of ["claims"]) {
         targetModule: "crew",
         submodule: "claims",
         title: "Claim submitted",
-        message: `${e.name} submitted ${String(row.claimType).replace(/_/g, " ")} claim ${row.title} for ₹${Number(row.amount).toLocaleString("en-IN")}.`,
+        message: `${e.name} submitted ${String(row.claimType).replace(/_/g, " ")} claim ${row.title} for INR${Number(row.amount).toLocaleString("en-IN")}.`,
         sourceEntityType: "crew_claim",
         sourceEntityId: row.id,
         sourceReference: row.title,
@@ -2552,7 +2578,7 @@ async function syncAttendanceDeductions(
       amount = daily;
       reason = "Absent and LOP";
       source = "Auto";
-      notes = `Absent and LOP â€” ${salary.toFixed(2)} Ã· ${days} days`;
+      notes = `Absent and LOP - ${salary.toFixed(2)} / ${days} days`;
     } else if (log.status === "Half Day") {
       amount = daily / 2;
       reason = "Half day absent and LOP";
@@ -2591,7 +2617,7 @@ async function syncAttendanceDeductions(
             : template?.fineType === "based_on_salary"
               ? rate * hours
               : fine * hours;
-        notes = `${reason.replaceAll("_", " ")} â€” ${total} minutes`;
+        notes = `${reason.replaceAll("_", " ")} - ${total} minutes`;
       }
     }
     amount = Math.round(amount * 100) / 100;
@@ -2714,7 +2740,7 @@ router.post("/deductions", async (req: any, res: any): Promise<any> => {
       targetModule: "crew",
       submodule: "deductions",
       title: "Deduction added",
-      message: `A deduction of ₹${Number(row.amount).toLocaleString("en-IN")} was added to your salary for ${row.date}.`,
+      message: `A deduction of INR${Number(row.amount).toLocaleString("en-IN")} was added to your salary for ${row.date}.`,
       sourceEntityType: "crew_deduction",
       sourceEntityId: row.id,
       sourceReference: e.employeeCode,
@@ -2836,7 +2862,8 @@ async function decision(
     old,
     row,
   );
-  res.json(row);
+  const responseRow = sub === "claims" && status === "Approved" ? await postApprovedCrewClaim(req, row) : row;
+  res.json(responseRow);
 }
 function minutes(v: string) {
   const [h, m] = String(v || "0:0")

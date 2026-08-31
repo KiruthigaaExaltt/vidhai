@@ -2968,7 +2968,7 @@ export default function InventoryModule() {
                       "Nos",
                       "kg",
                       "g",
-                      "L",
+                      "Litres",
                       "mL",
                       "bags",
                       "units",

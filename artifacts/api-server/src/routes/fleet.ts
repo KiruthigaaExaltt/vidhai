@@ -89,7 +89,7 @@ async function issueDiesel(tx: any, vehicle: any, session: any, quantity: number
   const diesel = await dieselInventory(tx);
   if (!diesel?.stock) throw Object.assign(new Error("Annur Diesel inventory is not initialized"), { status: 409 });
   if (diesel.availableLitres < quantity)
-    throw Object.assign(new Error(`Only ${diesel.availableLitres} L of Diesel is available at Annur`), { status: 409 });
+    throw Object.assign(new Error(`Only ${diesel.availableLitres} Litres of Diesel is available at Annur`), { status: 409 });
   const remaining = Math.round((diesel.availableLitres - quantity) * 10_000) / 10_000;
   await tx.update(inventoryTable).set({ quantityOnHand: String(remaining), lastUpdated: new Date() }).where(eq(inventoryTable.id, diesel.stock.id));
   const [adjustment] = await tx.insert(inventoryAdjustmentsTable).values({

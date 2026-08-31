@@ -10,10 +10,7 @@ import {
 const round = (value: unknown) => Math.round(Number(value || 0) * 100) / 100;
 
 const postingAccounts = [
-  ["5100", "Procurement Expense", "Expense"],
-  ["1410", "Input CGST", "Asset"],
-  ["1420", "Input SGST", "Asset"],
-  ["1430", "Input IGST", "Asset"],
+  ["5100", "Purchase Expense", "Expense"],
   ["2100", "Accounts Payable", "Liability"],
 ] as const;
 
@@ -63,34 +60,15 @@ export async function postMatchedPurchaseInvoice(
     .select()
     .from(chartOfAccountsTable)
     .where(eq(chartOfAccountsTable.organizationId, organizationId));
-  for (const [accountCode, accountName, accountType] of postingAccounts) {
-    if (!existingAccounts.some((account: any) => account.accountCode === accountCode)) {
-      const [created] = await db
-        .insert(chartOfAccountsTable)
-        .values({
-          organizationId,
-          accountCode,
-          accountName,
-          accountType,
-          currentBalance: 0,
-          isActive: true,
-        })
-        .returning();
-      existingAccounts.push(created as any);
-    }
-  }
-  const account = (code: string) =>
-    existingAccounts.find((entry: any) => entry.accountCode === code)!;
+  
+  const account = (code: string) => {
+    const found = existingAccounts.find((entry: any) => entry.accountCode === code);
+    if (!found) throw new Error(`Required account ${code} not configured`);
+    return found;
+  };
   const total = round(invoice.amount);
-  const cgst = round(invoice.cgstAmount);
-  const sgst = round(invoice.sgstAmount);
-  const igst = round(invoice.igstAmount);
-  const taxable = round(invoice.taxableAmount) || round(total - cgst - sgst - igst);
   const lines = [
-    [account("5100"), taxable, 0],
-    [account("1410"), cgst, 0],
-    [account("1420"), sgst, 0],
-    [account("1430"), igst, 0],
+    [account("5100"), total, 0],
     [account("2100"), 0, total],
   ].filter(([, debit, credit]) => Number(debit) > 0 || Number(credit) > 0) as any[];
   const debitTotal = round(lines.reduce((sum, line) => sum + Number(line[1]), 0));

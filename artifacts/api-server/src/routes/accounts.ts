@@ -30,43 +30,29 @@ const router = Router(),
   },
   day = () => new Date().toISOString().slice(0, 10);
 const canonical = [
-  ["1020", "Bank Account", "Asset"],
-  ["1021", "SBI Current A/c", "Asset"],
-  ["1022", "HDFC Current A/c", "Asset"],
-  ["1023", "UPI Settlement A/c", "Asset"],
   ["1030", "Cash in Hand", "Asset"],
   ["1100", "Accounts Receivable", "Asset"],
-  ["1110", "Advance to Vendor", "Asset"],
-  ["1120", "TDS Receivable", "Asset"],
-  ["1130", "CGST Input Credit", "Asset"],
-  ["1131", "SGST Input Credit", "Asset"],
-  ["1132", "IGST Input Credit", "Asset"],
-  ["1140", "Vendor Receivable", "Asset"],
-  ["1150", "Employee Advance", "Asset"],
-  ["1160", "Purchase Return Receivable", "Asset"],
-  ["1200", "Inventory / Stock-in-Hand", "Asset"],
   ["2100", "Accounts Payable", "Liability"],
-  ["2110", "Vendor Advances", "Liability"],
-  ["2130", "Expense Claims Payable", "Liability"],
-  ["2140", "Accrued Expenses", "Liability"],
-  ["2150", "TDS Payable", "Liability"],
-  ["2210", "CGST Output", "Liability"],
-  ["2220", "SGST Output", "Liability"],
-  ["2230", "IGST Output", "Liability"],
-  ["3000", "Capital A/c", "Equity"],
-  ["3100", "Retained Earnings", "Equity"],
-  ["3200", "Current Year Profit & Loss", "Equity"],
-  ["3300", "Owner Withdrawals", "Equity"],
+  ["3000", "Capital", "Equity"],
+  ["3010", "Owner Withdrawal", "Equity"],
   ["4100", "Sales Revenue", "Revenue"],
-  ["4110", "Sales Return", "Revenue"],
-  ["4200", "Other Income", "Revenue"],
-  ["5100", "Procurement Expense", "Expense"],
-  ["5120", "Freight / Transportation", "Expense"],
-  ["5130", "Purchase Discounts", "Expense"],
-  ["5140", "Claims Expense", "Expense"],
-  ["5150", "Miscellaneous Expense", "Expense"],
+  ["4110", "Credit Note", "Asset"],
+  ["5100", "Purchase Expense", "Expense"],
+  ["5140", "Claim Expense", "Expense"],
   ["5200", "Bank Charges", "Expense"],
+  ["5300", "Miscellaneous Expenses", "Expense"],
+  ["5400", "Debit Note", "Liability"],
 ] as const;
+const accountTypes = ["Asset", "Liability", "Equity", "Revenue", "Expense"] as const;
+const systemAccountCodes = new Set<string>(canonical.map(([code]) => code));
+const obsoleteDefaultAccountTargets = new Map<string, string>([
+  ["1020", "1030"], ["1021", "1030"], ["1022", "1030"], ["1023", "1030"],
+  ["1110", "1100"], ["1120", "5300"], ["1130", "5100"], ["1131", "5100"], ["1132", "5100"], ["1140", "1100"], ["1150", "5300"], ["1160", "1100"], ["1200", "5100"],
+  ["2110", "2100"], ["2130", "2100"], ["2140", "2100"], ["2150", "2100"], ["2210", "2100"], ["2220", "2100"], ["2230", "2100"],
+  ["3100", "3000"], ["3200", "3000"], ["3300", "3010"], ["4200", "4100"],
+  ["5120", "5100"], ["5130", "5400"], ["5150", "5300"], ["5900", "5300"],
+]);
+const norm = (value: any) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 router.use(async (req: any, res, next): Promise<any> => {
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ error: "Not authenticated" });
@@ -131,6 +117,61 @@ async function ensureAccountMasters(org: number) {
     if (!existingTypes.some((row: any) => String(row.code).toUpperCase() === code))
       await db.insert(accountTransactionTypesTable).values({ organizationId: org, code, name, direction, tallyVoucherType, isSystem: true, isActive: true });
 }
+async function consolidateDuplicateAccounts(org: number, rows: any[]) {
+  const choose = (items: any[]) =>
+    [...items].sort((left, right) => {
+      const leftSystem = systemAccountCodes.has(String(left.accountCode)) ? 0 : 1;
+      const rightSystem = systemAccountCodes.has(String(right.accountCode)) ? 0 : 1;
+      const leftTouched = m(left.currentBalance) !== 0 || m(left.openingBalance) !== 0 ? 0 : 1;
+      const rightTouched = m(right.currentBalance) !== 0 || m(right.openingBalance) !== 0 ? 0 : 1;
+      return leftSystem - rightSystem || leftTouched - rightTouched || Number(left.id) - Number(right.id);
+    })[0];
+  const repoint = async (from: any, to: any) => {
+    if (Number(from.id) === Number(to.id)) return;
+    await db.update(journalLinesTable).set({ accountId: to.id, accountCode: to.accountCode, accountName: to.accountName }).where(eq(journalLinesTable.accountId, from.id));
+    const { bankCashTransactionsTable } = await accountTables();
+    await db.update(bankCashTransactionsTable).set({ bankCashAccountId: to.id }).where(eq(bankCashTransactionsTable.bankCashAccountId, from.id));
+    await db.update(bankCashTransactionsTable).set({ transferToAccountId: to.id }).where(eq(bankCashTransactionsTable.transferToAccountId, from.id));
+    await db.update(bankCashTransactionsTable).set({ counterAccountId: to.id }).where(eq(bankCashTransactionsTable.counterAccountId, from.id));
+    await db.delete(chartOfAccountsTable).where(eq(chartOfAccountsTable.id, from.id));
+  };
+  const migrateObsoleteDefault = async (from: any, targetCode: string) => {
+    const to = rows.find((row: any) => norm(row.accountCode) === norm(targetCode));
+    if (!to || Number(from.id) === Number(to.id)) return;
+    await repoint(from, to);
+  };
+  for (const row of [...rows]) {
+    const targetCode = obsoleteDefaultAccountTargets.get(String(row.accountCode));
+    if (targetCode) await migrateObsoleteDefault(row, targetCode);
+  }
+  rows = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org));
+  for (const key of ["accountCode", "accountName"] as const) {
+    const groups = new Map<string, any[]>();
+    for (const row of rows) {
+      const normalized = norm(row[key]);
+      if (!normalized) continue;
+      groups.set(normalized, [...(groups.get(normalized) || []), row]);
+    }
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const canonicalAccount = choose(group);
+      for (const duplicate of group) await repoint(duplicate, canonicalAccount);
+    }
+    rows = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org));
+  }
+}
+function accountInput(body: any, existing: any[] = [], currentId?: number) {
+  const accountCode = String(body.accountCode || "").trim();
+  const accountName = String(body.accountName || "").trim().replace(/\s+/g, " ");
+  const accountType = String(body.accountType || "").trim();
+  if (!accountCode || !accountName) throw new Error("Account code and account name are required");
+  if (!accountTypes.includes(accountType as any)) throw new Error("Account type must be Asset, Liability, Equity, Revenue or Expense");
+  const duplicateCode = existing.find((account: any) => Number(account.id) !== Number(currentId) && norm(account.accountCode) === norm(accountCode));
+  if (duplicateCode) throw new Error(`Account code already exists: ${duplicateCode.accountCode}`);
+  const duplicateName = existing.find((account: any) => Number(account.id) !== Number(currentId) && norm(account.accountName) === norm(accountName));
+  if (duplicateName) throw new Error(`Account name already exists: ${duplicateName.accountName}`);
+  return { accountCode, accountName, accountType };
+}
 async function saveAccountDocument(org: number, userId: number, sourceType: string, sourceId: number, data: any, journalEntryId?: number) {
   if (!data?.content || typeof data.content !== "string") return null;
   const match = data.content.match(/^data:([\w/+.-]+);base64,(.+)$/s);
@@ -180,57 +221,51 @@ function downloadName(ext: string) {
   return `tally-export-${day()}.${ext}`;
 }
 async function coa(org: number) {
-  await ensureAccountMasters(org);
-  const old = await db
+  let rows = await db
     .select()
     .from(chartOfAccountsTable)
     .where(eq(chartOfAccountsTable.organizationId, org));
-  for (const [accountCode, accountName, accountType] of canonical)
-    if (!old.some((x: any) => x.accountCode === accountCode))
-      await db.insert(chartOfAccountsTable).values({
-        organizationId: org,
-        accountCode,
-        accountName,
-        accountType,
-        currentBalance: 0,
-        isBankCash: ["1020", "1021", "1022", "1023", "1030"].includes(accountCode),
-        groupName: accountCode === "1030" ? "Cash-in-Hand" : ["1020", "1021", "1022", "1023"].includes(accountCode) ? "Bank Accounts" : "",
-        tallyLedgerName: accountName,
-        tallyGroupName: accountCode === "1030" ? "Cash-in-Hand" : ["1020", "1021", "1022", "1023"].includes(accountCode) ? "Bank Accounts" : "",
-        isActive: true,
-      });
-  for (const code of ["1020", "1021", "1022", "1023", "1030"]) {
-    const account = old.find((x: any) => x.accountCode === code);
-    if (account && !account.isBankCash) await db.update(chartOfAccountsTable).set({ isBankCash: true }).where(eq(chartOfAccountsTable.id, account.id));
+  for (const [accountCode, accountName, accountType] of canonical) {
+    const existing = rows.find((x: any) => norm(x.accountCode) === norm(accountCode) || norm(x.accountName) === norm(accountName));
+    if (existing) {
+      const patch: any = { accountCode, accountName, accountType, tallyLedgerName: existing.tallyLedgerName || accountName, isActive: existing.isActive !== false };
+      await db.update(chartOfAccountsTable).set(patch).where(eq(chartOfAccountsTable.id, existing.id));
+      continue;
+    }
+    const [created] = await db.insert(chartOfAccountsTable).values({
+      organizationId: org,
+      accountCode,
+      accountName,
+      accountType,
+      currentBalance: 0,
+      groupName: accountType,
+      tallyLedgerName: accountName,
+      tallyGroupName: accountType,
+      isActive: true,
+    }).returning();
+    rows.push(created as any);
   }
-  const rows = await db
-      .select()
-      .from(chartOfAccountsTable)
-      .where(eq(chartOfAccountsTable.organizationId, org))
-      .orderBy(asc(chartOfAccountsTable.accountCode)),
-    lines = await db
-      .select()
-      .from(journalLinesTable)
-      .where(eq(journalLinesTable.organizationId, org));
+  await consolidateDuplicateAccounts(org, rows);
+  const { syncTableCustomIndexes } = await accountTables();
+  const uniqueIndexes = [
+    { key: { organizationId: 1, accountCode: 1 }, name: "chart_of_accounts_org_code_unique", unique: true, collation: { locale: "en", strength: 2 } },
+    { key: { organizationId: 1, accountName: 1 }, name: "chart_of_accounts_org_name_unique", unique: true, collation: { locale: "en", strength: 2 } },
+  ] as any[];
+  await syncTableCustomIndexes(chartOfAccountsTable, uniqueIndexes);
+  rows = await db
+    .select()
+    .from(chartOfAccountsTable)
+    .where(eq(chartOfAccountsTable.organizationId, org))
+    .orderBy(asc(chartOfAccountsTable.accountCode));
+  const lines = await db
+    .select()
+    .from(journalLinesTable)
+    .where(eq(journalLinesTable.organizationId, org));
   for (const a of rows) {
-    const accountLines = lines.filter(
-      (l: any) =>
-        String(l.accountId ?? "") === String(a.id) ||
-        String(l.accountCode ?? "") === String(a.accountCode),
-    );
-    if (!accountLines.length) continue;
-    const b = m(
-      accountLines
-        .reduce(
-          (s: number, l: any) => s + Number(l.debit) - Number(l.credit),
-          0,
-        ),
-    );
+    const accountLines = lines.filter((l: any) => String(l.accountId ?? "") === String(a.id));
+    const b = m(accountLines.reduce((s: number, l: any) => s + Number(l.debit) - Number(l.credit), 0));
     if (m(a.currentBalance) !== b)
-      await db
-        .update(chartOfAccountsTable)
-        .set({ currentBalance: b })
-        .where(eq(chartOfAccountsTable.id, a.id));
+      await db.update(chartOfAccountsTable).set({ currentBalance: b }).where(eq(chartOfAccountsTable.id, a.id));
     a.currentBalance = String(b);
   }
   return rows;
@@ -412,14 +447,9 @@ async function automate(org: number) {
     const lines = [
       { accountId: id("1100"), debit: m(x.grandTotal) },
       {
-        accountId: id("4100"),
-        credit: m(
-          m(x.grandTotal) - m(x.cgstTotal) - m(x.sgstTotal) - m(x.igstTotal),
-        ),
+        accountId: accounts.find((a: any) => a.accountType === "Revenue")?.id || id("3000"),
+        credit: m(x.grandTotal),
       },
-      { accountId: id("2210"), credit: m(x.cgstTotal) },
-      { accountId: id("2220"), credit: m(x.sgstTotal) },
-      { accountId: id("2230"), credit: m(x.igstTotal) },
     ].filter((l: any) => l.debit || l.credit);
     const sourceJournals = (
       await db
@@ -601,7 +631,7 @@ async function automate(org: number) {
       sourceId: x.id,
       lines: [
         { accountId: id("2100"), debit: m(x.amount) },
-        { accountId: id("1020"), credit: m(x.amount) },
+        { accountId: id("1030"), credit: m(x.amount) },
       ],
     });
   }
@@ -616,9 +646,8 @@ async function automate(org: number) {
       sourceType: "Payroll",
       sourceId: x.id,
       lines: [
-        { accountId: id("5150"), debit: m(x.grossPay) },
-        { accountId: id("2150"), credit: m(x.deductions) },
-        { accountId: id("2140"), credit: m(x.netPay) },
+        { accountId: id("5300"), debit: m(x.grossPay) },
+        { accountId: id("2100"), credit: m(x.grossPay) },
       ],
     });
     if (x.status === "Paid")
@@ -631,8 +660,8 @@ async function automate(org: number) {
         sourceType: "Payroll Payment",
         sourceId: x.id,
         lines: [
-          { accountId: id("2140"), debit: m(x.netPay) },
-          { accountId: id("1020"), credit: m(x.netPay) },
+          { accountId: id("2100"), debit: m(x.netPay) },
+          { accountId: id("1030"), credit: m(x.netPay) },
         ],
       });
   }
@@ -653,7 +682,7 @@ async function automate(org: number) {
       sourceId: x.id,
       lines: [
         { accountId: id("5140"), debit: m(x.amount) },
-        { accountId: id("2130"), credit: m(x.amount) },
+        { accountId: id("2100"), credit: m(x.amount) },
       ],
     });
   }
@@ -686,45 +715,49 @@ const serializeMoneyFields = (row: any) => {
 router.get("/sources", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view")) s.json(accountSourceRegistry);
 });
-router.get("/masters", async (r: any, s): Promise<any> => {
-  if (!need(r, s, "accounts.masters.view")) return;
-  await ensureAccountMasters(r.acc.org);
-  const { accountGroupsTable, accountCostCentersTable, accountTransactionTypesTable } = await accountTables();
-  const [groups, costCenters, transactionTypes] = await Promise.all([
-    db.select().from(accountGroupsTable).where(eq(accountGroupsTable.organizationId, r.acc.org)),
-    db.select().from(accountCostCentersTable).where(eq(accountCostCentersTable.organizationId, r.acc.org)),
-    db.select().from(accountTransactionTypesTable).where(eq(accountTransactionTypesTable.organizationId, r.acc.org)),
-  ]);
-  s.json({ groups, costCenters, transactionTypes, sourceRegistry: accountSourceRegistry });
-});
-router.post("/masters/transaction-types", async (r: any, s): Promise<any> => {
-  if (!need(r, s, "accounts.masters.create")) return;
-  const { accountTransactionTypesTable } = await accountTables();
-  const code = String(r.body.code || r.body.name || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
-  const name = String(r.body.name || "").trim();
-  if (!code || !name) return s.status(400).json({ error: "Code and name are required" });
-  const [row] = await db.insert(accountTransactionTypesTable).values({
-    organizationId: r.acc.org, code, name,
-    direction: r.body.direction || "Either",
-    tallyVoucherType: r.body.tallyVoucherType || "Journal",
-    isSystem: false, isActive: r.body.isActive !== false,
-  }).returning();
-  s.status(201).json(row);
-});
-router.patch("/masters/transaction-types/:id", async (r: any, s): Promise<any> => {
-  if (!need(r, s, "accounts.masters.update")) return;
-  const { accountTransactionTypesTable } = await accountTables();
-  const updates: any = { updatedAt: new Date() };
-  for (const key of ["name", "direction", "tallyVoucherType", "isActive"])
-    if (r.body[key] !== undefined) updates[key] = r.body[key];
-  const [row] = await db.update(accountTransactionTypesTable).set(updates).where(eq(accountTransactionTypesTable.id, Number(r.params.id))).returning();
-  if (!row) return s.status(404).json({ error: "Transaction type not found" });
-  s.json(row);
-});
+
+// DISABLED: Masters module is not required for this phase
+// router.get("/masters", async (r: any, s): Promise<any> => {
+//   if (!need(r, s, "accounts.masters.view")) return;
+//   await ensureAccountMasters(r.acc.org);
+//   const { accountGroupsTable, accountCostCentersTable, accountTransactionTypesTable } = await accountTables();
+//   const [groups, costCenters, transactionTypes] = await Promise.all([
+//     db.select().from(accountGroupsTable).where(eq(accountGroupsTable.organizationId, r.acc.org)),
+//     db.select().from(accountCostCentersTable).where(eq(accountCostCentersTable.organizationId, r.acc.org)),
+//     db.select().from(accountTransactionTypesTable).where(eq(accountTransactionTypesTable.organizationId, r.acc.org)),
+//   ]);
+//   s.json({ groups, costCenters, transactionTypes, sourceRegistry: accountSourceRegistry });
+// });
+
+// router.post("/masters/transaction-types", async (r: any, s): Promise<any> => {
+//   if (!need(r, s, "accounts.masters.create")) return;
+//   const { accountTransactionTypesTable } = await accountTables();
+//   const code = String(r.body.code || r.body.name || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+//   const name = String(r.body.name || "").trim();
+//   if (!code || !name) return s.status(400).json({ error: "Code and name are required" });
+//   const [row] = await db.insert(accountTransactionTypesTable).values({
+//     organizationId: r.acc.org, code, name,
+//     direction: r.body.direction || "Either",
+//     tallyVoucherType: r.body.tallyVoucherType || "Journal",
+//     isSystem: false, isActive: r.body.isActive !== false,
+//   }).returning();
+//   s.status(201).json(row);
+// });
+
+// router.patch("/masters/transaction-types/:id", async (r: any, s): Promise<any> => {
+//   if (!need(r, s, "accounts.masters.update")) return;
+//   const { accountTransactionTypesTable } = await accountTables();
+//   const updates: any = { updatedAt: new Date() };
+//   for (const key of ["name", "direction", "tallyVoucherType", "isActive"])
+//     if (r.body[key] !== undefined) updates[key] = r.body[key];
+//   const [row] = await db.update(accountTransactionTypesTable).set(updates).where(eq(accountTransactionTypesTable.id, Number(r.params.id))).returning();
+//   if (!row) return s.status(404).json({ error: "Transaction type not found" });
+//   s.json(row);
+// });
 router.get("/bank-cash-accounts", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const accounts = await coa(r.acc.org);
-  s.json(accounts.filter((account: any) => account.isBankCash || ["1020", "1021", "1022", "1023", "1030"].includes(String(account.accountCode))));
+  s.json(accounts.filter((account: any) => account.isActive !== false));
 });
 async function bankCashRows(org: number) {
   const { bankCashTransactionsTable } = await accountTables();
@@ -740,8 +773,8 @@ async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-bal
   if (!(amount > 0)) return s.status(400).json({ error: "Amount must be greater than zero" });
   const accounts = await coa(r.acc.org);
   const bank = accounts.find((a: any) => Number(a.id) === Number(r.body.bankCashAccountId));
-  if (!bank || !(bank.isBankCash || ["1020", "1021", "1022", "1023", "1030"].includes(String(bank.accountCode))))
-    return s.status(400).json({ error: "Choose a valid bank/cash ledger" });
+  if (!bank || bank.isActive === false)
+    return s.status(400).json({ error: "Choose a valid Chart of Account" });
   const isOpening = source === "opening-balance";
   const isTransfer = String(r.body.mode || "").toLowerCase() === "transfer";
   if (isTransfer && Number(r.body.transferToAccountId) === Number(bank.id))
@@ -750,7 +783,7 @@ async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-bal
   const [row] = await db.insert(bankCashTransactionsTable).values({
     organizationId: r.acc.org,
     transactionDate: r.body.transactionDate || r.body.entryDate || day(),
-    transactionTypeId: r.body.transactionTypeId || null,
+    transactionTypeId: null,
     transactionTypeName: isOpening ? "Opening Balance" : String(r.body.transactionTypeName || r.body.typeName || "Bank/Cash Transaction"),
     mode: isOpening ? "Credit" : (r.body.mode || "Credit"),
     bankCashAccountId: Number(bank.id),
@@ -764,10 +797,12 @@ async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-bal
   if (r.body.document) await saveAccountDocument(r.acc.org, Number(r.acc.user.id), "bank-cash", Number(row.id), r.body.document);
   s.status(201).json({ ...row, documents: (await documentsFor("bank-cash", [Number(row.id)])).get(Number(row.id)) || [] });
 }
+/* DISABLED: Opening Balances is handled through Bank & Cash; preserve implementation context without exposing the submodule route.
 router.post("/opening-balances", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.opening_balances.create")) return;
   return createBankCash(r, s, "opening-balance");
 });
+*/
 router.post("/bank-cash-transactions", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.create")) return;
   return createBankCash(r, s, "bank-cash");
@@ -789,7 +824,7 @@ async function approveBankCash(r: any, s: any) {
   const accounts = await coa(r.acc.org);
   const byId = (id: any) => accounts.find((a: any) => Number(a.id) === Number(id));
   const bank = byId(entry.bankCashAccountId), transferTo = byId(entry.transferToAccountId), counter = byId(entry.counterAccountId);
-  const capital = accounts.find((a: any) => a.accountCode === "3000"), otherIncome = accounts.find((a: any) => a.accountCode === "4200"), miscExpense = accounts.find((a: any) => a.accountCode === "5150"), ownerDraw = accounts.find((a: any) => a.accountCode === "3300");
+  const cash = accounts.find((a: any) => a.accountCode === "1030"), capital = accounts.find((a: any) => a.accountCode === "3000"), miscExpense = accounts.find((a: any) => a.accountCode === "5300");
   if (!bank) return s.status(400).json({ error: "Bank/cash ledger is missing" });
   const mode = String(entry.mode || "Credit").toLowerCase();
   const typeName = String(entry.transactionTypeName || "").toLowerCase();
@@ -799,13 +834,14 @@ async function approveBankCash(r: any, s: any) {
     if (!transferTo) return s.status(400).json({ error: "Transfer destination account is missing" });
     lines = [{ accountId: transferTo.id, debit: m(entry.amount) }, { accountId: bank.id, credit: m(entry.amount) }];
   } else if (mode === "debit") {
-    const debitAccount = counter || (typeName.includes("owner") ? ownerDraw : miscExpense);
+    const debitAccount = counter || miscExpense;
     if (!debitAccount) return s.status(400).json({ error: "Debit counter account is missing" });
     lines = [{ accountId: debitAccount.id, debit: m(entry.amount) }, { accountId: bank.id, credit: m(entry.amount) }];
   } else {
-    const creditAccount = entry.transactionTypeName === "Opening Balance" ? capital : counter || otherIncome || capital;
-    if (!creditAccount) return s.status(400).json({ error: "Credit counter account is missing" });
-    lines = [{ accountId: bank.id, debit: m(entry.amount) }, { accountId: creditAccount.id, credit: m(entry.amount) }];
+    const creditAccount = entry.transactionTypeName === "Opening Balance" ? (bank.accountType === "Asset" || bank.accountType === "Expense" ? capital : bank) : counter || capital;
+    const debitAccount = entry.transactionTypeName === "Opening Balance" && creditAccount?.id === bank.id ? cash : bank;
+    if (!creditAccount || !debitAccount) return s.status(400).json({ error: "Opening balance counter account is missing" });
+    lines = [{ accountId: debitAccount.id, debit: m(entry.amount) }, { accountId: creditAccount.id, credit: m(entry.amount) }];
   }
   const journal = await post(r.acc.org, {
     entryDate: entry.transactionDate,
@@ -823,7 +859,7 @@ async function approveBankCash(r: any, s: any) {
   return s.json(updated);
 }
 router.post("/bank-cash-transactions/:id/approve", approveBankCash);
-router.post("/opening-balances/:id/approve", approveBankCash);
+// DISABLED: Opening Balances approval uses Bank & Cash routes now.
 async function rejectBankCash(r: any, s: any) {
   if (!need(r, s, "accounts.bank_cash.reject")) return;
   const remarks = String(r.body.remarks || "").trim();
@@ -834,7 +870,7 @@ async function rejectBankCash(r: any, s: any) {
   s.json(updated);
 }
 router.post("/bank-cash-transactions/:id/reject", rejectBankCash);
-router.post("/opening-balances/:id/reject", rejectBankCash);
+// DISABLED: Opening Balances rejection uses Bank & Cash routes now.
 router.get("/files/:sourceType/:file", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const sourceType = path.basename(String(r.params.sourceType));
@@ -860,7 +896,6 @@ router.get("/tally/export", async (r: any, s): Promise<any> => {
     accountType: a.accountType,
     openingBalance: m(a.openingBalance || 0),
     currentBalance: m(a.currentBalance || 0),
-    isBankCash: a.isBankCash === true,
   }));
   const vouchers = postedEntries.map((e) => ({
     voucherId: e.id,
@@ -929,58 +964,76 @@ router.post("/coa/migrate-canonical", async (r: any, s): Promise<any> => {
 });
 router.post("/coa", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.chart_of_accounts.create")) return;
-  const dup = (
-    await db
-      .select()
-      .from(chartOfAccountsTable)
-      .where(
-        and(
-          eq(chartOfAccountsTable.organizationId, r.acc.org),
-          eq(chartOfAccountsTable.accountCode, String(r.body.accountCode)),
-        ),
-      )
-  )[0];
-  if (dup) return s.status(409).json({ error: "Account code already exists" });
-  const [x] = await db
-    .insert(chartOfAccountsTable)
-    .values({
-      ...r.body,
-      organizationId: r.acc.org,
-      currentBalance: m(r.body.currentBalance),
-    })
-    .returning();
-  s.status(201).json(x);
+  try {
+    const existing = await coa(r.acc.org);
+    const input = accountInput(r.body, existing);
+    const [x] = await db
+      .insert(chartOfAccountsTable)
+      .values({
+        organizationId: r.acc.org,
+        ...input,
+        currentBalance: 0,
+        openingBalance: 0,
+        groupName: input.accountType,
+        tallyLedgerName: input.accountName,
+        tallyGroupName: input.accountType,
+        description: String(r.body.description || ""),
+        isActive: r.body.isActive !== false,
+      })
+      .returning();
+    s.status(201).json(x);
+  } catch (e: any) {
+    const duplicate = /duplicate|unique/i.test(String(e?.message || ""));
+    s.status(409).json({ error: duplicate ? "Account code or account name already exists" : e.message || "Unable to create account" });
+  }
 });
 router.patch("/coa/:id", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.chart_of_accounts.edit")) return;
-  const [x] = await db
-    .update(chartOfAccountsTable)
-    .set(r.body)
-    .where(
-      and(
-        eq(chartOfAccountsTable.organizationId, r.acc.org),
-        eq(chartOfAccountsTable.id, Number(r.params.id)),
-      ),
-    )
-    .returning();
-  s.json(x);
+  try {
+    const id = Number(r.params.id);
+    const existing = await coa(r.acc.org);
+    const current = existing.find((account: any) => Number(account.id) === id);
+    if (!current) return s.status(404).json({ error: "Account not found" });
+    if (systemAccountCodes.has(String(current.accountCode)))
+      return s.status(409).json({ error: "System accounts cannot be edited" });
+    const input = accountInput({ ...current, ...r.body }, existing, id);
+    const updates: any = {
+      ...input,
+      groupName: input.accountType,
+      tallyLedgerName: String(r.body.tallyLedgerName || input.accountName),
+      tallyGroupName: input.accountType,
+      description: String(r.body.description ?? current.description ?? ""),
+      isActive: r.body.isActive !== false,
+    };
+    const hasLines = (await db.select().from(journalLinesTable).where(eq(journalLinesTable.accountId, id))).length > 0;
+    if (current.accountType !== input.accountType && hasLines)
+      return s.status(409).json({ error: "Accounts with transactions cannot be moved between account types" });
+    const [x] = await db
+      .update(chartOfAccountsTable)
+      .set(updates)
+      .where(and(eq(chartOfAccountsTable.organizationId, r.acc.org), eq(chartOfAccountsTable.id, id)))
+      .returning();
+    await db.update(journalLinesTable).set({ accountCode: x.accountCode, accountName: x.accountName }).where(eq(journalLinesTable.accountId, id));
+    s.json(x);
+  } catch (e: any) {
+    const duplicate = /duplicate|unique/i.test(String(e?.message || ""));
+    s.status(409).json({ error: duplicate ? "Account code or account name already exists" : e.message || "Unable to update account" });
+  }
 });
 router.delete("/coa/:id", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.chart_of_accounts.delete")) return;
-  if (
-    (
-      await db
-        .select()
-        .from(journalLinesTable)
-        .where(eq(journalLinesTable.accountId, Number(r.params.id)))
-    ).length
-  )
-    return s
-      .status(409)
-      .json({ error: "Referenced accounts cannot be deleted" });
-  await db
-    .delete(chartOfAccountsTable)
-    .where(eq(chartOfAccountsTable.id, Number(r.params.id)));
+  const id = Number(r.params.id);
+  const [account] = await db.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, r.acc.org), eq(chartOfAccountsTable.id, id))).limit(1);
+  if (!account) return s.status(404).json({ error: "Account not found" });
+  if (systemAccountCodes.has(String(account.accountCode)))
+    return s.status(409).json({ error: "Required system accounts cannot be deleted" });
+  if ((await db.select().from(journalLinesTable).where(eq(journalLinesTable.accountId, id))).length)
+    return s.status(409).json({ error: "Referenced accounts cannot be deleted. Deactivate the account instead." });
+  const { bankCashTransactionsTable } = await accountTables();
+  const bankRows = await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, r.acc.org));
+  if (bankRows.some((row: any) => [row.bankCashAccountId, row.transferToAccountId, row.counterAccountId].some((value) => Number(value) === id)))
+    return s.status(409).json({ error: "Referenced accounts cannot be deleted. Deactivate the account instead." });
+  await db.delete(chartOfAccountsTable).where(eq(chartOfAccountsTable.id, id));
   s.status(204).send();
 });
 router.get("/journal-entries", async (r: any, s): Promise<any> => {
@@ -1390,39 +1443,7 @@ router.post("/ap/:id/approve", async (r: any, s): Promise<any> => {
     const payable = accounts.find(
       (account: any) => account.accountCode === "2100",
     );
-    const vendorReceivable = accounts.find(
-      (account: any) => account.accountCode === "1140",
-    );
-    const returns =
-      accounts.find((account: any) => account.accountCode === "1200") ||
-      accounts.find((account: any) => account.accountCode === "5100");
-    const [linkedInvoice] =
-      bill.sourceType === "Purchase Invoice" && bill.sourceId
-        ? await db
-            .select()
-            .from(purchaseInvoicesTable)
-            .where(eq(purchaseInvoicesTable.id, Number(bill.sourceId)))
-            .limit(1)
-        : [];
-    const ratio =
-      linkedInvoice && m(linkedInvoice.amount) > 0
-        ? m(entry.amount) / m(linkedInvoice.amount)
-        : 0;
-    const taxCredits = [
-      ["1410", "1130", m(linkedInvoice?.cgstAmount) * ratio],
-      ["1420", "1131", m(linkedInvoice?.sgstAmount) * ratio],
-      ["1430", "1132", m(linkedInvoice?.igstAmount) * ratio],
-    ]
-      .map(([primary, fallback, credit]) => ({
-        account:
-          accounts.find((account: any) => account.accountCode === primary) ||
-          accounts.find((account: any) => account.accountCode === fallback),
-        credit: m(credit),
-      }))
-      .filter((line) => line.account && line.credit > 0);
-    const totalTaxCredit = m(
-      taxCredits.reduce((sum, line) => sum + line.credit, 0),
-    );
+    const returns = accounts.find((account: any) => account.accountCode === "5400");
     const journal = await post(
       r.acc.org,
       {
@@ -1433,14 +1454,10 @@ router.post("/ap/:id/approve", async (r: any, s): Promise<any> => {
         sourceId: entry.id,
         lines: [
           {
-            accountId: billIsPaid ? vendorReceivable?.id : payable?.id,
+            accountId: payable?.id,
             debit: m(entry.amount),
           },
-          { accountId: returns?.id, credit: m(entry.amount) - totalTaxCredit },
-          ...taxCredits.map((line) => ({
-            accountId: line.account!.id,
-            credit: line.credit,
-          })),
+          { accountId: returns?.id, credit: m(entry.amount) },
         ],
       },
       r.acc.user.id,
@@ -1591,9 +1608,7 @@ router.post("/ar/:id/approve", async (r: any, s): Promise<any> => {
         sourceId: entry.id,
         lines: [
           {
-            accountId: (await coa(r.acc.org)).find(
-              (account: any) => account.accountCode === "4110",
-            )?.id,
+            accountId: (await coa(r.acc.org)).find((account: any) => account.accountCode === "4110")?.id,
             debit: m(entry.amount),
           },
           {
@@ -2034,8 +2049,3 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
 });
 export { post as postJournal, coa as ensureCanonicalAccounts, reverseJournal };
 export default router;
-
-
-
-
-

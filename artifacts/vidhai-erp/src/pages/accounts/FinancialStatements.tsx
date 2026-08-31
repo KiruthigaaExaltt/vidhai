@@ -94,10 +94,9 @@ export function FinancialStatements({
     const totalRevenue = sum(revenue);
     const totalExpenses = sum(expenses);
     const netIncome = amount(totalRevenue - totalExpenses);
-    const currentPeriodEarnings = equity.some((account) => account.accountCode === "3200") ? 0 : netIncome;
     const totalAssets = sum(assets);
     const totalLiabilities = sum(liabilities);
-    const totalEquity = amount(sum(equity) + currentPeriodEarnings);
+    const totalEquity = sum(equity);
     const balanceDifference = amount(totalAssets - totalLiabilities - totalEquity);
     const trial = [...accounts].sort(byCode).map((account) => {
       const net = displayBalance(account);
@@ -109,7 +108,7 @@ export function FinancialStatements({
     });
     const totalDebit = amount(trial.reduce((total, account) => total + account.trialDebit, 0));
     const totalCredit = amount(trial.reduce((total, account) => total + account.trialCredit, 0));
-    return { revenue, expenses, assets, liabilities, equity, totalRevenue, totalExpenses, netIncome, currentPeriodEarnings, totalAssets, totalLiabilities, totalEquity, balanceDifference, trial, totalDebit, totalCredit, trialDifference: amount(totalDebit - totalCredit) };
+    return { revenue, expenses, assets, liabilities, equity, totalRevenue, totalExpenses, netIncome, totalAssets, totalLiabilities, totalEquity, balanceDifference, trial, totalDebit, totalCredit, trialDifference: amount(totalDebit - totalCredit) };
   }, [accounts]);
 
   const periodLabel = dateFrom && dateTo ? `${dateFrom} to ${dateTo}` : dateFrom ? `From ${dateFrom}` : dateTo ? `Up to ${dateTo}` : `As of ${new Date().toLocaleDateString("en-IN")}`;
@@ -125,7 +124,6 @@ export function FinancialStatements({
       ...calculated.assets.map((x) => ({ Section: "Asset", Code: x.accountCode, Account: x.accountName, Amount: displayBalance(x) })),
       ...calculated.liabilities.map((x) => ({ Section: "Liability", Code: x.accountCode, Account: x.accountName, Amount: displayBalance(x) })),
       ...calculated.equity.map((x) => ({ Section: "Equity", Code: x.accountCode, Account: x.accountName, Amount: displayBalance(x) })),
-      ...(calculated.currentPeriodEarnings ? [{ Section: "Equity", Code: "CYPL", Account: "Current Period Earnings", Amount: calculated.currentPeriodEarnings }] : []),
       { Section: "Total Assets", Code: "", Account: "", Amount: calculated.totalAssets },
       { Section: "Liabilities + Equity", Code: "", Account: "", Amount: amount(calculated.totalLiabilities + calculated.totalEquity) },
       { Section: "Difference", Code: "", Account: "", Amount: calculated.balanceDifference },
@@ -185,7 +183,7 @@ export function FinancialStatements({
             <Total label={calculated.netIncome >= 0 ? "Net Profit" : "Net Loss"} value={Math.abs(calculated.netIncome)} state={calculated.netIncome >= 0} />
           </TabsContent>
           <TabsContent value="balance-sheet" className="space-y-4">
-            <div className="grid gap-4 lg:grid-cols-2"><StatementSection title="Assets"><AccountRows rows={calculated.assets} /><Total label="Total Assets" value={calculated.totalAssets} /></StatementSection><div className="space-y-4"><StatementSection title="Liabilities"><AccountRows rows={calculated.liabilities} /><Total label="Total Liabilities" value={calculated.totalLiabilities} /></StatementSection><StatementSection title="Equity"><AccountRows rows={calculated.equity} />{calculated.currentPeriodEarnings !== 0 && <div className="grid grid-cols-[90px_1fr_auto] gap-3 border-t px-4 py-2.5 text-sm"><span className="font-mono">CYPL</span><span>Current Period Earnings</span><b>{money(calculated.currentPeriodEarnings)}</b></div>}<Total label="Total Equity" value={calculated.totalEquity} /></StatementSection></div></div>
+            <div className="grid gap-4 lg:grid-cols-2"><StatementSection title="Assets"><AccountRows rows={calculated.assets} /><Total label="Total Assets" value={calculated.totalAssets} /></StatementSection><div className="space-y-4"><StatementSection title="Liabilities"><AccountRows rows={calculated.liabilities} /><Total label="Total Liabilities" value={calculated.totalLiabilities} /></StatementSection><StatementSection title="Equity"><AccountRows rows={calculated.equity} /><Total label="Total Equity" value={calculated.totalEquity} /></StatementSection></div></div>
             <div className="grid gap-3 sm:grid-cols-2"><Total label="Liabilities + Equity" value={calculated.totalLiabilities + calculated.totalEquity} /><Total label="Balance Sheet Difference" value={calculated.balanceDifference} state={Math.abs(calculated.balanceDifference) <= 0.01} /></div>
           </TabsContent>
           <TabsContent value="trial-balance"><div className="overflow-x-auto rounded-lg border bg-white"><table className="w-full text-sm"><thead className="bg-muted/50"><tr><th className="px-4 py-3 text-left">Account Code</th><th className="px-4 py-3 text-left">Account Name</th><th className="px-4 py-3 text-left">Type</th><th className="px-4 py-3 text-right">Debit</th><th className="px-4 py-3 text-right">Credit</th></tr></thead><tbody className="divide-y">{calculated.trial.map((account) => <tr key={account.id}><td className="px-4 py-2.5 font-mono">{account.accountCode}</td><td className="px-4 py-2.5">{account.accountName}</td><td className="px-4 py-2.5">{account.accountType}</td><td className="px-4 py-2.5 text-right tabular-nums">{money(account.trialDebit)}</td><td className="px-4 py-2.5 text-right tabular-nums">{money(account.trialCredit)}</td></tr>)}</tbody><tfoot className="border-t-2 bg-muted/30 font-semibold"><tr><td className="px-4 py-3" colSpan={3}>Total</td><td className="px-4 py-3 text-right">{money(calculated.totalDebit)}</td><td className="px-4 py-3 text-right">{money(calculated.totalCredit)}</td></tr><tr><td className={Math.abs(calculated.trialDifference) <= 0.01 ? "px-4 py-3 text-emerald-700" : "px-4 py-3 text-red-600"} colSpan={5}>Difference: {money(calculated.trialDifference)}</td></tr></tfoot></table></div></TabsContent>

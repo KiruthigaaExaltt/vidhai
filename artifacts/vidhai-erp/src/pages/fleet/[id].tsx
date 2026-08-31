@@ -199,7 +199,7 @@ export default function FleetDetail() {
         {/* Summary stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: "Total Fuel", value: `${totalFuelLitres.toFixed(1)} L`, sub: totalFuelCost > 0 ? `₹${totalFuelCost.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "" },
+            { label: "Total Fuel", value: `${totalFuelLitres.toFixed(1)} Litres`, sub: totalFuelCost > 0 ? `₹${totalFuelCost.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "" },
             { label: "Maintenance Cost", value: totalMaintCost > 0 ? `₹${totalMaintCost.toLocaleString("en-IN", { maximumFractionDigits: 0 })}` : "—", sub: `${maint.length} service(s)` },
             { label: "Hours Logged", value: `${totalHours.toFixed(1)} h`, sub: `${usage.length} run(s)` },
             { label: "Fuel Entries", value: totalRuns, sub: "total logs" },

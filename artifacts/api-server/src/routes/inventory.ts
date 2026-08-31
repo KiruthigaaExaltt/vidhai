@@ -16,6 +16,11 @@ import { isCoreProductMasterItem } from "../lib/coreProductMaster";
 
 const router = Router();
 
+const normalizeUom = (unit: unknown) => {
+  const value = String(unit ?? "").trim();
+  return value.toLowerCase() === "l" ? "Litres" : value;
+};
+
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId)
     return res.status(401).json({ error: "Not authenticated" });
@@ -74,7 +79,7 @@ router.get("/", requireAuth, async (req, res) => {
     category: r.material.category,
     categoryId: r.material.categoryId,
     attributeValues: r.material.attributeValues,
-    unit: r.material.unit,
+    unit: normalizeUom(r.material.unit),
     quantityOnHand: Number(r.inv.quantityOnHand),
     reservedQuantity: Math.min(
       Math.max(0, Number(r.inv.quantityOnHand)),
@@ -199,7 +204,7 @@ router.post("/", requireAuth, async (req, res) => {
     materialName: material.name,
     sku: material.sku,
     category: material.category,
-    unit: material.unit,
+    unit: normalizeUom(material.unit),
     quantityOnHand: Number(inv.quantityOnHand),
     locationId: inv.locationId,
     lastUpdated: inv.lastUpdated,
@@ -251,7 +256,7 @@ router.get("/movements", requireAuth, async (req, res) => {
       id: `transfer-${row.mov.id}`,
       materialId: row.mov.materialId,
       materialName: row.materialName,
-      unit: row.unit,
+      unit: normalizeUom(row.unit),
       type: "transfer",
       fromLocationId: row.mov.fromLocationId,
       fromLocationName: locationNames.get(row.mov.fromLocationId) ?? null,
@@ -271,7 +276,7 @@ router.get("/movements", requireAuth, async (req, res) => {
         id: `adjustment-${row.adjustment.id}`,
         materialId: row.adjustment.materialId,
         materialName: row.materialName,
-        unit: row.unit,
+        unit: normalizeUom(row.unit),
         type: quantity < 0 ? "outward" : "inward",
         fromLocationId: quantity < 0 ? row.adjustment.locationId : null,
         fromLocationName: quantity < 0 ? locationName : null,

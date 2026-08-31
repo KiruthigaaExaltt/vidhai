@@ -15,6 +15,11 @@ import { deleteStoredUpload, saveImageDataUrl } from "../lib/uploadStorage";
 
 const router = Router();
 
+const normalizeUom = (unit: unknown) => {
+  const value = String(unit ?? "").trim();
+  return value.toLowerCase() === "l" ? "Litres" : value;
+};
+
 router.get("/", async (req, res) => {
   const mats = await db
     .select()
@@ -22,6 +27,7 @@ router.get("/", async (req, res) => {
     .orderBy(materialsTable.name);
   let data: any[] = mats.map((m) => ({
     ...m,
+    unit: normalizeUom(m.unit),
     defaultMoisturePercent:
       m.defaultMoisturePercent != null
         ? Number(m.defaultMoisturePercent)
@@ -186,7 +192,7 @@ router.post("/", async (req, res): Promise<any> => {
       .values({
         name: name?.trim(),
         sku: sku ?? null,
-        unit: unit ?? "kg",
+        unit: normalizeUom(unit) || "kg",
         itemType: itemType || "Raw Material",
         hsnSac: hsnSac?.trim() || null,
         criticalLevel: criticalLevel != null ? String(criticalLevel) : "10",
@@ -281,7 +287,7 @@ router.patch("/:id", async (req, res) => {
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (sku !== undefined) updates.sku = sku;
-  if (unit !== undefined) updates.unit = unit;
+  if (unit !== undefined) updates.unit = normalizeUom(unit);
   if (itemType !== undefined) updates.itemType = itemType;
   if (hsnSac !== undefined) updates.hsnSac = hsnSac?.trim() || null;
   if (buyPricePerUnit !== undefined)

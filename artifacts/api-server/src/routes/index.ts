@@ -90,9 +90,9 @@ const accountsScope = (req: any) =>
     ap: "accounts.accounts_payable",
     ar: "accounts.accounts_receivable",
     reconcile: "accounts.journal_entries",
-    masters: "accounts.masters",
+    // DISABLED: Masters module is not required for this phase.
     sources: "accounts.finance_dashboard",
-    "opening-balances": "accounts.opening_balances",
+    // DISABLED: Opening Balances is handled through Bank & Cash.
     "bank-cash-transactions": "accounts.bank_cash",
     "bank-cash-accounts": "accounts.bank_cash",
     files: "accounts.bank_cash",
