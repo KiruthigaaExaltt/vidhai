@@ -1542,6 +1542,7 @@ export default function Accounts() {
             <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
               ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
               ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => setBankDecision({ row, remarks: "" })}>Reject</Button></div> : "—"],
+              ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
             ]} />
           </TabsContent>
           {/* DISABLED: Masters module is not required for this phase */}
