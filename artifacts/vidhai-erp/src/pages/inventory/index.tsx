@@ -3187,7 +3187,7 @@ export default function InventoryModule() {
                 <SelectTrigger className="rounded-sm h-10">
                   <SelectValue placeholder="Select item" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">
                   {inventoryItemOptions.map((item) => (
                     <SelectItem
                       key={item.materialId}

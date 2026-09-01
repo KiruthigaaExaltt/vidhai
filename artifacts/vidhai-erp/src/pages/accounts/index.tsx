@@ -99,8 +99,11 @@ export default function Accounts() {
     [apDocuments, setApDocuments] = useState<any[]>([]),
     [masters, setMasters] = useState<any>({ transactionTypes: [], sourceRegistry: {} }),
     [bankCash, setBankCash] = useState<any[]>([]),
+    [bankDecision, setBankDecision] = useState<{ row: any; remarks: string } | null>(null),
     [activeTab, setActiveTab] = useState("dashboard"),
     [search, setSearch] = useState(""),
+    [fromDate, setFromDate] = useState(""),
+    [toDate, setToDate] = useState(""),
     [apStatusFilter, setApStatusFilter] = useState("All"),
     [apApprovalFilter, setApApprovalFilter] = useState("All"),
     [apFromDate, setApFromDate] = useState(""),
@@ -407,6 +410,18 @@ export default function Accounts() {
       setSubmitting(false);
     }
   };
+  const listingDateQuery = () => {
+    const params = new URLSearchParams();
+    if (fromDate) params.set("dateFrom", fromDate);
+    if (toDate) params.set("dateTo", toDate);
+    const query = params.toString();
+    return query ? `&${query}` : "";
+  };
+  const withListingDates = (path: string) => {
+    const query = listingDateQuery();
+    if (!query) return path;
+    return `${path}${path.includes("?") ? query : `?${query.slice(1)}`}`;
+  };
   const load = async () => {
     setLoading(true);
     setError("");
@@ -422,12 +437,12 @@ export default function Accounts() {
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
       ...(can("accounts.accounts_receivable.view") ? [["clients", "/party-options?type=client"]] : []),
       ...(can("accounts.accounts_payable.view") ? [["vendorsOpt", "/party-options?type=vendor"]] : []),
-      ...(can("accounts.bank_cash.view") ? [["bc", "/bank-cash-transactions"]] : []),
+      ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
             [
               "j",
-              `/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`,
+              withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
             ],
           ]
         : []),
@@ -435,7 +450,7 @@ export default function Accounts() {
         ? [
             [
               "ap",
-              `/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`,
+              withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
             ],
           ]
         : []),
@@ -443,14 +458,14 @@ export default function Accounts() {
         ? [
             [
               "ar",
-              `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
+              withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
             ],
           ]
         : []),
       ...(can("accounts.customer_ledger.view")
-        ? [["cu", "/customer-ledger"]]
+        ? [["cu", withListingDates("/customer-ledger")]]
         : []),
-      ...(can("accounts.vendor_ledger.view") ? [["v", "/vendor-ledger"]] : []),
+      ...(can("accounts.vendor_ledger.view") ? [["v", withListingDates("/vendor-ledger")]] : []),
     ] as string[][];
     const out = await Promise.all(
       calls.map(async ([k, p]) => [
@@ -486,12 +501,6 @@ export default function Accounts() {
       if (k === "cu") setCustomers(v as any[]);
       if (k === "v") setVendors(v as any[]);
     }
-    const reconciledAr = can("accounts.accounts_receivable.view")
-      ? await api(
-          `/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`,
-        ).catch(() => null)
-      : null;
-    if (reconciledAr) setAr(reconciledAr.items || []);
     setLoading(false);
   };
   useEffect(() => {
@@ -503,6 +512,8 @@ export default function Accounts() {
     listPaging.ap.size,
     listPaging.ar.page,
     listPaging.ar.size,
+    fromDate,
+    toDate,
   ]);
   useEffect(() => {
     if (
@@ -526,8 +537,6 @@ export default function Accounts() {
     setExpandedCustomers((current) => ({ ...current, [key]: !current[key] }));
   const toggleVendor = (key: string) =>
     setExpandedVendors((current) => ({ ...current, [key]: !current[key] }));
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
   const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>({
     Asset: true,
     Liability: true,
@@ -542,24 +551,32 @@ export default function Accounts() {
   const toggleAccount = (id: string | number) =>
     setExpandedAccounts((current) => ({ ...current, [id]: !current[id] }));
 
-  const inDateRange = (x: any) => {
-    if (!fromDate && !toDate) return true;
-    const d = String(
-      x.transactionDate ||
-      x.invoiceDate ||
-      x.billDate ||
-      x.entryDate ||
-      x.date ||
-      x.created_at ||
-      ""
-    ).slice(0, 10);
-    if (!d) return true;
-    if (fromDate && d < fromDate) return false;
-    if (toDate && d > toDate) return false;
-    return true;
+  const setListingFromDate = (value: string) => {
+    setFromDate(value);
+    setListPaging((current) => ({
+      j: { ...current.j, page: 1 },
+      ap: { ...current.ap, page: 1 },
+      ar: { ...current.ar, page: 1 },
+    }));
   };
-  const match = (x: any) =>
-    JSON.stringify(x).toLowerCase().includes(search.toLowerCase()) && inDateRange(x),
+  const setListingToDate = (value: string) => {
+    setToDate(value);
+    setListPaging((current) => ({
+      j: { ...current.j, page: 1 },
+      ap: { ...current.ap, page: 1 },
+      ar: { ...current.ar, page: 1 },
+    }));
+  };
+  const clearListingDates = () => {
+    setFromDate("");
+    setToDate("");
+    setListPaging((current) => ({
+      j: { ...current.j, page: 1 },
+      ap: { ...current.ap, page: 1 },
+      ar: { ...current.ar, page: 1 },
+    }));
+  };
+  const match = (x: any) => JSON.stringify(x).toLowerCase().includes(search.toLowerCase()),
     f = (xs: any[]) => xs.filter(match);
   const outstanding = (row: any) =>
     Math.max(
@@ -669,7 +686,7 @@ export default function Accounts() {
     }
   };
   const receivePayment = async () => {
-    if (!paymentAr?.sourceId) return;
+    if (!paymentAr) return;
     const amount = numberValue(paymentAmount);
     if (!(amount > 0) || amount > outstanding(paymentAr) + 0.009) {
       setError(
@@ -680,16 +697,26 @@ export default function Accounts() {
     setSubmitting(true);
     setError("");
     try {
-      await salesApi("/payments", {
-        method: "POST",
-        body: JSON.stringify({
-          invoiceId: paymentAr.sourceId,
-          amount,
-          ...arPayment,
-          bankCharges: numberValue(arPayment.bankCharges),
-          tdsAmount: numberValue(arPayment.tdsAmount),
-        }),
-      });
+      if (paymentAr.sourceType === "Sales Invoice" && paymentAr.sourceId) {
+        await salesApi("/payments", {
+          method: "POST",
+          body: JSON.stringify({
+            invoiceId: paymentAr.sourceId,
+            amount,
+            ...arPayment,
+            bankCharges: numberValue(arPayment.bankCharges),
+            tdsAmount: numberValue(arPayment.tdsAmount),
+          }),
+        });
+      } else {
+        await api(`/ar/${paymentAr.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            receivedAmount: numberValue(paymentAr.receivedAmount) + amount,
+            paymentDate: arPayment.paymentDate,
+          }),
+        });
+      }
       setPaymentAr(null);
       setPaymentAmount("");
       await load();
@@ -751,14 +778,22 @@ export default function Accounts() {
       await load();
     } catch (e: any) { setError(e.message); } finally { setSubmitting(false); }
   };
-  const bankCashDecision = async (row: any, action: "approve" | "reject") => {
-    const remarks = action === "reject" ? window.prompt("Rejection remarks") : window.prompt("Approval remarks", "Approved");
-    if (remarks === null || (action === "reject" && !remarks.trim())) return;
+  const bankCashDecision = async (row: any, action: "approve" | "reject", remarks = "Approved") => {
+    if (action === "reject" && !remarks.trim()) return;
     setSubmitting(true);
     setError("");
-    try { await api(`/bank-cash-transactions/${row.id}/${action}`, { method: "POST", body: JSON.stringify({ remarks }) }); await load(); }
-    catch (e: any) { setError(e.message); }
-    finally { setSubmitting(false); }
+    try {
+      await api(`/bank-cash-transactions/${row.id}/${action}`, {
+        method: "POST",
+        body: JSON.stringify({ remarks }),
+      });
+      setBankDecision(null);
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
   const saveTransactionType = async (row: any, patch: any) => {
     setSubmitting(true);
@@ -1144,7 +1179,7 @@ export default function Accounts() {
               <Input
                 type="date"
                 value={fromDate}
-                onChange={(e) => setFromDate(e.target.value)}
+                onChange={(e) => setListingFromDate(e.target.value)}
                 className="h-9 w-36 text-xs bg-background"
               />
             </div>
@@ -1153,7 +1188,7 @@ export default function Accounts() {
               <Input
                 type="date"
                 value={toDate}
-                onChange={(e) => setToDate(e.target.value)}
+                onChange={(e) => setListingToDate(e.target.value)}
                 className="h-9 w-36 text-xs bg-background"
               />
             </div>
@@ -1162,7 +1197,7 @@ export default function Accounts() {
                 size="sm"
                 variant="ghost"
                 className="h-9 text-xs px-2 text-muted-foreground hover:text-foreground"
-                onClick={() => { setFromDate(""); setToDate(""); }}
+                onClick={clearListingDates}
               >
                 Clear Dates
               </Button>
@@ -1367,6 +1402,8 @@ export default function Accounts() {
                         categoryAccounts.map((account: any) => {
                           const isAccExpanded = Boolean(expandedAccounts[account.id]);
                           const historyLines = account.lines || [];
+                          const isCreditNormalAccount = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
+                          const displayedBalance = isCreditNormalAccount ? Math.abs(numberValue(account.currentBalance)) : numberValue(account.currentBalance);
                           return (
                             <div key={account.id} className="bg-background">
                               <div className="flex flex-wrap items-center justify-between px-4 py-3 hover:bg-muted/20 gap-2">
@@ -1392,9 +1429,16 @@ export default function Accounts() {
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-4">
-                                  <span className="font-mono text-sm font-bold text-foreground">
-                                    {inr(account.currentBalance)}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-sm font-bold text-foreground">
+                                      {inr(displayedBalance)}
+                                    </span>
+                                    {isCreditNormalAccount && numberValue(account.currentBalance) > 0 && (
+                                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
+                                        Credit
+                                      </span>
+                                    )}
+                                  </div>
                                   {can("accounts.chart_of_accounts.edit") && !isSystemAccount(account) ? (
                                     <Button
                                       size="sm"
@@ -1497,7 +1541,7 @@ export default function Accounts() {
             </Card>
             <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
               ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
-              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "reject")}>Reject</Button></div> : "—"],
+              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => setBankDecision({ row, remarks: "" })}>Reject</Button></div> : "—"],
             ]} />
           </TabsContent>
           {/* DISABLED: Masters module is not required for this phase */}
@@ -1697,8 +1741,7 @@ export default function Accounts() {
                       "actions",
                       (_value, row) => (
                         <div className="flex items-center gap-2">
-                          {row.sourceType === "Sales Invoice" &&
-                            row.approvalStatus === "Approved" &&
+                          {row.approvalStatus === "Approved" &&
                             outstanding(row) > 0 && (
                               <Button
                                 size="sm"
@@ -2240,6 +2283,52 @@ export default function Accounts() {
           </DialogContent>
         </Dialog>
         <Dialog
+          open={Boolean(bankDecision)}
+          onOpenChange={(open) => {
+            if (!open && !submitting) setBankDecision(null);
+          }}
+        >
+          <DialogContent className="max-w-md rounded-md border bg-background shadow-xl">
+            <DialogHeader>
+              <DialogTitle>Reject Bank & Cash Transaction</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              {bankDecision?.row && (
+                <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                  <div className="font-medium">{bankDecision.row.reference || bankDecision.row.transactionTypeName}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {String(bankDecision.row.transactionDate || "").slice(0, 10)} - {inr(bankDecision.row.amount)}
+                  </div>
+                </div>
+              )}
+              <label className="space-y-1.5 text-sm">
+                <Label>Rejection Remarks *</Label>
+                <Input
+                  value={bankDecision?.remarks || ""}
+                  onChange={(event) =>
+                    setBankDecision((current) =>
+                      current ? { ...current, remarks: event.target.value } : current,
+                    )
+                  }
+                  placeholder="Enter reason for rejection"
+                />
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setBankDecision(null)} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={submitting || !bankDecision?.remarks.trim()}
+                onClick={() => bankDecision && void bankCashDecision(bankDecision.row, "reject", bankDecision.remarks.trim())}
+              >
+                {submitting ? "Rejecting..." : "Reject"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
           open={settlement?.kind === "ap"}
           onOpenChange={(open) => {
             if (!open && !submitting) {
@@ -2496,3 +2585,5 @@ export default function Accounts() {
     </Shell>
   );
 }
+
+

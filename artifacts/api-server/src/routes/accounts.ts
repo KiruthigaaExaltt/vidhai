@@ -305,6 +305,87 @@ async function coa(org: number) {
     }
     a.lines = historyLines;
   }
+
+  const [receivableRows, payableRows, salesPaymentRows, vendorPaymentRows] = await Promise.all([
+    db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, org)),
+    db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org)),
+    db.select().from(salesPaymentsTable),
+    db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, org)),
+  ]);
+  const resetAccount = async (code: string, balance: number, derivedLines: any[]) => {
+    const account = (rows as any[]).find((row: any) => String(row.accountCode) === code);
+    if (!account) return;
+    const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
+    let running = 0;
+    account.currentBalance = String(m(balance));
+    await db.update(chartOfAccountsTable).set({ currentBalance: m(balance) } as any).where(eq(chartOfAccountsTable.id, account.id));
+    account.lines = derivedLines
+      .filter((line) => m(line.debit) > 0 || m(line.credit) > 0)
+      .sort((left, right) => String(left.entryDate).localeCompare(String(right.entryDate)) || String(left.reference).localeCompare(String(right.reference)))
+      .map((line, index) => {
+        running = m(running + (isCreditNormal ? m(line.credit) - m(line.debit) : m(line.debit) - m(line.credit)));
+        return { id: `derived-${code}-${index}`, journalEntryId: null, runningBalance: running, ...line };
+      });
+  };
+  const invoices = (receivableRows as any[]).filter((row) => row.entryType !== "Credit Note");
+  const bills = (payableRows as any[]).filter((row) => row.entryType !== "Debit Note");
+  const latestDate = (dates: any[]) => dates.map((value) => String(value || "").slice(0, 10)).filter(Boolean).sort().pop() || "";
+  const paidInvoiceDate = (row: any) =>
+    latestDate((salesPaymentRows as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId)).map((payment) => payment.paymentDate)) || row.invoiceDate;
+  const paidBillDate = (row: any) =>
+    latestDate((vendorPaymentRows as any[]).filter((payment) => norm(payment.invoiceReference) === norm(row.billNumber)).map((payment) => payment.paymentDate)) || row.billDate;
+  await resetAccount(
+    "1100",
+    invoices.reduce((sum, row) => sum + receivableOutstanding(row), 0),
+    invoices.map((row) => ({
+      entryDate: row.invoiceDate,
+      reference: row.invoiceNumber,
+      description: row.clientName || "Customer invoice",
+      sourceType: row.sourceType === "Manual" ? "Manual AR" : row.sourceType || "Sales Invoice",
+      sourceId: row.sourceId || row.id,
+      debit: receivableOutstanding(row),
+      credit: 0,
+    })),
+  );
+  await resetAccount(
+    "4100",
+    invoices.reduce((sum, row) => sum + m(row.receivedAmount), 0),
+    invoices.map((row) => ({
+      entryDate: paidInvoiceDate(row),
+      reference: row.invoiceNumber,
+      description: row.clientName || "Customer payment received",
+      sourceType: row.sourceType === "Manual" ? "Manual AR" : row.sourceType || "Sales Invoice",
+      sourceId: row.sourceId || row.id,
+      debit: 0,
+      credit: m(row.receivedAmount),
+    })),
+  );
+  await resetAccount(
+    "2100",
+    bills.reduce((sum, row) => sum + payableOutstanding(row), 0),
+    bills.map((row) => ({
+      entryDate: row.billDate,
+      reference: row.billNumber,
+      description: row.vendorName || "Vendor bill",
+      sourceType: row.sourceType === "Manual" ? "Manual AP" : row.sourceType || "Purchase Invoice",
+      sourceId: row.sourceId || row.id,
+      debit: 0,
+      credit: payableOutstanding(row),
+    })),
+  );
+  await resetAccount(
+    "5100",
+    bills.reduce((sum, row) => sum + m(row.paidAmount), 0),
+    bills.map((row) => ({
+      entryDate: paidBillDate(row),
+      reference: row.billNumber,
+      description: row.vendorName || "Vendor payment made",
+      sourceType: row.sourceType === "Manual" ? "Manual AP" : row.sourceType || "Purchase Invoice",
+      sourceId: row.sourceId || row.id,
+      debit: m(row.paidAmount),
+      credit: 0,
+    })),
+  );
   return rows;
 }
 async function post(org: number, b: any, userId?: number) {
@@ -735,6 +816,18 @@ const pg = (xs: any[], r: any) => {
     ...paginationMetadata(xs.length, pagination),
   };
 };
+const dateRangeFilter = (query: any, field: string) => {
+  const dateFrom = String(query?.dateFrom || "").slice(0, 10);
+  const dateTo = String(query?.dateTo || "").slice(0, 10);
+  if (dateFrom && dateTo && dateFrom > dateTo)
+    throw Object.assign(new Error("From date must be on or before To date"), {
+      status: 400,
+    });
+  return (row: any) => {
+    const value = String(row?.[field] || "").slice(0, 10);
+    return (!dateFrom || value >= dateFrom) && (!dateTo || value <= dateTo);
+  };
+};
 async function contactsFor(type?: "client" | "vendor" | "other") {
   const rows = await db.select().from(contactsTable);
   return (rows as any[]).filter((row) => !type || String(row.type || "").toLowerCase() === type);
@@ -955,14 +1048,19 @@ router.get("/bank-cash-accounts", async (r: any, s): Promise<any> => {
   const accounts = await coa(r.acc.org);
   s.json(accounts.filter((account: any) => account.isActive !== false));
 });
-async function bankCashRows(org: number) {
+async function bankCashRows(org: number, query: any = {}) {
   const { bankCashTransactionsTable } = await accountTables();
-  const rows = await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, org));
+  const rows = (await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, org))).filter(dateRangeFilter(query, "transactionDate"));
   const docs = await documentsFor("bank-cash", rows.map((row: any) => Number(row.id)));
   return rows.map((row: any) => ({ ...row, documents: docs.get(Number(row.id)) || [] })).sort((a: any, b: any) => String(b.transactionDate).localeCompare(String(a.transactionDate)) || Number(b.id) - Number(a.id));
 }
 router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
-  if (need(r, s, "accounts.bank_cash.view")) s.json(await bankCashRows(r.acc.org));
+  if (!need(r, s, "accounts.bank_cash.view")) return;
+  try {
+    s.json(await bankCashRows(r.acc.org, r.query));
+  } catch (error: any) {
+    s.status(error?.status || 500).json({ error: error?.message || "Failed to load bank and cash transactions" });
+  }
 });
 async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-balance") {
   const amount = m(r.body.amount);
@@ -1232,12 +1330,16 @@ router.delete("/coa/:id", async (r: any, s): Promise<any> => {
 });
 router.get("/journal-entries", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.journal_entries.view")) return;
-  let x = await db
-    .select()
-    .from(journalEntriesTable)
-    .where(eq(journalEntriesTable.organizationId, r.acc.org))
-    .orderBy(desc(journalEntriesTable.entryDate));
-  s.json(pg(x, r));
+  try {
+    const x = (await db
+      .select()
+      .from(journalEntriesTable)
+      .where(eq(journalEntriesTable.organizationId, r.acc.org))
+      .orderBy(desc(journalEntriesTable.entryDate))).filter(dateRangeFilter(r.query, "entryDate"));
+    s.json(pg(x, r));
+  } catch (error: any) {
+    s.status(error?.status || 500).json({ error: error?.message || "Failed to load journal entries" });
+  }
 });
 router.get("/journal-entries/:id/lines", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.journal_entries.view"))
@@ -1284,13 +1386,18 @@ for (const c of [
 ] as const) {
   router.get(`/${c.p}`, async (r: any, s): Promise<any> => {
     if (!need(r, s, `${c.k}.view`)) return;
-    const rows = await db
-      .select()
-      .from(c.t)
-      .where(eq(c.t.organizationId, r.acc.org))
-      .orderBy(desc(c.t.createdAt));
-    const enriched = c.p === "ap" ? await enrichPayables(rows as any[]) : await enrichReceivables(rows as any[]);
-    s.json(pg(enriched.map((row: any) => serializeMoneyFields(row)), r));
+    try {
+      const dateField = c.p === "ap" ? "billDate" : "invoiceDate";
+      const rows = (await db
+        .select()
+        .from(c.t)
+        .where(eq(c.t.organizationId, r.acc.org))
+        .orderBy(desc(c.t.createdAt))).filter(dateRangeFilter(r.query, dateField));
+      const enriched = c.p === "ap" ? await enrichPayables(rows as any[]) : await enrichReceivables(rows as any[]);
+      s.json(pg(enriched.map((row: any) => serializeMoneyFields(row)), r));
+    } catch (error: any) {
+      s.status(error?.status || 500).json({ error: error?.message || `Failed to load ${c.p.toUpperCase()} entries` });
+    }
   });
   router.post(`/${c.p}`, async (r: any, s): Promise<any> => {
     if (!need(r, s, `${c.k}.create`)) return;
@@ -1298,6 +1405,10 @@ for (const c of [
     const covered = m(r.body[c.paid]) + m(r.body.adjustedAmount);
     if (amount <= 0) return s.status(400).json({ error: "Amount must be positive" });
     if (c.p === "ap") {
+      if (!r.body.vendorId && !String(r.body.vendorName || "").trim()) return s.status(400).json({ error: "Vendor is required" });
+      if (!String(r.body.billNumber || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Bill number is required" });
+      if (!String(r.body.billDate || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Bill date is required" });
+      if (!String(r.body.dueDate || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Due date is required" });
       const vendor = await resolveContact("vendor", r.body.vendorId, r.body.vendorName);
       if (!vendor) return s.status(400).json({ error: "Choose a valid CRM Vendor" });
       r.body.vendorId = vendor.id;
@@ -1425,22 +1536,21 @@ for (const c of [
       return s
         .status(400)
         .json({ error: "Use the approved Record Payment workflow" });
-    if (
-      c.p === "ar" &&
-      (r.body.receivedAmount !== undefined ||
-        r.body.adjustedAmount !== undefined)
-    )
+    if (c.p === "ar" && r.body.adjustedAmount !== undefined)
       return s
         .status(400)
-        .json({
-          error: "Use Sales Payment or the approved credit-note workflow",
-        });
+        .json({ error: "Use the approved credit-note workflow" });
     const [o] = await db
-        .select()
-        .from(c.t)
-        .where(eq(c.t.id, Number(r.params.id)))
-        .limit(1),
-      b = { ...o, ...r.body },
+      .select()
+      .from(c.t)
+      .where(and(eq(c.t.organizationId, r.acc.org), eq(c.t.id, Number(r.params.id))))
+      .limit(1);
+    if (!o) return s.status(404).json({ error: `${c.p.toUpperCase()} entry not found` });
+    if (c.p === "ar" && r.body.receivedAmount !== undefined && o.sourceType !== "Manual")
+      return s.status(400).json({ error: "Use Sales Payment for linked sales invoices" });
+    if (c.p === "ar" && r.body.receivedAmount !== undefined)
+      r.body.receivedAmount = Math.min(m(o.amount), Math.max(0, m(r.body.receivedAmount)));
+    const b = { ...o, ...r.body },
       covered = m(b[c.paid]) + m(b.adjustedAmount);
     const [x] = await db
       .update(c.t)
@@ -2049,205 +2159,217 @@ router.get("/financial-statements/download", async (r: any, s): Promise<any> => 
 });
 router.get("/customer-ledger", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.customer_ledger.view")) return;
-  const [receivableRows, partyEntries, payments] = await Promise.all([
-    db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
-    db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
-    db.select().from(salesPaymentsTable),
-  ]);
-  const receivables = await enrichReceivables(receivableRows as any[]);
-  const groups = new Map<string, any>();
-  const ensureGroup = (row: any) => {
-    const key = row.clientId ? `client:${row.clientId}` : `legacy:${norm(row.clientName)}`;
-    const group = groups.get(key) || {
-      clientId: row.clientId || null,
-      clientCode: row.clientCode || "",
-      clientName: row.clientName || "Unassigned Customer",
-      customerDisplay: row.customerDisplay || row.clientName || "Unassigned Customer",
-      invoiced: 0,
-      received: 0,
-      credited: 0,
-      outstanding: 0,
-      records: [],
-      sources: new Set<string>(),
+  try {
+    const receivableDateRange = dateRangeFilter(r.query, "invoiceDate");
+    const partyDateRange = dateRangeFilter(r.query, "entryDate");
+    const [receivableRows, partyEntries, payments] = await Promise.all([
+      db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
+      db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
+      db.select().from(salesPaymentsTable),
+    ]);
+    const receivables = await enrichReceivables((receivableRows as any[]).filter(receivableDateRange));
+    const groups = new Map<string, any>();
+    const ensureGroup = (row: any) => {
+      const key = row.clientId ? `client:${row.clientId}` : `legacy:${norm(row.clientName)}`;
+      const group = groups.get(key) || {
+        clientId: row.clientId || null,
+        clientCode: row.clientCode || "",
+        clientName: row.clientName || "Unassigned Customer",
+        customerDisplay: row.customerDisplay || row.clientName || "Unassigned Customer",
+        invoiced: 0,
+        received: 0,
+        credited: 0,
+        outstanding: 0,
+        records: [],
+        sources: new Set<string>(),
+      };
+      groups.set(key, group);
+      return group;
     };
-    groups.set(key, group);
-    return group;
-  };
-  const creditNotes = receivables.filter((row: any) => row.entryType === "Credit Note");
-  for (const row of receivables.filter((entry: any) => entry.entryType !== "Credit Note")) {
-    const group = ensureGroup(row);
-    const invoicePayments = (payments as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId));
-    const credits = creditNotes.filter((credit: any) => norm(credit.linkedInvoiceNumber) === norm(row.invoiceNumber));
-    const received = m(row.receivedAmount);
-    const credited = m(row.adjustedAmount || credits.reduce((sum: number, credit: any) => sum + m(credit.amount), 0));
-    const outstanding = receivableOutstanding(row);
-    const latestPaymentDate = invoicePayments.map((payment) => String(payment.paymentDate || "").slice(0, 10)).filter(Boolean).sort().pop() || "";
-    group.sources.add("accounts_receivable");
-    group.invoiced += m(row.amount);
-    group.received += received;
-    group.credited += credited;
-    group.outstanding += outstanding;
-    group.records.push({
-      id: row.id,
-      invoiceNumber: row.invoiceNumber,
-      invoiceDate: row.invoiceDate,
-      invoicedAmount: m(row.amount),
-      receivedAmount: received,
-      credits: credited,
-      outstanding,
-      paidDate: outstanding <= 0 ? latestPaymentDate : received > 0 ? "Partial" : "",
-      status: row.status,
-      sourceType: row.sourceType,
-      sourceId: row.sourceId,
-      payments: invoicePayments.map((payment) => ({
-        id: payment.id,
-        paymentDate: payment.paymentDate,
-        amount: m(payment.amount),
-        reference: payment.reference || payment.paymentNumber || "",
-      })),
-      creditNotes: credits.map((credit) => ({
+    const creditNotes = receivables.filter((row: any) => row.entryType === "Credit Note");
+    for (const row of receivables.filter((entry: any) => entry.entryType !== "Credit Note")) {
+      const group = ensureGroup(row);
+      const invoicePayments = (payments as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId));
+      const credits = creditNotes.filter((credit: any) => norm(credit.linkedInvoiceNumber) === norm(row.invoiceNumber));
+      const received = m(row.receivedAmount);
+      const credited = m(row.adjustedAmount || credits.reduce((sum: number, credit: any) => sum + m(credit.amount), 0));
+      const outstanding = receivableOutstanding(row);
+      const latestPaymentDate = invoicePayments.map((payment) => String(payment.paymentDate || "").slice(0, 10)).filter(Boolean).sort().pop() || "";
+      group.sources.add("accounts_receivable");
+      group.invoiced += m(row.amount);
+      group.received += received;
+      group.credited += credited;
+      group.outstanding += outstanding;
+      group.records.push({
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.invoiceDate,
+        invoicedAmount: m(row.amount),
+        receivedAmount: received,
+        credits: credited,
+        outstanding,
+        paidDate: outstanding <= 0 ? latestPaymentDate : received > 0 ? "Partial" : "",
+        status: row.status,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        payments: invoicePayments.map((payment) => ({
+          id: payment.id,
+          paymentDate: payment.paymentDate,
+          amount: m(payment.amount),
+          reference: payment.reference || payment.paymentNumber || "",
+        })),
+        creditNotes: credits.map((credit) => ({
+          id: credit.id,
+          creditNoteNumber: credit.creditNoteNumber || credit.invoiceNumber,
+          date: credit.invoiceDate,
+          amount: m(credit.amount),
+        })),
+      });
+    }
+    for (const credit of creditNotes) {
+      const hasInvoice = receivables.some((row: any) => row.entryType !== "Credit Note" && norm(row.invoiceNumber) === norm(credit.linkedInvoiceNumber));
+      if (hasInvoice) continue;
+      const group = ensureGroup(credit);
+      group.sources.add("accounts_receivable");
+      group.credited += m(credit.amount);
+      group.records.push({
         id: credit.id,
-        creditNoteNumber: credit.creditNoteNumber || credit.invoiceNumber,
-        date: credit.invoiceDate,
-        amount: m(credit.amount),
-      })),
-    });
+        invoiceNumber: credit.creditNoteNumber || credit.invoiceNumber,
+        invoiceDate: credit.invoiceDate,
+        invoicedAmount: 0,
+        receivedAmount: 0,
+        credits: m(credit.amount),
+        outstanding: 0,
+        paidDate: "",
+        status: credit.status,
+        sourceType: credit.sourceType,
+        sourceId: credit.sourceId,
+        creditNotes: [{ id: credit.id, creditNoteNumber: credit.creditNoteNumber || credit.invoiceNumber, date: credit.invoiceDate, amount: m(credit.amount) }],
+        payments: [],
+      });
+    }
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "customer" && !x.linkedArId && partyDateRange(x))) {
+      const group = ensureGroup({ clientId: row.clientId, clientName: row.clientName || "Unassigned Customer" });
+      const value = m(row.amount);
+      const drCr = String(row.drCr || "").toLowerCase();
+      const entryType = String(row.entryType || "").toLowerCase();
+      group.sources.add("party_ledger_entries");
+      if (drCr === "debit") group.invoiced += value;
+      else if (entryType.includes("credit")) group.credited += value;
+      else group.received += value;
+      group.outstanding = Math.max(0, group.invoiced - group.received - group.credited);
+    }
+    s.json([...groups.values()].map((row) => ({ ...row, sources: [...row.sources], records: row.records.sort((a: any, b: any) => String(b.invoiceDate).localeCompare(String(a.invoiceDate))) })));
+  } catch (error: any) {
+    s.status(error?.status || 500).json({ error: error?.message || "Failed to load customer ledger" });
   }
-  for (const credit of creditNotes) {
-    const hasInvoice = receivables.some((row: any) => row.entryType !== "Credit Note" && norm(row.invoiceNumber) === norm(credit.linkedInvoiceNumber));
-    if (hasInvoice) continue;
-    const group = ensureGroup(credit);
-    group.sources.add("accounts_receivable");
-    group.credited += m(credit.amount);
-    group.records.push({
-      id: credit.id,
-      invoiceNumber: credit.creditNoteNumber || credit.invoiceNumber,
-      invoiceDate: credit.invoiceDate,
-      invoicedAmount: 0,
-      receivedAmount: 0,
-      credits: m(credit.amount),
-      outstanding: 0,
-      paidDate: "",
-      status: credit.status,
-      sourceType: credit.sourceType,
-      sourceId: credit.sourceId,
-      creditNotes: [{ id: credit.id, creditNoteNumber: credit.creditNoteNumber || credit.invoiceNumber, date: credit.invoiceDate, amount: m(credit.amount) }],
-      payments: [],
-    });
-  }
-  for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "customer" && !x.linkedArId)) {
-    const group = ensureGroup({ clientId: row.clientId, clientName: row.clientName || "Unassigned Customer" });
-    const value = m(row.amount);
-    const drCr = String(row.drCr || "").toLowerCase();
-    const entryType = String(row.entryType || "").toLowerCase();
-    group.sources.add("party_ledger_entries");
-    if (drCr === "debit") group.invoiced += value;
-    else if (entryType.includes("credit")) group.credited += value;
-    else group.received += value;
-    group.outstanding = Math.max(0, group.invoiced - group.received - group.credited);
-  }
-  s.json([...groups.values()].map((row) => ({ ...row, sources: [...row.sources], records: row.records.sort((a: any, b: any) => String(b.invoiceDate).localeCompare(String(a.invoiceDate))) })));
 });
 router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.vendor_ledger.view")) return;
-  const [payableRows, partyEntries, payments] = await Promise.all([
-    db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
-    db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
-    db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, r.acc.org)),
-  ]);
-  const payables = await enrichPayables(payableRows as any[]);
-  const groups = new Map<string, any>();
-  const ensureGroup = (row: any) => {
-    const key = row.vendorId ? `vendor:${row.vendorId}` : `legacy:${norm(row.vendorName)}`;
-    const group = groups.get(key) || {
-      vendorId: row.vendorId || null,
-      vendorCode: row.vendorCode || "",
-      vendorName: row.vendorName || "Unassigned Vendor",
-      vendorDisplay: row.vendorDisplay || row.vendorName || "Unassigned Vendor",
-      billed: 0,
-      paid: 0,
-      credited: 0,
-      outstanding: 0,
-      records: [],
-      sources: new Set<string>(),
+  try {
+    const payableDateRange = dateRangeFilter(r.query, "billDate");
+    const partyDateRange = dateRangeFilter(r.query, "entryDate");
+    const [payableRows, partyEntries, payments] = await Promise.all([
+      db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
+      db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
+      db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, r.acc.org)),
+    ]);
+    const payables = await enrichPayables((payableRows as any[]).filter(payableDateRange));
+    const groups = new Map<string, any>();
+    const ensureGroup = (row: any) => {
+      const key = row.vendorId ? `vendor:${row.vendorId}` : `legacy:${norm(row.vendorName)}`;
+      const group = groups.get(key) || {
+        vendorId: row.vendorId || null,
+        vendorCode: row.vendorCode || "",
+        vendorName: row.vendorName || "Unassigned Vendor",
+        vendorDisplay: row.vendorDisplay || row.vendorName || "Unassigned Vendor",
+        billed: 0,
+        paid: 0,
+        credited: 0,
+        outstanding: 0,
+        records: [],
+        sources: new Set<string>(),
+      };
+      groups.set(key, group);
+      return group;
     };
-    groups.set(key, group);
-    return group;
-  };
-  const debitNotes = payables.filter((row: any) => row.entryType === "Debit Note");
-  for (const row of payables.filter((entry: any) => entry.entryType !== "Debit Note")) {
-    const group = ensureGroup(row);
-    const billPayments = (payments as any[]).filter((payment) => norm(payment.invoiceReference) === norm(row.billNumber));
-    const debits = debitNotes.filter((debit: any) => norm(debit.againstBillNumber) === norm(row.billNumber));
-    const paid = m(row.paidAmount);
-    const credited = m(row.adjustedAmount || debits.reduce((sum: number, debit: any) => sum + m(debit.amount), 0));
-    const outstanding = payableOutstanding(row);
-    const latestPaymentDate = billPayments.map((payment) => String(payment.paymentDate || "").slice(0, 10)).filter(Boolean).sort().pop() || "";
-    group.sources.add("accounts_payable");
-    group.billed += m(row.amount);
-    group.paid += paid;
-    group.credited += credited;
-    group.outstanding += outstanding;
-    group.records.push({
-      id: row.id,
-      billNumber: row.billNumber,
-      billedDate: row.billDate,
-      billedAmount: m(row.amount),
-      paidAmount: paid,
-      debitNote: credited,
-      outstanding,
-      paidDate: outstanding <= 0 ? latestPaymentDate : paid > 0 ? "Partial" : "",
-      status: row.status,
-      sourceType: row.sourceType,
-      sourceId: row.sourceId,
-      payments: billPayments.map((payment) => ({
-        id: payment.id,
-        paymentDate: payment.paymentDate,
-        amount: m(payment.amount),
-        reference: payment.transactionReference || payment.paymentNumber || "",
-      })),
-      debitNotes: debits.map((debit) => ({
+    const debitNotes = payables.filter((row: any) => row.entryType === "Debit Note");
+    for (const row of payables.filter((entry: any) => entry.entryType !== "Debit Note")) {
+      const group = ensureGroup(row);
+      const billPayments = (payments as any[]).filter((payment) => norm(payment.invoiceReference) === norm(row.billNumber));
+      const debits = debitNotes.filter((debit: any) => norm(debit.againstBillNumber) === norm(row.billNumber));
+      const paid = m(row.paidAmount);
+      const credited = m(row.adjustedAmount || debits.reduce((sum: number, debit: any) => sum + m(debit.amount), 0));
+      const outstanding = payableOutstanding(row);
+      const latestPaymentDate = billPayments.map((payment) => String(payment.paymentDate || "").slice(0, 10)).filter(Boolean).sort().pop() || "";
+      group.sources.add("accounts_payable");
+      group.billed += m(row.amount);
+      group.paid += paid;
+      group.credited += credited;
+      group.outstanding += outstanding;
+      group.records.push({
+        id: row.id,
+        billNumber: row.billNumber,
+        billedDate: row.billDate,
+        billedAmount: m(row.amount),
+        paidAmount: paid,
+        debitNote: credited,
+        outstanding,
+        paidDate: outstanding <= 0 ? latestPaymentDate : paid > 0 ? "Partial" : "",
+        status: row.status,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        payments: billPayments.map((payment) => ({
+          id: payment.id,
+          paymentDate: payment.paymentDate,
+          amount: m(payment.amount),
+          reference: payment.transactionReference || payment.paymentNumber || "",
+        })),
+        debitNotes: debits.map((debit) => ({
+          id: debit.id,
+          debitNoteNumber: debit.billNumber,
+          date: debit.billDate,
+          amount: m(debit.amount),
+        })),
+      });
+    }
+    for (const debit of debitNotes) {
+      const hasBill = payables.some((row: any) => row.entryType !== "Debit Note" && norm(row.billNumber) === norm(debit.againstBillNumber));
+      if (hasBill) continue;
+      const group = ensureGroup(debit);
+      group.sources.add("accounts_payable");
+      group.credited += m(debit.amount);
+      group.records.push({
         id: debit.id,
-        debitNoteNumber: debit.billNumber,
-        date: debit.billDate,
-        amount: m(debit.amount),
-      })),
-    });
+        billNumber: debit.billNumber,
+        billedDate: debit.billDate,
+        billedAmount: 0,
+        paidAmount: 0,
+        debitNote: m(debit.amount),
+        outstanding: 0,
+        paidDate: "",
+        status: debit.status,
+        sourceType: debit.sourceType,
+        sourceId: debit.sourceId,
+        debitNotes: [{ id: debit.id, debitNoteNumber: debit.billNumber, date: debit.billDate, amount: m(debit.amount) }],
+        payments: [],
+      });
+    }
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "vendor" && !x.linkedApId && partyDateRange(x))) {
+      const group = ensureGroup({ vendorId: row.vendorId, vendorName: row.vendorName || "Unassigned Vendor" });
+      const value = m(row.amount);
+      const drCr = String(row.drCr || "").toLowerCase();
+      const entryType = String(row.entryType || "").toLowerCase();
+      group.sources.add("party_ledger_entries");
+      if (drCr === "credit") group.billed += value;
+      else if (entryType.includes("debit") || entryType.includes("credit")) group.credited += value;
+      else group.paid += value;
+      group.outstanding = Math.max(0, group.billed - group.paid - group.credited);
+    }
+    s.json([...groups.values()].map((row) => ({ ...row, sources: [...row.sources], records: row.records.sort((a: any, b: any) => String(b.billedDate).localeCompare(String(a.billedDate))) })));
+  } catch (error: any) {
+    s.status(error?.status || 500).json({ error: error?.message || "Failed to load vendor ledger" });
   }
-  for (const debit of debitNotes) {
-    const hasBill = payables.some((row: any) => row.entryType !== "Debit Note" && norm(row.billNumber) === norm(debit.againstBillNumber));
-    if (hasBill) continue;
-    const group = ensureGroup(debit);
-    group.sources.add("accounts_payable");
-    group.credited += m(debit.amount);
-    group.records.push({
-      id: debit.id,
-      billNumber: debit.billNumber,
-      billedDate: debit.billDate,
-      billedAmount: 0,
-      paidAmount: 0,
-      debitNote: m(debit.amount),
-      outstanding: 0,
-      paidDate: "",
-      status: debit.status,
-      sourceType: debit.sourceType,
-      sourceId: debit.sourceId,
-      debitNotes: [{ id: debit.id, debitNoteNumber: debit.billNumber, date: debit.billDate, amount: m(debit.amount) }],
-      payments: [],
-    });
-  }
-  for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "vendor" && !x.linkedApId)) {
-    const group = ensureGroup({ vendorId: row.vendorId, vendorName: row.vendorName || "Unassigned Vendor" });
-    const value = m(row.amount);
-    const drCr = String(row.drCr || "").toLowerCase();
-    const entryType = String(row.entryType || "").toLowerCase();
-    group.sources.add("party_ledger_entries");
-    if (drCr === "credit") group.billed += value;
-    else if (entryType.includes("debit") || entryType.includes("credit")) group.credited += value;
-    else group.paid += value;
-    group.outstanding = Math.max(0, group.billed - group.paid - group.credited);
-  }
-  s.json([...groups.values()].map((row) => ({ ...row, sources: [...row.sources], records: row.records.sort((a: any, b: any) => String(b.billedDate).localeCompare(String(a.billedDate))) })));
 });
 router.get("/business-dashboard", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view"))
@@ -2255,3 +2377,9 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
 });
 export { post as postJournal, coa as ensureCanonicalAccounts, reverseJournal };
 export default router;
+
+
+
+
+
+
