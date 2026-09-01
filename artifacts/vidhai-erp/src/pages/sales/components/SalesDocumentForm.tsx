@@ -17,6 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -134,6 +135,7 @@ export function SalesDocumentForm({
     whatsappNumber: "",
     gstin: "",
   });
+  const [shippingAddress, setShippingAddress] = useState<string>("");
   const [docDate, setDocDate] = useState<string>(
     new Date().toISOString().split("T")[0],
   );
@@ -357,6 +359,7 @@ export function SalesDocumentForm({
           whatsappNumber: document.customerWhatsappNumber || "",
           gstin: document.customerGstin || "",
         });
+        setShippingAddress(document.shippingAddress || document.customerAddress || "");
         const mappedQuoteIds = (
           document.quotationIds ||
           document.quoteIds ||
@@ -673,6 +676,7 @@ export function SalesDocumentForm({
         whatsappNumber: document.customerWhatsappNumber || "",
         gstin: document.customerGstin || "",
       });
+      setShippingAddress(document.shippingAddress || document.customerAddress || "");
       setPlaceOfSupply(document.placeOfSupply || companyStateCode);
       setValidUntil(String(document.validUntil || "").slice(0, 10));
       setBankName(document.bankName || "");
@@ -1222,6 +1226,7 @@ export function SalesDocumentForm({
       customerWhatsappNumber: normalizedWhatsapp,
       customerCompany: clientDetails.company,
       customerAddress: clientDetails.address,
+      shippingAddress: isChallan || isInvoice ? shippingAddress : "",
       customerGstin: clientDetails.gstin,
       customerCountryCode: "91",
       placeOfSupply,
@@ -1714,6 +1719,7 @@ export function SalesDocumentForm({
                             whatsappNumber: client.whatsappNumber || "",
                             gstin: client.gstin || "",
                           });
+                          if (isChallan || isInvoice) setShippingAddress(client.address || "");
                         }
                       }}
                     >
@@ -1736,7 +1742,7 @@ export function SalesDocumentForm({
                             GSTIN
                           </span>
                           <span className="font-medium">
-                            {clientDetails.gstin || "—"}
+                            {clientDetails.gstin || "â€”"}
                           </span>
                         </div>
                         <div>
@@ -1750,15 +1756,16 @@ export function SalesDocumentForm({
                       </div>
                     )}
 
-                    {isChallan && (
+                    {(isChallan || isInvoice) && (
                       <div className="space-y-1.5 mt-4">
-                        <Label className="text-xs">Shipping Address</Label>
-                        <Select>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Shipping Address" />
-                          </SelectTrigger>
-                          <SelectContent>{/* Addresses */}</SelectContent>
-                        </Select>
+                        <Label className="text-xs font-medium text-foreground">Shipping Address</Label>
+                        <Textarea
+                          value={shippingAddress}
+                          onChange={(event: any) => setShippingAddress(event.target.value)}
+                          placeholder="Enter shipping address (street, city, state, pincode...)"
+                          rows={3}
+                          className="text-xs bg-background resize-y"
+                        />
                       </div>
                     )}
                   </div>
@@ -1811,13 +1818,13 @@ export function SalesDocumentForm({
                     <div className="flex justify-between items-center text-xs text-muted-foreground">
                       <span>SALES EXECUTIVE</span>
                       <span className="font-medium text-foreground">
-                        {organizationBranding.salesExecutive || "�"}
+                        {organizationBranding.salesExecutive || "ï¿½"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-xs text-muted-foreground mt-1">
                       <span>SALES CONTACT</span>
                       <span className="font-medium text-foreground">
-                        {billingDetails.contactNumber || "—"}
+                        {billingDetails.contactNumber || "â€”"}
                       </span>
                     </div>
                   </div>
@@ -1843,8 +1850,8 @@ export function SalesDocumentForm({
                   />
                   <p className="text-[10px] text-muted-foreground">
                     {isInterState
-                      ? "Inter-state — IGST applies"
-                      : "Intra-state — CGST + SGST applies"}
+                      ? "Inter-state â€” IGST applies"
+                      : "Intra-state â€” CGST + SGST applies"}
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -1913,7 +1920,7 @@ export function SalesDocumentForm({
               <CardContent className="p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   {isInvoice
-                    ? "Map Sales Document (Optional — choose one source type)"
+                    ? "Map Sales Document (Optional â€” choose one source type)"
                     : isChallan
                       ? "Map Confirmed Sales Document (Optional)"
                       : "Map Approved/Confirmed Quotation"}
@@ -2151,7 +2158,7 @@ export function SalesDocumentForm({
             <Card className="shadow-sm border-border">
               <CardContent className="p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Map Return Source (Required — choose one)
+                  Map Return Source (Required â€” choose one)
                 </Label>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <Select

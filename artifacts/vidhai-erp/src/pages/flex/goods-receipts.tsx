@@ -47,6 +47,7 @@ import {
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const unitLabel = (line: GRNLineItem) => line.customSpec || "units";
 
 export interface GRNLineItem {
   id: string;
@@ -1016,7 +1017,7 @@ export default function GoodsReceipts() {
           </CardContent>
         </Card>
 
-        {/* ── LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) ── */}
+        {/* â”€â”€ LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) â”€â”€ */}
         <Dialog
           open={isAddOpen}
           onOpenChange={(open) => {
@@ -1143,7 +1144,7 @@ export default function GoodsReceipts() {
                               onClick={() => togglePurchaseOrder(String(po.id))}
                               className="text-muted-foreground hover:text-foreground"
                             >
-                              �
+                              ï¿½
                             </button>
                           </div>
                         ))}
@@ -1333,7 +1334,26 @@ export default function GoodsReceipts() {
                                   )}
                                 </td>
                                 <td className="px-3 py-2 text-right">
-                                  {line.qty}{line.manualItem ? " kg" : ""}
+                                  {isManualReceipt || line.manualItem ? (
+                                    <div className="space-y-0.5">
+                                      <Input
+                                        type="number"
+                                        min={line.alreadyReceived || 0}
+                                        step="any"
+                                        value={line.qty || ""}
+                                        onChange={(event) =>
+                                          handleLineChange(line.id, "qty", Number(event.target.value))
+                                        }
+                                        className="h-8 w-full min-w-16 text-right px-2"
+                                      />
+                                      <div className="text-[9px] text-muted-foreground">{unitLabel(line)}</div>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-0.5">
+                                      <span>{line.qty}</span>
+                                      <div className="text-[9px] text-muted-foreground">{unitLabel(line)}</div>
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   {line.alreadyReceived}
@@ -1410,7 +1430,7 @@ export default function GoodsReceipts() {
                                   />
                                   {line.manualItem && (
                                     <div className="mt-0.5 text-right text-[9px] text-muted-foreground">
-                                      kg received
+                                      {unitLabel(line)} received
                                     </div>
                                   )}
                                 </td>
@@ -1422,7 +1442,7 @@ export default function GoodsReceipts() {
                                     ? `${"\u20B9"} ${lineTotal.toLocaleString("en-IN", {
                                         minimumFractionDigits: 2,
                                       })}`
-                                    : "—"}
+                                    : "â€”"}
                                 </td>
                               </tr>
                             );
@@ -1570,7 +1590,7 @@ export default function GoodsReceipts() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label>Ordered (kg) *</Label>
+                      <Label>Ordered *</Label>
                       <Input
                         type="number"
                         min="0.01"
@@ -1582,7 +1602,7 @@ export default function GoodsReceipts() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Received (kg) *</Label>
+                      <Label>Received *</Label>
                       <Input
                         type="number"
                         min="0.01"
@@ -1595,8 +1615,8 @@ export default function GoodsReceipts() {
                   </div>
                   {externalAlreadyReceivedKg > 0 && (
                     <div className="rounded-md bg-muted px-3 py-2 text-xs">
-                      Already received: <strong>{externalAlreadyReceivedKg} kg</strong>
-                      {" · "}Remaining: <strong>{Math.max(0, Number(externalOrderedKg || 0) - externalAlreadyReceivedKg)} kg</strong>
+                      Already received: <strong>{externalAlreadyReceivedKg}</strong>
+                      {" · "}Remaining: <strong>{Math.max(0, Number(externalOrderedKg || 0) - externalAlreadyReceivedKg)}</strong>
                     </div>
                   )}
                   <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border p-3 text-sm">

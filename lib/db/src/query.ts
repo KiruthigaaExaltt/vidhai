@@ -176,7 +176,41 @@ export async function syncTableCustomIndexes(
   }>,
 ) {
   await connectMongo();
-  await modelFor(table).collection.createIndexes(indexes as any);
+  const collection = modelFor(table).collection;
+  let existingIndexes: any[] = [];
+  try {
+    existingIndexes = await collection.indexes();
+  } catch {
+    // Collection might not exist yet; createIndexes will handle it
+  }
+
+  for (const idx of indexes) {
+    try {
+      const existing = existingIndexes.find((e) => e.name === idx.name);
+      if (existing) {
+        const keysMatch = JSON.stringify(existing.key) === JSON.stringify(idx.key);
+        const uniqueMatch = Boolean(existing.unique) === Boolean(idx.unique);
+        if (!keysMatch || !uniqueMatch) {
+          await collection.dropIndex(idx.name).catch(() => {});
+        }
+      }
+      const keyConflict = existingIndexes.find(
+        (e) =>
+          e.name !== idx.name &&
+          e.name !== "_id_" &&
+          JSON.stringify(e.key) === JSON.stringify(idx.key),
+      );
+      if (keyConflict) {
+        await collection.dropIndex(keyConflict.name).catch(() => {});
+      }
+      await collection.createIndexes([idx as any]);
+    } catch (error: any) {
+      if (/already exists|conflict|same name|code 85|code 86/i.test(String(error?.message || ""))) {
+        await collection.dropIndex(idx.name).catch(() => {});
+        await collection.createIndexes([idx as any]).catch(() => {});
+      }
+    }
+  }
 }
 
 async function nextId(table: MongoTable, session?: ClientSession) {

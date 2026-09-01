@@ -442,12 +442,8 @@ router.get("/master-data", requireAuth, async (req, res) => {
       .orderBy(contactsTable.name),
     db.select().from(usersTable).where(eq(usersTable.organizationId, org)),
     db
-      .select({ item: materialsTable })
-      .from(inventoryTable)
-      .innerJoin(
-        materialsTable,
-        eq(inventoryTable.materialId, materialsTable.id),
-      )
+      .select()
+      .from(materialsTable)
       .where(eq(materialsTable.active, true))
       .orderBy(materialsTable.name),
     db
@@ -482,7 +478,7 @@ router.get("/master-data", requireAuth, async (req, res) => {
   ).sort();
   const items = Array.from(
     new Map(
-      inventoryItems.map(({ item }: any) => [Number(item.id), item]),
+      inventoryItems.map((item: any) => [Number(item.id), item]),
     ).values(),
   );
   return res.json({
@@ -2389,6 +2385,34 @@ function isPurchaseInvoicePaymentEligible(invoice: any) {
   );
 }
 
+
+async function postPurchaseReturnDebitNoteJournal(org: number, entry: any, userId?: number) {
+  if (!entry || Number(entry.amount || 0) <= 0) return null;
+  if (entry.journalEntryId) return { id: entry.journalEntryId };
+  const accounts = await ensureCanonicalAccounts(org);
+  const payableAccount = accounts.find((account: any) => account.accountCode === "2100");
+  const debitNoteAccount = accounts.find((account: any) => account.accountCode === "2200");
+  if (!payableAccount || !debitNoteAccount)
+    throw new Error("Accounts Payable and Debit Note accounts must be configured");
+  const amount = money(entry.amount);
+  const journal = await postJournal(
+    org,
+    {
+      entryDate: entry.billDate,
+      reference: `AUTO:FLEX:PURCHASE-RETURN:${entry.billNumber}:${entry.sourceId || entry.id}`,
+      description: `Purchase return debit note ${entry.billNumber}`,
+      sourceType: "Purchase Return Debit Note",
+      sourceId: entry.sourceId || entry.id,
+      lines: [
+        { accountId: payableAccount.id, debit: amount, memo: entry.billNumber },
+        { accountId: debitNoteAccount.id, credit: amount, memo: entry.billNumber },
+      ],
+    },
+    userId,
+  );
+  await db.update(accountsPayableTable).set({ journalEntryId: journal.id }).where(eq(accountsPayableTable.id, entry.id));
+  return journal;
+}
 const money = (value: unknown) => Math.round(Number(value || 0) * 100) / 100;
 
 async function settleApprovedVendorPayment(
@@ -2441,21 +2465,29 @@ async function settleApprovedVendorPayment(
       ),
     )
     .limit(1);
+  const payableId = Number(payment.payableId || payment.accountsPayableId || 0);
   const [bill] = await db
     .select()
     .from(accountsPayableTable)
     .where(
-      and(
-        eq(accountsPayableTable.organizationId, org),
-        eq(accountsPayableTable.billNumber, payment.invoiceReference),
-      ),
+      payableId
+        ? and(
+            eq(accountsPayableTable.organizationId, org),
+            eq(accountsPayableTable.id, payableId),
+          )
+        : and(
+            eq(accountsPayableTable.organizationId, org),
+            eq(accountsPayableTable.billNumber, payment.invoiceReference),
+          ),
     )
     .limit(1);
   if (!bill) throw new Error("Accounts Payable bill not found");
   if (
-    invoice
-      ? !isPurchaseInvoicePaymentEligible(invoice)
-      : bill.sourceType !== "Manual" || bill.approvalStatus !== "Approved"
+    payableId
+      ? bill.approvalStatus !== "Approved"
+      : invoice
+        ? !isPurchaseInvoicePaymentEligible(invoice)
+        : bill.sourceType !== "Manual" || bill.approvalStatus !== "Approved"
   )
     throw new Error("Only approved AP bills can be paid");
   const outstanding = money(
@@ -2474,6 +2506,7 @@ async function settleApprovedVendorPayment(
   if (!payableAccount || !settlementAccount)
     throw new Error("Accounts Payable and Cash in Hand accounts must be configured");
   const amount = money(payment.amount);
+  const purchaseExpenseAccount = accounts.find((account: any) => account.accountCode === "5000" || account.accountCode === "5100") || payableAccount;
   const journal = await postJournal(
     org,
     {
@@ -2484,7 +2517,9 @@ async function settleApprovedVendorPayment(
       sourceId: payment.id,
       lines: [
         { accountId: payableAccount.id, debit: amount, memo: payment.paymentNumber },
+        { accountId: purchaseExpenseAccount.id, debit: amount, memo: payment.paymentNumber },
         { accountId: settlementAccount.id, credit: amount, memo: payment.paymentNumber },
+        { accountId: payableAccount.id, credit: amount, memo: payment.paymentNumber },
       ],
     },
     approverUserId,
@@ -3372,6 +3407,7 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     req.body.vendorName ?? req.body.vendor ?? "",
   ).trim();
   const invoiceReference = String(req.body.invoiceReference ?? "").trim();
+  const payableId = Number(req.body.payableId || req.body.accountsPayableId || 0);
   const amount = Number(req.body.amount ?? 0);
   if (!paymentNumber)
     return res
@@ -3393,22 +3429,28 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       ),
     )
     .limit(1);
+  const billFilter = payableId
+    ? and(
+        eq(accountsPayableTable.organizationId, org),
+        eq(accountsPayableTable.id, payableId),
+      )
+    : and(
+        eq(accountsPayableTable.organizationId, org),
+        eq(accountsPayableTable.billNumber, invoiceReference),
+      );
   const [bill] = await db
     .select()
     .from(accountsPayableTable)
-    .where(
-      and(
-        eq(accountsPayableTable.organizationId, org),
-        eq(accountsPayableTable.billNumber, invoiceReference),
-      ),
-    )
+    .where(billFilter)
     .limit(1);
   if (!bill)
     return res.status(404).json({ error: "Outstanding bill not found" });
   if (
-    invoice
-      ? !isPurchaseInvoicePaymentEligible(invoice)
-      : bill.sourceType !== "Manual" || bill.approvalStatus !== "Approved"
+    payableId
+      ? bill.approvalStatus !== "Approved"
+      : invoice
+        ? !isPurchaseInvoicePaymentEligible(invoice)
+        : bill.sourceType !== "Manual" || bill.approvalStatus !== "Approved"
   )
     return res
       .status(400)
@@ -3876,6 +3918,7 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
         .insert(accountsPayableTable)
         .values({
           organizationId: org,
+          vendorId: Number(created.vendorId || linkedInvoice?.vendorId || 0) || null,
           vendorName,
           billNumber: created.returnNumber,
           againstBillNumber,
@@ -3897,6 +3940,7 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
           sourceId: created.id,
         })
         .returning();
+      await postPurchaseReturnDebitNoteJournal(org, debitNote, userId);
       await publishAccountsPayableEntryNotification(req, debitNote);
     }
   }
@@ -4092,6 +4136,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
           .insert(accountsPayableTable)
           .values({
             organizationId: org,
+            vendorId: Number(existingReturn.vendorId || linkedInvoice?.vendorId || 0) || null,
             vendorName: existingReturn.vendorName,
             billNumber: againstBillNumber,
             billDate: linkedInvoice.invoiceDate,
@@ -4131,6 +4176,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               .insert(accountsPayableTable)
               .values({
                 organizationId: org,
+                vendorId: Number(existingReturn.vendorId || linkedInvoice?.vendorId || 0) || null,
                 vendorName: existingReturn.vendorName,
                 billNumber: existingReturn.returnNumber,
                 againstBillNumber,
@@ -4152,7 +4198,8 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
                 sourceId: existingReturn.id,
               })
               .returning();
-            await publishAccountsPayableEntryNotification(req, debitNote);
+            await postPurchaseReturnDebitNoteJournal(org, debitNote, userId);
+      await publishAccountsPayableEntryNotification(req, debitNote);
           }
         } else {
           const outstanding = Math.max(

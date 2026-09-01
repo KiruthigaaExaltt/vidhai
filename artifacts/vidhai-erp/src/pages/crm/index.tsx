@@ -51,6 +51,7 @@ type ContactType = "client" | "vendor" | "other";
 interface Contact {
   id: number;
   type: ContactType;
+  contactCode: string;
   name: string;
   company: string;
   phone: string;
@@ -76,6 +77,7 @@ const TYPE_COLORS: Record<ContactType, string> = {
 
 const EMPTY_FORM: Omit<Contact, "id"> = {
   type: "client",
+  contactCode: "",
   name: "",
   company: "",
   phone: "",
@@ -204,6 +206,7 @@ export default function CRMPage() {
     setEditContact(c);
     setForm({
       type: c.type,
+      contactCode: c.contactCode || "",
       name: c.name,
       company: c.company,
       phone: c.phone,
@@ -335,6 +338,7 @@ export default function CRMPage() {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-muted text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                     <tr>
+                      <th className="px-4 py-3 font-semibold">Code</th>
                       <th className="px-4 py-3 font-semibold">Name</th>
                       <th className="px-4 py-3 font-semibold">Type</th>
                       <th className="px-4 py-3 font-semibold">Company / Org</th>
@@ -353,6 +357,9 @@ export default function CRMPage() {
                         key={c.id}
                         className="hover:bg-muted/30 transition-colors"
                       >
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                          {c.contactCode || "Pending"}
+                        </td>
                         <td className="px-4 py-3 font-semibold text-foreground">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px] font-bold uppercase shrink-0">
@@ -483,6 +490,17 @@ export default function CRMPage() {
           </DialogHeader>
           <form onSubmit={handleSave} className="space-y-4 pt-2">
             <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Code
+                </Label>
+                <Input
+                  value={editContact ? form.contactCode || editContact.contactCode || "" : "Generated after save"}
+                  readOnly
+                  disabled
+                  className="rounded-sm h-10 font-mono bg-muted/60 text-muted-foreground"
+                />
+              </div>
               <div className="space-y-2 col-span-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   Name <span className="text-destructive">*</span>

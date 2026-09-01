@@ -241,7 +241,7 @@ export default function FleetDetail() {
           <Card className="rounded-sm border-border shadow-none">
             <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                Fuel Logs · {totalFuelLitres.toFixed(1)} L total
+                Fuel Logs · {totalFuelLitres.toFixed(1)} Litres total
               </CardTitle>
               <Button size="sm" className="rounded-sm h-8" onClick={() => setShowFuelForm(!showFuelForm)}>
                 <Plus className="w-3.5 h-3.5 mr-1" /> Log Fuel
@@ -281,7 +281,7 @@ export default function FleetDetail() {
                     <th className="px-4 py-2 font-medium">Date</th>
                     <th className="px-4 py-2 font-medium text-right">Litres</th>
                     <th className="px-4 py-2 font-medium text-right">Total Cost (₹)</th>
-                    <th className="px-4 py-2 font-medium text-right">₹/L</th>
+                    <th className="px-4 py-2 font-medium text-right">₹/Litre</th>
                     <th className="px-4 py-2 font-medium">Notes</th>
                   </tr>
                 </thead>

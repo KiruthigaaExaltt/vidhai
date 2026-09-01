@@ -654,7 +654,7 @@ export default function FleetList() {
                       <td className="px-4"><Badge variant="outline" className={`rounded-sm text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 ${STATUS_COLORS[row.status as VehicleStatus] ?? ""}`}>{STATUS_LABELS[row.status as VehicleStatus] ?? row.status}</Badge></td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDateTime(row.startedAt)}</td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtDateTime(row.endedAt)}</td>
-                      <td className="px-4 font-mono text-xs text-muted-foreground">{row.status === "in_use" ? `${fmtValue(row.dieselIssuedLitres)} L` : "-"}</td>
+                      <td className="px-4 font-mono text-xs text-muted-foreground">{row.status === "in_use" ? `${fmtValue(row.dieselIssuedLitres)} Litres` : "-"}</td>
                       <td className="px-4 font-mono text-xs text-muted-foreground">{fmtValue(row.durationHours)}</td>
                     </tr>
                   ))}
@@ -686,7 +686,7 @@ export default function FleetList() {
               </div>
               <div className="rounded-sm border p-3 text-sm">
                 <p className="font-semibold">Diesel — Annur Warehouse</p>
-                <p className="text-muted-foreground">Available: {dieselQuery.isLoading ? "Loading..." : `${fmtValue(dieselQuery.data?.availableLitres)} L`}</p>
+                <p className="text-muted-foreground">Available: {dieselQuery.isLoading ? "Loading..." : `${fmtValue(dieselQuery.data?.availableLitres)} Litres`}</p>
               </div>
               <div className="space-y-1.5">
                 <Label>Fuel to Fill (Litre)</Label>

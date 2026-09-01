@@ -56,10 +56,35 @@ export async function postMatchedPurchaseInvoice(
     return updated;
   }
 
-  const existingAccounts = await db
+  let existingAccounts = await db
     .select()
     .from(chartOfAccountsTable)
     .where(eq(chartOfAccountsTable.organizationId, organizationId));
+  for (const [accountCode, accountName, accountType] of postingAccounts) {
+    const existing = existingAccounts.find((entry: any) => entry.accountCode === accountCode || String(entry.accountName || "").trim().toLowerCase() === accountName.toLowerCase());
+    if (existing && existing.accountCode !== accountCode) {
+      await db.update(chartOfAccountsTable).set({ accountCode, accountName, accountType, normalizedAccountCode: accountCode.toLowerCase(), normalizedAccountName: accountName.toLowerCase(), groupName: accountType, tallyLedgerName: accountName, tallyGroupName: accountType } as any).where(eq(chartOfAccountsTable.id, existing.id));
+      existing.accountCode = accountCode;
+      existing.accountName = accountName;
+      existing.accountType = accountType;
+    }
+    if (!existing) {
+      const [created] = await db.insert(chartOfAccountsTable).values({
+        organizationId,
+        accountCode,
+        accountName,
+        accountType,
+        normalizedAccountCode: accountCode.toLowerCase(),
+        normalizedAccountName: accountName.toLowerCase(),
+        groupName: accountType,
+        tallyLedgerName: accountName,
+        tallyGroupName: accountType,
+        currentBalance: 0,
+        isActive: true,
+      } as any).returning();
+      existingAccounts = [...existingAccounts, created];
+    }
+  }
   
   const account = (code: string) => {
     const found = existingAccounts.find((entry: any) => entry.accountCode === code);
@@ -118,12 +143,14 @@ export async function postMatchedPurchaseInvoice(
       .where(
         and(
           eq(accountsPayableTable.organizationId, organizationId),
-          eq(accountsPayableTable.billNumber, invoice.invoiceNumber),
+          eq(accountsPayableTable.sourceType, "Purchase Invoice"),
+          eq(accountsPayableTable.sourceId, invoice.id),
         ),
       );
     if (!existingPayables.length) {
       await tx.insert(accountsPayableTable).values({
         organizationId,
+        vendorId: Number(invoice.vendorId) || null,
         vendorName: invoice.vendorName,
         billNumber: invoice.invoiceNumber,
         billDate: invoice.invoiceDate,

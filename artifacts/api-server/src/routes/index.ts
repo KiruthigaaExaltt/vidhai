@@ -90,9 +90,10 @@ const accountsScope = (req: any) =>
     ap: "accounts.accounts_payable",
     ar: "accounts.accounts_receivable",
     reconcile: "accounts.journal_entries",
-    // DISABLED: Masters module is not required for this phase.
+    // DISABLED: Masters module is not required for this phase
+    // masters: "accounts.masters",
     sources: "accounts.finance_dashboard",
-    // DISABLED: Opening Balances is handled through Bank & Cash.
+    // DISABLED: Opening Balances is handled through Bank & Cash.\r\n    // "opening-balances": "accounts.opening_balances",
     "bank-cash-transactions": "accounts.bank_cash",
     "bank-cash-accounts": "accounts.bank_cash",
     files: "accounts.bank_cash",
@@ -187,7 +188,7 @@ router.use("/settings/roles", rolesRouter);
 router.use(
   "/tasks",
   requireModulePermission((req) =>
-    req.path.includes("time-logs") || req.path.includes("timesheet") ? "task.time_logs" : "task.task_board",
+    req.path.includes("time-logs") ? "task.time_logs" : "task.task_board",
   ),
   tasksRouter,
 );

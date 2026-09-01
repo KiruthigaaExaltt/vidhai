@@ -4,6 +4,8 @@ import { z } from "zod/v4";
 export const contactsTable = mongoTable("contacts", {
   id: serial("id").primaryKey(),
   type: text("type").notNull().default("client"),
+  contactCode: text("contact_code").default(""),
+  normalizedContactCode: text("normalized_contact_code").default(""),
   name: text("name").notNull(),
   company: text("company").default(""),
   phone: text("phone").default(""),

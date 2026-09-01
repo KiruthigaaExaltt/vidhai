@@ -1,10 +1,12 @@
+const SYSTEM_ACCOUNT_CODES = new Set(["1030", "1100", "1200", "2100", "2200", "3000", "3100", "4100", "5100", "5140", "5150", "5160"]);
+const isSystemAccount = (account: any) => SYSTEM_ACCOUNT_CODES.has(String(account?.accountCode || ""));
+
 import { useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -17,10 +19,10 @@ import { Label } from "@/components/ui/label";
 import {
   BookOpen,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CreditCard,
   DollarSign,
-  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -69,7 +71,6 @@ const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
       return r.status === 204 ? null : r.json();
     });
 const accountTypes = ["Asset", "Liability", "Equity", "Revenue", "Expense"] as const;
-const systemAccountCodes = new Set(["1030", "1100", "2100", "3000", "3010", "4100", "4110", "5100", "5140", "5200", "5300", "5400"]);
 
 const numberValue = (value: any) => {
   const parsed = Number(
@@ -92,6 +93,11 @@ export default function Accounts() {
     [ar, setAr] = useState<any[]>([]),
     [customers, setCustomers] = useState<any[]>([]),
     [vendors, setVendors] = useState<any[]>([]),
+    [crmClients, setCrmClients] = useState<any[]>([]),
+    [crmVendors, setCrmVendors] = useState<any[]>([]),
+    [arDocuments, setArDocuments] = useState<any[]>([]),
+    [apDocuments, setApDocuments] = useState<any[]>([]),
+    [masters, setMasters] = useState<any>({ transactionTypes: [], sourceRegistry: {} }),
     [bankCash, setBankCash] = useState<any[]>([]),
     [activeTab, setActiveTab] = useState("dashboard"),
     [search, setSearch] = useState(""),
@@ -102,6 +108,8 @@ export default function Accounts() {
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [paymentAr, setPaymentAr] = useState<any | null>(null),
+    [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({}),
+    [expandedVendors, setExpandedVendors] = useState<Record<string, boolean>>({}),
     [paymentAmount, setPaymentAmount] = useState(""),
     [arFromDate, setArFromDate] = useState(""),
     [arToDate, setArToDate] = useState(""),
@@ -116,8 +124,6 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
-  const [bankCashReview, setBankCashReview] = useState<{ row: any; action: "approve" | "reject" } | null>(null);
-  const [bankCashReviewRemarks, setBankCashReviewRemarks] = useState("Approved");
   const [listPaging, setListPaging] = useState<
     Record<"j" | "ap" | "ar", { page: number; size: number }>
   >({
@@ -148,8 +154,7 @@ export default function Accounts() {
     reference: "",
     notes: "",
   });
-  const [bankForm, setBankForm] = useState({ mode: "Credit", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
-  const [collapsedAccountTypes, setCollapsedAccountTypes] = useState<Record<string, boolean>>({ Revenue: true });
+  const [bankForm, setBankForm] = useState({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
   const [accountDocument, setAccountDocument] = useState<any | null>(null);
   const accountTabGroups = [
     {
@@ -177,7 +182,7 @@ export default function Accounts() {
       group: "Setup & Audit",
       tabs: [
         ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view"],
-        // Opening balances are handled through Bank & Cash.
+        // DISABLED: Opening Balances is handled through Bank & Cash.
         // DISABLED: Masters module is not required for this phase
         // ["masters", "Masters", "accounts.masters.view"],
         ["tally", "Tally Export", "accounts.tally.view"],
@@ -210,11 +215,79 @@ export default function Accounts() {
       adjustedAmount: "",
       debit: "",
       credit: "",
+      sourceType: "Manual",
+      sourceId: null,
       ...seed,
     });
+    if (type === "ar") void loadArDocuments(seed.clientId ? String(seed.clientId) : undefined);
+    if (type === "ap") void loadApDocuments(seed.vendorId ? String(seed.vendorId) : undefined);
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
+  const loadArDocuments = async (clientId?: string) => {
+    if (!can("accounts.accounts_receivable.view")) return;
+    const suffix = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
+    setArDocuments(await api(`/receivable-documents${suffix}`).catch(() => []));
+  };
+  const loadApDocuments = async (vendorId?: string) => {
+    if (!can("accounts.accounts_payable.view")) return;
+    const suffix = vendorId ? `?vendorId=${encodeURIComponent(vendorId)}` : "";
+    setApDocuments(await api(`/payable-documents${suffix}`).catch(() => []));
+  };
+  const selectClient = (id: string) => {
+    const client = crmClients.find((row) => String(row.id) === id);
+    setManual((current: any) => ({
+      ...current,
+      clientId: id,
+      clientName: client?.name || "",
+      sourceType: current.sourceType === "Sales Invoice" ? "Manual" : current.sourceType,
+      sourceId: current.sourceType === "Sales Invoice" ? null : current.sourceId,
+    }));
+    void loadArDocuments(id);
+  };
+  const selectVendor = (id: string) => {
+    const vendor = crmVendors.find((row) => String(row.id) === id);
+    setManual((current: any) => ({
+      ...current,
+      vendorId: id,
+      vendorName: vendor?.name || "",
+      sourceType: current.sourceType === "Purchase Invoice" ? "Manual" : current.sourceType,
+      sourceId: current.sourceType === "Purchase Invoice" ? null : current.sourceId,
+    }));
+    void loadApDocuments(id);
+  };
+  const selectArDocument = (value: string) => {
+    const doc = arDocuments.find((row) => row.displayName === value || row.invoiceNumber === value);
+    setManual((current: any) => ({
+      ...current,
+      invoiceNumber: doc?.invoiceNumber || value,
+      clientId: doc ? String(doc.clientId) : current.clientId,
+      clientName: doc?.clientName || current.clientName,
+      invoiceDate: doc?.invoiceDate || current.invoiceDate,
+      dueDate: doc?.dueDate || current.dueDate,
+      amount: doc ? String(doc.totalAmount) : current.amount,
+      receivedAmount: doc ? String(doc.amountReceived || 0) : current.receivedAmount,
+      adjustedAmount: doc ? String(doc.adjustedAmount || 0) : current.adjustedAmount,
+      sourceType: doc ? "Sales Invoice" : "Manual",
+      sourceId: doc?.id || null,
+    }));
+  };
+  const selectApDocument = (value: string) => {
+    const doc = apDocuments.find((row) => row.displayName === value || row.billNumber === value);
+    setManual((current: any) => ({
+      ...current,
+      billNumber: doc?.billNumber || value,
+      vendorId: doc ? String(doc.vendorId) : current.vendorId,
+      vendorName: doc?.vendorName || current.vendorName,
+      billDate: doc?.billDate || current.billDate,
+      dueDate: doc?.dueDate || current.dueDate,
+      amount: doc ? String(doc.totalAmount) : current.amount,
+      paidAmount: doc ? String(doc.paidAmount || 0) : current.paidAmount,
+      adjustedAmount: doc ? String(doc.debitNoteAmount || 0) : current.adjustedAmount,
+      sourceType: doc ? "Purchase Invoice" : "Manual",
+      sourceId: doc?.id || null,
+    }));
+  };
   const submitManual = async () => {
     if (!manualType) return;
     setSubmitting(true);
@@ -254,7 +327,8 @@ export default function Accounts() {
             entryDate: manual.entryDate,
             reference: manual.reference?.trim(),
             description: manual.description?.trim(),
-            sourceType: "Manual",
+            sourceType: manual.sourceType || "Manual",
+            sourceId: manual.sourceId ? Number(manual.sourceId) : null,
             lines: [
               {
                 accountId: debitAccount.id,
@@ -280,6 +354,7 @@ export default function Accounts() {
         await api("/ap", {
           method: "POST",
           body: JSON.stringify({
+            vendorId: manual.vendorId ? Number(manual.vendorId) : null,
             vendorName: manual.vendorName?.trim(),
             billNumber: manual.billNumber?.trim(),
             againstBillNumber:
@@ -293,13 +368,15 @@ export default function Accounts() {
             adjustedAmount: numberValue(manual.adjustedAmount),
             entryType: manual.entryType,
             notes: manual.notes || "",
-            sourceType: "Manual",
+            sourceType: manual.sourceType || "Manual",
+            sourceId: manual.sourceId ? Number(manual.sourceId) : null,
           }),
         });
       if (manualType === "ar")
         await api("/ar", {
           method: "POST",
           body: JSON.stringify({
+            clientId: manual.clientId ? Number(manual.clientId) : null,
             clientName: manual.clientName?.trim(),
             invoiceNumber: manual.invoiceNumber?.trim(),
             creditNoteNumber:
@@ -317,7 +394,8 @@ export default function Accounts() {
             adjustedAmount: numberValue(manual.adjustedAmount),
             entryType: manual.entryType,
             notes: manual.notes || "",
-            sourceType: "Manual",
+            sourceType: manual.sourceType || "Manual",
+            sourceId: manual.sourceId ? Number(manual.sourceId) : null,
           }),
         });
       setManualType(null);
@@ -342,6 +420,8 @@ export default function Accounts() {
         : []),
       // DISABLED: Masters module is not required for this phase
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
+      ...(can("accounts.accounts_receivable.view") ? [["clients", "/party-options?type=client"]] : []),
+      ...(can("accounts.accounts_payable.view") ? [["vendorsOpt", "/party-options?type=vendor"]] : []),
       ...(can("accounts.bank_cash.view") ? [["bc", "/bank-cash-transactions"]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
@@ -388,6 +468,8 @@ export default function Accounts() {
       // DISABLED: Masters module is not required for this phase
       // if (k === "m") setMasters(v);
       if (k === "bc") setBankCash(v as any[]);
+      if (k === "clients") setCrmClients(v as any[]);
+      if (k === "vendorsOpt") setCrmVendors(v as any[]);
       if (k === "j" || k === "ap" || k === "ar") {
         const response = v as any;
         if (k === "j") setJournals(response.items || []);
@@ -440,8 +522,44 @@ export default function Accounts() {
       setLoading(false);
     }
   };
+  const toggleCustomer = (key: string) =>
+    setExpandedCustomers((current) => ({ ...current, [key]: !current[key] }));
+  const toggleVendor = (key: string) =>
+    setExpandedVendors((current) => ({ ...current, [key]: !current[key] }));
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>({
+    Asset: true,
+    Liability: true,
+    Equity: true,
+    Revenue: true,
+    Expense: true,
+  });
+  const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
+
+  const toggleType = (type: string) =>
+    setExpandedTypes((current) => ({ ...current, [type]: !current[type] }));
+  const toggleAccount = (id: string | number) =>
+    setExpandedAccounts((current) => ({ ...current, [id]: !current[id] }));
+
+  const inDateRange = (x: any) => {
+    if (!fromDate && !toDate) return true;
+    const d = String(
+      x.transactionDate ||
+      x.invoiceDate ||
+      x.billDate ||
+      x.entryDate ||
+      x.date ||
+      x.created_at ||
+      ""
+    ).slice(0, 10);
+    if (!d) return true;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  };
   const match = (x: any) =>
-      JSON.stringify(x).toLowerCase().includes(search.toLowerCase()),
+    JSON.stringify(x).toLowerCase().includes(search.toLowerCase()) && inDateRange(x),
     f = (xs: any[]) => xs.filter(match);
   const outstanding = (row: any) =>
     Math.max(
@@ -469,23 +587,25 @@ export default function Accounts() {
     setSubmitting(true);
     setError("");
     try {
-      if (settlement.kind === "ap")
+      if (settlement.kind === "ap") {
         await flexApi("/vendor-payments", {
           method: "POST",
           body: JSON.stringify({
             vendorName: settlement.row.vendorName,
             invoiceReference: settlement.row.billNumber,
+            payableId: settlement.row.id,
             amount,
             ...apPayment,
           }),
         });
-      else
+      } else {
         await api(`/${settlement.kind}/${settlement.row.id}`, {
           method: "PATCH",
           body: JSON.stringify({
             [field]: numberValue(settlement.row[field]) + amount,
           }),
         });
+      }
       setSettlement(null);
       setSettlementAmount("");
       await load();
@@ -624,39 +744,28 @@ export default function Accounts() {
     setSubmitting(true);
     setError("");
     try {
-      await api("/bank-cash-transactions", { method: "POST", body: JSON.stringify({ ...bankForm, transactionTypeName: bankForm.transactionTypeName || "Bank/Cash Transaction", mode: bankForm.transactionTypeName === "Opening Balance" ? "Credit" : bankForm.mode, bankCashAccountId: Number(bankForm.bankCashAccountId), transferToAccountId: bankForm.transactionTypeName === "Opening Balance" ? undefined : bankForm.transferToAccountId ? Number(bankForm.transferToAccountId) : undefined, counterAccountId: bankForm.transactionTypeName === "Opening Balance" ? undefined : bankForm.counterAccountId ? Number(bankForm.counterAccountId) : undefined, amount: numberValue(bankForm.amount), document: accountDocument }) });
-      setBankForm({ mode: "Credit", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
+      const type = (masters.transactionTypes || []).find((row: any) => String(row.id) === String(bankForm.transactionTypeId));
+      await api("/bank-cash-transactions", { method: "POST", body: JSON.stringify({ ...bankForm, transactionTypeName: bankForm.transactionTypeName || type?.name || "Bank/Cash Transaction", transactionTypeId: bankForm.transactionTypeId ? Number(bankForm.transactionTypeId) : undefined, bankCashAccountId: Number(bankForm.bankCashAccountId), transferToAccountId: bankForm.transferToAccountId ? Number(bankForm.transferToAccountId) : undefined, counterAccountId: bankForm.counterAccountId ? Number(bankForm.counterAccountId) : undefined, amount: numberValue(bankForm.amount), document: accountDocument }) });
+      setBankForm({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
       setAccountDocument(null);
       await load();
     } catch (e: any) { setError(e.message); } finally { setSubmitting(false); }
   };
-  const bankCashDecision = (row: any, action: "approve" | "reject") => {
-    setBankCashReview({ row, action });
-    setBankCashReviewRemarks(action === "approve" ? "Approved" : "");
-    setError("");
-  };
-  const submitBankCashDecision = async () => {
-    if (!bankCashReview) return;
-    const remarks = bankCashReviewRemarks.trim();
-    if (bankCashReview.action === "reject" && !remarks) {
-      setError("Rejection remarks are required.");
-      return;
-    }
+  const bankCashDecision = async (row: any, action: "approve" | "reject") => {
+    const remarks = action === "reject" ? window.prompt("Rejection remarks") : window.prompt("Approval remarks", "Approved");
+    if (remarks === null || (action === "reject" && !remarks.trim())) return;
     setSubmitting(true);
     setError("");
-    try {
-      await api(`/bank-cash-transactions/${bankCashReview.row.id}/${bankCashReview.action}`, {
-        method: "POST",
-        body: JSON.stringify({ remarks: remarks || "Approved" }),
-      });
-      setBankCashReview(null);
-      setBankCashReviewRemarks("Approved");
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
+    try { await api(`/bank-cash-transactions/${row.id}/${action}`, { method: "POST", body: JSON.stringify({ remarks }) }); await load(); }
+    catch (e: any) { setError(e.message); }
+    finally { setSubmitting(false); }
+  };
+  const saveTransactionType = async (row: any, patch: any) => {
+    setSubmitting(true);
+    setError("");
+    try { await api(`/masters/transaction-types/${row.id}`, { method: "PATCH", body: JSON.stringify(patch) }); await load(); }
+    catch (e: any) { setError(e.message); }
+    finally { setSubmitting(false); }
   };
   const downloadBlob = (blob: Blob, fileName: string) => {
     const link = document.createElement("a");
@@ -761,7 +870,7 @@ export default function Accounts() {
                 <tr key={r.id ?? i} className="border-t">
                   {cols.map((c) => (
                     <td key={c[1]} className="px-3 py-2">
-                      {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "-")}
+                      {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
                     </td>
                   ))}
                 </tr>
@@ -797,7 +906,7 @@ export default function Accounts() {
                 disabled
                 aria-label="Previous page"
               >
-                &lt;
+                <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="flex h-8 w-8 items-center justify-center rounded-md bg-red-500 font-medium text-white">
                 1
@@ -809,7 +918,7 @@ export default function Accounts() {
                 disabled={rows.length <= 10}
                 aria-label="Next page"
               >
-                &gt;
+                <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -988,7 +1097,8 @@ export default function Accounts() {
     statements: ["Financial Statements", "Profit & Loss, Balance Sheet and Trial Balance from posted vouchers"],
     journals: ["Journal Entries", "Posted double-entry vouchers behind every account movement"],
     coa: ["Chart of Accounts", "Ledger structure, bank/cash accounts and account balances"],
-    // Opening balances are entered from Bank & Cash and retained in history there.
+    // opening: ["Opening Balances", "Starting balances for bank and cash ledgers with approval"],
+    masters: ["Accounts Masters", "Transaction types and source mapping used by accounting workflows"],
     tally: ["Tally Export", "Export ledgers and posted vouchers for TallyPrime and audit review"],
   };
   const activePageTitle = pageTitles[activeTab] || ["Accounts", "Finance and accounting operations"];
@@ -1023,16 +1133,47 @@ export default function Accounts() {
             {error}
           </div>
         )}
-        <div className="grid gap-3 lg:grid-cols-[1fr_320px] lg:items-end">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold">{activePageTitle[0]}</h2>
             <p className="text-sm text-muted-foreground">{activePageTitle[1]}</p>
           </div>
-          <Input
-            placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground font-medium whitespace-nowrap">From:</span>
+              <Input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="h-9 w-36 text-xs bg-background"
+              />
+            </div>
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground font-medium whitespace-nowrap">To:</span>
+              <Input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="h-9 w-36 text-xs bg-background"
+              />
+            </div>
+            {(fromDate || toDate) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-9 text-xs px-2 text-muted-foreground hover:text-foreground"
+                onClick={() => { setFromDate(""); setToDate(""); }}
+              >
+                Clear Dates
+              </Button>
+            )}
+            <Input
+              placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 w-48 text-xs bg-background"
+            />
+          </div>
         </div>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="space-y-2 rounded-lg border bg-white p-2">
@@ -1059,30 +1200,117 @@ export default function Accounts() {
               can={can}
             />
           </TabsContent>
-          <TabsContent value="customers">
-            <Table
-              rows={f(customers)}
-              cols={[
-                ["Customer", "clientName"],
-                ["Invoiced", "invoiced", inr],
-                ["Received", "received", inr],
-                ["Credits", "credited", inr],
-                ["Outstanding", "outstanding", inr],
-              ]}
-            />
+                    <TabsContent value="customers" className="space-y-3">
+            {f(customers).map((customer) => {
+              const key = String(customer.clientId || customer.clientName);
+              const open = Boolean(expandedCustomers[key]);
+              return (
+                <Card key={key} className="overflow-hidden rounded-md">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40"
+                    onClick={() => toggleCustomer(key)}
+                  >
+                    <div className="font-medium">{open ? "v" : ">"} {customer.customerDisplay || customer.clientName}</div>
+                    <div className="grid min-w-[560px] grid-cols-4 gap-3 text-right text-sm">
+                      <span>{inr(customer.invoiced)}</span>
+                      <span>{inr(customer.received)}</span>
+                      <span>{inr(customer.credited)}</span>
+                      <span className="font-semibold">{inr(customer.outstanding)}</span>
+                    </div>
+                  </button>
+                  {open && (
+                    <div className="overflow-x-auto border-t">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/35 text-muted-foreground">
+                          <tr>
+                            <th className="px-4 py-2 text-left">Invoice Number</th>
+                            <th className="px-4 py-2 text-left">Invoice Date</th>
+                            <th className="px-4 py-2 text-right">Invoiced</th>
+                            <th className="px-4 py-2 text-right">Received</th>
+                            <th className="px-4 py-2 text-right">Credits</th>
+                            <th className="px-4 py-2 text-right">Outstanding</th>
+                            <th className="px-4 py-2 text-left">Paid Date</th>
+                            <th className="px-4 py-2 text-left">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(customer.records || []).map((record: any) => (
+                            <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
+                              <td className="px-4 py-2">{record.invoiceNumber}</td>
+                              <td className="px-4 py-2">{String(record.invoiceDate || "").slice(0, 10)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.invoicedAmount)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.receivedAmount)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.credits)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
+                              <td className="px-4 py-2">{record.paidDate || "-"}</td>
+                              <td className="px-4 py-2">{record.status || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
           </TabsContent>
-          <TabsContent value="vendors">
-            <Table
-              rows={f(vendors)}
-              cols={[
-                ["Vendor", "vendorName"],
-                ["Billed", "billed", inr],
-                ["Paid", "paid", inr],
-                ["Outstanding", "outstanding", inr],
-              ]}
-            />
+          <TabsContent value="vendors" className="space-y-3">
+            {f(vendors).map((vendor) => {
+              const key = String(vendor.vendorId || vendor.vendorName);
+              const open = Boolean(expandedVendors[key]);
+              return (
+                <Card key={key} className="overflow-hidden rounded-md">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40"
+                    onClick={() => toggleVendor(key)}
+                  >
+                    <div className="font-medium">{open ? "v" : ">"} {vendor.vendorDisplay || vendor.vendorName}</div>
+                    <div className="grid min-w-[420px] grid-cols-4 gap-3 text-right text-sm">
+                      <span>{inr(vendor.billed)}</span>
+                      <span>{inr(vendor.paid)}</span>
+                      <span>{inr(vendor.credited)}</span>
+                      <span className="font-semibold">{inr(vendor.outstanding)}</span>
+                    </div>
+                  </button>
+                  {open && (
+                    <div className="overflow-x-auto border-t">
+                      <table className="w-full text-sm">
+                        <thead className="bg-muted/35 text-muted-foreground">
+                          <tr>
+                            <th className="px-4 py-2 text-left">Bill Number</th>
+                            <th className="px-4 py-2 text-left">Billed Date</th>
+                            <th className="px-4 py-2 text-right">Billed</th>
+                            <th className="px-4 py-2 text-right">Paid</th>
+                            <th className="px-4 py-2 text-right">Debit Note</th>
+                            <th className="px-4 py-2 text-right">Outstanding</th>
+                            <th className="px-4 py-2 text-left">Paid Date</th>
+                            <th className="px-4 py-2 text-left">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(vendor.records || []).map((record: any) => (
+                            <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
+                              <td className="px-4 py-2">{record.billNumber}</td>
+                              <td className="px-4 py-2">{String(record.billedDate || "").slice(0, 10)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.billedAmount)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.paidAmount)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.debitNote)}</td>
+                              <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
+                              <td className="px-4 py-2">{record.paidDate || "-"}</td>
+                              <td className="px-4 py-2">{record.status || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
           </TabsContent>
-          <TabsContent value="coa" className="space-y-3">
+          <TabsContent value="coa" className="space-y-4">
             {can("accounts.chart_of_accounts.create") && (
               <div className="flex justify-end">
                 <Button onClick={() => openManual("account")}>
@@ -1091,81 +1319,185 @@ export default function Accounts() {
                 </Button>
               </div>
             )}
-            <div className="overflow-hidden rounded-md border bg-white">
-              {accountTypes.map((type) => {
-                const rows = f(coa).filter((account: any) => account.accountType === type);
-                const collapsed = collapsedAccountTypes[type];
-                return (
-                  <div key={type} className="border-b last:border-b-0">
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between bg-muted/50 px-4 py-3 text-left"
-                      onClick={() => setCollapsedAccountTypes((current) => ({ ...current, [type]: !current[type] }))}
-                    >
-                      <span className="flex items-center gap-2 font-semibold">
-                        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        {type}
+            {["Asset", "Liability", "Equity", "Revenue", "Expense"].map((type) => {
+              const categoryAccounts = f(coa).filter(
+                (a: any) => String(a.accountType || "").toLowerCase() === type.toLowerCase()
+              );
+              if (!categoryAccounts.length && search) return null;
+              const categoryTotal = categoryAccounts.reduce(
+                (sum: number, a: any) => sum + numberValue(a.currentBalance),
+                0
+              );
+              const isTypeExpanded = expandedTypes[type] !== false;
+
+              return (
+                <Card key={type} className="overflow-hidden border border-border shadow-xs">
+                  <div
+                    onClick={() => toggleType(type)}
+                    className="flex cursor-pointer items-center justify-between bg-muted/40 px-4 py-3 font-semibold hover:bg-muted/70 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Button size="icon" variant="ghost" className="h-6 w-6 p-0 pointer-events-none">
+                        {isTypeExpanded ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <span className="text-base text-foreground font-bold">{type}</span>
+                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary font-semibold">
+                        {categoryAccounts.length} {categoryAccounts.length === 1 ? "account" : "accounts"}
                       </span>
-                      <span className="text-xs text-muted-foreground">{rows.length} accounts</span>
-                    </button>
-                    {!collapsed && (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="border-t bg-white">
-                            <tr>
-                              <th className="px-3 py-2 text-left">Code</th>
-                              <th className="px-3 py-2 text-left">Account</th>
-                              <th className="px-3 py-2 text-right">Balance</th>
-                              <th className="px-3 py-2 text-right">Active</th>
-                              <th className="px-3 py-2 text-right">Edit</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rows.length ? rows.map((account: any) => (
-                              <tr key={account.id} className="border-t">
-                                <td className="px-3 py-2 font-mono text-muted-foreground">{account.accountCode}</td>
-                                <td className="px-3 py-2">{account.accountName}</td>
-                                <td className="px-3 py-2 text-right tabular-nums">{inr(account.currentBalance)}</td>
-                                <td className="px-3 py-2 text-right">{account.isActive === false ? "No" : "Yes"}</td>
-                                <td className="px-3 py-2 text-right">
-                                  <Button size="icon" variant="ghost" title={systemAccountCodes.has(String(account.accountCode)) ? "System account" : "Edit account"} disabled={systemAccountCodes.has(String(account.accountCode))} onClick={() => openManual("account", account)}>
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                </td>
-                              </tr>
-                            )) : (
-                              <tr><td className="px-3 py-4 text-center text-muted-foreground" colSpan={5}>No accounts.</td></tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground font-medium">Category Balance:</span>
+                      <span className="text-sm font-bold text-foreground font-mono">
+                        {inr(categoryTotal)}
+                      </span>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+
+                  {isTypeExpanded && (
+                    <div className="divide-y border-t">
+                      {!categoryAccounts.length ? (
+                        <div className="p-4 text-center text-xs text-muted-foreground">
+                          No accounts configured under {type}.
+                        </div>
+                      ) : (
+                        categoryAccounts.map((account: any) => {
+                          const isAccExpanded = Boolean(expandedAccounts[account.id]);
+                          const historyLines = account.lines || [];
+                          return (
+                            <div key={account.id} className="bg-background">
+                              <div className="flex flex-wrap items-center justify-between px-4 py-3 hover:bg-muted/20 gap-2">
+                                <div className="flex items-center gap-3">
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => toggleAccount(account.id)}
+                                    title="Toggle Entry History"
+                                  >
+                                    {isAccExpanded ? (
+                                      <ChevronDown className="h-4 w-4 text-primary" />
+                                    ) : (
+                                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                    )}
+                                  </Button>
+                                  <span className="font-mono text-xs font-semibold text-muted-foreground min-w-14">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="text-sm font-semibold text-foreground">
+                                    {account.accountName}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <span className="font-mono text-sm font-bold text-foreground">
+                                    {inr(account.currentBalance)}
+                                  </span>
+                                  {can("accounts.chart_of_accounts.edit") && !isSystemAccount(account) ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      onClick={() => openManual("account", account)}
+                                    >
+                                      Edit
+                                    </Button>
+                                  ) : (
+                                    <span className="text-[10px] text-muted-foreground px-2 py-0.5 bg-muted rounded font-mono">
+                                      System
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isAccExpanded && (
+                                <div className="bg-muted/15 p-4 border-t">
+                                  <div className="mb-2 flex items-center justify-between">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                      Entry History & Ledger Movement
+                                    </h4>
+                                    <span className="text-[11px] text-muted-foreground font-medium">
+                                      {historyLines.length} {historyLines.length === 1 ? "entry" : "entries"} recorded
+                                    </span>
+                                  </div>
+                                  {!historyLines.length ? (
+                                    <div className="rounded-md border bg-background p-3 text-center text-xs text-muted-foreground">
+                                      No entry history recorded for this account.
+                                    </div>
+                                  ) : (
+                                    <div className="overflow-x-auto rounded-md border bg-background">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-muted/40 font-semibold text-muted-foreground">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left">Date</th>
+                                            <th className="px-3 py-2 text-left">Source / Reference</th>
+                                            <th className="px-3 py-2 text-left">Description</th>
+                                            <th className="px-3 py-2 text-right">Debit (₹)</th>
+                                            <th className="px-3 py-2 text-right">Credit (₹)</th>
+                                            <th className="px-3 py-2 text-right">Running Balance (₹)</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                          {historyLines.map((line: any, idx: number) => (
+                                            <tr key={line.id || idx} className="hover:bg-muted/10">
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                                                {String(line.entryDate || "").slice(0, 10) || "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-medium">
+                                                {line.sourceType ? `${line.sourceType}: ` : ""}
+                                                {line.reference || line.sourceId || "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-muted-foreground">
+                                                {line.description || "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold">
+                                                {line.debit ? inr(line.debit) : "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold">
+                                                {line.credit ? inr(line.credit) : "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-right font-mono font-bold">
+                                                {inr(line.runningBalance)}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
           </TabsContent>
           <TabsContent value="bankcash" className="space-y-3">
             <Card className="rounded-md border bg-white shadow-sm">
               <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-6">
-                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.transactionTypeName || "Bank/Cash Transaction"} onChange={(e) => setBankForm({ ...bankForm, transactionTypeName: e.target.value, mode: e.target.value === "Opening Balance" ? "Credit" : bankForm.mode })}><option>Bank/Cash Transaction</option><option>Opening Balance</option></select>
-                {bankForm.transactionTypeName !== "Opening Balance" && <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>}
+              <CardContent className="grid gap-3 md:grid-cols-5">
+                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
                 <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                  <option value="">Chart of Account</option>{coa.filter((a: any) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                  <option value="">From / Chart of Account</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
                 </select>
-                {bankForm.transactionTypeName !== "Opening Balance" && (bankForm.mode === "Transfer" ? <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Transfer to account</option>{coa.filter((a: any) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select> : <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.counterAccountId} onChange={(e) => setBankForm({ ...bankForm, counterAccountId: e.target.value })}><option value="">Counter account optional</option>{coa.filter((a: any) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select>)}
+                {bankForm.mode === "Transfer" ? <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Transfer to</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select> : <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.counterAccountId} onChange={(e) => setBankForm({ ...bankForm, counterAccountId: e.target.value })}><option value="">Counter account (optional)</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select>}
                 <Input type="number" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
                 <Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
-                <Input placeholder="Reference" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
-                <Input placeholder="Remarks" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
-                <Input type="file" className="md:col-span-2" onChange={(e) => void readAccountFile(e.target.files?.[0]).then(setAccountDocument)} />
+                <Input placeholder="Reference (optional)" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
+                <Input placeholder="Remarks (optional)" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
                 <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
-            <Table rows={f(bankCash)} cols={[
-              ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Account", "bankCashAccountId", (_: any, row: any) => coa.find((a: any) => Number(a.id) === Number(row.bankCashAccountId))?.accountName || row.bankCashAccountId], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
-              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "reject")}>Reject</Button></div> : "-"],
+            <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
+              ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
+              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "reject")}>Reject</Button></div> : "—"],
             ]} />
           </TabsContent>
           {/* DISABLED: Masters module is not required for this phase */}
@@ -1483,6 +1815,11 @@ export default function Accounts() {
             </DialogHeader>
             {manualType && (
               <div className="grid gap-4 sm:grid-cols-2">
+                {error && (
+                  <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                    {error}
+                  </div>
+                )}
                 {manualType === "account" && (
                   <>
                     <div className="space-y-1.5">
@@ -1525,17 +1862,15 @@ export default function Accounts() {
                       </select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Status</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.isActive === false ? "inactive" : "active"}
+                      <Label>Opening Balance *</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={manual.currentBalance || ""}
                         onChange={(e) =>
-                          setManualField("isActive", e.target.value === "active")
+                          setManualField("currentBalance", e.target.value)
                         }
-                      >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
+                      />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
                       <Label>Description</Label>
@@ -1650,12 +1985,18 @@ export default function Accounts() {
                     </div>
                     <div className="space-y-1.5">
                       <Label>Vendor *</Label>
-                      <Input
-                        value={manual.vendorName || ""}
-                        onChange={(e) =>
-                          setManualField("vendorName", e.target.value)
-                        }
-                      />
+                      <select
+                        className="h-10 w-full rounded-md border bg-background px-3"
+                        value={manual.vendorId || ""}
+                        onChange={(e) => selectVendor(e.target.value)}
+                      >
+                        <option value="">Select vendor</option>
+                        {crmVendors.map((vendor) => (
+                          <option key={vendor.id} value={vendor.id}>
+                            {vendor.displayName || `${vendor.name} - ${vendor.contactCode}`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div className="space-y-1.5">
                       <Label>
@@ -1665,11 +2006,15 @@ export default function Accounts() {
                         *
                       </Label>
                       <Input
+                        list="accounts-ap-documents"
                         value={manual.billNumber || ""}
-                        onChange={(e) =>
-                          setManualField("billNumber", e.target.value)
-                        }
+                        onChange={(e) => selectApDocument(e.target.value)}
                       />
+                      <datalist id="accounts-ap-documents">
+                        {apDocuments.map((doc) => (
+                          <option key={doc.id} value={doc.displayName} />
+                        ))}
+                      </datalist>
                     </div>
                     {manual.entryType === "Debit Note" && (
                       <div className="space-y-1.5">
@@ -1766,12 +2111,18 @@ export default function Accounts() {
                     </div>
                     <div className="space-y-1.5">
                       <Label>Customer *</Label>
-                      <Input
-                        value={manual.clientName || ""}
-                        onChange={(e) =>
-                          setManualField("clientName", e.target.value)
-                        }
-                      />
+                      <select
+                        className="h-10 w-full rounded-md border bg-background px-3"
+                        value={manual.clientId || ""}
+                        onChange={(e) => selectClient(e.target.value)}
+                      >
+                        <option value="">Select customer</option>
+                        {crmClients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.displayName || `${client.name} - ${client.contactCode}`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div className="space-y-1.5">
                       <Label>
@@ -1781,11 +2132,15 @@ export default function Accounts() {
                         *
                       </Label>
                       <Input
+                        list="accounts-ar-documents"
                         value={manual.invoiceNumber || ""}
-                        onChange={(e) =>
-                          setManualField("invoiceNumber", e.target.value)
-                        }
+                        onChange={(e) => selectArDocument(e.target.value)}
                       />
+                      <datalist id="accounts-ar-documents">
+                        {arDocuments.map((doc) => (
+                          <option key={doc.id} value={doc.displayName} />
+                        ))}
+                      </datalist>
                     </div>
                     {manual.entryType === "Credit Note" && (
                       <div className="space-y-1.5">
@@ -1885,76 +2240,6 @@ export default function Accounts() {
           </DialogContent>
         </Dialog>
         <Dialog
-          open={Boolean(bankCashReview)}
-          onOpenChange={(open) => {
-            if (!open && !submitting) {
-              setBankCashReview(null);
-              setBankCashReviewRemarks("Approved");
-            }
-          }}
-        >
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>
-                {bankCashReview?.action === "approve" ? "Approve Transaction" : "Reject Transaction"}
-              </DialogTitle>
-            </DialogHeader>
-            {bankCashReview && (
-              <div className="space-y-4 py-1">
-                <div className="grid gap-3 rounded-md bg-muted/45 p-4 text-sm sm:grid-cols-3">
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Reference</p>
-                    <p className="font-medium">{bankCashReview.row.reference || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Account</p>
-                    <p className="font-medium">{coa.find((a: any) => Number(a.id) === Number(bankCashReview.row.bankCashAccountId))?.accountName || bankCashReview.row.bankCashAccountId}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">Amount</p>
-                    <p className="font-medium">{inr(bankCashReview.row.amount)}</p>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="bank-cash-review-remarks">
-                    {bankCashReview.action === "approve" ? "Approval Remarks" : "Rejection Remarks"}
-                  </Label>
-                  <Textarea
-                    id="bank-cash-review-remarks"
-                    className="min-h-[96px] resize-none"
-                    placeholder={bankCashReview.action === "approve" ? "Approved" : "Enter rejection remarks"}
-                    value={bankCashReviewRemarks}
-                    onChange={(event) => setBankCashReviewRemarks(event.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setBankCashReview(null);
-                  setBankCashReviewRemarks("Approved");
-                }}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant={bankCashReview?.action === "reject" ? "destructive" : "default"}
-                onClick={() => void submitBankCashDecision()}
-                disabled={submitting || (bankCashReview?.action === "reject" && !bankCashReviewRemarks.trim())}
-              >
-                {submitting
-                  ? "Submitting..."
-                  : bankCashReview?.action === "approve"
-                    ? "Approve"
-                    : "Reject"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
           open={settlement?.kind === "ap"}
           onOpenChange={(open) => {
             if (!open && !submitting) {
@@ -1974,6 +2259,11 @@ export default function Accounts() {
             </DialogHeader>
             {settlement?.kind === "ap" && (
               <div className="space-y-5 py-2">
+                {error && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                    {error}
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
                   <div>
                     <p className="text-[10px] uppercase text-muted-foreground">
@@ -2008,7 +2298,7 @@ export default function Accounts() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="ap-payment-amount">Payment Amount (INR)</Label>
+                  <Label htmlFor="ap-payment-amount">Payment Amount</Label>
                   <Input
                     id="ap-payment-amount"
                     type="number"
@@ -2053,6 +2343,11 @@ export default function Accounts() {
             </DialogHeader>
             {paymentAr && (
               <div className="space-y-5">
+                {error && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                    {error}
+                  </div>
+                )}
                 <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
                   <div>
                     <p className="text-[10px] uppercase text-muted-foreground">
@@ -2078,7 +2373,7 @@ export default function Accounts() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="payment-amount">Payment Amount (INR)</Label>
+                  <Label htmlFor="payment-amount">Payment Amount</Label>
                   <Input
                     id="payment-amount"
                     type="number"
