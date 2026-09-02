@@ -1,5 +1,6 @@
 const SYSTEM_ACCOUNT_CODES = new Set(["1030", "1100", "1200", "2100", "2200", "3000", "3100", "4100", "5100", "5140", "5150", "5160"]);
-const isSystemAccount = (account: any) => SYSTEM_ACCOUNT_CODES.has(String(account?.accountCode || ""));
+const SYSTEM_ACCOUNT_NAMES = new Set(["Input CGST", "Input SGST", "Input IGST", "Output CGST", "Output SGST", "Output IGST"]);
+const isSystemAccount = (account: any) => SYSTEM_ACCOUNT_CODES.has(String(account?.accountCode || "")) || SYSTEM_ACCOUNT_NAMES.has(String(account?.accountName || ""));
 
 import { useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/layout/Shell";
@@ -224,19 +225,25 @@ export default function Accounts() {
       sourceId: null,
       ...seed,
     });
-    if (type === "ar") void loadArDocuments(seed.clientId ? String(seed.clientId) : undefined);
-    if (type === "ap") void loadApDocuments(seed.vendorId ? String(seed.vendorId) : undefined);
+    if (type === "ar") void loadArDocuments(seed.clientId ? String(seed.clientId) : undefined, seed.entryType === "Credit Note" ? "credit-note" : undefined);
+    if (type === "ap") void loadApDocuments(seed.vendorId ? String(seed.vendorId) : undefined, seed.entryType === "Debit Note" ? "debit-note" : undefined);
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
-  const loadArDocuments = async (clientId?: string) => {
+const loadArDocuments = async (clientId?: string, mode?: string) => {
     if (!can("accounts.accounts_receivable.view")) return;
-    const suffix = clientId ? `?clientId=${encodeURIComponent(clientId)}` : "";
+    const params = new URLSearchParams();
+    if (clientId) params.set("clientId", clientId);
+    if (mode) params.set("mode", mode);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     setArDocuments(await api(`/receivable-documents${suffix}`).catch(() => []));
   };
-  const loadApDocuments = async (vendorId?: string) => {
+  const loadApDocuments = async (vendorId?: string, mode?: string) => {
     if (!can("accounts.accounts_payable.view")) return;
-    const suffix = vendorId ? `?vendorId=${encodeURIComponent(vendorId)}` : "";
+    const params = new URLSearchParams();
+    if (vendorId) params.set("vendorId", vendorId);
+    if (mode) params.set("mode", mode);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     setApDocuments(await api(`/payable-documents${suffix}`).catch(() => []));
   };
   const selectClient = (id: string) => {
@@ -248,7 +255,7 @@ export default function Accounts() {
       sourceType: current.sourceType === "Sales Invoice" ? "Manual" : current.sourceType,
       sourceId: current.sourceType === "Sales Invoice" ? null : current.sourceId,
     }));
-    void loadArDocuments(id);
+    void loadArDocuments(id, manual.entryType === "Credit Note" ? "credit-note" : undefined);
   };
   const selectVendor = (id: string) => {
     const vendor = crmVendors.find((row) => String(row.id) === id);
@@ -259,7 +266,7 @@ export default function Accounts() {
       sourceType: current.sourceType === "Purchase Invoice" ? "Manual" : current.sourceType,
       sourceId: current.sourceType === "Purchase Invoice" ? null : current.sourceId,
     }));
-    void loadApDocuments(id);
+    void loadApDocuments(id, manual.entryType === "Debit Note" ? "debit-note" : undefined);
   };
   const selectArDocument = (value: string) => {
     const doc = arDocuments.find((row) => row.displayName === value || row.invoiceNumber === value);
@@ -277,20 +284,25 @@ export default function Accounts() {
       sourceId: doc?.id || null,
     }));
   };
+  const selectLinkedArInvoice = (value: string) => {
+    const doc = arDocuments.find((row) => String(row.invoiceNumber) === value || row.displayName === value);
+    setManual((current: any) => ({ ...current, linkedInvoiceNumber: doc?.invoiceNumber || value, clientId: doc ? String(doc.clientId) : current.clientId, clientName: doc?.clientName || current.clientName, invoiceDate: current.invoiceDate || doc?.invoiceDate, dueDate: current.dueDate || doc?.dueDate }));
+  };
   const selectApDocument = (value: string) => {
     const doc = apDocuments.find((row) => row.displayName === value || row.billNumber === value);
     setManual((current: any) => ({
       ...current,
-      billNumber: doc?.billNumber || value,
+      billNumber: current.entryType === "Debit Note" ? current.billNumber : doc?.billNumber || value,
+      againstBillNumber: current.entryType === "Debit Note" ? doc?.billNumber || value : current.againstBillNumber,
       vendorId: doc ? String(doc.vendorId) : current.vendorId,
       vendorName: doc?.vendorName || current.vendorName,
       billDate: doc?.billDate || current.billDate,
       dueDate: doc?.dueDate || current.dueDate,
-      amount: doc ? String(doc.totalAmount) : current.amount,
-      paidAmount: doc ? String(doc.paidAmount || 0) : current.paidAmount,
-      adjustedAmount: doc ? String(doc.debitNoteAmount || 0) : current.adjustedAmount,
-      sourceType: doc ? "Purchase Invoice" : "Manual",
-      sourceId: doc?.id || null,
+      amount: current.entryType === "Debit Note" ? current.amount : doc ? String(doc.totalAmount) : current.amount,
+      paidAmount: current.entryType === "Debit Note" ? current.paidAmount : doc ? String(doc.paidAmount || 0) : current.paidAmount,
+      adjustedAmount: current.entryType === "Debit Note" ? current.adjustedAmount : doc ? String(doc.debitNoteAmount || 0) : current.adjustedAmount,
+      sourceType: current.entryType === "Debit Note" ? "Manual" : doc ? "Purchase Invoice" : "Manual",
+      sourceId: current.entryType === "Debit Note" ? null : doc?.id || null,
     }));
   };
   const submitManual = async () => {
@@ -334,6 +346,7 @@ export default function Accounts() {
             description: manual.description?.trim(),
             sourceType: manual.sourceType || "Manual",
             sourceId: manual.sourceId ? Number(manual.sourceId) : null,
+            metadata: { notes: manual.notes || "" },
             lines: [
               {
                 accountId: debitAccount.id,
@@ -369,8 +382,9 @@ export default function Accounts() {
             billDate: manual.billDate,
             dueDate: manual.dueDate,
             amount: numberValue(manual.amount),
-            paidAmount: numberValue(manual.paidAmount),
-            adjustedAmount: numberValue(manual.adjustedAmount),
+            paidAmount: manual.entryType === "Debit Note" ? numberValue(manual.amount) : numberValue(manual.paidAmount),
+            adjustedAmount: manual.entryType === "Debit Note" ? 0 : numberValue(manual.adjustedAmount),
+            coaAccountId: manual.coaAccountId ? Number(manual.coaAccountId) : null,
             entryType: manual.entryType,
             notes: manual.notes || "",
             sourceType: manual.sourceType || "Manual",
@@ -395,8 +409,9 @@ export default function Accounts() {
             invoiceDate: manual.invoiceDate,
             dueDate: manual.dueDate,
             amount: numberValue(manual.amount),
-            receivedAmount: numberValue(manual.receivedAmount),
-            adjustedAmount: numberValue(manual.adjustedAmount),
+            receivedAmount: manual.entryType === "Credit Note" ? numberValue(manual.amount) : numberValue(manual.receivedAmount),
+            adjustedAmount: manual.entryType === "Credit Note" ? 0 : numberValue(manual.adjustedAmount),
+            coaAccountId: manual.coaAccountId ? Number(manual.coaAccountId) : null,
             entryType: manual.entryType,
             notes: manual.notes || "",
             sourceType: manual.sourceType || "Manual",
@@ -416,6 +431,7 @@ export default function Accounts() {
     const params = new URLSearchParams();
     if (fromDate) params.set("dateFrom", fromDate);
     if (toDate) params.set("dateTo", toDate);
+    if (search.trim()) params.set("search", search.trim());
     const query = params.toString();
     return query ? `&${query}` : "";
   };
@@ -523,6 +539,7 @@ export default function Accounts() {
     listPaging.ar.size,
     fromDate,
     toDate,
+    search,
   ]);
   useEffect(() => {
     if (
@@ -1221,7 +1238,7 @@ export default function Accounts() {
             <Input
               placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setListPaging((current) => ({ j: { ...current.j, page: 1 }, ap: { ...current.ap, page: 1 }, ar: { ...current.ar, page: 1 } })); }}
               className="h-9 w-48 text-xs bg-background"
             />
           </div>
@@ -1487,15 +1504,18 @@ export default function Accounts() {
                                       No entry history recorded for this account.
                                     </div>
                                   ) : (
-                                    <div className="overflow-x-auto rounded-md border bg-background">
+                                    <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-md border bg-background">
                                       <table className="w-full text-xs">
                                         <thead className="bg-muted/40 font-semibold text-muted-foreground">
                                           <tr>
-                                            <th className="px-3 py-2 text-left">Date</th>
-                                            <th className="px-3 py-2 text-left">Source / Reference</th>
+                                            <th className="px-3 py-2 text-left">Date of Payment</th>
+                                            <th className="px-3 py-2 text-left">Source</th>
+                                            <th className="px-3 py-2 text-left">Customer/Vendor</th>
+                                            <th className="px-3 py-2 text-left">Customer/Vendor ID</th>
+                                            <th className="px-3 py-2 text-left">Reference ID</th>
                                             <th className="px-3 py-2 text-left">Description</th>
-                                            <th className="px-3 py-2 text-right">Debit (₹)</th>
-                                            <th className="px-3 py-2 text-right">Credit (₹)</th>
+                                            <th className="px-3 py-2 text-right">Debit Amount</th>
+                                            <th className="px-3 py-2 text-right">Credit Amount</th>
                                             <th className="px-3 py-2 text-right">Running Balance (₹)</th>
                                           </tr>
                                         </thead>
@@ -1503,11 +1523,19 @@ export default function Accounts() {
                                           {historyLines.map((line: any, idx: number) => (
                                             <tr key={line.id || idx} className="hover:bg-muted/10">
                                               <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                                                {String(line.entryDate || "").slice(0, 10) || "—"}
+                                                {String(line.paymentDate || line.entryDate || "").slice(0, 10) || "—"}
                                               </td>
                                               <td className="px-3 py-1.5 font-medium">
-                                                {line.sourceType ? `${line.sourceType}: ` : ""}
-                                                {line.reference || line.sourceId || "—"}
+                                                {line.source || line.sourceType || "Manual"}
+                                              </td>
+                                              <td className="px-3 py-1.5">
+                                                {line.partyName || "N/A"}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                                                {line.partyId || "N/A"}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-mono">
+                                                {line.referenceId || line.reference || line.sourceId || "—"}
                                               </td>
                                               <td className="px-3 py-1.5 text-muted-foreground">
                                                 {line.description || "—"}
@@ -1559,6 +1587,7 @@ export default function Accounts() {
               ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
               ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => setBankDecision({ row, remarks: "" })}>Reject</Button></div> : "—"],
               ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
+              ["Notes", "remarks", (value: any) => String(value || "").trim() || "—"],
             ]} />
           </TabsContent>
           {/* DISABLED: Masters module is not required for this phase */}
@@ -1693,6 +1722,7 @@ export default function Accounts() {
                         );
                       },
                     ],
+                    ["Notes", "notes"],
                   ]}
                 />
               </TabsContent>
@@ -1788,16 +1818,20 @@ export default function Accounts() {
                             </>
                           )}
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
+                            className="h-8 w-8"
+                            title="Delete"
+                            aria-label={`Delete ${row.invoiceNumber}`}
                             onClick={() => void deleteReceivable(row)}
                             disabled={submitting || row.sourceType !== "Manual"}
                           >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       ),
                     ],
+                    ["Notes", "notes"],
                   ]}
                 />
               </TabsContent>
@@ -1825,6 +1859,7 @@ export default function Accounts() {
                         ),
                     ],
                     ["Status", "status"],
+                    ["Notes", "notes"],
                   ]}
                 />
               </TabsContent>
@@ -1848,6 +1883,7 @@ export default function Accounts() {
                 ["Description", "description"],
                 ["Debit", "totalDebit", inr],
                 ["Credit", "totalCredit", inr],
+                ["Notes", "notes", (_value: any, row: any) => row.metadata?.notes || "—"],
               ]}
             />
           </TabsContent>
@@ -2014,9 +2050,7 @@ export default function Accounts() {
                         min="0.01"
                         step="0.01"
                         value={manual.amount || ""}
-                        onChange={(e) =>
-                          setManualField("amount", e.target.value)
-                        }
+                        onChange={(e) => setManual((current: any) => ({ ...current, amount: e.target.value, paidAmount: current.entryType === "Debit Note" ? e.target.value : current.paidAmount, receivedAmount: current.entryType === "Credit Note" ? e.target.value : current.receivedAmount }))}
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -2065,11 +2099,11 @@ export default function Accounts() {
                           : "Bill #"}{" "}
                         *
                       </Label>
-                      <Input
-                        list="accounts-ap-documents"
-                        value={manual.billNumber || ""}
-                        onChange={(e) => selectApDocument(e.target.value)}
-                      />
+                      {manual.entryType === "Debit Note" ? (
+                        <Input value={manual.billNumber || ""} onChange={(e) => setManualField("billNumber", e.target.value)} />
+                      ) : (
+                        <Input list="accounts-ap-documents" value={manual.billNumber || ""} onChange={(e) => selectApDocument(e.target.value)} />
+                      )}
                       <datalist id="accounts-ap-documents">
                         {apDocuments.map((doc) => (
                           <option key={doc.id} value={doc.displayName} />
@@ -2078,13 +2112,11 @@ export default function Accounts() {
                     </div>
                     {manual.entryType === "Debit Note" && (
                       <div className="space-y-1.5">
-                        <Label>Against Bill # *</Label>
-                        <Input
-                          value={manual.againstBillNumber || ""}
-                          onChange={(e) =>
-                            setManualField("againstBillNumber", e.target.value)
-                          }
-                        />
+                        <Label>Against Bill *</Label>
+                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.againstBillNumber || ""} onChange={(e) => selectApDocument(e.target.value)}>
+                          <option value="">Select paid/partial bill</option>
+                          {apDocuments.map((doc) => <option key={doc.id} value={doc.billNumber}>{doc.displayName || doc.billNumber}</option>)}
+                        </select>
                       </div>
                     )}
                     <div className="space-y-1.5">
@@ -2114,14 +2146,13 @@ export default function Accounts() {
                         min="0.01"
                         step="0.01"
                         value={manual.amount || ""}
-                        onChange={(e) =>
-                          setManualField("amount", e.target.value)
-                        }
+                        onChange={(e) => setManual((current: any) => ({ ...current, amount: e.target.value, paidAmount: current.entryType === "Debit Note" ? e.target.value : current.paidAmount, receivedAmount: current.entryType === "Credit Note" ? e.target.value : current.receivedAmount }))}
                       />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Paid Amount</Label>
                       <Input
+                        readOnly={manual.entryType === "Debit Note"}
                         type="number"
                         min="0"
                         step="0.01"
@@ -2130,19 +2161,21 @@ export default function Accounts() {
                           setManualField("paidAmount", e.target.value)
                         }
                       />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Adjusted Amount</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={manual.adjustedAmount || ""}
-                        onChange={(e) =>
-                          setManualField("adjustedAmount", e.target.value)
-                        }
-                      />
-                    </div>
+                    </div>{manual.entryType !== "Debit Note" && (
+                      <div className="space-y-1.5">
+                        <Label>Adjusted Amount</Label>
+                        <Input type="number" min="0" step="0.01" value={manual.adjustedAmount || ""} onChange={(e) => setManualField("adjustedAmount", e.target.value)} />
+                      </div>
+                    )}
+{manual.entryType === "Debit Note" && (
+                      <div className="space-y-1.5">
+                        <Label>Account Name *</Label>
+                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.coaAccountId || ""} onChange={(e) => setManualField("coaAccountId", e.target.value)}>
+                          <option value="">Select account</option>
+                          {coa.map((account: any) => <option key={account.id} value={account.id}>{account.accountCode} - {account.accountName}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <div className="space-y-1.5">
                       <Label>Notes</Label>
                       <Input
@@ -2192,9 +2225,9 @@ export default function Accounts() {
                         *
                       </Label>
                       <Input
-                        list="accounts-ar-documents"
+                        list={manual.entryType === "Credit Note" ? undefined : "accounts-ar-documents"}
                         value={manual.invoiceNumber || ""}
-                        onChange={(e) => selectArDocument(e.target.value)}
+                        onChange={(e) => setManualField("invoiceNumber", e.target.value)}
                       />
                       <datalist id="accounts-ar-documents">
                         {arDocuments.map((doc) => (
@@ -2204,16 +2237,11 @@ export default function Accounts() {
                     </div>
                     {manual.entryType === "Credit Note" && (
                       <div className="space-y-1.5">
-                        <Label>Linked Invoice # *</Label>
-                        <Input
-                          value={manual.linkedInvoiceNumber || ""}
-                          onChange={(e) =>
-                            setManualField(
-                              "linkedInvoiceNumber",
-                              e.target.value,
-                            )
-                          }
-                        />
+                        <Label>Linked Invoice *</Label>
+                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.linkedInvoiceNumber || ""} onChange={(e) => selectLinkedArInvoice(e.target.value)}>
+                          <option value="">Select paid/partial invoice</option>
+                          {arDocuments.map((doc) => <option key={doc.id} value={doc.invoiceNumber}>{doc.displayName || doc.invoiceNumber}</option>)}
+                        </select>
                       </div>
                     )}
                     <div className="space-y-1.5">
@@ -2243,14 +2271,13 @@ export default function Accounts() {
                         min="0.01"
                         step="0.01"
                         value={manual.amount || ""}
-                        onChange={(e) =>
-                          setManualField("amount", e.target.value)
-                        }
+                        onChange={(e) => setManual((current: any) => ({ ...current, amount: e.target.value, paidAmount: current.entryType === "Debit Note" ? e.target.value : current.paidAmount, receivedAmount: current.entryType === "Credit Note" ? e.target.value : current.receivedAmount }))}
                       />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Received Amount</Label>
                       <Input
+                        readOnly={manual.entryType === "Credit Note"}
                         type="number"
                         min="0"
                         step="0.01"
@@ -2259,19 +2286,21 @@ export default function Accounts() {
                           setManualField("receivedAmount", e.target.value)
                         }
                       />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Adjusted Amount</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={manual.adjustedAmount || ""}
-                        onChange={(e) =>
-                          setManualField("adjustedAmount", e.target.value)
-                        }
-                      />
-                    </div>
+                    </div>{manual.entryType !== "Credit Note" && (
+                      <div className="space-y-1.5">
+                        <Label>Adjusted Amount</Label>
+                        <Input type="number" min="0" step="0.01" value={manual.adjustedAmount || ""} onChange={(e) => setManualField("adjustedAmount", e.target.value)} />
+                      </div>
+                    )}
+                    {manual.entryType === "Credit Note" && (
+                      <div className="space-y-1.5">
+                        <Label>Account Name *</Label>
+                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.coaAccountId || ""} onChange={(e) => setManualField("coaAccountId", e.target.value)}>
+                          <option value="">Select account</option>
+                          {coa.map((account: any) => <option key={account.id} value={account.id}>{account.accountCode} - {account.accountName}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <div className="space-y-1.5">
                       <Label>Notes</Label>
                       <Input
@@ -2293,7 +2322,7 @@ export default function Accounts() {
               >
                 Cancel
               </Button>
-              <Button onClick={() => void submitManual()} disabled={submitting}>
+              <Button onClick={() => void submitManual()} disabled={submitting || ((manual.entryType === "Credit Note" || manual.entryType === "Debit Note") && !manual.coaAccountId)}>
                 {submitting ? "Saving..." : "Save Entry"}
               </Button>
             </DialogFooter>

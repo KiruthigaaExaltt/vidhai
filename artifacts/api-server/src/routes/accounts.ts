@@ -17,6 +17,7 @@ import {
   inventoryTable,
   purchaseInvoicesTable,
   salesInvoicesTable,
+  salesInvoiceItemsTable,
   salesPaymentsTable,
   contactsTable,
   vendorPaymentsTable,
@@ -46,8 +47,44 @@ const canonical = [
   ["5160", "Miscellaneous Expenses", "Expense"],
 ] as const;
 const accountTypes = ["Asset", "Liability", "Equity", "Revenue", "Expense"] as const;
+const gstSeedAccounts = [
+  ["Input CGST", "Asset"],
+  ["Input SGST", "Asset"],
+  ["Input IGST", "Asset"],
+  ["Output CGST", "Liability"],
+  ["Output SGST", "Liability"],
+  ["Output IGST", "Liability"],
+] as const;
 const systemAccountCodes = new Set<string>(canonical.map(([code]) => code));
 const norm = (value: any) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const systemAccountNames = new Set<string>([
+  ...canonical.map(([, name]) => norm(name)),
+  ...gstSeedAccounts.map(([name]) => norm(name)),
+]);
+const isSystemAccountRow = (account: any) =>
+  systemAccountCodes.has(String(account?.accountCode || "")) || systemAccountNames.has(norm(account?.accountName));
+const padRef = (value: number) => String(value).padStart(6, "0");
+const refNumber = (reference: any, prefix: string) => {
+  const match = String(reference || "").match(new RegExp(`^${prefix}-(\\d+)$`, "i"));
+  return match ? Number(match[1]) : 0;
+};
+async function nextReference(org: number, prefix: string) {
+  const { bankCashTransactionsTable } = await accountTables();
+  const [journals, receivables, payables, bankCash] = await Promise.all([
+    db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, org)),
+    db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, org)),
+    db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org)),
+    db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, org)),
+  ]);
+  const refs = [
+    ...journals.map((row: any) => row.reference),
+    ...receivables.flatMap((row: any) => [row.invoiceNumber, row.creditNoteNumber]),
+    ...payables.map((row: any) => row.billNumber),
+    ...bankCash.map((row: any) => row.reference),
+  ];
+  const next = Math.max(0, ...refs.map((reference) => refNumber(reference, prefix))) + 1;
+  return `${prefix}-${padRef(next)}`;
+}
 router.use(async (req: any, res, next): Promise<any> => {
   const user = await getAuthUser(req);
   if (!user) return res.status(401).json({ error: "Not authenticated" });
@@ -124,8 +161,8 @@ async function repointAccountReferences(from: any, to: any) {
 async function consolidateDuplicateAccounts(org: number, rows: any[]) {
   const choose = (items: any[]) =>
     [...items].sort((left, right) => {
-      const leftSystem = systemAccountCodes.has(String(left.accountCode)) ? 0 : 1;
-      const rightSystem = systemAccountCodes.has(String(right.accountCode)) ? 0 : 1;
+      const leftSystem = isSystemAccountRow(left) ? 0 : 1;
+      const rightSystem = isSystemAccountRow(right) ? 0 : 1;
       const leftTouched = m(left.currentBalance) !== 0 || m(left.openingBalance) !== 0 ? 0 : 1;
       const rightTouched = m(right.currentBalance) !== 0 || m(right.openingBalance) !== 0 ? 0 : 1;
       return leftSystem - rightSystem || leftTouched - rightTouched || Number(left.id) - Number(right.id);
@@ -205,6 +242,46 @@ function csv(value: any) {
 function downloadName(ext: string) {
   return `tally-export-${day()}.${ext}`;
 }
+function itemTaxAmount(line: any, key: "cgst" | "sgst" | "igst") {
+  const quantity = m(line.quantity ?? line.qty ?? line.receivedQty ?? 0);
+  const rate = m(line.rate ?? line.unitPrice ?? line.price ?? 0);
+  const discountPercent = m(line.discountPercent ?? line.discount ?? 0);
+  const taxable = Math.max(0, quantity * rate * (1 - discountPercent / 100));
+  const amount = m(line[`${key}Amount`] ?? line[`${key}Value`] ?? line[`${key}Tax`] ?? 0);
+  if (amount > 0) return amount;
+  const percent = m(line[`${key}Percent`] ?? line[`${key}Pct`] ?? line[key] ?? 0);
+  return m(taxable * percent / 100);
+}
+function purchaseInvoiceTaxAmount(invoice: any, key: "cgst" | "sgst" | "igst") {
+  const items = Array.isArray(invoice.lineItems) ? invoice.lineItems : [];
+  const fromItems = items.reduce((sum: number, line: any) => sum + itemTaxAmount(line, key), 0);
+  return m(fromItems || invoice[`${key}Amount`] || invoice[`${key}Total`] || invoice[`${key}Value`] || 0);
+}
+function historySource(sourceType: any) {
+  const value = String(sourceType || "").toLowerCase();
+  if (value.includes("credit note")) return "Credit Note";
+  if (value.includes("debit note")) return "Debit Note";
+  if (value.includes("payable") || value.includes("purchase") || value.includes("vendor")) return "Payables";
+  if (value.includes("receivable") || value.includes("sales") || value.includes("customer")) return "Receivables";
+  return "Manual";
+}
+function decorateHistoryLines(accounts: any[], receivables: any[], payables: any[]) {
+  const arById = new Map(receivables.map((row: any) => [Number(row.id), row]));
+  const apById = new Map(payables.map((row: any) => [Number(row.id), row]));
+  const findAr = (line: any) => arById.get(Number(line.sourceId)) || receivables.find((row: any) => norm(row.invoiceNumber) === norm(line.reference) || norm(row.creditNoteNumber) === norm(line.reference));
+  const findAp = (line: any) => apById.get(Number(line.sourceId)) || payables.find((row: any) => norm(row.billNumber) === norm(line.reference));
+  for (const account of accounts as any[]) {
+    for (const line of account.lines || []) {
+      const source = historySource(line.sourceType);
+      const party = source === "Payables" || source === "Debit Note" ? findAp(line) : findAr(line);
+      line.source = source;
+      line.partyName = party?.vendorName || party?.clientName || "N/A";
+      line.partyId = party?.vendorId || party?.clientId || "N/A";
+      line.referenceId = line.reference || line.sourceId || "N/A";
+      line.paymentDate = String(line.paymentDate || line.entryDate || "").slice(0, 10);
+    }
+  }
+}
 async function coa(org: number) {
   let rows = await db
     .select()
@@ -237,6 +314,46 @@ async function coa(org: number) {
       isActive: true,
     }).returning();
     rows.push(created as any);
+  }
+const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)));
+  const nextAccountCode = (accountType: string) => {
+    const bases: Record<string, number> = { Asset: 1000, Liability: 2000, Equity: 3000, Revenue: 4000, Expense: 5000 };
+    const used = (rows as any[])
+      .filter((row) => String(row.accountType) === accountType)
+      .map((row) => Number.parseInt(String(row.accountCode), 10))
+      .filter(Number.isFinite);
+    let code = Math.max(bases[accountType] || 9000, ...used) + 10;
+    while (usedCodes.has(String(code))) code += 10;
+    usedCodes.add(String(code));
+    return String(code);
+  };
+  for (const [accountName, accountType] of gstSeedAccounts) {
+    const existing = (rows as any[]).find((row) => norm(row.accountName) === norm(accountName));
+    if (existing) {
+      if (existing.accountType !== accountType)
+        await db.update(chartOfAccountsTable).set({ accountType, groupName: accountType, tallyGroupName: accountType } as any).where(eq(chartOfAccountsTable.id, existing.id));
+      continue;
+    }
+    const accountCode = nextAccountCode(accountType);
+    try {
+      const [created] = await db.insert(chartOfAccountsTable).values({
+        organizationId: org,
+        accountCode,
+        accountName,
+        accountType,
+        normalizedAccountCode: norm(accountCode),
+        normalizedAccountName: norm(accountName),
+        currentBalance: 0,
+        groupName: accountType,
+        tallyLedgerName: accountName,
+        tallyGroupName: accountType,
+        isActive: true,
+      }).returning();
+      rows.push(created as any);
+    } catch (error: any) {
+      rows = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org));
+      if (!(rows as any[]).some((row) => norm(row.accountName) === norm(accountName))) throw error;
+    }
   }
   await consolidateDuplicateAccounts(org, rows);
   rows = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org));
@@ -306,11 +423,13 @@ async function coa(org: number) {
     a.lines = historyLines;
   }
 
-  const [receivableRows, payableRows, salesPaymentRows, vendorPaymentRows] = await Promise.all([
+  const [receivableRows, payableRows, salesPaymentRows, vendorPaymentRows, salesInvoiceItemRows, purchaseInvoiceRows] = await Promise.all([
     db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, org)),
     db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org)),
     db.select().from(salesPaymentsTable),
     db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, org)),
+    db.select().from(salesInvoiceItemsTable),
+    db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.organizationId, org)),
   ]);
   const resetAccount = async (code: string, balance: number, derivedLines: any[]) => {
     const account = (rows as any[]).find((row: any) => String(row.accountCode) === code);
@@ -386,6 +505,56 @@ async function coa(org: number) {
       credit: 0,
     })),
   );
+const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
+    const account = (rows as any[]).find((row: any) => norm(row.accountName) === norm(accountName));
+    if (!account) return;
+    const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
+    let running = 0;
+    const filteredLines = derivedLines.filter((line) => m(line.debit) > 0 || m(line.credit) > 0);
+    const balance = m(filteredLines.reduce((sum, line) => sum + (isCreditNormal ? m(line.credit) - m(line.debit) : m(line.debit) - m(line.credit)), 0));
+    account.currentBalance = String(balance);
+    await db.update(chartOfAccountsTable).set({ currentBalance: balance } as any).where(eq(chartOfAccountsTable.id, account.id));
+    account.lines = filteredLines
+      .sort((left, right) => String(left.entryDate).localeCompare(String(right.entryDate)) || String(left.reference).localeCompare(String(right.reference)))
+      .map((line, index) => {
+        running = m(running + (isCreditNormal ? m(line.credit) - m(line.debit) : m(line.debit) - m(line.credit)));
+        return { id: `derived-gst-${account.id}-${index}`, journalEntryId: null, runningBalance: running, ...line };
+      });
+  };
+  const salesInvoicesById = new Map(invoices.filter((row) => row.sourceType === "Sales Invoice" && row.sourceId).map((row) => [Number(row.sourceId), row]));
+  const salesGstLines = (key: "cgst" | "sgst" | "igst") => (salesInvoiceItemRows as any[]).reduce((map, item: any) => {
+    const invoice = salesInvoicesById.get(Number(item.invoiceId));
+    if (!invoice) return map;
+    const value = itemTaxAmount(item, key);
+    const current = map.get(Number(item.invoiceId)) || {
+      entryDate: invoice.invoiceDate,
+      reference: invoice.invoiceNumber,
+      description: `${invoice.clientName || "Sales invoice"} GST`,
+      sourceType: "Receivables",
+      sourceId: invoice.id,
+      debit: 0,
+      credit: 0,
+    };
+    current.debit = m(current.debit + value);
+    map.set(Number(item.invoiceId), current);
+    return map;
+  }, new Map<number, any>());
+  const purchaseGstLines = (key: "cgst" | "sgst" | "igst") => (purchaseInvoiceRows as any[]).map((invoice: any) => ({
+    entryDate: invoice.invoiceDate,
+    reference: invoice.invoiceNumber,
+    description: `${invoice.vendorName || "Purchase invoice"} GST`,
+    sourceType: "Payables",
+    sourceId: invoice.id,
+    debit: 0,
+    credit: purchaseInvoiceTaxAmount(invoice, key),
+  }));
+  await resetGstAccount("Input CGST", [...salesGstLines("cgst").values()]);
+  await resetGstAccount("Input SGST", [...salesGstLines("sgst").values()]);
+  await resetGstAccount("Input IGST", [...salesGstLines("igst").values()]);
+  await resetGstAccount("Output CGST", purchaseGstLines("cgst"));
+  await resetGstAccount("Output SGST", purchaseGstLines("sgst"));
+  await resetGstAccount("Output IGST", purchaseGstLines("igst"));
+  decorateHistoryLines(rows as any[], receivableRows as any[], payableRows as any[]);
   return rows;
 }
 async function post(org: number, b: any, userId?: number) {
@@ -430,7 +599,7 @@ async function post(org: number, b: any, userId?: number) {
       .values({
         organizationId: org,
         entryDate: b.entryDate || day(),
-        reference: b.reference || `MANUAL:${Date.now()}`,
+        reference: b.reference || await nextReference(org, "JE"),
         description: b.description || "Journal entry",
         totalDebit: dr,
         totalCredit: cr,
@@ -927,15 +1096,24 @@ router.get("/party-options", async (r: any, s): Promise<any> => {
 router.get("/receivable-documents", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.accounts_receivable.view")) return;
   const clientId = Number(r.query.clientId || 0);
+  const mode = String(r.query.mode || "").toLowerCase();
   const [invoices, receivables] = await Promise.all([
     db.select().from(salesInvoicesTable),
     db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
   ]);
-  const linkedInvoiceIds = new Set(
-    (receivables as any[])
-      .filter((row) => row.sourceType === "Sales Invoice" && row.sourceId)
-      .map((row) => Number(row.sourceId)),
-  );
+  if (mode === "credit-note") {
+    const rows = (receivables as any[])
+      .filter((row) => row.entryType !== "Credit Note")
+      .filter((row) => Number(row.clientId) === (clientId || Number(row.clientId)))
+      .filter((row) => m(row.receivedAmount) > 0 || ["received", "partial", "paid"].includes(String(row.status || "").toLowerCase()))
+      .map((row) => {
+        const received = m(row.receivedAmount);
+        const total = m(row.amount);
+        return { id: row.id, sourceType: row.sourceType || "Accounts Receivable", clientId: row.clientId, clientName: row.clientName, invoiceNumber: row.invoiceNumber, invoiceDate: row.invoiceDate, dueDate: row.dueDate || row.invoiceDate, totalAmount: total, amountReceived: received, adjustedAmount: m(row.adjustedAmount), outstandingAmount: receivableOutstanding(row), displayName: `${row.invoiceNumber} - ${row.clientName} - ${String(row.status || "Partial")}` };
+      });
+    return s.json(rows);
+  }
+  const linkedInvoiceIds = new Set((receivables as any[]).filter((row) => row.sourceType === "Sales Invoice" && row.sourceId).map((row) => Number(row.sourceId)));
   const rows = (invoices as any[])
     .filter((invoice) => Number(invoice.clientId) === (clientId || Number(invoice.clientId)))
     .filter((invoice) => invoice.isLatestVersion !== false)
@@ -946,20 +1124,7 @@ router.get("/receivable-documents", async (r: any, s): Promise<any> => {
       const paid = m(invoice.amountPaid);
       const total = m(invoice.grandTotal);
       const outstanding = Math.max(0, m(invoice.balanceDue || total - paid));
-      return {
-        id: invoice.id,
-        sourceType: "Sales Invoice",
-        clientId: invoice.clientId,
-        clientName: invoice.clientName,
-        invoiceNumber: invoice.invoiceNumber,
-        invoiceDate: invoice.invoiceDate,
-        dueDate: invoice.dueDate || invoice.invoiceDate,
-        totalAmount: total,
-        amountReceived: paid,
-        adjustedAmount: m(invoice.adjustedAmount),
-        outstandingAmount: outstanding,
-        displayName: `${invoice.invoiceNumber} - ${invoice.clientName} - ${outstanding} Outstanding`,
-      };
+      return { id: invoice.id, sourceType: "Sales Invoice", clientId: invoice.clientId, clientName: invoice.clientName, invoiceNumber: invoice.invoiceNumber, invoiceDate: invoice.invoiceDate, dueDate: invoice.dueDate || invoice.invoiceDate, totalAmount: total, amountReceived: paid, adjustedAmount: m(invoice.adjustedAmount), outstandingAmount: outstanding, displayName: `${invoice.invoiceNumber} - ${invoice.clientName} - ${outstanding} Outstanding` };
     })
     .filter((invoice) => invoice.outstandingAmount > 0);
   s.json(rows);
@@ -967,15 +1132,24 @@ router.get("/receivable-documents", async (r: any, s): Promise<any> => {
 router.get("/payable-documents", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.accounts_payable.view")) return;
   const vendorId = Number(r.query.vendorId || 0);
+  const mode = String(r.query.mode || "").toLowerCase();
   const [invoices, payables] = await Promise.all([
     db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.organizationId, r.acc.org)),
     db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
   ]);
-  const linkedInvoiceIds = new Set(
-    (payables as any[])
-      .filter((row) => row.sourceType === "Purchase Invoice" && row.sourceId)
-      .map((row) => Number(row.sourceId)),
-  );
+  if (mode === "debit-note") {
+    const rows = (payables as any[])
+      .filter((row) => row.entryType !== "Debit Note")
+      .filter((row) => Number(row.vendorId) === (vendorId || Number(row.vendorId)))
+      .filter((row) => m(row.paidAmount) > 0 || ["paid", "partial"].includes(String(row.status || "").toLowerCase()))
+      .map((row) => {
+        const paid = m(row.paidAmount);
+        const total = m(row.amount);
+        return { id: row.id, sourceType: row.sourceType || "Accounts Payable", vendorId: Number(row.vendorId) || null, vendorName: row.vendorName, billNumber: row.billNumber, billDate: row.billDate, dueDate: row.dueDate || row.billDate, totalAmount: total, paidAmount: paid, debitNoteAmount: m(row.adjustedAmount), outstandingAmount: payableOutstanding(row), displayName: `${row.billNumber} - ${row.vendorName} - ${String(row.status || "Partial")}` };
+      });
+    return s.json(rows);
+  }
+  const linkedInvoiceIds = new Set((payables as any[]).filter((row) => row.sourceType === "Purchase Invoice" && row.sourceId).map((row) => Number(row.sourceId)));
   const rows = (invoices as any[])
     .filter((invoice) => Number(invoice.vendorId) === (vendorId || Number(invoice.vendorId)))
     .filter((invoice) => ["2-Way Match", "3-Way Match", "Matched"].includes(String(invoice.matchStatus || "")))
@@ -986,20 +1160,7 @@ router.get("/payable-documents", async (r: any, s): Promise<any> => {
       const paid = m(bill?.paidAmount);
       const adjusted = m(bill?.adjustedAmount);
       const total = m(invoice.amount);
-      return {
-        id: invoice.id,
-        sourceType: "Purchase Invoice",
-        vendorId: Number(invoice.vendorId) || null,
-        vendorName: invoice.vendorName,
-        billNumber: invoice.invoiceNumber,
-        billDate: invoice.invoiceDate,
-        dueDate: invoice.dueDate || invoice.invoiceDate,
-        totalAmount: total,
-        paidAmount: paid,
-        debitNoteAmount: adjusted,
-        outstandingAmount: Math.max(0, total - paid - adjusted),
-        displayName: `${invoice.invoiceNumber} - ${invoice.vendorName} - ${Math.max(0, total - paid - adjusted)} Outstanding`,
-      };
+      return { id: invoice.id, sourceType: "Purchase Invoice", vendorId: Number(invoice.vendorId) || null, vendorName: invoice.vendorName, billNumber: invoice.invoiceNumber, billDate: invoice.invoiceDate, dueDate: invoice.dueDate || invoice.invoiceDate, totalAmount: total, paidAmount: paid, debitNoteAmount: adjusted, outstandingAmount: Math.max(0, total - paid - adjusted), displayName: `${invoice.invoiceNumber} - ${invoice.vendorName} - ${Math.max(0, total - paid - adjusted)} Outstanding` };
     })
     .filter((invoice) => invoice.outstandingAmount > 0);
   s.json(rows);
@@ -1084,7 +1245,7 @@ async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-bal
     transferToAccountId: isTransfer ? Number(r.body.transferToAccountId) : null,
     counterAccountId: r.body.counterAccountId ? Number(r.body.counterAccountId) : null,
     amount,
-    reference: String(r.body.reference || `${isOpening ? "OB" : "BC"}-${Date.now()}`),
+    reference: String(r.body.reference || await nextReference(r.acc.org, isOpening ? "OB" : "BC")),
     remarks: String(r.body.remarks || r.body.notes || ""),
     createdByUserId: Number(r.acc.user.id),
   }).returning();
@@ -1295,7 +1456,7 @@ router.patch("/coa/:id", async (r: any, s): Promise<any> => {
     const existing = await coa(r.acc.org);
     const current = existing.find((account: any) => Number(account.id) === id);
     if (!current) return s.status(404).json({ error: "Account not found" });
-    if (systemAccountCodes.has(String(current.accountCode)))
+    if (isSystemAccountRow(current))
       return s.status(409).json({ error: "Seeded system accounts cannot be edited" });
     const input = accountInput({ ...current, ...r.body }, existing, id);
     const updates: any = {
@@ -1325,7 +1486,7 @@ router.delete("/coa/:id", async (r: any, s): Promise<any> => {
   const id = Number(r.params.id);
   const [account] = await db.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, r.acc.org), eq(chartOfAccountsTable.id, id))).limit(1);
   if (!account) return s.status(404).json({ error: "Account not found" });
-  if (systemAccountCodes.has(String(account.accountCode)))
+  if (isSystemAccountRow(account))
     return s.status(409).json({ error: "Required system accounts cannot be deleted" });
   if ((await db.select().from(journalLinesTable).where(eq(journalLinesTable.accountId, id))).length)
     return s.status(409).json({ error: "Referenced accounts cannot be deleted. Deactivate the account instead." });
@@ -1396,11 +1557,9 @@ for (const c of [
     if (!need(r, s, `${c.k}.view`)) return;
     try {
       const dateField = c.p === "ap" ? "billDate" : "invoiceDate";
-      const rows = (await db
-        .select()
-        .from(c.t)
-        .where(eq(c.t.organizationId, r.acc.org))
-        .orderBy(desc(c.t.createdAt))).filter(dateRangeFilter(r.query, dateField));
+      const search = norm(r.query.search || "");
+      let rows = (await db.select().from(c.t).where(eq(c.t.organizationId, r.acc.org)).orderBy(desc(c.t.createdAt))).filter(dateRangeFilter(r.query, dateField));
+      if (search) rows = rows.filter((row: any) => [row.invoiceNumber, row.creditNoteNumber, row.linkedInvoiceNumber, row.billNumber, row.againstBillNumber, row.clientName, row.vendorName, row.notes, row.status, row.sourceType].some((value) => norm(value).includes(search)));
       const enriched = c.p === "ap" ? await enrichPayables(rows as any[]) : await enrichReceivables(rows as any[]);
       s.json(pg(enriched.map((row: any) => serializeMoneyFields(row)), r));
     } catch (error: any) {
@@ -1410,55 +1569,41 @@ for (const c of [
   router.post(`/${c.p}`, async (r: any, s): Promise<any> => {
     if (!need(r, s, `${c.k}.create`)) return;
     const amount = m(r.body.amount);
-    const covered = m(r.body[c.paid]) + m(r.body.adjustedAmount);
     if (amount <= 0) return s.status(400).json({ error: "Amount must be positive" });
     if (c.p === "ap") {
       if (!r.body.vendorId && !String(r.body.vendorName || "").trim()) return s.status(400).json({ error: "Vendor is required" });
-      if (!String(r.body.billNumber || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Bill number is required" });
-      if (!String(r.body.billDate || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Bill date is required" });
-      if (!String(r.body.dueDate || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Due date is required" });
       const vendor = await resolveContact("vendor", r.body.vendorId, r.body.vendorName);
       if (!vendor) return s.status(400).json({ error: "Choose a valid CRM Vendor" });
       r.body.vendorId = vendor.id;
       r.body.vendorName = vendor.name;
-      const existing = await db
-        .select()
-        .from(accountsPayableTable)
-        .where(eq(accountsPayableTable.organizationId, r.acc.org));
+      if (!String(r.body.billNumber || "").trim() && r.body.sourceType !== "Purchase Invoice") r.body.billNumber = await nextReference(r.acc.org, r.body.entryType === "Debit Note" ? "DN" : "PAY");
+      if (!String(r.body.billDate || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Bill date is required" });
+      if (!String(r.body.dueDate || "").trim() && r.body.sourceType !== "Purchase Invoice") return s.status(400).json({ error: "Due date is required" });
+      const existing = await db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org));
       if (r.body.sourceType === "Purchase Invoice" && r.body.sourceId) {
-        const [invoice] = await db
-          .select()
-          .from(purchaseInvoicesTable)
-          .where(and(eq(purchaseInvoicesTable.organizationId, r.acc.org), eq(purchaseInvoicesTable.id, Number(r.body.sourceId))))
-          .limit(1);
+        const [invoice] = await db.select().from(purchaseInvoicesTable).where(and(eq(purchaseInvoicesTable.organizationId, r.acc.org), eq(purchaseInvoicesTable.id, Number(r.body.sourceId)))).limit(1);
         if (!invoice) return s.status(400).json({ error: "Purchase invoice was not found" });
-        if (Number(invoice.vendorId) !== Number(vendor.id))
-          return s.status(400).json({ error: "Purchase invoice does not belong to the selected vendor" });
-        if (!["2-Way Match", "3-Way Match", "Matched"].includes(String(invoice.matchStatus || "")))
-          return s.status(400).json({ error: "Only matched purchase invoices can be linked to Payables" });
-        if (["Paid", "Cancelled", "Rejected"].includes(String(invoice.status || "")))
-          return s.status(400).json({ error: "Only unpaid or partially paid purchase invoices can be linked" });
-        if (existing.some((entry: any) => entry.sourceType === "Purchase Invoice" && Number(entry.sourceId) === Number(invoice.id)))
-          return s.status(409).json({ error: "This purchase invoice is already linked to Payables" });
+        if (Number(invoice.vendorId) !== Number(vendor.id)) return s.status(400).json({ error: "Purchase invoice does not belong to the selected vendor" });
+        if (!["2-Way Match", "3-Way Match", "Matched"].includes(String(invoice.matchStatus || ""))) return s.status(400).json({ error: "Only matched purchase invoices can be linked to Payables" });
+        if (["Paid", "Cancelled", "Rejected"].includes(String(invoice.status || ""))) return s.status(400).json({ error: "Only unpaid or partially paid purchase invoices can be linked" });
+        if (existing.some((entry: any) => entry.sourceType === "Purchase Invoice" && Number(entry.sourceId) === Number(invoice.id))) return s.status(409).json({ error: "This purchase invoice is already linked to Payables" });
         r.body.billNumber = invoice.invoiceNumber;
         r.body.billDate = invoice.invoiceDate;
         r.body.dueDate = invoice.dueDate || invoice.invoiceDate;
         r.body.amount = m(invoice.amount);
       }
-      if (existing.some((entry: any) => String(entry.billNumber).trim().toLowerCase() === String(r.body.billNumber).trim().toLowerCase()))
-        return s.status(409).json({ error: "Bill or debit-note number already exists" });
+      if (existing.some((entry: any) => String(entry.billNumber).trim().toLowerCase() === String(r.body.billNumber).trim().toLowerCase())) return s.status(409).json({ error: "Bill or debit-note number already exists" });
       if (r.body.entryType === "Debit Note") {
-        const linkedBill = existing.find(
-          (entry: any) =>
-            entry.entryType !== "Debit Note" &&
-            String(entry.billNumber).trim().toLowerCase() === String(r.body.againstBillNumber).trim().toLowerCase() &&
-            Number(entry.vendorId || vendor.id) === Number(vendor.id),
-        );
+        if (!Number(r.body.coaAccountId)) return s.status(400).json({ error: "Account Name is required" });
+        const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && String(entry.billNumber).trim().toLowerCase() === String(r.body.againstBillNumber).trim().toLowerCase() && Number(entry.vendorId || vendor.id) === Number(vendor.id));
         if (!linkedBill) return s.status(400).json({ error: "Linked vendor bill was not found" });
-        const eligible = Math.max(0, m(linkedBill.amount) - m(linkedBill.paidAmount) - m(linkedBill.adjustedAmount));
-        const maximumDebitNote = m(linkedBill.paidAmount) >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : eligible;
-        if (amount > maximumDebitNote + 0.009)
-          return s.status(400).json({ error: `Debit note cannot exceed ${maximumDebitNote}` });
+        const billPaid = m(linkedBill.paidAmount);
+        const linkedBillStatus = String(linkedBill.status || "").toLowerCase();
+        if (!billPaid && !["paid", "partial"].includes(linkedBillStatus)) return s.status(400).json({ error: "Only paid or partial bills can be linked" });
+        const maximumDebitNote = billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : billPaid;
+        if (amount > maximumDebitNote + 0.009) return s.status(400).json({ error: `Debit note cannot exceed ${maximumDebitNote}` });
+        r.body.paidAmount = amount;
+        r.body.adjustedAmount = 0;
       }
     }
     if (c.p === "ar") {
@@ -1466,139 +1611,100 @@ for (const c of [
       if (!client) return s.status(400).json({ error: "Choose a valid CRM Client" });
       r.body.clientId = client.id;
       r.body.clientName = client.name;
-      const existing = await db
-        .select()
-        .from(accountsReceivableTable)
-        .where(eq(accountsReceivableTable.organizationId, r.acc.org));
+      const existing = await db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org));
       if (r.body.sourceType === "Sales Invoice" && r.body.sourceId) {
-        const [invoice] = await db
-          .select()
-          .from(salesInvoicesTable)
-          .where(eq(salesInvoicesTable.id, Number(r.body.sourceId)))
-          .limit(1);
+        const [invoice] = await db.select().from(salesInvoicesTable).where(eq(salesInvoicesTable.id, Number(r.body.sourceId))).limit(1);
         if (!invoice) return s.status(400).json({ error: "Sales invoice was not found" });
-        if (Number(invoice.clientId) !== Number(client.id))
-          return s.status(400).json({ error: "Sales invoice does not belong to the selected client" });
-        if (!["Approved", "Paid"].includes(String(invoice.status || "")))
-          return s.status(400).json({ error: "Only approved sales invoices can be linked to Receivables" });
-        if (["Paid", "Settled", "Cancelled", "Rejected"].includes(String(invoice.paymentStatus || invoice.status || "")))
-          return s.status(400).json({ error: "Only unpaid or partially paid sales invoices can be linked" });
-        if (existing.some((entry: any) => entry.sourceType === "Sales Invoice" && Number(entry.sourceId) === Number(invoice.id)))
-          return s.status(409).json({ error: "This sales invoice is already linked to Receivables" });
+        if (Number(invoice.clientId) !== Number(client.id)) return s.status(400).json({ error: "Sales invoice does not belong to the selected client" });
+        if (!["Approved", "Paid"].includes(String(invoice.status || ""))) return s.status(400).json({ error: "Only approved sales invoices can be linked to Receivables" });
+        if (["Paid", "Settled", "Cancelled", "Rejected"].includes(String(invoice.paymentStatus || invoice.status || ""))) return s.status(400).json({ error: "Only unpaid or partially paid sales invoices can be linked" });
+        if (existing.some((entry: any) => entry.sourceType === "Sales Invoice" && Number(entry.sourceId) === Number(invoice.id))) return s.status(409).json({ error: "This sales invoice is already linked to Receivables" });
         r.body.invoiceNumber = invoice.invoiceNumber;
         r.body.invoiceDate = invoice.invoiceDate;
         r.body.dueDate = invoice.dueDate || invoice.invoiceDate;
         r.body.amount = m(invoice.grandTotal);
         r.body.receivedAmount = m(invoice.amountPaid);
       }
+      if (!String(r.body.invoiceNumber || r.body.creditNoteNumber || "").trim()) r.body.invoiceNumber = await nextReference(r.acc.org, r.body.entryType === "Credit Note" ? "CN" : "REC");
+      if (r.body.entryType === "Credit Note" && !String(r.body.creditNoteNumber || "").trim()) r.body.creditNoteNumber = r.body.invoiceNumber;
       const reference = String(r.body.entryType === "Credit Note" ? r.body.creditNoteNumber || r.body.invoiceNumber : r.body.invoiceNumber).trim().toLowerCase();
       if (!reference) return s.status(400).json({ error: "Invoice or credit-note reference is required" });
-      if (existing.some((entry: any) => String(entry.entryType === "Credit Note" ? entry.creditNoteNumber || entry.invoiceNumber : entry.invoiceNumber).trim().toLowerCase() === reference))
-        return s.status(409).json({ error: "Invoice or credit-note reference already exists" });
+      if (existing.some((entry: any) => String(entry.entryType === "Credit Note" ? entry.creditNoteNumber || entry.invoiceNumber : entry.invoiceNumber).trim().toLowerCase() === reference)) return s.status(409).json({ error: "Invoice or credit-note reference already exists" });
       if (r.body.entryType === "Credit Note") {
-        const linked = existing.find(
-          (entry: any) =>
-            entry.entryType !== "Credit Note" &&
-            String(entry.invoiceNumber).trim().toLowerCase() === String(r.body.linkedInvoiceNumber).trim().toLowerCase() &&
-            Number(entry.clientId || client.id) === Number(client.id),
-        );
+        if (!Number(r.body.coaAccountId)) return s.status(400).json({ error: "Account Name is required" });
+        const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && String(entry.invoiceNumber).trim().toLowerCase() === String(r.body.linkedInvoiceNumber).trim().toLowerCase() && Number(entry.clientId || client.id) === Number(client.id));
         if (!linked) return s.status(400).json({ error: "Linked customer invoice was not found" });
-        const eligible = Math.max(0, m(linked.amount) - m(linked.receivedAmount) - m(linked.adjustedAmount));
+        const received = m(linked.receivedAmount);
+        const linkedStatus = String(linked.status || "").toLowerCase();
+        if (!received && !["received", "partial", "paid"].includes(linkedStatus)) return s.status(400).json({ error: "Only paid or partial invoices can be linked" });
+        const eligible = received >= m(linked.amount) - 0.009 ? m(linked.amount) : received;
         if (amount > eligible + 0.009) return s.status(400).json({ error: `Credit note cannot exceed ${eligible}` });
+        r.body.receivedAmount = amount;
+        r.body.adjustedAmount = 0;
+      } else {
+        r.body.receivedAmount = m(r.body.receivedAmount);
+        r.body.adjustedAmount = m(r.body.adjustedAmount);
       }
-      r.body.receivedAmount = r.body.entryType === "Credit Note" ? 0 : m(r.body.receivedAmount);
-      r.body.adjustedAmount = r.body.entryType === "Credit Note" ? 0 : m(r.body.adjustedAmount);
     }
-    const [x] = await db
-      .insert(c.t)
-      .values({
-        ...r.body,
-        organizationId: r.acc.org,
-        amount: m(r.body.amount),
-        approvalStatus: r.body.approvalStatus || "Approved",
-        requiredApprovals: Math.max(
-          1,
-          Number(
-            process.env[
-              c.p === "ap"
-                ? "LEDGER_AP_REQUIRED_APPROVALS"
-                : "LEDGER_AR_REQUIRED_APPROVALS"
-            ] ?? 1,
-          ),
-        ),
-        status:
-          c.p === "ap" && r.body.entryType === "Debit Note"
-            ? "Pending"
-            : covered >= m(r.body.amount)
-              ? c.done
-              : covered > 0
-                ? "Partial"
-                : "Pending",
-      })
-      .returning();
+    const covered = m(r.body[c.paid]) + m(r.body.adjustedAmount);
+    const [x] = await db.insert(c.t).values({
+      ...r.body,
+      organizationId: r.acc.org,
+      amount: m(r.body.amount),
+      approvalStatus: r.body.approvalStatus || "Approved",
+      requiredApprovals: Math.max(1, Number(process.env[c.p === "ap" ? "LEDGER_AP_REQUIRED_APPROVALS" : "LEDGER_AR_REQUIRED_APPROVALS"] ?? 1)),
+      status: c.p === "ap" && r.body.entryType === "Debit Note" ? "Paid" : c.p === "ar" && r.body.entryType === "Credit Note" ? "Received" : covered >= m(r.body.amount) ? c.done : covered > 0 ? "Partial" : "Pending",
+    }).returning();
+    if (c.p === "ap" && x.entryType === "Debit Note") {
+      const accounts = await coa(r.acc.org);
+      const payable = accounts.find((account: any) => account.accountCode === "2100");
+      const selected = accounts.find((account: any) => Number(account.id) === Number(x.coaAccountId));
+      if (!payable || !selected) return s.status(409).json({ error: "Required payable or selected COA account is not configured" });
+      const journal = await post(r.acc.org, { entryDate: x.billDate || day(), reference: x.billNumber, description: `Debit note ${x.billNumber}`, sourceType: "Debit Note", sourceId: x.id, lines: [{ accountId: payable.id, debit: m(x.amount), memo: x.billNumber }, { accountId: selected.id, credit: m(x.amount), memo: x.billNumber }] }, r.acc.user.id);
+      const [linkedBill] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.billNumber, x.againstBillNumber))).limit(1);
+      if (linkedBill) {
+        const adjustedAmount = m(m(linkedBill.adjustedAmount) + m(x.amount));
+        const billStatus = m(linkedBill.paidAmount) + adjustedAmount >= m(linkedBill.amount) - 0.009 ? "Paid" : "Partial";
+        await db.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, linkedBill.id));
+      }
+      const [updated] = await db.update(accountsPayableTable).set({ journalEntryId: journal.id, appliedAmount: m(x.amount), availableCredit: 0 }).where(eq(accountsPayableTable.id, x.id)).returning();
+      return s.status(201).json(updated);
+    }
+    if (c.p === "ar" && x.entryType === "Credit Note") {
+      const accounts = await coa(r.acc.org);
+      const selected = accounts.find((account: any) => Number(account.id) === Number(x.coaAccountId));
+      const creditNote = accounts.find((account: any) => account.accountCode === "1200");
+      if (!selected || !creditNote) return s.status(409).json({ error: "Required credit-note or selected COA account is not configured" });
+      const journal = await post(r.acc.org, { entryDate: x.invoiceDate || day(), reference: x.creditNoteNumber || x.invoiceNumber, description: `Credit note ${x.creditNoteNumber || x.invoiceNumber}`, sourceType: "Credit Note", sourceId: x.id, lines: [{ accountId: selected.id, debit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }, { accountId: creditNote.id, credit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }] }, r.acc.user.id);
+      const [linked] = await db.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.invoiceNumber, x.linkedInvoiceNumber))).limit(1);
+      if (linked) {
+        const adjustedAmount = m(m(linked.adjustedAmount) + m(x.amount));
+        const linkedStatus = m(linked.receivedAmount) + adjustedAmount >= m(linked.amount) - 0.009 ? "Received" : "Partial";
+        await db.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
+      }
+      const [updated] = await db.update(accountsReceivableTable).set({ journalEntryId: journal.id }).where(eq(accountsReceivableTable.id, x.id)).returning();
+      return s.status(201).json(updated);
+    }
     s.status(201).json(x);
   });
   router.patch(`/${c.p}/:id`, async (r: any, s): Promise<any> => {
     if (!need(r, s, `${c.k}.edit`)) return;
-    if (c.p === "ap" && r.body.paidAmount !== undefined)
-      return s
-        .status(400)
-        .json({ error: "Use the approved Record Payment workflow" });
-    if (c.p === "ar" && r.body.adjustedAmount !== undefined)
-      return s
-        .status(400)
-        .json({ error: "Use the approved credit-note workflow" });
-    const [o] = await db
-      .select()
-      .from(c.t)
-      .where(and(eq(c.t.organizationId, r.acc.org), eq(c.t.id, Number(r.params.id))))
-      .limit(1);
+    if (c.p === "ap" && r.body.paidAmount !== undefined) return s.status(400).json({ error: "Use the approved Record Payment workflow" });
+    if (c.p === "ar" && r.body.adjustedAmount !== undefined) return s.status(400).json({ error: "Use the approved credit-note workflow" });
+    const [o] = await db.select().from(c.t).where(and(eq(c.t.organizationId, r.acc.org), eq(c.t.id, Number(r.params.id)))).limit(1);
     if (!o) return s.status(404).json({ error: `${c.p.toUpperCase()} entry not found` });
-    if (c.p === "ar" && r.body.receivedAmount !== undefined && o.sourceType !== "Manual")
-      return s.status(400).json({ error: "Use Sales Payment for linked sales invoices" });
-    if (c.p === "ar" && r.body.receivedAmount !== undefined)
-      r.body.receivedAmount = Math.min(m(o.amount), Math.max(0, m(r.body.receivedAmount)));
-    const b = { ...o, ...r.body },
-      covered = m(b[c.paid]) + m(b.adjustedAmount);
-    const [x] = await db
-      .update(c.t)
-      .set({
-        ...r.body,
-        status:
-          covered >= m(b.amount) ? c.done : covered > 0 ? "Partial" : "Pending",
-      })
-      .where(eq(c.t.id, o.id))
-      .returning();
+    if (c.p === "ar" && r.body.receivedAmount !== undefined && o.sourceType !== "Manual") return s.status(400).json({ error: "Use Sales Payment for linked sales invoices" });
+    if (c.p === "ar" && r.body.receivedAmount !== undefined) r.body.receivedAmount = Math.min(m(o.amount), Math.max(0, m(r.body.receivedAmount)));
+    const b = { ...o, ...r.body }, covered = m(b[c.paid]) + m(b.adjustedAmount);
+    const [x] = await db.update(c.t).set({ ...r.body, status: covered >= m(b.amount) ? c.done : covered > 0 ? "Partial" : "Pending" }).where(eq(c.t.id, o.id)).returning();
     if (c.p === "ap" && x.entryType !== "Debit Note") {
-      const invoices = await db
-        .select()
-        .from(purchaseInvoicesTable)
-        .where(eq(purchaseInvoicesTable.organizationId, r.acc.org));
-      const linkedInvoice = invoices.find(
-        (invoice: any) =>
-          (x.sourceType === "Purchase Invoice" &&
-            Number(x.sourceId) === Number(invoice.id)) ||
-          (String(invoice.invoiceNumber).trim().toLowerCase() ===
-            String(x.billNumber).trim().toLowerCase() &&
-            String(invoice.vendorName).trim().toLowerCase() ===
-              String(x.vendorName).trim().toLowerCase()),
-      );
+      const invoices = await db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.organizationId, r.acc.org));
+      const linkedInvoice = invoices.find((invoice: any) => (x.sourceType === "Purchase Invoice" && Number(x.sourceId) === Number(invoice.id)) || (String(invoice.invoiceNumber).trim().toLowerCase() === String(x.billNumber).trim().toLowerCase() && String(invoice.vendorName).trim().toLowerCase() === String(x.vendorName).trim().toLowerCase()));
       if (linkedInvoice) {
         const invoiceAmount = m(linkedInvoice.amount);
-        const invoiceCovered = Math.min(
-          invoiceAmount,
-          m(x.paidAmount) + m(x.adjustedAmount),
-        );
-        const invoiceStatus =
-          invoiceCovered >= invoiceAmount - 0.005
-            ? "Paid"
-            : invoiceCovered > 0
-              ? "Partially Paid"
-              : "Unpaid";
-        await db
-          .update(purchaseInvoicesTable)
-          .set({ status: invoiceStatus })
-          .where(eq(purchaseInvoicesTable.id, linkedInvoice.id));
+        const invoiceCovered = Math.min(invoiceAmount, m(x.paidAmount) + m(x.adjustedAmount));
+        const invoiceStatus = invoiceCovered >= invoiceAmount - 0.005 ? "Paid" : invoiceCovered > 0 ? "Partially Paid" : "Unpaid";
+        await db.update(purchaseInvoicesTable).set({ status: invoiceStatus }).where(eq(purchaseInvoicesTable.id, linkedInvoice.id));
       }
     }
     s.json(x);
