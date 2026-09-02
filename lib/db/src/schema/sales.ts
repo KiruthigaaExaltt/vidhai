@@ -450,6 +450,7 @@ export const salesPaymentsTable = mongoTable("sales_payments", {
   tdsAmount: numeric("tds_amount").notNull().default("0"),
   bankCharges: numeric("bank_charges").notNull().default("0"),
   netReceived: numeric("net_received").notNull().default("0"),
+  settlementAccountId: integer("settlement_account_id"),
   paymentMethod: text("payment_method").default("Bank Transfer"),
   reference: text("reference").default(""),
   notes: text("notes").default(""),

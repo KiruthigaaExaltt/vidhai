@@ -1239,6 +1239,14 @@ router.get("/coa", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.chart_of_accounts.view"))
     s.json(await coa(r.acc.org));
 });
+router.get("/payment-accounts", async (r: any, s): Promise<any> => {
+  if (
+    !can(r, "accounts.accounts_receivable.edit") &&
+    !can(r, "accounts.accounts_payable.edit")
+  )
+    return s.status(403).json({ error: "Missing payment permission" });
+  s.json((await coa(r.acc.org)).filter((account: any) => account.isActive !== false));
+});
 router.get("/coa/summary", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.chart_of_accounts.view")) return;
   const a = await coa(r.acc.org);
@@ -1602,6 +1610,56 @@ for (const c of [
     }
   });
 }
+router.post("/ar/:id/payment", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.edit")) return;
+  const [entry] = await db.select().from(accountsReceivableTable).where(and(
+    eq(accountsReceivableTable.organizationId, r.acc.org),
+    eq(accountsReceivableTable.id, Number(r.params.id)),
+  )).limit(1);
+  if (!entry) return s.status(404).json({ error: "AR entry not found" });
+  if (entry.sourceType === "Sales Invoice")
+    return s.status(400).json({ error: "Use Sales Payment for linked sales invoices" });
+  const amount = m(r.body.amount);
+  const tds = m(r.body.tdsAmount);
+  const charges = m(r.body.bankCharges);
+  const net = m(amount - tds - charges);
+  const remaining = Math.max(0, m(entry.amount) - m(entry.receivedAmount) - m(entry.adjustedAmount));
+  if (!(amount > 0) || amount > remaining + 0.009)
+    return s.status(400).json({ error: "Payment must be greater than zero and cannot exceed the balance" });
+  if (tds < 0 || charges < 0 || net < 0)
+    return s.status(400).json({ error: "TDS and bank charges must be manually entered, non-negative, and cannot exceed the payment" });
+  const accounts = await coa(r.acc.org);
+  const settlementAccount = accounts.find((account: any) =>
+    Number(account.id) === Number(r.body.settlementAccountId) && account.isActive !== false);
+  const receivableAccount = accounts.find((account: any) => account.accountCode === "1100");
+  const tdsAccount = accounts.find((account: any) => account.accountCode === "5160");
+  const chargesAccount = accounts.find((account: any) => account.accountCode === "5150");
+  if (!settlementAccount)
+    return s.status(400).json({ error: "Choose a valid active Chart of Accounts account" });
+  if (!receivableAccount || (tds > 0 && !tdsAccount) || (charges > 0 && !chargesAccount))
+    return s.status(409).json({ error: "Required receivable, TDS, or bank-charge account is not configured" });
+  const receivedAmount = m(m(entry.receivedAmount) + amount);
+  const journal = await post(r.acc.org, {
+    entryDate: String(r.body.paymentDate || day()),
+    reference: `AUTO:AR:PAYMENT:${entry.id}:${receivedAmount.toFixed(2)}`,
+    description: `Customer payment for ${entry.invoiceNumber}`,
+    sourceType: "Customer Payment",
+    sourceId: entry.id,
+    lines: [
+      { accountId: settlementAccount.id, debit: net, memo: entry.invoiceNumber },
+      { accountId: tdsAccount?.id, debit: tds, memo: entry.invoiceNumber },
+      { accountId: chargesAccount?.id, debit: charges, memo: entry.invoiceNumber },
+      { accountId: receivableAccount.id, credit: amount, memo: entry.invoiceNumber },
+    ].filter((line: any) => m(line.debit ?? line.credit) > 0),
+  }, r.acc.user.id);
+  const covered = receivedAmount + m(entry.adjustedAmount);
+  const [updated] = await db.update(accountsReceivableTable).set({
+    receivedAmount,
+    status: covered >= m(entry.amount) - 0.009 ? "Received" : "Partial",
+  }).where(eq(accountsReceivableTable.id, entry.id)).returning();
+  return s.status(201).json({ receivable: updated, journalEntryId: journal.id });
+});
+
 router.post("/ap/:id/approve", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.accounts_payable.edit")) return;
   const id = Number(r.params.id);

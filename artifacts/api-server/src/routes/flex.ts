@@ -2502,11 +2502,11 @@ async function settleApprovedVendorPayment(
 
   const accounts = await ensureCanonicalAccounts(org);
   const payableAccount = accounts.find((account: any) => account.accountCode === "2100");
-  const settlementAccount = accounts.find((account: any) => account.accountCode === "1030");
+  const settlementAccount = accounts.find((account: any) =>
+    Number(account.id) === Number(payment.settlementAccountId) && account.isActive !== false);
   if (!payableAccount || !settlementAccount)
-    throw new Error("Accounts Payable and Cash in Hand accounts must be configured");
+    throw new Error("Accounts Payable and a valid active payment account must be configured");
   const amount = money(payment.amount);
-  const purchaseExpenseAccount = accounts.find((account: any) => account.accountCode === "5000" || account.accountCode === "5100") || payableAccount;
   const journal = await postJournal(
     org,
     {
@@ -2517,9 +2517,7 @@ async function settleApprovedVendorPayment(
       sourceId: payment.id,
       lines: [
         { accountId: payableAccount.id, debit: amount, memo: payment.paymentNumber },
-        { accountId: purchaseExpenseAccount.id, debit: amount, memo: payment.paymentNumber },
         { accountId: settlementAccount.id, credit: amount, memo: payment.paymentNumber },
-        { accountId: payableAccount.id, credit: amount, memo: payment.paymentNumber },
       ],
     },
     approverUserId,
@@ -3409,6 +3407,7 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
   const invoiceReference = String(req.body.invoiceReference ?? "").trim();
   const payableId = Number(req.body.payableId || req.body.accountsPayableId || 0);
   const amount = Number(req.body.amount ?? 0);
+  const settlementAccountId = Number(req.body.settlementAccountId || 0);
   if (!paymentNumber)
     return res
       .status(400)
@@ -3419,6 +3418,10 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       .json({ error: FLEX_API_MESSAGES.vendorNameRequired });
   if (!invoiceReference)
     return res.status(400).json({ error: "Outstanding bill is required" });
+  const paymentAccounts = await ensureCanonicalAccounts(org);
+  if (!paymentAccounts.some((account: any) =>
+    Number(account.id) === settlementAccountId && account.isActive !== false))
+    return res.status(400).json({ error: "Choose a valid active Chart of Accounts account" });
   const [invoice] = await db
     .select()
     .from(purchaseInvoicesTable)
@@ -3516,10 +3519,9 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     return res
       .status(409)
       .json({ error: "Duplicate payment request detected" });
-  const requiredApprovals = Math.max(
-    1,
-    Number(process.env.FLEX_VENDOR_PAYMENT_REQUIRED_APPROVALS ?? 1),
-  );
+  const requiredApprovals = req.body.recordImmediately === true
+    ? 1
+    : Math.max(1, Number(process.env.FLEX_VENDOR_PAYMENT_REQUIRED_APPROVALS ?? 1));
   const [created] = await db
     .insert(vendorPaymentsTable)
     .values({
@@ -3528,6 +3530,7 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       vendorName,
       invoiceReference,
       amount,
+      settlementAccountId,
       paymentMode: String(req.body.paymentMode ?? "Bank Transfer"),
       bankAccount: String(req.body.bankAccount ?? ""),
       transactionReference,

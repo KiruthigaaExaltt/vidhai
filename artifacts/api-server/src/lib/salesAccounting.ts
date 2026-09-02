@@ -231,11 +231,18 @@ export async function triggerPaymentReceived(
     return { id: payment.journalEntryId };
   }
   const id = await accountIds(organizationId);
+  const accounts = await ensureCanonicalAccounts(organizationId);
+  const settlementAccount = accounts.find(
+    (row: any) =>
+      Number(row.id) === Number(payment.settlementAccountId) &&
+      row.isActive !== false,
+  );
+  if (!settlementAccount)
+    throw new Error("Choose a valid active Chart of Accounts account");
   const amount = money(payment.amount);
   const tds = money(payment.tdsAmount);
   const charges = money(payment.bankCharges);
   const net = money(amount - tds - charges);
-  const revenueAccountId = id("4100");
   const journal = await postJournal(
     organizationId,
     {
@@ -245,12 +252,10 @@ export async function triggerPaymentReceived(
       sourceType: "Customer Payment",
       sourceId: payment.id,
       lines: [
-        { accountId: id("1030"), debit: net },
+        { accountId: settlementAccount.id, debit: net },
         { accountId: id("5160"), debit: tds },
         { accountId: id("5150"), debit: charges },
         { accountId: id("1100"), credit: amount },
-        { accountId: revenueAccountId, credit: amount },
-        { accountId: id("1100"), debit: amount },
       ].filter((line) => money(line.debit ?? line.credit) > 0),
     },
     userId,

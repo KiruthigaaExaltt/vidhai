@@ -114,6 +114,7 @@ export default function Accounts() {
     [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({}),
     [expandedVendors, setExpandedVendors] = useState<Record<string, boolean>>({}),
     [paymentAmount, setPaymentAmount] = useState(""),
+    [apSettlementAccountId, setApSettlementAccountId] = useState(""),
     [arFromDate, setArFromDate] = useState(""),
     [arToDate, setArToDate] = useState(""),
     [arCustomer, setArCustomer] = useState("All"),
@@ -156,6 +157,7 @@ export default function Accounts() {
     tdsAmount: "0",
     reference: "",
     notes: "",
+    settlementAccountId: "",
   });
   const [bankForm, setBankForm] = useState({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "" });
   const [accountDocument, setAccountDocument] = useState<any | null>(null);
@@ -433,6 +435,12 @@ export default function Accounts() {
       can("accounts.journal_entries.view")
         ? [["c", "/coa"]]
         : []),
+      ...(!can("accounts.chart_of_accounts.view") &&
+      !can("accounts.journal_entries.view") &&
+      (can("accounts.accounts_receivable.edit") ||
+        can("accounts.accounts_payable.edit"))
+        ? [["paymentCoa", "/payment-accounts"]]
+        : []),
       // DISABLED: Masters module is not required for this phase
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
       ...(can("accounts.accounts_receivable.view") ? [["clients", "/party-options?type=client"]] : []),
@@ -480,6 +488,7 @@ export default function Accounts() {
       }
       if (k === "s") setSummary(v);
       if (k === "c") setCoa(v as any[]);
+      if (k === "paymentCoa") setCoa(v as any[]);
       // DISABLED: Masters module is not required for this phase
       // if (k === "m") setMasters(v);
       if (k === "bc") setBankCash(v as any[]);
@@ -612,6 +621,8 @@ export default function Accounts() {
             invoiceReference: settlement.row.billNumber,
             payableId: settlement.row.id,
             amount,
+            settlementAccountId: Number(apSettlementAccountId),
+            recordImmediately: true,
             ...apPayment,
           }),
         });
@@ -642,6 +653,7 @@ export default function Accounts() {
     );
     setSettlement({ kind, row });
     setSettlementAmount(balance.toFixed(2));
+    if (kind === "ap") setApSettlementAccountId("");
     setError("");
   };
   const reviewAp = async (row: any, action: "approve" | "reject") => {
@@ -665,6 +677,7 @@ export default function Accounts() {
   const openPayment = (row: any) => {
     setPaymentAr(row);
     setPaymentAmount(String(outstanding(row)));
+    setArPayment((value) => ({ ...value, settlementAccountId: "" }));
   };
   const reviewAr = async (row: any, action: "approve" | "reject") => {
     const remarks = window.prompt(
@@ -709,11 +722,14 @@ export default function Accounts() {
           }),
         });
       } else {
-        await api(`/ar/${paymentAr.id}`, {
-          method: "PATCH",
+        await api(`/ar/${paymentAr.id}/payment`, {
+          method: "POST",
           body: JSON.stringify({
-            receivedAmount: numberValue(paymentAr.receivedAmount) + amount,
+            amount,
             paymentDate: arPayment.paymentDate,
+            bankCharges: numberValue(arPayment.bankCharges),
+            tdsAmount: numberValue(arPayment.tdsAmount),
+            settlementAccountId: Number(arPayment.settlementAccountId),
           }),
         });
       }
@@ -2400,6 +2416,23 @@ export default function Accounts() {
                     }
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ap-account-name">Account Name *</Label>
+                  <select
+                    id="ap-account-name"
+                    className="h-10 w-full rounded-md border bg-background px-3"
+                    value={apSettlementAccountId}
+                    onChange={(event) => setApSettlementAccountId(event.target.value)}
+                    required
+                  >
+                    <option value="">Select account</option>
+                    {coa.filter((account) => account.isActive !== false).map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.accountName} ({account.accountCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
             <DialogFooter>
@@ -2413,7 +2446,7 @@ export default function Accounts() {
               <Button
                 className="bg-red-500 hover:bg-red-600"
                 onClick={() => void saveSettlement()}
-                disabled={submitting || !settlementAmount}
+                disabled={submitting || !settlementAmount || !apSettlementAccountId}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 {submitting ? "Recording..." : "Record Payment"}
@@ -2473,6 +2506,26 @@ export default function Accounts() {
                     value={paymentAmount}
                     onChange={(event) => setPaymentAmount(event.target.value)}
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ar-account-name">Account Name *</Label>
+                  <select
+                    id="ar-account-name"
+                    className="h-10 w-full rounded-md border bg-background px-3"
+                    value={arPayment.settlementAccountId}
+                    onChange={(event) => setArPayment((value) => ({
+                      ...value,
+                      settlementAccountId: event.target.value,
+                    }))}
+                    required
+                  >
+                    <option value="">Select account</option>
+                    {coa.filter((account) => account.isActive !== false).map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.accountName} ({account.accountCode})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1.5 text-sm">
@@ -2574,7 +2627,7 @@ export default function Accounts() {
               </Button>
               <Button
                 onClick={() => void receivePayment()}
-                disabled={submitting || !paymentAmount}
+                disabled={submitting || !paymentAmount || !arPayment.settlementAccountId}
               >
                 <CreditCard className="mr-2 h-4 w-4" />{" "}
                 {submitting ? "Receiving..." : "Receive Payment"}

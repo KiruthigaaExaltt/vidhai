@@ -26,6 +26,7 @@ import {
   vaultSalesReservationsTable,
   organizationDetailsTable,
   accountsReceivableTable,
+  chartOfAccountsTable,
 } from "@workspace/db";
 import { eq, desc, and } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
@@ -2868,12 +2869,20 @@ router.post("/payments", requireAuth, async (req, res) => {
     const tdsAmount = Math.round(Number(req.body?.tdsAmount || 0) * 100) / 100;
     const bankCharges =
       Math.round(Number(req.body?.bankCharges || 0) * 100) / 100;
+    const settlementAccountId = Number(req.body?.settlementAccountId || 0);
     const [invoice] = await db
       .select()
       .from(salesInvoicesTable)
       .where(eq(salesInvoicesTable.id, invoiceId))
       .limit(1);
     if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    const context = await accountingContext(req);
+    const settlementAccounts = await db.select().from(chartOfAccountsTable).where(
+      eq(chartOfAccountsTable.organizationId, context.organizationId),
+    );
+    if (!settlementAccounts.some((account: any) =>
+      Number(account.id) === settlementAccountId && account.isActive !== false))
+      return res.status(400).json({ error: "Choose a valid active Chart of Accounts account" });
     if (!["Approved", "Paid"].includes(invoice.status))
       return res.status(409).json({
         error: "Payments can be recorded only against approved invoices",
@@ -2945,7 +2954,6 @@ router.post("/payments", requireAuth, async (req, res) => {
     const paymentNumber = String(
       req.body.paymentNumber || paymentCode(existingPayments.length + 1),
     );
-    const context = await accountingContext(req);
     const [payment] = await db
       .insert(salesPaymentsTable)
       .values({
@@ -2956,6 +2964,7 @@ router.post("/payments", requireAuth, async (req, res) => {
         tdsAmount: String(tdsAmount),
         bankCharges: String(bankCharges),
         netReceived: String(amount - tdsAmount - bankCharges),
+        settlementAccountId,
         paymentMethod: req.body.paymentMethod || "Bank Transfer",
         reference,
         notes: req.body.notes || "",

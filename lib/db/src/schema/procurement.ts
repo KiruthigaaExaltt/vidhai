@@ -262,6 +262,7 @@ export const vendorPaymentsTable = mongoTable("vendor_payments", {
   vendorName: text("vendor_name").notNull(),
   invoiceReference: text("invoice_reference").notNull().default(""),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  settlementAccountId: integer("settlement_account_id"),
   paymentMode: text("payment_mode").notNull().default("UPI / NetBanking"),
   bankAccount: text("bank_account").default(""),
   transactionReference: text("transaction_reference").default(""),
