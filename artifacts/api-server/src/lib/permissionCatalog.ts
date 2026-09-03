@@ -163,17 +163,17 @@ export const permissionCatalog: PermissionCatalogRow[] = [
   {
     module: "Accounts � Accounts Payable",
     key: "accounts.accounts_payable",
-    actions: [...crud, "approve"],
+    actions: [...crud, "approve", "import", "export"],
   },
   {
     module: "Accounts � Accounts Receivable",
     key: "accounts.accounts_receivable",
-    actions: [...crud, "approve"],
+    actions: [...crud, "approve", "import", "export"],
   },
   {
     module: "Accounts � Journal Entries",
     key: "accounts.journal_entries",
-    actions: [...crud, "approve"],
+    actions: [...crud, "approve", "import", "export"],
   },
   {
     module: "Accounts � Financial Statements",
@@ -182,7 +182,7 @@ export const permissionCatalog: PermissionCatalogRow[] = [
   },
   // DISABLED: Accounts Masters submodule is commented out for all users.
   // DISABLED: Opening Balances is handled through Bank & Cash.
-  { module: "Accounts - Bank & Cash", key: "accounts.bank_cash", actions: [...crud, "approve", "reject", "upload", "download"] },
+  { module: "Accounts - Bank & Cash", key: "accounts.bank_cash", actions: [...crud, "approve", "reject", "import", "export", "upload", "download"] },
   { module: "Accounts - Tally", key: "accounts.tally", actions: ["view", "import", "export", "download"] },
   { module: "Vehicle Fleet", key: "fleet.vehicles", actions: [...crud, "notification"] },
   {
@@ -464,3 +464,4 @@ export function moduleViewKeys(prefix: string) {
 export function rowForKey(key: string) {
   return rows.get(key);
 }
+

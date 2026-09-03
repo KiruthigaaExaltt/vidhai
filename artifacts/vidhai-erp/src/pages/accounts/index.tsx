@@ -24,12 +24,17 @@ import {
   ChevronRight,
   CreditCard,
   DollarSign,
+  Download,
+  FileDown,
+  FileUp,
   Plus,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useClientPagination } from "@/hooks/use-client-pagination";
+import { useToast } from "@/hooks/use-toast";
 import { notifyModuleLocked } from "@/components/security/ModuleEncryptionGate";
 import { FinancialStatements } from "./FinancialStatements";
 import { FinanceDashboard } from "./FinanceDashboard";
@@ -85,9 +90,11 @@ const inr = (v: any) =>
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(numberValue(v));
+type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal";
 export default function Accounts() {
-  const { can } = useAuth(),
-    [summary, setSummary] = useState<any>({}),
+  const { can } = useAuth();
+  const { toast } = useToast();
+  const [summary, setSummary] = useState<any>({}),
     [coa, setCoa] = useState<any[]>([]),
     [journals, setJournals] = useState<any[]>([]),
     [ap, setAp] = useState<any[]>([]),
@@ -129,6 +136,12 @@ export default function Accounts() {
       row: any;
     } | null>(null),
     [settlementAmount, setSettlementAmount] = useState("");
+  const [accountImport, setAccountImport] = useState<AccountImportKind | null>(null);
+  const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
+  const [accountImportFile, setAccountImportFile] = useState("");
+  const [accountImportOptions, setAccountImportOptions] = useState<any | null>(null);
+  const [apSubTab, setApSubTab] = useState("bills");
+  const [arSubTab, setArSubTab] = useState("invoices");
   const [listPaging, setListPaging] = useState<
     Record<"j" | "ap" | "ar", { page: number; size: number }>
   >({
@@ -318,6 +331,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             accountName: manual.accountName?.trim(),
             accountType: manual.accountType,
             description: manual.description || "",
+            openingBalance: numberValue(manual.openingBalance ?? manual.currentBalance),
             isActive: manual.isActive !== false,
           }),
         });
@@ -881,7 +895,298 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     } finally {
       setSubmitting(false);
     }
-  };  const statusBadge = (value: any) => {
+  };
+  const accountImportConfig = {
+    bankCash: {
+      title: "Bank & Cash",
+      file: "bank-cash",
+      endpoint: "/bank-cash-transactions/import",
+      exportEndpoint: "/bank-cash-transactions/export",
+      exportQuery: "",
+      headers: ["Type *", "From Chart Of Account *", "Counter Account", "Amount *", "Date *", "Reference", "Remarks"],
+      keys: ["mode", "bankCashAccount", "counterAccount", "amount", "transactionDate", "reference", "remarks"],
+      dropdowns: { 0: ["Credit", "Debit", "Transfer"], 1: "accounts", 2: "accounts" },
+    },
+    apBill: {
+      title: "Pending Bills",
+      file: "payable-bills",
+      endpoint: "/ap/import",
+      exportEndpoint: "/ap/export",
+      exportQuery: "entryType=Bill",
+      entryType: "Bill",
+      headers: ["Vendor *", "Bill Number *", "Bill Date *", "Due Date *", "Amount *", "Paid Amount", "Adjusted Amount", "Notes"],
+      keys: ["vendor", "billNumber", "billDate", "dueDate", "amount", "paidAmount", "adjustedAmount", "notes"],
+      dropdowns: { 0: "vendors" },
+    },
+    apDebitNote: {
+      title: "Debit Notes",
+      file: "payable-debit-notes",
+      endpoint: "/ap/import",
+      exportEndpoint: "/ap/export",
+      exportQuery: "entryType=Debit Note",
+      entryType: "Debit Note",
+      headers: ["Vendor *", "Debit Note Number *", "Against Bill *", "Bill Date *", "Due Date *", "Amount *", "Account Name *", "Notes"],
+      keys: ["vendor", "billNumber", "againstBillNumber", "billDate", "dueDate", "amount", "accountName", "notes"],
+      dropdowns: { 0: "vendors", 6: "accounts" },
+    },
+    arInvoice: {
+      title: "Pending Invoices",
+      file: "receivable-invoices",
+      endpoint: "/ar/import",
+      exportEndpoint: "/ar/export",
+      exportQuery: "entryType=Invoice",
+      entryType: "Invoice",
+      headers: ["Customer *", "Invoice Number *", "Invoice Date *", "Due Date *", "Amount *", "Received Amount", "Adjusted Amount", "Notes"],
+      keys: ["customer", "invoiceNumber", "invoiceDate", "dueDate", "amount", "receivedAmount", "adjustedAmount", "notes"],
+      dropdowns: { 0: "clients" },
+    },
+    arCreditNote: {
+      title: "Credit Notes",
+      file: "receivable-credit-notes",
+      endpoint: "/ar/import",
+      exportEndpoint: "/ar/export",
+      exportQuery: "entryType=Credit Note",
+      entryType: "Credit Note",
+      headers: ["Customer *", "Credit Note Number *", "Linked Invoice *", "Invoice Date *", "Due Date *", "Amount *", "Account Name *", "Notes"],
+      keys: ["customer", "invoiceNumber", "linkedInvoiceNumber", "invoiceDate", "dueDate", "amount", "accountName", "notes"],
+      dropdowns: { 0: "clients", 6: "accounts" },
+    },
+    journal: {
+      title: "Journal Entries",
+      file: "journal-entries",
+      endpoint: "/journal-entries/import",
+      exportEndpoint: "/journal-entries/export",
+      exportQuery: "",
+      headers: ["Entry Date *", "Reference *", "Description *", "Debit Account *", "Credit Account *", "Amount *", "Memo", "Notes"],
+      keys: ["entryDate", "reference", "description", "debitAccount", "creditAccount", "amount", "memo", "notes"],
+      dropdowns: { 3: "accounts", 4: "accounts" },
+    },
+  } as const;
+  const localImportOptions = () => ({
+    accounts: coa
+      .filter((account: any) => account.isActive !== false)
+      .map((account: any) => ({ id: account.id, label: `${account.accountCode} - ${account.accountName}` })),
+    clients: crmClients
+      .map((client: any) => ({ id: client.id, label: client.name || client.displayName || client.clientName || "" }))
+      .filter((item: any) => item.label),
+    vendors: crmVendors
+      .map((vendor: any) => ({ id: vendor.id, label: vendor.name || vendor.displayName || vendor.vendorName || "" }))
+      .filter((item: any) => item.label),
+  });
+  const loadImportOptions = async () => {
+    const options = await api("/import-options");
+    setAccountImportOptions(options);
+    return options;
+  };
+  const xmlText = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const excelColumn = (index: number) => {
+    let value = index + 1;
+    let column = "";
+    while (value > 0) {
+      const remainder = (value - 1) % 26;
+      column = String.fromCharCode(65 + remainder) + column;
+      value = Math.floor((value - 1) / 26);
+    }
+    return column;
+  };
+  const crc32 = (input: Uint8Array) => {
+    let crc = -1;
+    for (const byte of input) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    return (crc ^ -1) >>> 0;
+  };
+  const uint16 = (value: number) => [value & 255, (value >>> 8) & 255];
+  const uint32 = (value: number) => [value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255];
+  const zipStore = (files: { name: string; content: string }[]) => {
+    const encoder = new TextEncoder();
+    const chunks: Uint8Array[] = [];
+    const central: Uint8Array[] = [];
+    let offset = 0;
+    for (const file of files) {
+      const name = encoder.encode(file.name);
+      const content = encoder.encode(file.content);
+      const crc = crc32(content);
+      const local = new Uint8Array([
+        ...uint32(0x04034b50), ...uint16(20), ...uint16(0), ...uint16(0), ...uint16(0), ...uint16(0),
+        ...uint32(crc), ...uint32(content.length), ...uint32(content.length), ...uint16(name.length), ...uint16(0),
+      ]);
+      chunks.push(local, name, content);
+      central.push(new Uint8Array([
+        ...uint32(0x02014b50), ...uint16(20), ...uint16(20), ...uint16(0), ...uint16(0), ...uint16(0), ...uint16(0),
+        ...uint32(crc), ...uint32(content.length), ...uint32(content.length), ...uint16(name.length), ...uint16(0), ...uint16(0),
+        ...uint16(0), ...uint16(0), ...uint32(0), ...uint32(offset),
+      ]), name);
+      offset += local.length + name.length + content.length;
+    }
+    const centralOffset = offset;
+    central.forEach((chunk) => { chunks.push(chunk); offset += chunk.length; });
+    chunks.push(new Uint8Array([
+      ...uint32(0x06054b50), ...uint16(0), ...uint16(0), ...uint16(files.length), ...uint16(files.length),
+      ...uint32(offset - centralOffset), ...uint32(centralOffset), ...uint16(0),
+    ]));
+    const blobParts = chunks.map((chunk) => chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength) as ArrayBuffer);
+    return new Blob(blobParts, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  };
+  const worksheetXml = (headers: readonly string[], validations: { column: number; optionColumn: number; count: number }[], rows: string[][] = []) => {
+    const headerCells = headers.map((header, index) => `<c r="${excelColumn(index)}1"${header.includes("*") ? " s=\"1\"" : ""} t="inlineStr"><is><t>${xmlText(header)}</t></is></c>`).join("");
+    const bodyRows = rows.map((row, rowIndex) => `<row r="${rowIndex + 2}">${row.map((cell, columnIndex) => `<c r="${excelColumn(columnIndex)}${rowIndex + 2}" t="inlineStr"><is><t>${xmlText(cell)}</t></is></c>`).join("")}</row>`).join("");
+    const validationXml = validations.length
+      ? `<dataValidations count="${validations.length}">${validations.map((item) => `<dataValidation type="list" allowBlank="1" showErrorMessage="1" sqref="${excelColumn(item.column)}2:${excelColumn(item.column)}5001"><formula1>'Dropdown Values'!$${excelColumn(item.optionColumn)}$2:$${excelColumn(item.optionColumn)}$${item.count + 1}</formula1></dataValidation>`).join("")}</dataValidations>`
+      : "";
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:${excelColumn(Math.max(headers.length - 1, 0))}5001"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${headers.map((header, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(16, header.length + 4)}" customWidth="1"/>`).join("")}</cols><sheetData><row r="1">${headerCells}</row>${bodyRows}</sheetData>${validationXml}</worksheet>`;
+  };
+  const downloadXlsxBlob = (blob: Blob, fileName: string) => {
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const downloadAccountTemplate = (kind: AccountImportKind) => {
+    const config = accountImportConfig[kind];
+    const options = accountImportOptions || localImportOptions();
+    const dropdownRows: string[][] = [];
+    const validations: { column: number; optionColumn: number; count: number }[] = [];
+    Object.entries(config.dropdowns).forEach(([index, source], optionColumn) => {
+      const values = (Array.isArray(source) ? source : (options[source] || []).map((item: any) => item.label)).filter(Boolean);
+      values.forEach((value: string, rowIndex: number) => {
+        dropdownRows[rowIndex] = dropdownRows[rowIndex] || [];
+        dropdownRows[rowIndex][optionColumn] = value;
+      });
+      if (values.length) validations.push({ column: Number(index), optionColumn, count: values.length });
+    });
+    const files = [
+      { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+      { name: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+      { name: "xl/_rels/workbook.xml.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+      { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlText(config.title.slice(0, 31))}" sheetId="1" r:id="rId1"/><sheet name="Dropdown Values" sheetId="2" r:id="rId2"/></sheets></workbook>` },
+      { name: "xl/styles.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="1" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>` },
+      { name: "xl/worksheets/sheet1.xml", content: worksheetXml(config.headers, validations) },
+      { name: "xl/worksheets/sheet2.xml", content: worksheetXml(Object.keys(config.dropdowns).map((column) => `${config.headers[Number(column)].replace(" *", "")} Options`), [], dropdownRows) },
+    ];
+    downloadXlsxBlob(zipStore(files), `${config.file}-template.xlsx`);
+  };
+  const openAccountImport = (kind: keyof typeof accountImportConfig) => {
+    setAccountImport(kind);
+    setAccountImportRows([]);
+    setAccountImportFile("");
+    setAccountImportOptions(localImportOptions());
+    setError("");
+    void loadImportOptions().catch(() => undefined);
+  };
+  const parseAccountImportFile = async (file?: File | null) => {
+    if (!accountImport || !file) return;
+    setAccountImportFile(file.name);
+    setAccountImportRows([]);
+    if (!/\.xlsx$/i.test(file.name)) {
+      setError("Select an Excel .xlsx file");
+      return;
+    }
+    const config = accountImportConfig[accountImport];
+    const XLSX = await import("xlsx");
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "", raw: false });
+    const bodyRows = data.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
+    if (!bodyRows.length) {
+      setError("The Excel worksheet contains no import rows");
+      return;
+    }
+    if (bodyRows.length > 5000) {
+      setError("Maximum 5000 rows can be imported at once");
+      return;
+    }
+    setAccountImportRows(bodyRows.map((row, index) => {
+      const record: any = { rowNumber: index + 2 };
+      config.keys.forEach((key, columnIndex) => record[key] = String(row[columnIndex] ?? "").trim());
+      if ("entryType" in config) record.entryType = config.entryType;
+      return record;
+    }));
+  };
+  const submitAccountImport = async () => {
+    if (!accountImport || !accountImportRows.length) return;
+    const config = accountImportConfig[accountImport];
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await api(config.endpoint, { method: "POST", body: JSON.stringify({ rows: accountImportRows }) });
+      toast({ title: `${config.title} import completed`, description: `${result.created || accountImportRows.length} records created.` });
+      setAccountImport(null);
+      setAccountImportRows([]);
+      setAccountImportFile("");
+      await load();
+    } catch (e: any) {
+      const message = e.message || "Import failed";
+      setError(message);
+      toast({ title: "Import failed", description: message, variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const exportAccountXlsx = async (kind: keyof typeof accountImportConfig) => {
+    const config = accountImportConfig[kind];
+    setSubmitting(true);
+    setError("");
+    try {
+      const params = new URLSearchParams(config.exportQuery || "");
+      if (kind === "apBill" || kind === "apDebitNote") {
+        if (apStatusFilter !== "All") params.set("status", apStatusFilter);
+        if (apApprovalFilter !== "All") params.set("approvalStatus", apApprovalFilter);
+        if (apFromDate) params.set("localDateFrom", apFromDate);
+        if (apToDate) params.set("localDateTo", apToDate);
+      }
+      if (kind === "arInvoice" || kind === "arCreditNote") {
+        if (arFromDate) params.set("localDateFrom", arFromDate);
+        if (arToDate) params.set("localDateTo", arToDate);
+        if (arCustomer !== "All") params.set("customer", arCustomer);
+      }
+      const suffix = params.toString();
+      const path = suffix ? `${config.exportEndpoint}?${suffix}` : config.exportEndpoint;
+      const payload = await api(withListingDates(path));
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(payload.rows || []), config.title.slice(0, 31));
+      XLSX.writeFile(workbook, `${config.file}-${today}.xlsx`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const ExcelIconButton = ({ action, onClick }: { action: "import" | "export"; onClick: () => void }) => {
+    const isImport = action === "import";
+    const label = isImport ? "Import" : "Export";
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              disabled={submitting}
+              onClick={onClick}
+              aria-label={label}
+              className={`h-9 w-9 rounded-md border-0 text-white shadow-sm ${isImport ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"}`}
+            >
+              {isImport ? <FileUp className="h-4 w-4" /> : <FileDown className="h-4 w-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  };
+  const statusBadge = (value: any) => {
     const status = String(value || "Pending");
     const settled = status === "Paid" || status === "Approved";
     return (
@@ -1472,7 +1777,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                       </span>
                                     )}
                                   </div>
-                                  {can("accounts.chart_of_accounts.edit") && !isSystemAccount(account) ? (
+                                  {can("accounts.chart_of_accounts.edit") ? (
                                     <Button
                                       size="sm"
                                       variant="outline"
@@ -1480,12 +1785,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                       onClick={() => openManual("account", account)}
                                     >
                                       Edit
-                                    </Button>
-                                  ) : (
-                                    <span className="text-[10px] text-muted-foreground px-2 py-0.5 bg-muted rounded font-mono">
-                                      System
-                                    </span>
-                                  )}
+                                    </Button>) : null}
                                 </div>
                               </div>
 
@@ -1583,6 +1883,10 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                 <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
+            <div className="flex flex-wrap justify-end gap-2">
+              {can("accounts.bank_cash.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("bankCash")} />}
+              {can("accounts.bank_cash.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("bankCash")} />}
+            </div>
             <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
               ["Date", "transactionDate"], ["Reference", "reference"], ["Type", "transactionTypeName"], ["Mode", "mode"], ["Amount", "amount", inr], ["Status", "approvalStatus", statusBadge],
               ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => setBankDecision({ row, remarks: "" })}>Reject</Button></div> : "—"],
@@ -1619,12 +1923,16 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                 </Button>
               </div>
             )}
-            <Tabs defaultValue="bills">
+            <Tabs value={apSubTab} onValueChange={setApSubTab}>
               <TabsList className="mb-3 bg-slate-100">
                 <TabsTrigger value="bills">Pending Bills</TabsTrigger>
                 <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
               </TabsList>
-              <TabsContent value="bills">
+              <TabsContent value="bills" className="space-y-3">
+                <div className="flex justify-end gap-2">
+                  {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
+                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("apBill")} />}
+                </div>
                 <Table
                   serverKey="ap"
                   rows={f(
@@ -1726,7 +2034,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                   ]}
                 />
               </TabsContent>
-              <TabsContent value="debit-notes">
+              <TabsContent value="debit-notes" className="space-y-3">
+                <div className="flex justify-end gap-2">
+                  {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
+                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("apDebitNote")} />}
+                </div>
                 <Table
                   serverKey="ap"
                   rows={f(
@@ -1761,12 +2073,16 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                 </Button>
               </div>
             )}
-            <Tabs defaultValue="invoices" className="space-y-3">
+            <Tabs value={arSubTab} onValueChange={setArSubTab} className="space-y-3">
               <TabsList>
                 <TabsTrigger value="invoices">Pending Invoices</TabsTrigger>
                 <TabsTrigger value="credit-notes">Credit Notes</TabsTrigger>
               </TabsList>
-              <TabsContent value="invoices">
+              <TabsContent value="invoices" className="space-y-3">
+                <div className="flex justify-end gap-2">
+                  {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
+                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("arInvoice")} />}
+                </div>
                 <Table
                   serverKey="ar"
                   rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
@@ -1835,7 +2151,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                   ]}
                 />
               </TabsContent>
-              <TabsContent value="credit-notes">
+              <TabsContent value="credit-notes" className="space-y-3">
+                <div className="flex justify-end gap-2">
+                  {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
+                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("arCreditNote")} />}
+                </div>
                 <Table
                   serverKey="ar"
                   rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
@@ -1866,6 +2186,10 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             </Tabs>
           </TabsContent>
           <TabsContent value="journals" className="space-y-3">
+            <div className="flex flex-wrap justify-end gap-2">
+              {can("accounts.journal_entries.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("journal")} />}
+              {can("accounts.journal_entries.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("journal")} />}
+            </div>
             {can("accounts.journal_entries.create") && (
               <div className="flex justify-end">
                 <Button onClick={() => openManual("journal")}>
@@ -1891,6 +2215,44 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             <FinancialStatements request={api} can={can} />
           </TabsContent>
         </Tabs>
+        <Dialog
+          open={Boolean(accountImport)}
+          onOpenChange={(open) => {
+            if (!open && !submitting) {
+              setAccountImport(null);
+              setAccountImportRows([]);
+              setAccountImportFile("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{accountImport ? `Import ${accountImportConfig[accountImport].title}` : "Import Excel"}</DialogTitle>
+            </DialogHeader>
+            {accountImport && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Download template</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Use the exact headers and YYYY-MM-DD date format.</p>
+                  </div>
+                  <Button type="button" variant="outline" disabled={submitting} onClick={() => downloadAccountTemplate(accountImport)}>
+                    <Download className="mr-2 h-4 w-4" /> Download Template
+                  </Button>
+                </div>
+                <div className="rounded-md border p-4">
+                  <Label className="text-sm">Upload .xlsx file</Label>
+                  <Input className="mt-2" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void parseAccountImportFile(event.target.files?.[0])} />
+                  {accountImportFile && <p className="mt-2 text-xs text-muted-foreground">{accountImportFile} - {accountImportRows.length} row(s) ready</p>}
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" disabled={submitting} onClick={() => setAccountImport(null)}>Cancel</Button>
+              <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>{submitting ? "Importing..." : "Import"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <Dialog
           open={Boolean(manualType)}
           onOpenChange={(open) => {
@@ -1962,9 +2324,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       <Input
                         type="number"
                         step="0.01"
-                        value={manual.currentBalance || ""}
+                        value={manual.openingBalance ?? manual.currentBalance ?? ""}
                         onChange={(e) =>
-                          setManualField("currentBalance", e.target.value)
+                          setManualField("openingBalance", e.target.value)
                         }
                       />
                     </div>
@@ -2668,5 +3030,3 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     </Shell>
   );
 }
-
-

@@ -182,6 +182,19 @@ async function consolidateDuplicateAccounts(org: number, rows: any[]) {
     rows = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org));
   }
 }
+async function accountHasTransactions(org: number, accountId: number) {
+  const journalRefs = await db.select().from(journalLinesTable).where(and(eq(journalLinesTable.organizationId, org), eq(journalLinesTable.accountId, accountId)));
+  if (journalRefs.length) return true;
+  const { bankCashTransactionsTable } = await accountTables();
+  const [bankRows, payableRows, receivableRows] = await Promise.all([
+    db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, org)),
+    db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, org)),
+    db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, org)),
+  ]);
+  return (bankRows as any[]).some((row) => [row.bankCashAccountId, row.transferToAccountId, row.counterAccountId].some((value) => Number(value) === accountId)) ||
+    (payableRows as any[]).some((row) => Number(row.coaAccountId) === accountId) ||
+    (receivableRows as any[]).some((row) => Number(row.coaAccountId) === accountId);
+}
 function accountInput(body: any, existing: any[] = [], currentId?: number) {
   const accountCode = String(body.accountCode || "").trim();
   const accountName = String(body.accountName || "").trim().replace(/\s+/g, " ");
@@ -387,10 +400,9 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
     .where(eq(journalEntriesTable.organizationId, org));
 
   for (const a of rows as any[]) {
-    const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(a.accountType));
     const accountLines = lines.filter((l: any) => String(l.accountId ?? "") === String(a.id));
     const netDebit = accountLines.reduce((s: number, l: any) => s + Number(l.debit || 0) - Number(l.credit || 0), 0);
-    const b = m(isCreditNormal ? -netDebit : netDebit);
+    const b = m(Number(a.openingBalance || 0) + netDebit);
     if (m(a.currentBalance) !== b) {
       await db.update(chartOfAccountsTable).set({ currentBalance: b } as any).where(eq(chartOfAccountsTable.id, a.id));
     }
@@ -414,9 +426,9 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
       })
       .sort((x: any, y: any) => String(x.entryDate).localeCompare(String(y.entryDate)) || Number(x.id) - Number(y.id));
 
-    let running = 0;
+    let running = m(a.openingBalance || 0);
     for (const h of historyLines) {
-      const lineNet = isCreditNormal ? h.credit - h.debit : h.debit - h.credit;
+      const lineNet = h.debit - h.credit;
       running = m(running + lineNet);
       h.runningBalance = running;
     }
@@ -435,9 +447,10 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
     const account = (rows as any[]).find((row: any) => String(row.accountCode) === code);
     if (!account) return;
     const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
-    let running = 0;
-    account.currentBalance = String(m(balance));
-    await db.update(chartOfAccountsTable).set({ currentBalance: m(balance) } as any).where(eq(chartOfAccountsTable.id, account.id));
+    let running = m(account.openingBalance || 0);
+    const currentBalance = m(Number(account.openingBalance || 0) + balance);
+    account.currentBalance = String(currentBalance);
+    await db.update(chartOfAccountsTable).set({ currentBalance } as any).where(eq(chartOfAccountsTable.id, account.id));
     account.lines = derivedLines
       .filter((line) => m(line.debit) > 0 || m(line.credit) > 0)
       .sort((left, right) => String(left.entryDate).localeCompare(String(right.entryDate)) || String(left.reference).localeCompare(String(right.reference)))
@@ -509,9 +522,9 @@ const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
     const account = (rows as any[]).find((row: any) => norm(row.accountName) === norm(accountName));
     if (!account) return;
     const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
-    let running = 0;
+    let running = m(account.openingBalance || 0);
     const filteredLines = derivedLines.filter((line) => m(line.debit) > 0 || m(line.credit) > 0);
-    const balance = m(filteredLines.reduce((sum, line) => sum + (isCreditNormal ? m(line.credit) - m(line.debit) : m(line.debit) - m(line.credit)), 0));
+    const balance = m(Number(account.openingBalance || 0) + filteredLines.reduce((sum, line) => sum + (isCreditNormal ? m(line.credit) - m(line.debit) : m(line.debit) - m(line.credit)), 0));
     account.currentBalance = String(balance);
     await db.update(chartOfAccountsTable).set({ currentBalance: balance } as any).where(eq(chartOfAccountsTable.id, account.id));
     account.lines = filteredLines
@@ -1204,6 +1217,345 @@ router.get("/payable-documents", async (r: any, s): Promise<any> => {
 //   if (!row) return s.status(404).json({ error: "Transaction type not found" });
 //   s.json(row);
 // });
+const ACCOUNT_IMPORT_LIMIT = 5000;
+const exactDate = (value: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+const importRows = (body: any) => Array.isArray(body?.rows) ? body.rows : [];
+const rowNo = (row: any, index: number) => Number(row?.rowNumber || row?.sNo || index + 2);
+const accountLabel = (account: any) => `${account.accountCode} - ${account.accountName}`;
+const contactOptionLabel = (contact: any) => contact.contactCode ? `${contact.name} - ${contact.contactCode}` : contact.name;
+function importError(errors: string[], index: number, field: string, reason: string) {
+  errors.push(`Row ${index}: ${field} - ${reason}`);
+}
+async function insertImportJournal(tx: any, org: number, b: any, userId?: number) {
+  const ls = (b.lines || []).map((line: any) => ({ ...line, debit: m(line.debit), credit: m(line.credit) }));
+  const dr = m(ls.reduce((sum: number, line: any) => sum + line.debit, 0));
+  const cr = m(ls.reduce((sum: number, line: any) => sum + line.credit, 0));
+  if (!ls.length || dr <= 0 || Math.abs(dr - cr) > 0.009) throw Error("Journal debit and credit must balance");
+  const accounts = await coa(org);
+  const [entry] = await tx.insert(journalEntriesTable).values({
+    organizationId: org,
+    entryDate: b.entryDate || day(),
+    reference: b.reference,
+    description: b.description || "Journal entry",
+    totalDebit: dr,
+    totalCredit: cr,
+    status: b.status || "Posted",
+    approvalStatus: b.approvalStatus || "Approved",
+    approvalLevel: b.approvalLevel ?? 1,
+    requiredApprovals: b.requiredApprovals ?? 1,
+    approvedByUserIds: b.approvedByUserIds || "[]",
+    approvalRemarks: b.approvalRemarks || "",
+    voucherType: b.voucherType || "Journal",
+    tallyVoucherType: b.tallyVoucherType || b.voucherType || "Journal",
+    metadata: b.metadata || {},
+    sourceType: b.sourceType || "Manual",
+    sourceId: b.sourceId,
+    createdByUserId: userId,
+  }).returning();
+  for (const line of ls) {
+    const account = accounts.find((item: any) => Number(item.id) === Number(line.accountId));
+    if (!account) throw Error("Invalid account");
+    await tx.insert(journalLinesTable).values({
+      organizationId: org,
+      journalEntryId: entry.id,
+      accountId: account.id,
+      accountCode: account.accountCode,
+      accountName: account.accountName,
+      debit: line.debit,
+      credit: line.credit,
+      memo: line.memo || "",
+    });
+    await tx.update(chartOfAccountsTable).set({ currentBalance: m(Number(account.currentBalance) + line.debit - line.credit) }).where(eq(chartOfAccountsTable.id, account.id));
+  }
+  return entry;
+}
+function resolveAccountOption(accounts: any[], value: any) {
+  const key = norm(value);
+  if (!key) return null;
+  return accounts.find((account: any) =>
+    norm(account.id) === key ||
+    norm(account.accountName) === key ||
+    norm(account.accountCode) === key ||
+    norm(accountLabel(account)) === key
+  ) || null;
+}
+async function exportPartyRows(kind: "ap" | "ar", query: any) {
+  const table = kind === "ap" ? accountsPayableTable : accountsReceivableTable;
+  const dateField = kind === "ap" ? "billDate" : "invoiceDate";
+  const search = norm(query.search || "");
+  let rows = (await db.select().from(table).where(eq(table.organizationId, query.org)).orderBy(desc(table.createdAt))).filter(dateRangeFilter(query, dateField));
+  if (search) rows = rows.filter((row: any) => [row.invoiceNumber, row.creditNoteNumber, row.linkedInvoiceNumber, row.billNumber, row.againstBillNumber, row.clientName, row.vendorName, row.notes, row.status, row.sourceType].some((value) => norm(value).includes(search)));
+  const entryType = norm(query.entryType || "");
+  if (entryType) rows = rows.filter((row: any) => norm(row.entryType) === entryType || (entryType === "bill" && row.entryType !== "Debit Note") || (entryType === "invoice" && row.entryType !== "Credit Note"));
+  if (query.status) rows = rows.filter((row: any) => norm(row.status) === norm(query.status));
+  if (query.approvalStatus) rows = rows.filter((row: any) => norm(row.approvalStatus) === norm(query.approvalStatus));
+  if (query.localDateFrom) rows = rows.filter((row: any) => String(row[dateField] || "").slice(0, 10) >= String(query.localDateFrom).slice(0, 10));
+  if (query.localDateTo) rows = rows.filter((row: any) => String(row[dateField] || "").slice(0, 10) <= String(query.localDateTo).slice(0, 10));
+  if (query.customer) rows = rows.filter((row: any) => norm(row.clientName) === norm(query.customer));
+  if (query.vendor) rows = rows.filter((row: any) => norm(row.vendorName) === norm(query.vendor));
+  return kind === "ap" ? enrichPayables(rows as any[]) : enrichReceivables(rows as any[]);
+}
+
+router.get("/bank-cash-transactions/export", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.bank_cash.export")) return;
+  try {
+    const rows = await bankCashRows(r.acc.org, r.query);
+    const accounts = await coa(r.acc.org);
+    const byId = (id: any) => accounts.find((account: any) => Number(account.id) === Number(id));
+    s.json({
+      rows: rows.map((row: any) => ({
+        "Type *": row.mode,
+        "From Chart Of Account *": accountLabel(byId(row.bankCashAccountId)),
+        "Counter Account": accountLabel(byId(row.transferToAccountId) || byId(row.counterAccountId)),
+        "Amount *": serializeMoneyFields(row).amount,
+        "Date *": row.transactionDate,
+        Reference: row.reference || "",
+        Remarks: row.remarks || "",
+      })),
+    });
+  }
+  catch (error: any) { s.status(error?.status || 500).json({ error: error?.message || "Failed to export bank and cash transactions" }); }
+});
+router.get("/journal-entries/export", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.journal_entries.export")) return;
+  try {
+    const search = norm(r.query.search || "");
+    let rows = (await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)).orderBy(desc(journalEntriesTable.entryDate))).filter(dateRangeFilter(r.query, "entryDate"));
+    if (search) rows = rows.filter((row: any) => [row.reference, row.description, row.voucherType, row.status, row.approvalStatus].some((value) => norm(value).includes(search)));
+    s.json({ rows: rows.map((row: any) => serializeMoneyFields(row)) });
+  } catch (error: any) { s.status(error?.status || 500).json({ error: error?.message || "Failed to export journal entries" }); }
+});
+router.get("/ap/export", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.export")) return;
+  try { s.json({ rows: (await exportPartyRows("ap", { ...r.query, org: r.acc.org })).map((row: any) => serializeMoneyFields(row)) }); }
+  catch (error: any) { s.status(error?.status || 500).json({ error: error?.message || "Failed to export payables" }); }
+});
+router.get("/ar/export", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.export")) return;
+  try { s.json({ rows: (await exportPartyRows("ar", { ...r.query, org: r.acc.org })).map((row: any) => serializeMoneyFields(row)) }); }
+  catch (error: any) { s.status(error?.status || 500).json({ error: error?.message || "Failed to export receivables" }); }
+});
+router.get("/import-options", async (r: any, s): Promise<any> => {
+  if (!can(r, "accounts.bank_cash.import") && !can(r, "accounts.accounts_payable.import") && !can(r, "accounts.accounts_receivable.import") && !can(r, "accounts.journal_entries.import")) return s.status(403).json({ error: "Forbidden" });
+  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  const [clients, vendors] = await Promise.all([contactsFor("client"), contactsFor("vendor")]);
+  s.json({
+    accounts: accounts.map((account: any) => ({ id: account.id, label: accountLabel(account) })),
+    clients: clients.map((contact: any) => ({ id: contact.id, label: contactOptionLabel(contact) })),
+    vendors: vendors.map((contact: any) => ({ id: contact.id, label: contactOptionLabel(contact) })),
+    bankCashModes: ["Credit", "Debit", "Transfer"],
+    payableEntryTypes: ["Bill", "Debit Note"],
+    receivableEntryTypes: ["Invoice", "Credit Note"],
+  });
+});
+router.post("/bank-cash-transactions/import", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.bank_cash.import")) return;
+  const rows = importRows(r.body);
+  if (!rows.length) return s.status(400).json({ error: "No import rows found" });
+  if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
+  const errors: string[] = [];
+  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  const { bankCashTransactionsTable } = await accountTables();
+  const existing = await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, r.acc.org));
+  const seen = new Set<string>();
+  const prepared = rows.map((row: any, i: number) => {
+    const n = rowNo(row, i);
+    const reference = String(row.reference || "").trim();
+    const mode = String(row.mode || row.type || "").trim();
+    const amount = m(row.amount);
+    const bank = resolveAccountOption(accounts, row.bankCashAccount || row.fromChartOfAccount);
+    const transfer = resolveAccountOption(accounts, row.transferToAccount || row.counterAccount);
+    const counter = resolveAccountOption(accounts, row.counterAccount);
+    if (!mode || !["credit", "debit", "transfer"].includes(norm(mode))) importError(errors, n, "Type", "must be Credit, Debit, or Transfer");
+    if (!bank) importError(errors, n, "From Chart Of Account", "choose a valid account");
+    if (!(amount > 0)) importError(errors, n, "Amount", "must be greater than zero");
+    if (!exactDate(row.transactionDate || row.date)) importError(errors, n, "Date", "must use YYYY-MM-DD");
+    if (norm(mode) === "transfer" && !transfer) importError(errors, n, "Counter Account", "is required for Transfer type");
+    if (norm(mode) === "transfer" && bank && transfer && Number(bank.id) === Number(transfer.id)) importError(errors, n, "Counter Account", "must be different from From Chart Of Account");
+    if (reference) {
+      const key = norm(reference);
+      if (seen.has(key)) importError(errors, n, "Reference", "duplicate in this Excel file");
+      if (existing.some((entry: any) => norm(entry.reference) === key)) importError(errors, n, "Reference", "already exists");
+      seen.add(key);
+    }
+    return { row, mode, amount, bank, transfer, counter, reference };
+  });
+  if (errors.length) return s.status(400).json({ error: errors.join("\n") });
+  await db.transaction(async (tx) => {
+    for (const item of prepared) await tx.insert(bankCashTransactionsTable).values({
+      organizationId: r.acc.org,
+      transactionDate: String(item.row.transactionDate || item.row.date).trim(),
+      transactionTypeName: String(item.row.transactionTypeName || "Bank/Cash Transaction").trim(),
+      mode: item.mode,
+      bankCashAccountId: Number(item.bank.id),
+      transferToAccountId: norm(item.mode) === "transfer" ? Number(item.transfer.id) : null,
+      counterAccountId: norm(item.mode) === "transfer" ? null : item.counter ? Number(item.counter.id) : null,
+      amount: item.amount,
+      reference: item.reference || await nextReference(r.acc.org, "BC"),
+      remarks: String(item.row.remarks || ""),
+      createdByUserId: Number(r.acc.user.id),
+    });
+  });
+  s.status(201).json({ created: rows.length });
+});
+router.post("/journal-entries/import", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.journal_entries.import")) return;
+  const rows = importRows(r.body);
+  if (!rows.length) return s.status(400).json({ error: "No import rows found" });
+  if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
+  const errors: string[] = [];
+  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  const existing = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org));
+  const seen = new Set<string>();
+  const prepared = rows.map((row: any, i: number) => {
+    const n = rowNo(row, i);
+    const reference = String(row.reference || "").trim();
+    const amount = m(row.amount);
+    const debit = resolveAccountOption(accounts, row.debitAccount);
+    const credit = resolveAccountOption(accounts, row.creditAccount);
+    if (!exactDate(row.entryDate)) importError(errors, n, "Entry Date", "must use YYYY-MM-DD");
+    if (!reference) importError(errors, n, "Reference", "is required");
+    if (!String(row.description || "").trim()) importError(errors, n, "Description", "is required");
+    if (!debit) importError(errors, n, "Debit Account", "choose a valid account");
+    if (!credit) importError(errors, n, "Credit Account", "choose a valid account");
+    if (debit && credit && Number(debit.id) === Number(credit.id)) importError(errors, n, "Credit Account", "must be different from Debit Account");
+    if (!(amount > 0)) importError(errors, n, "Amount", "must be greater than zero");
+    if (reference) {
+      const key = norm(reference);
+      if (seen.has(key)) importError(errors, n, "Reference", "duplicate in this Excel file");
+      if (existing.some((entry: any) => norm(entry.reference) === key)) importError(errors, n, "Reference", "already exists");
+      seen.add(key);
+    }
+    return { row, reference, amount, debit, credit };
+  });
+  if (errors.length) return s.status(400).json({ error: errors.join("\n") });
+  for (const item of prepared) await post(r.acc.org, { entryDate: item.row.entryDate, reference: item.reference, description: String(item.row.description).trim(), sourceType: "Manual", metadata: { notes: item.row.notes || "" }, lines: [{ accountId: item.debit.id, debit: item.amount, credit: 0, memo: item.row.memo || "" }, { accountId: item.credit.id, debit: 0, credit: item.amount, memo: item.row.memo || "" }] }, r.acc.user.id);
+  s.status(201).json({ created: rows.length });
+});
+router.post("/ap/import", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.import")) return;
+  const rows = importRows(r.body);
+  if (!rows.length) return s.status(400).json({ error: "No import rows found" });
+  if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
+  const errors: string[] = [];
+  const vendors = await contactsFor("vendor");
+  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  const existing = await db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org));
+  const seen = new Set<string>();
+  const prepared = rows.map((row: any, i: number) => {
+    const n = rowNo(row, i);
+    const entryType = String(row.entryType || "Bill").trim();
+    const billNumber = String(row.billNumber || "").trim();
+    const vendor = vendors.find((item: any) => norm(item.id) === norm(row.vendor) || norm(item.name) === norm(row.vendor) || norm(contactOptionLabel(item)) === norm(row.vendor));
+    const amount = m(row.amount);
+    const paidAmount = entryType === "Debit Note" ? amount : m(row.paidAmount);
+    const adjustedAmount = entryType === "Debit Note" ? 0 : m(row.adjustedAmount);
+    const account = resolveAccountOption(accounts, row.accountName);
+    if (!["Bill", "Debit Note"].includes(entryType)) importError(errors, n, "Entry Type", "must be Bill or Debit Note");
+    if (!vendor) importError(errors, n, "Vendor", "choose a valid CRM Vendor");
+    if (!billNumber) importError(errors, n, "Bill Number", "is required");
+    if (!exactDate(row.billDate)) importError(errors, n, "Bill Date", "must use YYYY-MM-DD");
+    if (!exactDate(row.dueDate)) importError(errors, n, "Due Date", "must use YYYY-MM-DD");
+    if (!(amount > 0)) importError(errors, n, "Amount", "must be greater than zero");
+    if (paidAmount < 0 || adjustedAmount < 0) importError(errors, n, "Paid/Adjusted Amount", "cannot be negative");
+    if (paidAmount + adjustedAmount > amount + 0.009) importError(errors, n, "Paid/Adjusted Amount", "cannot exceed Amount");
+    if (entryType === "Debit Note") {
+      const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && norm(entry.billNumber) === norm(row.againstBillNumber) && (!vendor || Number(entry.vendorId || vendor.id) === Number(vendor.id)));
+      const billPaid = m(linkedBill?.paidAmount);
+      const linkedBillStatus = String(linkedBill?.status || "").toLowerCase();
+      if (!String(row.againstBillNumber || "").trim()) importError(errors, n, "Against Bill", "is required");
+      if (!linkedBill) importError(errors, n, "Against Bill", "linked vendor bill was not found");
+      else if (!billPaid && !["paid", "partial"].includes(linkedBillStatus)) importError(errors, n, "Against Bill", "only paid or partial bills can be linked");
+      else if (amount > (billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : billPaid) + 0.009) importError(errors, n, "Amount", "debit note exceeds eligible paid amount");
+      if (!account) importError(errors, n, "Account Name", "choose a valid account");
+    }
+    const key = norm(billNumber);
+    if (seen.has(key)) importError(errors, n, "Bill Number", "duplicate in this Excel file");
+    if (existing.some((entry: any) => norm(entry.billNumber) === key)) importError(errors, n, "Bill Number", "already exists");
+    seen.add(key);
+    return { row, entryType, billNumber, vendor, amount, paidAmount, adjustedAmount, account };
+  });
+  if (errors.length) return s.status(400).json({ error: errors.join("\n") });
+  await db.transaction(async (tx) => {
+    for (const item of prepared) {
+      const covered = m(item.paidAmount + item.adjustedAmount);
+      const [created] = await tx.insert(accountsPayableTable).values({ organizationId: r.acc.org, vendorId: item.vendor.id, vendorName: item.vendor.name, billNumber: item.billNumber, againstBillNumber: item.entryType === "Debit Note" ? String(item.row.againstBillNumber || "").trim() : "", billDate: item.row.billDate, dueDate: item.row.dueDate, amount: item.amount, paidAmount: item.paidAmount, adjustedAmount: item.adjustedAmount, status: item.entryType === "Debit Note" ? "Paid" : covered >= item.amount ? "Paid" : covered > 0 ? "Partial" : "Pending", approvalStatus: "Approved", requiredApprovals: Math.max(1, Number(process.env.LEDGER_AP_REQUIRED_APPROVALS ?? 1)), entryType: item.entryType, notes: String(item.row.notes || ""), coaAccountId: item.account ? Number(item.account.id) : null, sourceType: "Manual", sourceId: null }).returning();
+      if (item.entryType === "Debit Note") {
+        const payable = accounts.find((account: any) => account.accountCode === "2100");
+        const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && norm(entry.billNumber) === norm(item.row.againstBillNumber) && Number(entry.vendorId || item.vendor.id) === Number(item.vendor.id));
+        if (!payable || !item.account || !linkedBill) throw Error("Debit note posting accounts or linked bill are missing");
+        const journal = await insertImportJournal(tx, r.acc.org, { entryDate: created.billDate || day(), reference: created.billNumber, description: `Debit note ${created.billNumber}`, sourceType: "Debit Note", sourceId: created.id, lines: [{ accountId: payable.id, debit: m(created.amount), memo: created.billNumber }, { accountId: item.account.id, credit: m(created.amount), memo: created.billNumber }] }, r.acc.user.id);
+        const adjustedAmount = m(m(linkedBill.adjustedAmount) + m(created.amount));
+        const billStatus = m(linkedBill.paidAmount) + adjustedAmount >= m(linkedBill.amount) - 0.009 ? "Paid" : "Partial";
+        await tx.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, linkedBill.id));
+        await tx.update(accountsPayableTable).set({ journalEntryId: journal.id, appliedAmount: m(created.amount), availableCredit: 0 }).where(eq(accountsPayableTable.id, created.id));
+      }
+    }
+  });
+  s.status(201).json({ created: rows.length });
+});
+router.post("/ar/import", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.import")) return;
+  const rows = importRows(r.body);
+  if (!rows.length) return s.status(400).json({ error: "No import rows found" });
+  if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
+  const errors: string[] = [];
+  const clients = await contactsFor("client");
+  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  const existing = await db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org));
+  const seen = new Set<string>();
+  const prepared = rows.map((row: any, i: number) => {
+    const n = rowNo(row, i);
+    const entryType = String(row.entryType || "Invoice").trim();
+    const invoiceNumber = String(row.invoiceNumber || "").trim();
+    const client = clients.find((item: any) => norm(item.id) === norm(row.customer) || norm(item.name) === norm(row.customer) || norm(contactOptionLabel(item)) === norm(row.customer));
+    const amount = m(row.amount);
+    const receivedAmount = entryType === "Credit Note" ? amount : m(row.receivedAmount);
+    const adjustedAmount = entryType === "Credit Note" ? 0 : m(row.adjustedAmount);
+    const account = resolveAccountOption(accounts, row.accountName);
+    if (!["Invoice", "Credit Note"].includes(entryType)) importError(errors, n, "Entry Type", "must be Invoice or Credit Note");
+    if (!client) importError(errors, n, "Customer", "choose a valid CRM Client");
+    if (!invoiceNumber) importError(errors, n, "Invoice Number", "is required");
+    if (!exactDate(row.invoiceDate)) importError(errors, n, "Invoice Date", "must use YYYY-MM-DD");
+    if (!exactDate(row.dueDate)) importError(errors, n, "Due Date", "must use YYYY-MM-DD");
+    if (!(amount > 0)) importError(errors, n, "Amount", "must be greater than zero");
+    if (receivedAmount < 0 || adjustedAmount < 0) importError(errors, n, "Received/Adjusted Amount", "cannot be negative");
+    if (receivedAmount + adjustedAmount > amount + 0.009) importError(errors, n, "Received/Adjusted Amount", "cannot exceed Amount");
+    if (entryType === "Credit Note") {
+      const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && norm(entry.invoiceNumber) === norm(row.linkedInvoiceNumber) && (!client || Number(entry.clientId || client.id) === Number(client.id)));
+      const received = m(linked?.receivedAmount);
+      const linkedStatus = String(linked?.status || "").toLowerCase();
+      if (!String(row.linkedInvoiceNumber || "").trim()) importError(errors, n, "Linked Invoice", "is required");
+      if (!linked) importError(errors, n, "Linked Invoice", "linked customer invoice was not found");
+      else if (!received && !["received", "partial", "paid"].includes(linkedStatus)) importError(errors, n, "Linked Invoice", "only paid or partial invoices can be linked");
+      else if (amount > (received >= m(linked.amount) - 0.009 ? m(linked.amount) : received) + 0.009) importError(errors, n, "Amount", "credit note exceeds eligible received amount");
+      if (!account) importError(errors, n, "Account Name", "choose a valid account");
+    }
+    const key = norm(invoiceNumber);
+    if (seen.has(key)) importError(errors, n, "Invoice Number", "duplicate in this Excel file");
+    if (existing.some((entry: any) => norm(entry.entryType === "Credit Note" ? entry.creditNoteNumber || entry.invoiceNumber : entry.invoiceNumber) === key)) importError(errors, n, "Invoice Number", "already exists");
+    seen.add(key);
+    return { row, entryType, invoiceNumber, client, amount, receivedAmount, adjustedAmount, account };
+  });
+  if (errors.length) return s.status(400).json({ error: errors.join("\n") });
+  await db.transaction(async (tx) => {
+    for (const item of prepared) {
+      const covered = m(item.receivedAmount + item.adjustedAmount);
+      const [created] = await tx.insert(accountsReceivableTable).values({ organizationId: r.acc.org, clientId: item.client.id, clientName: item.client.name, invoiceNumber: item.invoiceNumber, creditNoteNumber: item.entryType === "Credit Note" ? item.invoiceNumber : "", linkedInvoiceNumber: item.entryType === "Credit Note" ? String(item.row.linkedInvoiceNumber || "").trim() : "", invoiceDate: item.row.invoiceDate, dueDate: item.row.dueDate, amount: item.amount, receivedAmount: item.receivedAmount, adjustedAmount: item.adjustedAmount, status: item.entryType === "Credit Note" ? "Received" : covered >= item.amount ? "Received" : covered > 0 ? "Partial" : "Pending", approvalStatus: "Approved", requiredApprovals: Math.max(1, Number(process.env.LEDGER_AR_REQUIRED_APPROVALS ?? 1)), entryType: item.entryType, notes: String(item.row.notes || ""), coaAccountId: item.account ? Number(item.account.id) : null, sourceType: "Manual", sourceId: null }).returning();
+      if (item.entryType === "Credit Note") {
+        const creditNote = accounts.find((account: any) => account.accountCode === "1200");
+        const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && norm(entry.invoiceNumber) === norm(item.row.linkedInvoiceNumber) && Number(entry.clientId || item.client.id) === Number(item.client.id));
+        if (!creditNote || !item.account || !linked) throw Error("Credit note posting accounts or linked invoice are missing");
+        const journal = await insertImportJournal(tx, r.acc.org, { entryDate: created.invoiceDate || day(), reference: created.creditNoteNumber || created.invoiceNumber, description: `Credit note ${created.creditNoteNumber || created.invoiceNumber}`, sourceType: "Credit Note", sourceId: created.id, lines: [{ accountId: item.account.id, debit: m(created.amount), memo: created.creditNoteNumber || created.invoiceNumber }, { accountId: creditNote.id, credit: m(created.amount), memo: created.creditNoteNumber || created.invoiceNumber }] }, r.acc.user.id);
+        const adjustedAmount = m(m(linked.adjustedAmount) + m(created.amount));
+        const linkedStatus = m(linked.receivedAmount) + adjustedAmount >= m(linked.amount) - 0.009 ? "Received" : "Partial";
+        await tx.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
+        await tx.update(accountsReceivableTable).set({ journalEntryId: journal.id }).where(eq(accountsReceivableTable.id, created.id));
+      }
+    }
+  });
+  s.status(201).json({ created: rows.length });
+});
 router.get("/bank-cash-accounts", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const accounts = await coa(r.acc.org);
@@ -1430,13 +1782,14 @@ router.post("/coa", async (r: any, s): Promise<any> => {
   try {
     const existing = await coa(r.acc.org);
     const input = accountInput(r.body, existing);
+    const openingBalance = m(r.body.openingBalance ?? r.body.currentBalance ?? 0);
     const [x] = await db
       .insert(chartOfAccountsTable)
       .values({
         organizationId: r.acc.org,
         ...input,
-        currentBalance: 0,
-        openingBalance: 0,
+        currentBalance: openingBalance,
+        openingBalance,
         groupName: input.accountType,
         tallyLedgerName: input.accountName,
         tallyGroupName: input.accountType,
@@ -1456,20 +1809,20 @@ router.patch("/coa/:id", async (r: any, s): Promise<any> => {
     const existing = await coa(r.acc.org);
     const current = existing.find((account: any) => Number(account.id) === id);
     if (!current) return s.status(404).json({ error: "Account not found" });
-    if (isSystemAccountRow(current))
-      return s.status(409).json({ error: "Seeded system accounts cannot be edited" });
+    if (await accountHasTransactions(r.acc.org, id))
+      return s.status(409).json({ error: "This ledger account already has transactions and cannot be edited." });
     const input = accountInput({ ...current, ...r.body }, existing, id);
+    const openingBalance = m(r.body.openingBalance ?? r.body.currentBalance ?? current.openingBalance ?? current.currentBalance ?? 0);
     const updates: any = {
       ...input,
       groupName: input.accountType,
       tallyLedgerName: String(r.body.tallyLedgerName || input.accountName),
       tallyGroupName: input.accountType,
       description: String(r.body.description ?? current.description ?? ""),
+      openingBalance,
+      currentBalance: openingBalance,
       isActive: r.body.isActive !== false,
     };
-    const hasLines = (await db.select().from(journalLinesTable).where(eq(journalLinesTable.accountId, id))).length > 0;
-    if (current.accountType !== input.accountType && hasLines && systemAccountCodes.has(String(current.accountCode)))
-      return s.status(409).json({ error: "System accounts with transactions cannot be moved between account types" });
     const [x] = await db
       .update(chartOfAccountsTable)
       .set(updates)
