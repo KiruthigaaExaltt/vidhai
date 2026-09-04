@@ -580,18 +580,6 @@ async function post(org: number, b: any, userId?: number) {
     cr = m(ls.reduce((s: number, l: any) => s + l.credit, 0));
   if (!ls.length || dr <= 0 || Math.abs(dr - cr) > 0.009)
     throw Error("Journal debit and credit must balance");
-  const dup = (
-    await db
-      .select()
-      .from(journalEntriesTable)
-      .where(
-        and(
-          eq(journalEntriesTable.organizationId, org),
-          eq(journalEntriesTable.reference, String(b.reference)),
-        ),
-      )
-  )[0];
-  if (dup) return dup;
   if (b.sourceType && b.sourceType !== "Manual" && b.sourceId) {
     const sourceDuplicate = (
       await db
@@ -605,6 +593,18 @@ async function post(org: number, b: any, userId?: number) {
     );
     if (sourceDuplicate) return sourceDuplicate;
   }
+  const dup = (
+    await db
+      .select()
+      .from(journalEntriesTable)
+      .where(
+        and(
+          eq(journalEntriesTable.organizationId, org),
+          eq(journalEntriesTable.reference, String(b.reference)),
+        ),
+      )
+  )[0];
+  if (dup) throw Error(`Journal reference already exists: ${String(b.reference)}`);
   const accounts = await coa(org);
   return db.transaction(async (tx) => {
     const [e] = await tx
@@ -643,10 +643,15 @@ async function post(org: number, b: any, userId?: number) {
         credit: l.credit,
         memo: l.memo || "",
       });
+      const [freshAccount] = await tx
+        .select()
+        .from(chartOfAccountsTable)
+        .where(eq(chartOfAccountsTable.id, a.id))
+        .limit(1);
       await tx
         .update(chartOfAccountsTable)
         .set({
-          currentBalance: m(Number(a.currentBalance) + l.debit - l.credit),
+          currentBalance: m(Number(freshAccount?.currentBalance ?? a.currentBalance) + l.debit - l.credit),
         })
         .where(eq(chartOfAccountsTable.id, a.id));
     }
@@ -1620,11 +1625,12 @@ async function approveBankCash(r: any, s: any) {
   const [entry] = await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.id, Number(r.params.id))).limit(1);
   if (!entry || Number(entry.organizationId) !== Number(r.acc.org)) return s.status(404).json({ error: "Bank/cash transaction not found" });
   if (entry.approvalStatus === "Rejected") return s.status(409).json({ error: "Rejected transaction cannot be approved" });
-  if (entry.approvalStatus === "Approved") return s.json(entry);
+  if (entry.approvalStatus === "Approved" && entry.journalEntryId) return s.json(entry);
+  const alreadyApproved = entry.approvalStatus === "Approved";
   const approvers = JSON.parse(String(entry.approvedByUserIds || "[]")) as number[];
-  if (approvers.includes(Number(r.acc.user.id))) return s.status(409).json({ error: "You already approved this transaction" });
-  const nextApprovers = [...approvers, Number(r.acc.user.id)], nextLevel = Number(entry.approvalLevel || 0) + 1;
-  if (nextLevel < Number(entry.requiredApprovals || 1)) {
+  if (!alreadyApproved && approvers.includes(Number(r.acc.user.id))) return s.status(409).json({ error: "You already approved this transaction" });
+  const nextApprovers = alreadyApproved ? approvers : [...approvers, Number(r.acc.user.id)], nextLevel = alreadyApproved ? Number(entry.approvalLevel || entry.requiredApprovals || 1) : Number(entry.approvalLevel || 0) + 1;
+  if (!alreadyApproved && nextLevel < Number(entry.requiredApprovals || 1)) {
     const [updated] = await db.update(bankCashTransactionsTable).set({ approvalLevel: nextLevel, approvedByUserIds: JSON.stringify(nextApprovers), approvalRemarks: String(r.body.remarks || ""), updatedAt: new Date() }).where(eq(bankCashTransactionsTable.id, entry.id)).returning();
     return s.json(updated);
   }
@@ -2069,6 +2075,73 @@ for (const c of [
     }
   });
 }
+router.post("/ap/:id/payment", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.edit")) return;
+  const [entry] = await db.select().from(accountsPayableTable).where(and(
+    eq(accountsPayableTable.organizationId, r.acc.org),
+    eq(accountsPayableTable.id, Number(r.params.id)),
+  )).limit(1);
+  if (!entry) return s.status(404).json({ error: "AP entry not found" });
+  if (entry.entryType === "Debit Note") return s.status(400).json({ error: "Debit notes cannot be paid" });
+  if (entry.approvalStatus !== "Approved") return s.status(400).json({ error: "Only approved AP bills can be paid" });
+  const amount = m(r.body.amount);
+  const remaining = Math.max(0, m(entry.amount) - m(entry.paidAmount) - m(entry.adjustedAmount));
+  if (!(amount > 0) || amount > remaining + 0.009)
+    return s.status(400).json({ error: `Payment must be greater than zero and cannot exceed INR${remaining.toLocaleString("en-IN")}` });
+  const accounts = await coa(r.acc.org);
+  const settlementAccount = accounts.find((account: any) =>
+    Number(account.id) === Number(r.body.settlementAccountId) && account.isActive !== false);
+  const payableAccount = accounts.find((account: any) => account.accountCode === "2100");
+  if (!settlementAccount || !payableAccount)
+    return s.status(409).json({ error: "Accounts Payable and a valid active payment account must be configured" });
+  const existingPayments = await db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, r.acc.org));
+  const paymentNumber = String(r.body.paymentNumber || `PAY-${String(existingPayments.length + 1).padStart(6, "0")}`).trim();
+  const paymentDate = String(r.body.paymentDate || day());
+  const transactionReference = String(r.body.transactionReference || "").trim();
+  if (transactionReference && (existingPayments as any[]).some((payment) => String(payment.transactionReference || "").trim().toLowerCase() === transactionReference.toLowerCase()))
+    return s.status(409).json({ error: "Transaction reference already exists" });
+  const [payment] = await db.insert(vendorPaymentsTable).values({
+    organizationId: r.acc.org,
+    paymentNumber,
+    vendorName: entry.vendorName,
+    invoiceReference: entry.billNumber,
+    amount,
+    settlementAccountId: Number(settlementAccount.id),
+    paymentMode: String(r.body.paymentMode || "Bank Transfer"),
+    bankAccount: String(r.body.bankAccount || ""),
+    transactionReference,
+    notes: String(r.body.notes || ""),
+    paymentDate,
+    status: "Approved",
+    requiredApprovals: 1,
+    approvalLevel: 1,
+    approvalRemarks: "Recorded from Accounts",
+    approvedByUserId: Number(r.acc.user.id),
+    approvedByUserIds: [Number(r.acc.user.id)],
+    approvedAt: new Date(),
+    createdByUserId: Number(r.acc.user.id),
+  }).returning();
+  const journal = await post(r.acc.org, {
+    entryDate: paymentDate,
+    reference: `AUTO:AP:PAYMENT:${entry.id}:${paymentNumber}`,
+    description: `Vendor payment ${paymentNumber}`,
+    sourceType: "Vendor Payment",
+    sourceId: payment.id,
+    lines: [
+      { accountId: payableAccount.id, debit: amount, memo: paymentNumber },
+      { accountId: settlementAccount.id, credit: amount, memo: paymentNumber },
+    ],
+  }, r.acc.user.id);
+  const paidAmount = m(m(entry.paidAmount) + amount);
+  const covered = m(paidAmount + m(entry.adjustedAmount));
+  const balance = Math.max(0, m(entry.amount) - covered);
+  const status = balance <= 0.009 ? "Paid" : "Partial";
+  const [updated] = await db.update(accountsPayableTable).set({ paidAmount, status }).where(eq(accountsPayableTable.id, entry.id)).returning();
+  if (entry.sourceType === "Purchase Invoice" && entry.sourceId)
+    await db.update(purchaseInvoicesTable).set({ status: status === "Paid" ? "Paid" : "Partially Paid" }).where(eq(purchaseInvoicesTable.id, entry.sourceId));
+  await db.update(vendorPaymentsTable).set({ journalEntryId: journal.id }).where(eq(vendorPaymentsTable.id, payment.id));
+  return s.status(201).json({ payable: updated, paymentId: payment.id, journalEntryId: journal.id });
+});
 router.post("/ar/:id/payment", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.accounts_receivable.edit")) return;
   const [entry] = await db.select().from(accountsReceivableTable).where(and(

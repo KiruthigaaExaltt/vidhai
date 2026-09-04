@@ -645,15 +645,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     setError("");
     try {
       if (settlement.kind === "ap") {
-        await flexApi("/vendor-payments", {
+        await api(`/ap/${settlement.row.id}/payment`, {
           method: "POST",
           body: JSON.stringify({
-            vendorName: settlement.row.vendorName,
-            invoiceReference: settlement.row.billNumber,
-            payableId: settlement.row.id,
             amount,
             settlementAccountId: Number(apSettlementAccountId),
-            recordImmediately: true,
             ...apPayment,
           }),
         });
