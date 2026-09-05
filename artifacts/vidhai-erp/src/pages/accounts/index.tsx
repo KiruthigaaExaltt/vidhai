@@ -1810,6 +1810,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                             <th className="px-3 py-2 text-left">Customer/Vendor ID</th>
                                             <th className="px-3 py-2 text-left">Reference ID</th>
                                             <th className="px-3 py-2 text-left">Description</th>
+                                            <th className="px-3 py-2 text-left">Created By</th>
                                             <th className="px-3 py-2 text-right">Debit Amount</th>
                                             <th className="px-3 py-2 text-right">Credit Amount</th>
                                             <th className="px-3 py-2 text-right">Running Balance (₹)</th>
@@ -1835,6 +1836,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                               </td>
                                               <td className="px-3 py-1.5 text-muted-foreground">
                                                 {line.description || "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                                                {line.createdByUserId || "System"}
                                               </td>
                                               <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold">
                                                 {line.debit ? inr(line.debit) : "—"}
@@ -1867,16 +1871,16 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             <Card className="rounded-md border bg-white shadow-sm">
               <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-5">
-                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
+                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value, transferToAccountId: "", counterAccountId: "" })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
                 <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                  <option value="">From / Chart of Account</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                  <option value="">{bankForm.mode === "Transfer" ? "From Chart of Account" : "Chart of Account"}</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountName} — {a.accountCode}</option>)}
                 </select>
-                {bankForm.mode === "Transfer" ? <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Transfer to</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select> : <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.counterAccountId} onChange={(e) => setBankForm({ ...bankForm, counterAccountId: e.target.value })}><option value="">Counter account (optional)</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select>}
+                {bankForm.mode === "Transfer" && <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Counter / To Chart of Account</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountName} — {a.accountCode}</option>)}</select>}
                 <Input type="number" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
                 <Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
                 <Input placeholder="Reference (optional)" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
                 <Input placeholder="Remarks (optional)" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
-                <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+                <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
             <div className="flex flex-wrap justify-end gap-2">
@@ -2379,7 +2383,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountCode} - {a.accountName}
+                            {a.accountName} — {a.accountCode}
                           </option>
                         ))}
                       </select>
@@ -2396,7 +2400,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountCode} - {a.accountName}
+                            {a.accountName} — {a.accountCode}
                           </option>
                         ))}
                       </select>

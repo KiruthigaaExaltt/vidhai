@@ -26,6 +26,7 @@ import { paginateQuery, paginationMetadata } from "../lib/pagination";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 import { resolveUploadPath } from "../lib/uploadStorage";
+import { APPLICATION_BALANCE_CONVENTION, applicationBalanceDelta, bankCashMovements, journalMovements } from "../lib/manualAccountPosting";
 const router = Router(),
   m = (v: any) => {
     const parsed = Number(v?.$numberDecimal ?? v?.toString?.() ?? v ?? 0);
@@ -272,12 +273,20 @@ function purchaseInvoiceTaxAmount(invoice: any, key: "cgst" | "sgst" | "igst") {
 }
 function historySource(sourceType: any) {
   const value = String(sourceType || "").toLowerCase();
+  if (value.includes("bank cash")) return "Bank & Cash";
+  if (value === "manual") return "Journal Entry";
   if (value.includes("credit note")) return "Credit Note";
   if (value.includes("debit note")) return "Debit Note";
   if (value.includes("payable") || value.includes("purchase") || value.includes("vendor")) return "Payables";
   if (value.includes("receivable") || value.includes("sales") || value.includes("customer")) return "Receivables";
   return "Manual";
 }
+const usesApplicationBalanceConvention = (entry: any) =>
+  entry?.metadata?.balanceConvention === APPLICATION_BALANCE_CONVENTION;
+const journalLineDelta = (line: any, entry: any) =>
+  usesApplicationBalanceConvention(entry)
+    ? applicationBalanceDelta(m(line.debit), m(line.credit))
+    : m(line.debit) - m(line.credit);
 function decorateHistoryLines(accounts: any[], receivables: any[], payables: any[]) {
   const arById = new Map(receivables.map((row: any) => [Number(row.id), row]));
   const apById = new Map(payables.map((row: any) => [Number(row.id), row]));
@@ -401,7 +410,10 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
 
   for (const a of rows as any[]) {
     const accountLines = lines.filter((l: any) => String(l.accountId ?? "") === String(a.id));
-    const netDebit = accountLines.reduce((s: number, l: any) => s + Number(l.debit || 0) - Number(l.credit || 0), 0);
+    const netDebit = accountLines.reduce((s: number, l: any) => {
+      const entry = entries.find((e: any) => Number(e.id) === Number(l.journalEntryId));
+      return s + journalLineDelta(l, entry);
+    }, 0);
     const b = m(Number(a.openingBalance || 0) + netDebit);
     if (m(a.currentBalance) !== b) {
       await db.update(chartOfAccountsTable).set({ currentBalance: b } as any).where(eq(chartOfAccountsTable.id, a.id));
@@ -419,6 +431,7 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
           description: entry?.description || l.memo || "",
           sourceType: entry?.sourceType || "",
           sourceId: entry?.sourceId || "",
+          createdByUserId: entry?.createdByUserId || null,
           debit: Number(l.debit || 0),
           credit: Number(l.credit || 0),
           runningBalance: 0,
@@ -428,7 +441,8 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
 
     let running = m(a.openingBalance || 0);
     for (const h of historyLines) {
-      const lineNet = h.debit - h.credit;
+      const entry = entries.find((e: any) => Number(e.id) === Number(h.journalEntryId));
+      const lineNet = journalLineDelta(h, entry);
       running = m(running + lineNet);
       h.runningBalance = running;
     }
@@ -578,8 +592,10 @@ async function post(org: number, b: any, userId?: number) {
     })),
     dr = m(ls.reduce((s: number, l: any) => s + l.debit, 0)),
     cr = m(ls.reduce((s: number, l: any) => s + l.credit, 0));
-  if (!ls.length || dr <= 0 || Math.abs(dr - cr) > 0.009)
+  const allowSingleSided = b.allowSingleSided === true;
+  if (!ls.length || (allowSingleSided ? dr + cr <= 0 : dr <= 0 || Math.abs(dr - cr) > 0.009))
     throw Error("Journal debit and credit must balance");
+  const reference = String(b.reference || await nextReference(org, "JE")).trim();
   if (b.sourceType && b.sourceType !== "Manual" && b.sourceId) {
     const sourceDuplicate = (
       await db
@@ -600,11 +616,11 @@ async function post(org: number, b: any, userId?: number) {
       .where(
         and(
           eq(journalEntriesTable.organizationId, org),
-          eq(journalEntriesTable.reference, String(b.reference)),
+          eq(journalEntriesTable.reference, reference),
         ),
       )
   )[0];
-  if (dup) throw Error(`Journal reference already exists: ${String(b.reference)}`);
+  if (dup) throw Error(`Journal reference already exists: ${reference}`);
   const accounts = await coa(org);
   return db.transaction(async (tx) => {
     const [e] = await tx
@@ -612,7 +628,7 @@ async function post(org: number, b: any, userId?: number) {
       .values({
         organizationId: org,
         entryDate: b.entryDate || day(),
-        reference: b.reference || await nextReference(org, "JE"),
+        reference,
         description: b.description || "Journal entry",
         totalDebit: dr,
         totalCredit: cr,
@@ -651,7 +667,7 @@ async function post(org: number, b: any, userId?: number) {
       await tx
         .update(chartOfAccountsTable)
         .set({
-          currentBalance: m(Number(freshAccount?.currentBalance ?? a.currentBalance) + l.debit - l.credit),
+          currentBalance: m(Number(freshAccount?.currentBalance ?? a.currentBalance) + journalLineDelta(l, b)),
         })
         .where(eq(chartOfAccountsTable.id, a.id));
     }
@@ -686,9 +702,7 @@ async function reverseJournal(org: number, journalEntryId: number) {
           .update(chartOfAccountsTable)
           .set({
             currentBalance: m(
-              Number(account.currentBalance) -
-                Number(line.debit) +
-                Number(line.credit),
+              Number(account.currentBalance) - journalLineDelta(line, entry),
             ),
           })
           .where(eq(chartOfAccountsTable.id, account.id));
@@ -1394,7 +1408,7 @@ router.post("/bank-cash-transactions/import", async (r: any, s): Promise<any> =>
       mode: item.mode,
       bankCashAccountId: Number(item.bank.id),
       transferToAccountId: norm(item.mode) === "transfer" ? Number(item.transfer.id) : null,
-      counterAccountId: norm(item.mode) === "transfer" ? null : item.counter ? Number(item.counter.id) : null,
+      counterAccountId: null,
       amount: item.amount,
       reference: item.reference || await nextReference(r.acc.org, "BC"),
       remarks: String(item.row.remarks || ""),
@@ -1434,7 +1448,7 @@ router.post("/journal-entries/import", async (r: any, s): Promise<any> => {
     return { row, reference, amount, debit, credit };
   });
   if (errors.length) return s.status(400).json({ error: errors.join("\n") });
-  for (const item of prepared) await post(r.acc.org, { entryDate: item.row.entryDate, reference: item.reference, description: String(item.row.description).trim(), sourceType: "Manual", metadata: { notes: item.row.notes || "" }, lines: [{ accountId: item.debit.id, debit: item.amount, credit: 0, memo: item.row.memo || "" }, { accountId: item.credit.id, debit: 0, credit: item.amount, memo: item.row.memo || "" }] }, r.acc.user.id);
+  for (const item of prepared) await post(r.acc.org, { entryDate: item.row.entryDate, reference: item.reference, description: String(item.row.description).trim(), sourceType: "Manual", metadata: { notes: item.row.notes || "", balanceConvention: APPLICATION_BALANCE_CONVENTION }, lines: journalMovements(Number(item.debit.id), Number(item.credit.id), item.amount).map((line) => ({ ...line, memo: item.row.memo || "" })) }, r.acc.user.id);
   s.status(201).json({ created: rows.length });
 });
 router.post("/ap/import", async (r: any, s): Promise<any> => {
@@ -1588,21 +1602,36 @@ async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-bal
   if (!bank || bank.isActive === false)
     return s.status(400).json({ error: "Choose a valid Chart of Account" });
   const isOpening = source === "opening-balance";
-  const isTransfer = String(r.body.mode || "").toLowerCase() === "transfer";
-  if (isTransfer && Number(r.body.transferToAccountId) === Number(bank.id))
+  const mode = isOpening ? "Credit" : String(r.body.mode || "Credit").trim();
+  const normalizedMode = mode.toLowerCase();
+  if (!isOpening && !["credit", "debit", "transfer"].includes(normalizedMode))
+    return s.status(400).json({ error: "Transaction type must be Credit, Debit, or Transfer" });
+  const isTransfer = normalizedMode === "transfer";
+  const transferTo = isTransfer
+    ? accounts.find((a: any) => Number(a.id) === Number(r.body.transferToAccountId) && a.isActive !== false)
+    : null;
+  if (isTransfer && !transferTo)
+    return s.status(400).json({ error: "Choose a valid active Counter / To Chart of Account" });
+  if (isTransfer && Number(transferTo!.id) === Number(bank.id))
     return s.status(400).json({ error: "Transfer accounts must be different" });
   const { bankCashTransactionsTable } = await accountTables();
+  const requestedReference = String(r.body.reference || "").trim();
+  if (requestedReference) {
+    const existing = await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, r.acc.org));
+    if (existing.some((item: any) => norm(item.reference) === norm(requestedReference)))
+      return s.status(409).json({ error: `Bank/cash reference already exists: ${requestedReference}` });
+  }
   const [row] = await db.insert(bankCashTransactionsTable).values({
     organizationId: r.acc.org,
     transactionDate: r.body.transactionDate || r.body.entryDate || day(),
     transactionTypeId: r.body.transactionTypeId || null,
     transactionTypeName: isOpening ? "Opening Balance" : String(r.body.transactionTypeName || r.body.typeName || "Bank/Cash Transaction"),
-    mode: isOpening ? "Credit" : (r.body.mode || "Credit"),
+    mode,
     bankCashAccountId: Number(bank.id),
-    transferToAccountId: isTransfer ? Number(r.body.transferToAccountId) : null,
-    counterAccountId: r.body.counterAccountId ? Number(r.body.counterAccountId) : null,
+    transferToAccountId: isTransfer ? Number(transferTo!.id) : null,
+    counterAccountId: null,
     amount,
-    reference: String(r.body.reference || await nextReference(r.acc.org, isOpening ? "OB" : "BC")),
+    reference: requestedReference || await nextReference(r.acc.org, isOpening ? "OB" : "BC"),
     remarks: String(r.body.remarks || r.body.notes || ""),
     createdByUserId: Number(r.acc.user.id),
   }).returning();
@@ -1636,25 +1665,19 @@ async function approveBankCash(r: any, s: any) {
   }
   const accounts = await coa(r.acc.org);
   const byId = (id: any) => accounts.find((a: any) => Number(a.id) === Number(id));
-  const bank = byId(entry.bankCashAccountId), transferTo = byId(entry.transferToAccountId), counter = byId(entry.counterAccountId);
-  const cash = accounts.find((a: any) => a.accountCode === "1030"), capital = accounts.find((a: any) => a.accountCode === "3000"), miscExpense = accounts.find((a: any) => a.accountCode === "5160");
-  if (!bank) return s.status(400).json({ error: "Bank/cash ledger is missing" });
+  const bank = byId(entry.bankCashAccountId), transferTo = byId(entry.transferToAccountId);
+  if (!bank || bank.isActive === false) return s.status(400).json({ error: "Selected Chart of Account is missing or inactive" });
   const mode = String(entry.mode || "Credit").toLowerCase();
-  const typeName = String(entry.transactionTypeName || "").toLowerCase();
   let lines: any[] = [];
   let voucherType = entry.transactionTypeName === "Opening Balance" ? "Opening Balance" : mode === "transfer" ? "Contra" : mode === "debit" ? "Payment" : "Receipt";
   if (mode === "transfer") {
-    if (!transferTo) return s.status(400).json({ error: "Transfer destination account is missing" });
-    lines = [{ accountId: transferTo.id, debit: m(entry.amount) }, { accountId: bank.id, credit: m(entry.amount) }];
+    if (!transferTo || transferTo.isActive === false) return s.status(400).json({ error: "Transfer destination account is missing or inactive" });
+    if (Number(transferTo.id) === Number(bank.id)) return s.status(400).json({ error: "Transfer accounts must be different" });
+    lines = bankCashMovements(mode, Number(bank.id), m(entry.amount), Number(transferTo.id));
   } else if (mode === "debit") {
-    const debitAccount = counter || miscExpense;
-    if (!debitAccount) return s.status(400).json({ error: "Debit counter account is missing" });
-    lines = [{ accountId: debitAccount.id, debit: m(entry.amount) }, { accountId: bank.id, credit: m(entry.amount) }];
+    lines = bankCashMovements(mode, Number(bank.id), m(entry.amount));
   } else {
-    const creditAccount = entry.transactionTypeName === "Opening Balance" ? (bank.accountType === "Asset" || bank.accountType === "Expense" ? capital : bank) : counter || capital;
-    const debitAccount = entry.transactionTypeName === "Opening Balance" && creditAccount?.id === bank.id ? cash : bank;
-    if (!creditAccount || !debitAccount) return s.status(400).json({ error: "Opening balance counter account is missing" });
-    lines = [{ accountId: debitAccount.id, debit: m(entry.amount) }, { accountId: creditAccount.id, credit: m(entry.amount) }];
+    lines = bankCashMovements(mode, Number(bank.id), m(entry.amount));
   }
   const journal = await post(r.acc.org, {
     entryDate: entry.transactionDate,
@@ -1664,8 +1687,9 @@ async function approveBankCash(r: any, s: any) {
     sourceId: entry.id,
     voucherType,
     tallyVoucherType: voucherType === "Opening Balance" ? "Journal" : voucherType,
-    metadata: { bankCashTransactionId: entry.id, mode: entry.mode },
+    metadata: { bankCashTransactionId: entry.id, mode: entry.mode, balanceConvention: APPLICATION_BALANCE_CONVENTION, notes: entry.remarks || "" },
     lines,
+    allowSingleSided: mode !== "transfer",
   }, Number(r.acc.user.id));
   const [updated] = await db.update(bankCashTransactionsTable).set({ status: "Approved", approvalStatus: "Approved", approvalLevel: nextLevel, approvedByUserIds: JSON.stringify(nextApprovers), approvalRemarks: String(r.body.remarks || ""), journalEntryId: journal.id, updatedAt: new Date() }).where(eq(bankCashTransactionsTable.id, entry.id)).returning();
   await db.update(accountDocumentsTable).set({ journalEntryId: journal.id }).where(and(eq(accountDocumentsTable.sourceType, "bank-cash"), eq(accountDocumentsTable.sourceId, entry.id)));
@@ -1886,7 +1910,23 @@ router.get("/journal-entries/:id/lines", async (r: any, s): Promise<any> => {
 router.post("/journal-entries", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.journal_entries.create")) return;
   try {
-    s.status(201).json(await post(r.acc.org, r.body, r.acc.user.id));
+    const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+    const requestedLines = Array.isArray(r.body.lines) ? r.body.lines : [];
+    const debitLine = requestedLines.find((line: any) => m(line.debit) > 0 && m(line.credit) === 0);
+    const creditLine = requestedLines.find((line: any) => m(line.credit) > 0 && m(line.debit) === 0);
+    const debitAccount = accounts.find((account: any) => Number(account.id) === Number(debitLine?.accountId));
+    const creditAccount = accounts.find((account: any) => Number(account.id) === Number(creditLine?.accountId));
+    const amount = m(debitLine?.debit);
+    if (requestedLines.length !== 2 || !debitAccount || !creditAccount || Number(debitAccount.id) === Number(creditAccount.id) || !(amount > 0) || Math.abs(amount - m(creditLine?.credit)) > 0.009)
+      return s.status(400).json({ error: "Choose two different active Chart of Accounts accounts and enter one positive amount" });
+    s.status(201).json(await post(r.acc.org, {
+      entryDate: r.body.entryDate,
+      reference: r.body.reference,
+      description: r.body.description,
+      sourceType: "Manual",
+      metadata: { ...(r.body.metadata || {}), balanceConvention: APPLICATION_BALANCE_CONVENTION },
+      lines: journalMovements(Number(debitAccount.id), Number(creditAccount.id), amount).map((line, index) => ({ ...line, memo: index === 0 ? debitLine.memo || "" : creditLine.memo || "" })),
+    }, r.acc.user.id));
   } catch (e: any) {
     s.status(400).json({ error: e.message });
   }
