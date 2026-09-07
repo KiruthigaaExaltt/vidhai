@@ -1033,6 +1033,7 @@ async function contactsFor(type?: "client" | "vendor" | "other") {
   const rows = await db.select().from(contactsTable);
   return (rows as any[]).filter((row) => !type || String(row.type || "").toLowerCase() === type);
 }
+const journalContactLabel = (contact: any) => `${String(contact.type).toLowerCase()}: ${contact.name} (${contact.contactCode || contact.id})`;
 async function contactMaps() {
   const contacts = await contactsFor();
   return {
@@ -1106,7 +1107,7 @@ router.get("/sources", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view")) s.json(accountSourceRegistry);
 });
 router.get("/party-options", async (r: any, s): Promise<any> => {
-  if (!can(r, "accounts.accounts_receivable.view") && !can(r, "accounts.accounts_payable.view") && !can(r, "accounts.customer_ledger.view") && !can(r, "accounts.vendor_ledger.view"))
+  if (!can(r, "accounts.accounts_receivable.view") && !can(r, "accounts.accounts_payable.view") && !can(r, "accounts.customer_ledger.view") && !can(r, "accounts.vendor_ledger.view") && !can(r, "accounts.journal_entries.create"))
     return s.status(403).json({ error: "Forbidden" });
   const type = String(r.query.type || "").toLowerCase();
   if (!["client", "vendor", "other"].includes(type))
@@ -1357,8 +1358,9 @@ router.get("/ar/export", async (r: any, s): Promise<any> => {
 router.get("/import-options", async (r: any, s): Promise<any> => {
   if (!can(r, "accounts.bank_cash.import") && !can(r, "accounts.accounts_payable.import") && !can(r, "accounts.accounts_receivable.import") && !can(r, "accounts.journal_entries.import")) return s.status(403).json({ error: "Forbidden" });
   const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
-  const [clients, vendors] = await Promise.all([contactsFor("client"), contactsFor("vendor")]);
+  const [clients, vendors, others] = await Promise.all([contactsFor("client"), contactsFor("vendor"), contactsFor("other")]);
   s.json({
+    crmContacts: [...clients, ...vendors, ...others].map((contact: any) => ({ id: `${contact.type}:${contact.id}`, label: journalContactLabel(contact) })),
     accounts: accounts.map((account: any) => ({ id: account.id, label: accountLabel(account) })),
     clients: clients.map((contact: any) => ({ id: contact.id, label: contactOptionLabel(contact) })),
     vendors: vendors.map((contact: any) => ({ id: contact.id, label: contactOptionLabel(contact) })),
@@ -1423,6 +1425,7 @@ router.post("/journal-entries/import", async (r: any, s): Promise<any> => {
   if (!rows.length) return s.status(400).json({ error: "No import rows found" });
   if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
   const errors: string[] = [];
+  const contacts = (await contactsFor()).filter((contact: any) => ["client", "vendor", "other"].includes(String(contact.type).toLowerCase()));
   const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
   const existing = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org));
   const seen = new Set<string>();
@@ -1433,8 +1436,13 @@ router.post("/journal-entries/import", async (r: any, s): Promise<any> => {
     const debit = resolveAccountOption(accounts, row.debitAccount);
     const credit = resolveAccountOption(accounts, row.creditAccount);
     if (!exactDate(row.entryDate)) importError(errors, n, "Entry Date", "must use YYYY-MM-DD");
-    if (!reference) importError(errors, n, "Reference", "is required");
-    if (!String(row.description || "").trim()) importError(errors, n, "Description", "is required");
+    const parties: Record<string, any> = {};
+    for (const [key, label] of [["debitParty", "Debit"], ["creditParty", "Credit"]]) {
+      const value = String(row[key] || "").trim();
+      const contact = value ? contacts.find((item: any) => norm(journalContactLabel(item)) === norm(value)) : null;
+      if (value && !contact) importError(errors, n, label, "choose a valid CRM contact from the dropdown");
+      parties[key] = contact ? { type: String(contact.type).toLowerCase(), id: contact.id, name: contact.name, contactCode: contact.contactCode || "" } : null;
+    }
     if (!debit) importError(errors, n, "Debit Account", "choose a valid account");
     if (!credit) importError(errors, n, "Credit Account", "choose a valid account");
     if (debit && credit && Number(debit.id) === Number(credit.id)) importError(errors, n, "Credit Account", "must be different from Debit Account");
@@ -1445,10 +1453,10 @@ router.post("/journal-entries/import", async (r: any, s): Promise<any> => {
       if (existing.some((entry: any) => norm(entry.reference) === key)) importError(errors, n, "Reference", "already exists");
       seen.add(key);
     }
-    return { row, reference, amount, debit, credit };
+    return { row, reference, amount, debit, credit, parties };
   });
   if (errors.length) return s.status(400).json({ error: errors.join("\n") });
-  for (const item of prepared) await post(r.acc.org, { entryDate: item.row.entryDate, reference: item.reference, description: String(item.row.description).trim(), sourceType: "Manual", metadata: { notes: item.row.notes || "", balanceConvention: APPLICATION_BALANCE_CONVENTION }, lines: journalMovements(Number(item.debit.id), Number(item.credit.id), item.amount).map((line) => ({ ...line, memo: item.row.memo || "" })) }, r.acc.user.id);
+  for (const item of prepared) await post(r.acc.org, { entryDate: item.row.entryDate, reference: item.reference, description: String(item.row.description || "").trim(), sourceType: "Manual", metadata: { notes: item.row.notes || "", ...item.parties, balanceConvention: APPLICATION_BALANCE_CONVENTION }, lines: journalMovements(Number(item.debit.id), Number(item.credit.id), item.amount).map((line) => ({ ...line, memo: item.row.notes || item.row.memo || "" })) }, r.acc.user.id);
   s.status(201).json({ created: rows.length });
 });
 router.post("/ap/import", async (r: any, s): Promise<any> => {
@@ -1919,12 +1927,24 @@ router.post("/journal-entries", async (r: any, s): Promise<any> => {
     const amount = m(debitLine?.debit);
     if (requestedLines.length !== 2 || !debitAccount || !creditAccount || Number(debitAccount.id) === Number(creditAccount.id) || !(amount > 0) || Math.abs(amount - m(creditLine?.credit)) > 0.009)
       return s.status(400).json({ error: "Choose two different active Chart of Accounts accounts and enter one positive amount" });
+    const parties: Record<string, any> = {};
+    for (const side of ["debitParty", "creditParty"]) {
+      const selection = r.body.metadata?.[side];
+      parties[side] = null;
+      if (!selection) continue;
+      const [type, id] = String(selection).split(":");
+      if (!["client", "vendor", "other"].includes(type))
+        return s.status(400).json({ error: "Invalid CRM contact type" });
+      const contact = (await contactsFor(type as any)).find((row: any) => String(row.id) === id);
+      if (!contact) return s.status(400).json({ error: "Selected CRM contact no longer exists" });
+      parties[side] = { type, id: contact.id, name: contact.name, contactCode: contact.contactCode || "" };
+    }
     s.status(201).json(await post(r.acc.org, {
       entryDate: r.body.entryDate,
       reference: r.body.reference,
       description: r.body.description,
       sourceType: "Manual",
-      metadata: { ...(r.body.metadata || {}), balanceConvention: APPLICATION_BALANCE_CONVENTION },
+      metadata: { ...(r.body.metadata || {}), ...parties, balanceConvention: APPLICATION_BALANCE_CONVENTION },
       lines: journalMovements(Number(debitAccount.id), Number(creditAccount.id), amount).map((line, index) => ({ ...line, memo: index === 0 ? debitLine.memo || "" : creditLine.memo || "" })),
     }, r.acc.user.id));
   } catch (e: any) {

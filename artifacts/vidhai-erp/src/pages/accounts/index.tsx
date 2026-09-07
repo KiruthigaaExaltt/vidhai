@@ -103,6 +103,7 @@ export default function Accounts() {
     [vendors, setVendors] = useState<any[]>([]),
     [crmClients, setCrmClients] = useState<any[]>([]),
     [crmVendors, setCrmVendors] = useState<any[]>([]),
+    [crmOthers, setCrmOthers] = useState<any[]>([]),
     [arDocuments, setArDocuments] = useState<any[]>([]),
     [apDocuments, setApDocuments] = useState<any[]>([]),
     [masters, setMasters] = useState<any>({ transactionTypes: [], sourceRegistry: {} }),
@@ -360,7 +361,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             description: manual.description?.trim(),
             sourceType: manual.sourceType || "Manual",
             sourceId: manual.sourceId ? Number(manual.sourceId) : null,
-            metadata: { notes: manual.notes || "" },
+            metadata: { notes: manual.notes || "", debitParty: manual.debitParty || null, creditParty: manual.creditParty || null },
             lines: [
               {
                 accountId: debitAccount.id,
@@ -368,7 +369,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                 accountName: debitAccount.accountName,
                 debit: amount,
                 credit: 0,
-                memo: manual.memo || "",
+                memo: manual.notes || "",
               },
               {
                 accountId: creditAccount.id,
@@ -376,7 +377,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                 accountName: creditAccount.accountName,
                 debit: 0,
                 credit: amount,
-                memo: manual.memo || "",
+                memo: manual.notes || "",
               },
             ],
           }),
@@ -473,8 +474,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
         : []),
       // DISABLED: Masters module is not required for this phase
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
-      ...(can("accounts.accounts_receivable.view") ? [["clients", "/party-options?type=client"]] : []),
-      ...(can("accounts.accounts_payable.view") ? [["vendorsOpt", "/party-options?type=vendor"]] : []),
+      ...((can("accounts.accounts_receivable.view") || can("accounts.journal_entries.create")) ? [["clients", "/party-options?type=client"]] : []),
+      ...((can("accounts.accounts_payable.view") || can("accounts.journal_entries.create")) ? [["vendorsOpt", "/party-options?type=vendor"]] : []),
+      ...(can("accounts.journal_entries.create") ? [["othersOpt", "/party-options?type=other"]] : []),
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
@@ -524,6 +526,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       if (k === "bc") setBankCash(v as any[]);
       if (k === "clients") setCrmClients(v as any[]);
       if (k === "vendorsOpt") setCrmVendors(v as any[]);
+      if (k === "othersOpt") setCrmOthers(v as any[]);
       if (k === "j" || k === "ap" || k === "ar") {
         const response = v as any;
         if (k === "j") setJournals(response.items || []);
@@ -953,12 +956,17 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       endpoint: "/journal-entries/import",
       exportEndpoint: "/journal-entries/export",
       exportQuery: "",
-      headers: ["Entry Date *", "Reference *", "Description *", "Debit Account *", "Credit Account *", "Amount *", "Memo", "Notes"],
-      keys: ["entryDate", "reference", "description", "debitAccount", "creditAccount", "amount", "memo", "notes"],
-      dropdowns: { 3: "accounts", 4: "accounts" },
+      headers: ["Date *", "Reference", "Description", "Debit Account *", "Credit Account *", "Debit", "Credit", "Amount *", "Notes"],
+      keys: ["entryDate", "reference", "description", "debitAccount", "creditAccount", "debitParty", "creditParty", "amount", "notes"],
+      dropdowns: { 3: "accounts", 4: "accounts", 5: "crmContacts", 6: "crmContacts" },
     },
   } as const;
   const localImportOptions = () => ({
+    crmContacts: [
+      ...crmClients.map((contact) => ({ ...contact, type: "client" })),
+      ...crmVendors.map((contact) => ({ ...contact, type: "vendor" })),
+      ...crmOthers.map((contact) => ({ ...contact, type: "other" })),
+    ].map((contact) => ({ id: `${contact.type}:${contact.id}`, label: `${contact.type}: ${contact.name} (${contact.contactCode || contact.id})` })),
     accounts: coa
       .filter((account: any) => account.isActive !== false)
       .map((account: any) => ({ id: account.id, label: `${account.accountCode} - ${account.accountName}` })),
@@ -1093,6 +1101,10 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "", raw: false });
+    if (accountImport === "journal" && config.headers.some((header, index) => String(data[0]?.[index] || "").trim() !== header)) {
+      setError("The Journal Entries columns do not match the current template. Download the latest template and use its column order.");
+      return;
+    }
     const bodyRows = data.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
     if (!bodyRows.length) {
       setError("The Excel worksheet contains no import rows");
@@ -2354,7 +2366,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Reference *</Label>
+                      <Label>Reference</Label>
                       <Input
                         value={manual.reference || ""}
                         onChange={(e) =>
@@ -2363,7 +2375,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label>Description *</Label>
+                      <Label>Description</Label>
                       <Input
                         value={manual.description || ""}
                         onChange={(e) =>
@@ -2405,6 +2417,32 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         ))}
                       </select>
                     </div>
+                    {(["debit", "credit"] as const).map((side) => (
+                      <fieldset key={side} className="space-y-1.5 rounded-md border p-3">
+                        <legend className="px-1 text-sm font-medium">{side === "debit" ? "Debit" : "Credit"}</legend>
+                        <select
+                          aria-label={side === "debit" ? "Debit CRM contact" : "Credit CRM contact"}
+                          className="h-10 w-full rounded-md border bg-background px-3"
+                          value={manual[side + "Party"] || ""}
+                          onChange={(e) => setManualField(side + "Party", e.target.value)}
+                        >
+                          <option value="">Select CRM contact</option>
+                          {[
+                            { type: "client", label: "Clients", contacts: crmClients },
+                            { type: "vendor", label: "Vendors", contacts: crmVendors },
+                            { type: "other", label: "Other contacts", contacts: crmOthers },
+                          ].map((group) => (
+                            <optgroup key={group.type} label={group.label}>
+                              {group.contacts.map((contact) => (
+                                <option key={contact.id} value={group.type + ":" + contact.id}>
+                                  {contact.displayName || contact.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </fieldset>
+                    ))}
                     <div className="space-y-1.5">
                       <Label>Amount *</Label>
                       <Input
@@ -2416,10 +2454,10 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Memo</Label>
+                      <Label>Notes</Label>
                       <Input
-                        value={manual.memo || ""}
-                        onChange={(e) => setManualField("memo", e.target.value)}
+                        value={manual.notes || ""}
+                        onChange={(e) => setManualField("notes", e.target.value)}
                       />
                     </div>
                   </>

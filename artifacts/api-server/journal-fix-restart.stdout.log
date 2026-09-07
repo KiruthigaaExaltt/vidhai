@@ -1,0 +1,17 @@
+{"level":30,"time":1788787135095,"pid":3680,"hostname":"Oviya","uploadRoot":"C:\\Exaltt\\vidhai\\artifacts\\api-server\\uploads","msg":"Upload storage ready"}
+{"level":30,"time":1788787135134,"pid":3680,"hostname":"Oviya","migratedRoles":0,"migratedUsers":0,"msg":"RBAC permission migration complete"}
+{"level":30,"time":1788787135143,"pid":3680,"hostname":"Oviya","created":0,"normalized":0,"totalDefaults":23,"msg":"Default Coimbatore casing-soil chambers ready"}
+{"level":30,"time":1788787135151,"pid":3680,"hostname":"Oviya","created":0,"updated":0,"total":42,"locationMissing":false,"msg":"Default Ooty growing rooms ready"}
+{"level":30,"time":1788787135454,"pid":3680,"hostname":"Oviya","createdItems":0,"createdStockRows":0,"deletedItems":0,"totalDefaults":20,"msg":"Default Vault items ready"}
+{"level":30,"time":1788787135458,"pid":3680,"hostname":"Oviya","msg":"Authenticated notification Socket.IO gateway ready"}
+{"level":30,"time":1788787135461,"pid":3680,"hostname":"Oviya","workerId":"Oviya:3680","concurrency":4,"maxAttempts":5,"msg":"Notification worker ready"}
+{"level":30,"time":1788787135462,"pid":3680,"hostname":"Oviya","msg":"Idempotent chamber reminder scheduler ready"}
+{"level":30,"time":1788787135463,"pid":3680,"hostname":"Oviya","msg":"Fleet maintenance reminder scheduler ready"}
+{"level":30,"time":1788787135469,"pid":3680,"hostname":"Oviya","port":5001,"msg":"Server listening"}
+{"level":30,"time":1788787137397,"pid":3680,"hostname":"Oviya","req":{"id":1,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":38,"msg":"request completed"}
+{"level":30,"time":1788787146401,"pid":3680,"hostname":"Oviya","req":{"id":2,"method":"GET","url":"/api/accounts/journal-entries"},"res":{"statusCode":401},"responseTime":2,"msg":"request completed"}
+{"level":30,"time":1788787165714,"pid":3680,"hostname":"Oviya","req":{"id":3,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":12,"msg":"request completed"}
+{"level":30,"time":1788787201147,"pid":3680,"hostname":"Oviya","req":{"id":4,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1788787201413,"pid":3680,"hostname":"Oviya","req":{"id":5,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":200},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1788787201504,"pid":3680,"hostname":"Oviya","req":{"id":6,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":21,"msg":"request completed"}
+{"level":30,"time":1788787210545,"pid":3680,"hostname":"Oviya","req":{"id":7,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":401},"responseTime":3,"msg":"request completed"}

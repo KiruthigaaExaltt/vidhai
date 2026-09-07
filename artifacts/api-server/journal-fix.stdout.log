@@ -1,0 +1,9 @@
+{"level":30,"time":1788787094579,"pid":13116,"hostname":"Oviya","uploadRoot":"C:\\Exaltt\\vidhai\\artifacts\\api-server\\uploads","msg":"Upload storage ready"}
+{"level":30,"time":1788787094606,"pid":13116,"hostname":"Oviya","migratedRoles":0,"migratedUsers":0,"msg":"RBAC permission migration complete"}
+{"level":30,"time":1788787094615,"pid":13116,"hostname":"Oviya","created":0,"normalized":0,"totalDefaults":23,"msg":"Default Coimbatore casing-soil chambers ready"}
+{"level":30,"time":1788787094625,"pid":13116,"hostname":"Oviya","created":0,"updated":0,"total":42,"locationMissing":false,"msg":"Default Ooty growing rooms ready"}
+{"level":30,"time":1788787094909,"pid":13116,"hostname":"Oviya","createdItems":0,"createdStockRows":0,"deletedItems":0,"totalDefaults":20,"msg":"Default Vault items ready"}
+{"level":30,"time":1788787094912,"pid":13116,"hostname":"Oviya","msg":"Authenticated notification Socket.IO gateway ready"}
+{"level":30,"time":1788787094913,"pid":13116,"hostname":"Oviya","workerId":"Oviya:13116","concurrency":4,"maxAttempts":5,"msg":"Notification worker ready"}
+{"level":30,"time":1788787094914,"pid":13116,"hostname":"Oviya","msg":"Idempotent chamber reminder scheduler ready"}
+{"level":30,"time":1788787094914,"pid":13116,"hostname":"Oviya","msg":"Fleet maintenance reminder scheduler ready"}
