@@ -85,6 +85,9 @@ const crewPayScope = (req: any) =>
     : "crewpay.salary_slip";
 const accountsScope = (req: any) =>
   ({
+    "payment-accounts": req.query.context === "ap" ? "accounts.accounts_payable" : req.query.context === "ar" ? "accounts.accounts_receivable" : "accounts.finance_dashboard",
+    "party-options": req.query.context === "ap" ? "accounts.accounts_payable" : req.query.context === "ar" ? "accounts.accounts_receivable" : "accounts.finance_dashboard",
+    "import-options": ({ ap: "accounts.accounts_payable", ar: "accounts.accounts_receivable", journal: "accounts.journal_entries" } as Record<string, string>)[String(req.query.context)] || "accounts.finance_dashboard",
     coa: "accounts.chart_of_accounts",
     "journal-entries": "accounts.journal_entries",
     ap: "accounts.accounts_payable",
