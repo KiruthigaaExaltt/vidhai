@@ -1,3 +1,5 @@
+import { receiptAccounts } from "../lib/receivableAccounts";
+import { paymentDetails } from "../lib/accountPayments";
 import { Router } from "express";
 import { db } from "@workspace/db";
 import {
@@ -2869,7 +2871,7 @@ router.post("/payments", requireAuth, async (req, res) => {
     const tdsAmount = Math.round(Number(req.body?.tdsAmount || 0) * 100) / 100;
     const bankCharges =
       Math.round(Number(req.body?.bankCharges || 0) * 100) / 100;
-    const settlementAccountId = Number(req.body?.settlementAccountId || 0);
+    const settlementAccountId = Number(req.body?.toAccountId ?? req.body?.settlementAccountId ?? 0);
     const [invoice] = await db
       .select()
       .from(salesInvoicesTable)
@@ -2880,6 +2882,12 @@ router.post("/payments", requireAuth, async (req, res) => {
     const settlementAccounts = await db.select().from(chartOfAccountsTable).where(
       eq(chartOfAccountsTable.organizationId, context.organizationId),
     );
+    if (req.body.fromAccountId !== undefined || req.body.toAccountId !== undefined) {
+      try {
+        receiptAccounts(req.body, settlementAccounts);
+        paymentDetails(req.body);
+      } catch (error: any) { return res.status(400).json({ error: error.message }); }
+    }
     if (!settlementAccounts.some((account: any) =>
       Number(account.id) === settlementAccountId && account.isActive !== false))
       return res.status(400).json({ error: "Choose a valid active Chart of Accounts account" });

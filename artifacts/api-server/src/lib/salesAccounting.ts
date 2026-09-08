@@ -251,6 +251,8 @@ export async function triggerPaymentReceived(
       description: `Customer payment ${payment.paymentNumber} for ${invoice.invoiceNumber}`,
       sourceType: "Customer Payment",
       sourceId: payment.id,
+      metadata: { paymentDate: payment.paymentDate, fromAccountId: id("1100"), toAccountId: settlementAccount.id, settlementAccountId: settlementAccount.id, paymentMethod: payment.paymentMethod || "",
+        fromAccountName: accounts.find((account: any) => account.accountCode === "1100")?.accountName || "", toAccountName: settlementAccount.accountName },
       lines: [
         { accountId: settlementAccount.id, debit: net },
         { accountId: id("5160"), debit: tds },

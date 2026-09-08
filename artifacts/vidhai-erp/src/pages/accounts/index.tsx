@@ -1,3 +1,5 @@
+import { parseReceivableSheet } from "./receivableImport";
+import { parsePayableSheet } from "./payableImport";
 const SYSTEM_ACCOUNT_CODES = new Set(["1030", "1100", "1200", "2100", "2200", "3000", "3100", "4100", "5100", "5140", "5150", "5160"]);
 const SYSTEM_ACCOUNT_NAMES = new Set(["Input CGST", "Input SGST", "Input IGST", "Output CGST", "Output SGST", "Output IGST"]);
 const isSystemAccount = (account: any) => SYSTEM_ACCOUNT_CODES.has(String(account?.accountCode || "")) || SYSTEM_ACCOUNT_NAMES.has(String(account?.accountName || ""));
@@ -122,9 +124,11 @@ export default function Accounts() {
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [paymentAr, setPaymentAr] = useState<any | null>(null),
+    [paymentAp, setPaymentAp] = useState<any | null>(null),
     [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({}),
     [expandedVendors, setExpandedVendors] = useState<Record<string, boolean>>({}),
     [paymentAmount, setPaymentAmount] = useState(""),
+    [paymentApAmount, setPaymentApAmount] = useState(""),
     [apSettlementAccountId, setApSettlementAccountId] = useState(""),
     [arFromDate, setArFromDate] = useState(""),
     [arToDate, setArToDate] = useState(""),
@@ -175,7 +179,22 @@ export default function Accounts() {
     reference: "",
     notes: "",
     settlementAccountId: "",
+    fromAccountId: "",
     receiptId: "",
+    period: "",
+    transactionFees: "",
+  });
+  const [apPaymentForm, setApPaymentForm] = useState({
+    paymentDate: new Date().toISOString().slice(0, 10),
+    paymentMethod: "Bank Transfer",
+    bankCharges: "0",
+    tdsAmount: "0",
+    reference: "",
+    notes: "",
+    settlementAccountId: "",
+    fromAccountId: "",
+    toAccountId: "",
+    paymentId: "",
     period: "",
     transactionFees: "",
   });
@@ -638,6 +657,13 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
         numberValue(row.receivedAmount) -
         numberValue(row.adjustedAmount),
     );
+  const payableOutstanding = (row: any) =>
+    Math.max(
+      0,
+      numberValue(row?.amount) -
+        numberValue(row?.paidAmount) -
+        numberValue(row?.adjustedAmount),
+    );
   const saveSettlement = async () => {
     if (!settlement) return;
     const amount = numberValue(settlementAmount);
@@ -718,10 +744,95 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       setSubmitting(false);
     }
   };
+  const openApPayment = (row: any) => {
+    setPaymentAp(row);
+    setPaymentApAmount(String(payableOutstanding(row)));
+    const defaultFrom = String(coa.find((a) => a.accountCode !== "2100" && a.isActive !== false)?.id || "");
+    const payableAccount = coa.find((a) => a.accountCode === "2100" && a.isActive !== false);
+    setApPaymentForm({
+      paymentDate: new Date().toISOString().slice(0, 10),
+      paymentMethod: "Bank Transfer",
+      fromAccountId: defaultFrom,
+      settlementAccountId: defaultFrom,
+      toAccountId: String(payableAccount?.id || ""),
+      paymentId: crypto.randomUUID(),
+      reference: "",
+      notes: "",
+      period: "",
+      transactionFees: "",
+      bankCharges: "0",
+      tdsAmount: "0",
+    });
+    setError("");
+  };
+  const recordApPayment = async () => {
+    if (!paymentAp) return;
+    if (!apPaymentForm.paymentDate || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId) {
+      setError("Payment Date, From Account and To Account are required");
+      return;
+    }
+    const amount = numberValue(paymentApAmount);
+    if (!(amount > 0) || amount > payableOutstanding(paymentAp) + 0.009) {
+      setError("Enter a payment amount greater than zero and not more than the balance.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      if (paymentAp.sourceType === "Purchase Invoice" && paymentAp.sourceId) {
+        await flexApi("/vendor-payments", {
+          method: "POST",
+          body: JSON.stringify({
+            vendorName: paymentAp.vendorName,
+            invoiceReference: paymentAp.billNumber,
+            payableId: paymentAp.id,
+            amount,
+            settlementAccountId: Number(apPaymentForm.fromAccountId),
+            fromAccountId: Number(apPaymentForm.fromAccountId),
+            toAccountId: Number(apPaymentForm.toAccountId),
+            recordImmediately: true,
+            paymentDate: apPaymentForm.paymentDate,
+            paymentMode: apPaymentForm.paymentMethod,
+            paymentMethod: apPaymentForm.paymentMethod,
+            transactionReference: apPaymentForm.reference,
+            notes: apPaymentForm.notes,
+            bankCharges: numberValue(apPaymentForm.bankCharges),
+            tdsAmount: numberValue(apPaymentForm.tdsAmount),
+          }),
+        });
+      } else {
+        await api(`/ap/${paymentAp.id}/payment`, {
+          method: "POST",
+          body: JSON.stringify({
+            amount,
+            paymentDate: apPaymentForm.paymentDate,
+            fromAccountId: Number(apPaymentForm.fromAccountId),
+            toAccountId: Number(apPaymentForm.toAccountId),
+            settlementAccountId: Number(apPaymentForm.fromAccountId),
+            paymentMethod: apPaymentForm.paymentMethod,
+            reference: apPaymentForm.reference,
+            notes: apPaymentForm.notes,
+            paymentId: apPaymentForm.paymentId,
+            period: apPaymentForm.period,
+            transactionFees: apPaymentForm.transactionFees,
+            bankCharges: apPaymentForm.bankCharges,
+            tdsAmount: numberValue(apPaymentForm.tdsAmount),
+          }),
+        });
+      }
+      setPaymentAp(null);
+      setPaymentApAmount("");
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const openPayment = (row: any) => {
     setPaymentAr(row);
     setPaymentAmount(String(outstanding(row)));
-    setArPayment((value) => ({ ...value, settlementAccountId: "", receiptId: crypto.randomUUID(), reference: "", notes: "", period: "", transactionFees: "", bankCharges: "0" }));
+    setArPayment((value) => ({ ...value, paymentDate: new Date().toISOString().slice(0, 10), fromAccountId: String(coa.find((account) => account.accountCode === "1100" && account.isActive !== false)?.id || ""), settlementAccountId: "", receiptId: crypto.randomUUID(), reference: "", notes: "", period: "", transactionFees: "", bankCharges: "0" }));
   };
   const reviewAr = async (row: any, action: "approve" | "reject") => {
     const remarks = window.prompt(
@@ -744,6 +855,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
   };
   const receivePayment = async () => {
     if (!paymentAr) return;
+    if (!arPayment.paymentDate || !arPayment.fromAccountId || !arPayment.settlementAccountId) { setError("Payment Date, From Account and To Account are required"); return; }
     const amount = numberValue(paymentAmount);
     if (!(amount > 0) || amount > outstanding(paymentAr) + 0.009) {
       setError(
@@ -761,6 +873,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             invoiceId: paymentAr.sourceId,
             amount,
             ...arPayment,
+            fromAccountId: Number(arPayment.fromAccountId), toAccountId: Number(arPayment.settlementAccountId),
             bankCharges: numberValue(arPayment.bankCharges),
             tdsAmount: numberValue(arPayment.tdsAmount),
           }),
@@ -774,6 +887,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             bankCharges: arPayment.bankCharges,
             tdsAmount: numberValue(arPayment.tdsAmount),
             settlementAccountId: Number(arPayment.settlementAccountId),
+            fromAccountId: Number(arPayment.fromAccountId), toAccountId: Number(arPayment.settlementAccountId),
             paymentMethod: arPayment.paymentMethod, reference: arPayment.reference, notes: arPayment.notes,
             receiptId: arPayment.receiptId, period: arPayment.period, transactionFees: arPayment.transactionFees,
           }),
@@ -951,9 +1065,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       exportEndpoint: "/ar/export",
       exportQuery: "entryType=Invoice",
       entryType: "Invoice",
-      headers: ["Customer *", "Invoice Number *", "Invoice Date *", "Due Date *", "Amount *", "Received Amount", "Adjusted Amount", "Notes"],
-      keys: ["customer", "invoiceNumber", "invoiceDate", "dueDate", "amount", "receivedAmount", "adjustedAmount", "notes"],
-      dropdowns: { 0: "clients" },
+      headers: ["Customer *", "Invoice Number *", "Invoice Date *", "Due Date *", "Amount *", "Received Amount", "Payment Date", "From Account", "To Account", "Notes"],
+      keys: ["customer", "invoiceNumber", "invoiceDate", "dueDate", "amount", "receivedAmount", "paymentDate", "fromAccount", "toAccount", "notes"],
+      dropdowns: { 0: "clients", 7: "accounts", 8: "accounts" },
     },
     arCreditNote: {
       title: "Credit Notes",
@@ -1077,7 +1191,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const dropdownRows: string[][] = [];
     const validations: { column: number; optionColumn: number; count: number }[] = [];
     Object.entries(config.dropdowns).forEach(([index, source], optionColumn) => {
-      const values = (Array.isArray(source) ? source : (options[source] || []).map((item: any) => item.label)).filter(Boolean);
+      const values = (Array.isArray(source) ? source : (options[source] || []).map((item: any) => item.label)).filter(Boolean)
+        .filter((label: string) => kind !== "arInvoice" || Number(index) !== 7 || /^1100\s*-/.test(label));
       values.forEach((value: string, rowIndex: number) => {
         dropdownRows[rowIndex] = dropdownRows[rowIndex] || [];
         dropdownRows[rowIndex][optionColumn] = value;
@@ -1128,6 +1243,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     if (accountImport === "bankCash") {
       try { setAccountImportRows(parseBankCashSheet(data)); }
       catch (error: any) { setError(error.message); }
+      return;
+    }
+    if (accountImport === "arInvoice") {
+      try { setAccountImportRows(parseReceivableSheet(data)); }
+      catch (error: any) { setError(error.message); setAccountImportRows([]); }
       return;
     }
     setAccountImportRows(bodyRows.map((row, index) => {
@@ -1640,7 +1760,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                               <td className="px-4 py-2 text-right">{inr(record.receivedAmount)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.credits)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2">{record.paidDate || "-"}</td>
+                              <td className="px-4 py-2">{record.paidDate || "-"}
+                                {record.payments?.length > 0 && <details><summary>Payment events</summary>{record.payments.map((payment: any) => <div key={payment.id} className="mt-2 text-xs"><p>{payment.paymentDate}: {inr(payment.amount)}</p>{payment.fromAccountName && <p>From: {payment.fromAccountName}</p>}{payment.toAccountName && <p>To: {payment.toAccountName}</p>}</div>)}</details>}
+                              </td>
                               <td className="px-4 py-2">{record.status || "-"}</td>
                             </tr>
                           ))}
@@ -1823,6 +1945,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                       {historyLines.length} {historyLines.length === 1 ? "entry" : "entries"} recorded
                                     </span>
                                   </div>
+                                  {account.receivablePaymentEvents?.length > 0 && <details className="mb-3 rounded border p-3"><summary>Receivables payment events</summary>{account.receivablePaymentEvents.map((event: any) => <div key={event.id} className="mt-2 text-xs">{event.entryDate} | Debit: {inr(event.debit)} | Credit: {inr(event.credit)} | {event.metadata?.documentReference || event.reference}</div>)}</details>}
                                   {!historyLines.length ? (
                                     <div className="rounded-md border bg-background p-3 text-center text-xs text-muted-foreground">
                                       No entry history recorded for this account.
@@ -2159,7 +2282,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                           {row.paymentHistory.map((payment: any) => <div key={payment.id} className="rounded border p-3 text-xs space-y-1">
                             <p>Payment Date: {payment.paymentDate}</p>
                             <p>Client Name: {payment.clientName}</p>
-                            <p>Account Name: {payment.accountName || "—"}</p>
+                            <p>From Account: {payment.fromAccountName || "—"}</p>
+                            <p>To Account: {payment.toAccountName || payment.accountName || "—"}</p>
                             <p>Payment Method: {payment.paymentMethod || "—"}</p>
                             <p>{payment.mode}: {inr(payment.amount)}</p>
                             <p>Reference ID / Invoice Number: {payment.reference}</p>
@@ -2966,7 +3090,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="payment-amount">Payment Amount</Label>
+                  <Label htmlFor="payment-amount">Paid Amount *</Label>
                   <Input
                     id="payment-amount"
                     type="number"
@@ -2978,7 +3102,12 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="ar-account-name">Account Name *</Label>
+                  <Label htmlFor="ar-from-account">From Account *</Label>
+                  <select id="ar-from-account" className="h-10 w-full rounded-md border bg-background px-3" value={arPayment.fromAccountId} onChange={(event) => setArPayment(value => ({ ...value, fromAccountId: event.target.value }))} required>
+                    <option value="">Select receivable account</option>
+                    {coa.filter(account => account.accountCode === "1100" && account.isActive !== false).map(account => <option key={account.id} value={account.id}>{account.accountCode} - {account.accountName}</option>)}
+                  </select>
+                  <Label htmlFor="ar-account-name">To Account *</Label>
                   <select
                     id="ar-account-name"
                     className="h-10 w-full rounded-md border bg-background px-3"
@@ -2990,7 +3119,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                     required
                   >
                     <option value="">Select account</option>
-                    {coa.filter((account) => account.isActive !== false).map((account) => (
+                    {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
                       <option key={account.id} value={account.id}>
                         {account.accountName} ({account.accountCode})
                       </option>
@@ -2999,9 +3128,10 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="space-y-1.5 text-sm">
-                    <Label>Payment Date</Label>
+                    <Label>Payment Date *</Label>
                     <Input
                       type="date"
+                      required
                       value={arPayment.paymentDate}
                       onChange={(e) =>
                         setArPayment((value) => ({
@@ -3023,6 +3153,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         }))
                       }
                     >
+                      <option value="">Not specified</option>
                       {paymentMethods.map(
                         (method) => (
                           <option key={method}>{method}</option>
@@ -3101,7 +3232,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
               </Button>
               <Button
                 onClick={() => void receivePayment()}
-                disabled={submitting || !paymentAmount || !arPayment.settlementAccountId}
+                disabled={submitting || !paymentAmount || !arPayment.settlementAccountId || !arPayment.fromAccountId || !arPayment.paymentDate}
               >
                 <CreditCard className="mr-2 h-4 w-4" />{" "}
                 {submitting ? "Receiving..." : "Receive Payment"}
