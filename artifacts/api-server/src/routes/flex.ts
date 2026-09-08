@@ -3471,15 +3471,17 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
       Number(bill.paidAmount || 0) -
       Number(bill.adjustedAmount || 0),
   );
-  const pendingAmount = (existingPayments as any[])
-    .filter(
-      (payment) =>
-        payment.invoiceReference === invoiceReference &&
-        payment.status === "Pending Approval",
-    )
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-  const availableToRequest = Math.max(0, outstanding - pendingAmount);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > availableToRequest)
+  const pendingAmount = req.body.recordImmediately === true
+    ? 0
+    : (existingPayments as any[])
+      .filter(
+        (payment) =>
+          payment.invoiceReference === invoiceReference &&
+          payment.status === "Pending Approval",
+      )
+      .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const availableToRequest = money(Math.max(0, outstanding - pendingAmount));
+  if (!Number.isFinite(amount) || amount <= 0 || money(amount) > availableToRequest + 0.005)
     return res
       .status(400)
       .json({

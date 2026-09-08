@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { applicationBalanceDelta, bankCashMovements, journalMovements } from "../src/lib/manualAccountPosting.ts";
+const apply = (balances: Record<number, number>, movements: ReturnType<typeof bankCashMovements>) => { const result = { ...balances }; for (const movement of movements) result[movement.accountId] = (result[movement.accountId] || 0) + applicationBalanceDelta(movement.debit, movement.credit); return result; };
+test("credit increases only selected account and isolates Capital", () => assert.deepEqual(apply({ 1: 1000, 9: 50000 }, bankCashMovements("Credit", 1, 500)), { 1: 1500, 9: 50000 }));
+test("debit decreases only selected account and isolates Capital", () => assert.deepEqual(apply({ 1: 1500, 9: 50000 }, bankCashMovements("Debit", 1, 500)), { 1: 1000, 9: 50000 }));
+test("transfer creates debit and credit legs", () => { const movements = bankCashMovements("Transfer", 1, 2000, 2); assert.deepEqual(movements, [{ accountId: 1, debit: 2000, credit: 0 }, { accountId: 2, debit: 0, credit: 2000 }]); assert.deepEqual(apply({ 1: 10000, 2: 1000 }, movements), { 1: 8000, 2: 3000 }); });
+test("journal subtracts from debit and adds to credit", () => assert.deepEqual(apply({ 1: 1000, 2: 0 }, journalMovements(1, 2, 1000)), { 1: 0, 2: 1000 }));
+test("explicit Capital transfer changes Capital", () => assert.deepEqual(apply({ 9: 100000, 1: 0 }, bankCashMovements("Transfer", 9, 10000, 1)), { 9: 90000, 1: 10000 }));
+test("invalid movements are rejected", () => { assert.throws(() => bankCashMovements("Transfer", 1, 100, 1), /different/); assert.throws(() => journalMovements(1, 1, 100), /different/); assert.throws(() => bankCashMovements("Credit", 1, 0), /greater than zero/); });

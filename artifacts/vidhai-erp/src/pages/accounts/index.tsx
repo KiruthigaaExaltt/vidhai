@@ -249,7 +249,7 @@ export default function Accounts() {
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
-const loadArDocuments = async (clientId?: string, mode?: string) => {
+  const loadArDocuments = async (clientId?: string, mode?: string) => {
     if (!can("accounts.accounts_receivable.view")) return;
     const params = new URLSearchParams();
     if (clientId) params.set("clientId", clientId);
@@ -473,8 +473,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
         ? [["c", "/coa"]]
         : []),
       ...(!fullCoa && !bankOptions &&
-      (can("accounts.accounts_receivable.edit") ||
-        can("accounts.accounts_payable.edit"))
+        (can("accounts.accounts_receivable.edit") ||
+          can("accounts.accounts_payable.edit"))
         ? [["paymentCoa", `/payment-accounts?context=${can("accounts.accounts_receivable.edit") ? "ar" : "ap"}`]]
         : []),
       // DISABLED: Masters module is not required for this phase
@@ -486,27 +486,27 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
-            [
-              "j",
-              withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
-            ],
-          ]
+          [
+            "j",
+            withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
+          ],
+        ]
         : []),
       ...(can("accounts.accounts_payable.view")
         ? [
-            [
-              "ap",
-              withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
-            ],
-          ]
+          [
+            "ap",
+            withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
+          ],
+        ]
         : []),
       ...(can("accounts.accounts_receivable.view")
         ? [
-            [
-              "ar",
-              withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
-            ],
-          ]
+          [
+            "ar",
+            withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
+          ],
+        ]
         : []),
       ...(can("accounts.customer_ledger.view")
         ? [["cu", withListingDates("/customer-ledger")]]
@@ -635,8 +635,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     Math.max(
       0,
       numberValue(row.amount) -
-        numberValue(row.receivedAmount) -
-        numberValue(row.adjustedAmount),
+      numberValue(row.receivedAmount) -
+      numberValue(row.adjustedAmount),
     );
   const saveSettlement = async () => {
     if (!settlement) return;
@@ -645,8 +645,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const remaining = Math.max(
       0,
       numberValue(settlement.row.amount) -
-        numberValue(settlement.row[field]) -
-        numberValue(settlement.row.adjustedAmount),
+      numberValue(settlement.row[field]) -
+      numberValue(settlement.row.adjustedAmount),
     );
     if (!(amount > 0) || amount > remaining + 0.009) {
       setError(
@@ -658,15 +658,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     setError("");
     try {
       if (settlement.kind === "ap") {
-        await flexApi("/vendor-payments", {
+        await api(`/ap/${settlement.row.id}/payment`, {
           method: "POST",
           body: JSON.stringify({
-            vendorName: settlement.row.vendorName,
-            invoiceReference: settlement.row.billNumber,
-            payableId: settlement.row.id,
             amount,
             settlementAccountId: Number(apSettlementAccountId),
-            recordImmediately: true,
             ...apPayment,
           }),
         });
@@ -692,8 +688,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const balance = Math.max(
       0,
       numberValue(row.amount) -
-        numberValue(row[paidField]) -
-        numberValue(row.adjustedAmount),
+      numberValue(row[paidField]) -
+      numberValue(row.adjustedAmount),
     );
     setSettlement({ kind, row });
     setSettlementAmount(balance.toFixed(2));
@@ -1339,17 +1335,17 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             onPageChange={(page) =>
               serverKey
                 ? setListPaging((current) => ({
-                    ...current,
-                    [serverKey]: { ...current[serverKey], page },
-                  }))
+                  ...current,
+                  [serverKey]: { ...current[serverKey], page },
+                }))
                 : clientPagination.setCurrentPage(page)
             }
             onPageSizeChange={(size) =>
               serverKey
                 ? setListPaging((current) => ({
-                    ...current,
-                    [serverKey]: { page: 1, size },
-                  }))
+                  ...current,
+                  [serverKey]: { page: 1, size },
+                }))
                 : clientPagination.setPageSize(size)
             }
             loading={loading}
@@ -1378,8 +1374,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
           Math.max(
             0,
             numberValue(row.amount) -
-              numberValue(row.paidAmount) -
-              numberValue(row.adjustedAmount),
+            numberValue(row.paidAmount) -
+            numberValue(row.adjustedAmount),
           ),
         0,
       ),
@@ -1394,8 +1390,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             Math.max(
               0,
               numberValue(row.amount) -
-                numberValue(row.paidAmount) -
-                numberValue(row.adjustedAmount),
+              numberValue(row.paidAmount) -
+              numberValue(row.adjustedAmount),
             ),
           0,
         ),
@@ -1410,8 +1406,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             Math.max(
               0,
               numberValue(row.amount) -
-                numberValue(row.paidAmount) -
-                numberValue(row.adjustedAmount),
+              numberValue(row.paidAmount) -
+              numberValue(row.adjustedAmount),
             ),
           0,
         ),
@@ -1597,7 +1593,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
               can={can}
             />
           </TabsContent>
-                    <TabsContent value="customers" className="space-y-3">
+          <TabsContent value="customers" className="space-y-3">
             {f(customers).map((customer) => {
               const key = String(customer.clientId || customer.clientName);
               const open = Boolean(expandedCustomers[key]);
@@ -1841,6 +1837,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                             <th className="px-3 py-2 text-left">Payment Method</th>
                                             <th className="px-3 py-2 text-left">Notes</th>
                                             <th className="px-3 py-2 text-left">Description</th>
+                                            <th className="px-3 py-2 text-left">Created By</th>
                                             <th className="px-3 py-2 text-right">Debit Amount</th>
                                             <th className="px-3 py-2 text-right">Credit Amount</th>
                                             <th className="px-3 py-2 text-right">Running Balance (₹)</th>
@@ -1869,6 +1866,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                               <td className="px-3 py-1.5">{line.notes || "—"}</td>
                                               <td className="px-3 py-1.5 text-muted-foreground">
                                                 {line.description || "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                                                {line.createdByUserId || "System"}
                                               </td>
                                               <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold">
                                                 {line.debit ? inr(line.debit) : "—"}
@@ -1901,21 +1901,16 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             <Card className="rounded-md border bg-white shadow-sm">
               <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-5">
-                <select aria-label="Credit/Debit/Transfer" className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
-                <select aria-label="Account Name" className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                  <option value="">Account Name *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value, transferToAccountId: "", counterAccountId: "" })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
+                <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
+                  <option value="">{bankForm.mode === "Transfer" ? "From Chart of Account" : "Chart of Account"}</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountName} — {a.accountCode}</option>)}
                 </select>
-                {bankForm.mode === "Transfer" ? <select aria-label="Transfer to account" className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Transfer to</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select> : <select aria-label="Counter account" className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.counterAccountId} onChange={(e) => setBankForm({ ...bankForm, counterAccountId: e.target.value })}><option value="">Counter account (optional)</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}</select>}
-                <label className="space-y-1 text-sm md:col-span-2">Client Name<select className="h-10 w-full rounded-md border px-3" value={bankForm.clientId} onChange={(e) => setBankForm({ ...bankForm, clientId: e.target.value })}><option value="">Select client (optional)</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
-                <label className="space-y-1 text-sm">Total Payment<Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} /></label>
-                <label className="space-y-1 text-sm">Payment Date<Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} /></label>
-                <label className="space-y-1 text-sm">Payment Method<select className="h-10 w-full rounded-md border px-3" value={bankForm.paymentMethod} onChange={(e) => setBankForm({ ...bankForm, paymentMethod: e.target.value })}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label>
-                <label className="space-y-1 text-sm md:col-span-2">Reference ID / Invoice Number<Input value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
-                <label className="space-y-1 text-sm">Period (optional)<Input value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
-                <label className="space-y-1 text-sm">Bank Charges (optional)<Input type="number" min="0" step="0.01" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
-                <label className="space-y-1 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
-                <label className="space-y-1 text-sm md:col-span-4">Notes<Input value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
-                <Button disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+                {bankForm.mode === "Transfer" && <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Counter / To Chart of Account</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountName} — {a.accountCode}</option>)}</select>}
+                <Input type="number" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
+                <Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
+                <Input placeholder="Reference (optional)" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
+                <Input placeholder="Remarks (optional)" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
+                <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
             <div className="flex flex-wrap justify-end gap-2">
@@ -2006,8 +2001,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                             Math.max(
                               0,
                               numberValue(row.amount) -
-                                numberValue(row.paidAmount) -
-                                numberValue(row.adjustedAmount),
+                              numberValue(row.paidAmount) -
+                              numberValue(row.adjustedAmount),
                             ),
                           )}
                         </span>
@@ -2021,8 +2016,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         const balance = Math.max(
                           0,
                           numberValue(row.amount) -
-                            numberValue(row.paidAmount) -
-                            numberValue(row.adjustedAmount),
+                          numberValue(row.paidAmount) -
+                          numberValue(row.adjustedAmount),
                         );
                         return (
                           <div className="flex items-center gap-2">
@@ -2228,7 +2223,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                           Math.max(
                             0,
                             numberValue(row.amount) -
-                              numberValue(row.adjustedAmount),
+                            numberValue(row.adjustedAmount),
                           ),
                         ),
                     ],
@@ -2437,7 +2432,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountCode} - {a.accountName}
+                            {a.accountName} — {a.accountCode}
                           </option>
                         ))}
                       </select>
@@ -2454,7 +2449,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountCode} - {a.accountName}
+                            {a.accountName} — {a.accountCode}
                           </option>
                         ))}
                       </select>
@@ -2583,7 +2578,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         <Input type="number" min="0" step="0.01" value={manual.adjustedAmount || ""} onChange={(e) => setManualField("adjustedAmount", e.target.value)} />
                       </div>
                     )}
-{manual.entryType === "Debit Note" && (
+                    {manual.entryType === "Debit Note" && (
                       <div className="space-y-1.5">
                         <Label>Account Name *</Label>
                         <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.coaAccountId || ""} onChange={(e) => setManualField("coaAccountId", e.target.value)}>
@@ -2841,8 +2836,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         Math.max(
                           0,
                           numberValue(settlement.row.amount) -
-                            numberValue(settlement.row.paidAmount) -
-                            numberValue(settlement.row.adjustedAmount),
+                          numberValue(settlement.row.paidAmount) -
+                          numberValue(settlement.row.adjustedAmount),
                         ),
                       )}
                     </p>

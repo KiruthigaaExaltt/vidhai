@@ -144,11 +144,12 @@ export function permissionAction(req: Request): string {
   return "update";
 }
 export function requireModulePermission(
-  resolveScope: string | ((req: Request) => string),
+  resolveScope: string | ((req: Request) => string | null | undefined),
 ) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const scope =
       typeof resolveScope === "function" ? resolveScope(req) : resolveScope;
+    if (!scope) return next();
     const action = permissionAction(req);
     const requestedPermission = `${scope}.${action}`;
     const permission =
