@@ -1043,9 +1043,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       exportEndpoint: "/ap/export",
       exportQuery: "entryType=Bill",
       entryType: "Bill",
-      headers: ["Vendor *", "Bill Number *", "Bill Date *", "Due Date *", "Amount *", "Paid Amount", "Adjusted Amount", "Notes"],
-      keys: ["vendor", "billNumber", "billDate", "dueDate", "amount", "paidAmount", "adjustedAmount", "notes"],
-      dropdowns: { 0: "vendors" },
+      headers: ["Vendor *", "Bill Number *", "Bill Date *", "Due Date *", "Amount *", "Paid Amount", "Payment Date", "From Account", "To Account", "Notes"],
+      keys: ["vendor", "billNumber", "billDate", "dueDate", "amount", "paidAmount", "paymentDate", "fromAccount", "toAccount", "notes"],
+      dropdowns: { 0: "vendors", 7: "accounts", 8: "accounts" },
     },
     apDebitNote: {
       title: "Debit Notes",
@@ -1192,7 +1192,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const validations: { column: number; optionColumn: number; count: number }[] = [];
     Object.entries(config.dropdowns).forEach(([index, source], optionColumn) => {
       const values = (Array.isArray(source) ? source : (options[source] || []).map((item: any) => item.label)).filter(Boolean)
-        .filter((label: string) => kind !== "arInvoice" || Number(index) !== 7 || /^1100\s*-/.test(label));
+        .filter((label: string) => kind !== "arInvoice" || Number(index) !== 7 || /^1100\s*-/.test(label))
+        .filter((label: string) => kind !== "apBill" || Number(index) !== 7 || !/^2100\s*-/.test(label))
+        .filter((label: string) => kind !== "apBill" || Number(index) !== 8 || /^2100\s*-/.test(label));
       values.forEach((value: string, rowIndex: number) => {
         dropdownRows[rowIndex] = dropdownRows[rowIndex] || [];
         dropdownRows[rowIndex][optionColumn] = value;
@@ -1247,6 +1249,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     }
     if (accountImport === "arInvoice") {
       try { setAccountImportRows(parseReceivableSheet(data)); }
+      catch (error: any) { setError(error.message); setAccountImportRows([]); }
+      return;
+    }
+    if (accountImport === "apBill") {
+      try { setAccountImportRows(parsePayableSheet(data)); }
       catch (error: any) { setError(error.message); setAccountImportRows([]); }
       return;
     }
@@ -1817,7 +1824,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                               <td className="px-4 py-2 text-right">{inr(record.paidAmount)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.debitNote)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2">{record.paidDate || "-"}</td>
+                              <td className="px-4 py-2">{record.paidDate || "-"}
+                                {record.payments?.length > 0 && <details><summary>Payment events</summary>{record.payments.map((payment: any) => <div key={payment.id} className="mt-2 text-xs"><p>{payment.paymentDate}: {inr(payment.amount)}</p>{payment.fromAccountName && <p>From: {payment.fromAccountName}</p>}{payment.toAccountName && <p>To: {payment.toAccountName}</p>}</div>)}</details>}
+                              </td>
                               <td className="px-4 py-2">{record.status || "-"}</td>
                             </tr>
                           ))}
@@ -1946,6 +1955,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                     </span>
                                   </div>
                                   {account.receivablePaymentEvents?.length > 0 && <details className="mb-3 rounded border p-3"><summary>Receivables payment events</summary>{account.receivablePaymentEvents.map((event: any) => <div key={event.id} className="mt-2 text-xs">{event.entryDate} | Debit: {inr(event.debit)} | Credit: {inr(event.credit)} | {event.metadata?.documentReference || event.reference}</div>)}</details>}
+                                  {account.payablePaymentEvents?.length > 0 && <details className="mb-3 rounded border p-3"><summary>Payables payment events</summary>{account.payablePaymentEvents.map((event: any) => <div key={event.id} className="mt-2 text-xs">{event.entryDate} | Debit: {inr(event.debit)} | Credit: {inr(event.credit)} | {event.metadata?.documentReference || event.reference}</div>)}</details>}
                                   {!historyLines.length ? (
                                     <div className="rounded-md border bg-background p-3 text-center text-xs text-muted-foreground">
                                       No entry history recorded for this account.
@@ -2137,6 +2147,31 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       ),
                     ],
                     [
+                      "Payment History",
+                      "paymentHistory",
+                      (_value: any, row: any) => row.paymentHistory?.length ? (
+                        <details>
+                          <summary className="cursor-pointer whitespace-nowrap">{row.paymentHistory.length} disbursements</summary>
+                          <div className="mt-2 space-y-3 min-w-64">
+                            {row.paymentHistory.map((payment: any) => <div key={payment.id} className="rounded border p-3 text-xs space-y-1">
+                              <p>Payment Date: {payment.paymentDate}</p>
+                              <p>Vendor Name: {payment.vendorName}</p>
+                              <p>From Account: {payment.fromAccountName || "—"}</p>
+                              <p>To Account: {payment.toAccountName || payment.accountName || "—"}</p>
+                              <p>Payment Method: {payment.paymentMethod || "—"}</p>
+                              <p>{payment.mode || "Debit"}: {inr(payment.amount)}</p>
+                              <p>Reference ID / Bill Number: {payment.reference}</p>
+                              <p>Notes: {payment.notes || "—"}</p>
+                              {payment.period && <p>Period: {payment.period}</p>}
+                              <p>Bank Charges: {inr(payment.bankCharges)}</p>
+                              <p>TDS Amount: {inr(payment.tdsAmount)}</p>
+                              <p>Transaction Fees (informational): {inr(payment.transactionFees)}</p>
+                            </div>)}
+                          </div>
+                        </details>
+                      ) : "—",
+                    ],
+                    [
                       "Adjustment",
                       "adjustedAmount",
                       (value) => (
@@ -2150,14 +2185,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       "balance",
                       (_value, row) => (
                         <span className="font-medium text-red-500">
-                          {inr(
-                            Math.max(
-                              0,
-                              numberValue(row.amount) -
-                                numberValue(row.paidAmount) -
-                                numberValue(row.adjustedAmount),
-                            ),
-                          )}
+                          {inr(payableOutstanding(row))}
                         </span>
                       ),
                     ],
@@ -2166,36 +2194,42 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       "Actions",
                       "actions",
                       (_value, row) => {
-                        const balance = Math.max(
-                          0,
-                          numberValue(row.amount) -
-                            numberValue(row.paidAmount) -
-                            numberValue(row.adjustedAmount),
-                        );
+                        const balance = payableOutstanding(row);
                         return (
                           <div className="flex items-center gap-2">
                             {balance > 0 &&
                               row.approvalStatus === "Approved" && (
                                 <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                  title="Record payment"
-                                  aria-label={`Record payment for ${row.billNumber}`}
+                                  size="sm"
+                                  onClick={() => openApPayment(row)}
                                   disabled={submitting}
-                                  onClick={() => openSettlement("ap", row)}
                                 >
-                                  <span className="text-base leading-none">
-                                    $
-                                  </span>
+                                  <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
                                 </Button>
                               )}
+                            {row.approvalStatus === "Pending Approval" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => void reviewAp(row, "approve")}
+                                  disabled={submitting}
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => void reviewAp(row, "reject")}
+                                  disabled={submitting}
+                                >
+                                  Reject
+                                </Button>
+                              </>
+                            )}
                             <Button
-                              type="button"
                               size="icon"
-                              variant="ghost"
-                              className="h-8 w-8 text-slate-300 hover:text-red-500"
+                              variant="outline"
+                              className="h-8 w-8"
                               title={
                                 row.sourceType === "Manual"
                                   ? "Delete bill"
@@ -3236,6 +3270,212 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
               >
                 <CreditCard className="mr-2 h-4 w-4" />{" "}
                 {submitting ? "Receiving..." : "Receive Payment"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog
+          open={Boolean(paymentAp)}
+          onOpenChange={(open) => {
+            if (!open && !submitting) setPaymentAp(null);
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Record Payment</DialogTitle>
+            </DialogHeader>
+            {paymentAp && (
+              <div className="space-y-5">
+                {error && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                    {error}
+                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">
+                      Total Amount
+                    </p>
+                    <p className="font-semibold">{inr(paymentAp.amount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">
+                      Already Paid
+                    </p>
+                    <p className="font-semibold text-primary">
+                      {inr(paymentAp.paidAmount)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">
+                      Balance
+                    </p>
+                    <p className="font-semibold">
+                      {inr(payableOutstanding(paymentAp))}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ap-paid-amount">Payment Amount *</Label>
+                  <Input
+                    id="ap-paid-amount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={payableOutstanding(paymentAp)}
+                    value={paymentApAmount}
+                    onChange={(event) => setPaymentApAmount(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ap-from-account">From Account *</Label>
+                  <select
+                    id="ap-from-account"
+                    className="h-10 w-full rounded-md border bg-background px-3"
+                    value={apPaymentForm.fromAccountId}
+                    onChange={(event) => setApPaymentForm((value) => ({
+                      ...value,
+                      fromAccountId: event.target.value,
+                      settlementAccountId: event.target.value,
+                    }))}
+                    required
+                  >
+                    <option value="">Select disbursement account</option>
+                    {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.accountName} ({account.accountCode})
+                      </option>
+                    ))}
+                  </select>
+                  <Label htmlFor="ap-to-account">To Account *</Label>
+                  <select
+                    id="ap-to-account"
+                    className="h-10 w-full rounded-md border bg-background px-3"
+                    value={apPaymentForm.toAccountId}
+                    onChange={(event) => setApPaymentForm((value) => ({
+                      ...value,
+                      toAccountId: event.target.value,
+                    }))}
+                    required
+                  >
+                    <option value="">Select payable account</option>
+                    {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.accountCode} - {account.accountName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Payment Date *</Label>
+                    <Input
+                      type="date"
+                      required
+                      value={apPaymentForm.paymentDate}
+                      onChange={(e) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          paymentDate: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Payment Method</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={apPaymentForm.paymentMethod}
+                      onChange={(e) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          paymentMethod: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Not specified</option>
+                      {paymentMethods.map(
+                        (method) => (
+                          <option key={method}>{method}</option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Bank Charges</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={apPaymentForm.bankCharges}
+                      onChange={(e) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          bankCharges: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  {paymentAp.sourceType !== "Purchase Invoice" && <>
+                    <label className="space-y-1.5 text-sm">Period (optional)<Input value={apPaymentForm.period} onChange={(e) => setApPaymentForm((value) => ({ ...value, period: e.target.value }))} /></label>
+                    <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={apPaymentForm.transactionFees} onChange={(e) => setApPaymentForm((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
+                  </>}
+                  <label className="space-y-1.5 text-sm">
+                    <Label>TDS Amount</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={apPaymentForm.tdsAmount}
+                      onChange={(e) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          tdsAmount: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm sm:col-span-2">
+                    <Label>Reference ID / Bill Number</Label>
+                    <Input
+                      value={apPaymentForm.reference}
+                      onChange={(e) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          reference: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-sm sm:col-span-2">
+                    <Label>Notes</Label>
+                    <Input
+                      value={apPaymentForm.notes}
+                      onChange={(e) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          notes: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setPaymentAp(null)}
+                disabled={submitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void recordApPayment()}
+                disabled={submitting || !paymentApAmount || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId || !apPaymentForm.paymentDate}
+              >
+                <CreditCard className="mr-2 h-4 w-4" />{" "}
+                {submitting ? "Recording..." : "Record Payment"}
               </Button>
             </DialogFooter>
           </DialogContent>

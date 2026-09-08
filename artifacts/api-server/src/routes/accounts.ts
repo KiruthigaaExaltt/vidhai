@@ -2297,6 +2297,7 @@ router.post("/ar/:id/payment", async (r: any, s): Promise<any> => {
 function prepareApPayment(body: any, accounts: any[], vendors: any[], entry: any) {
   if (!vendors.some((vendor: any) => Number(vendor.id) === Number(entry.vendorId))) throw new Error("Choose a valid CRM Vendor");
   if (entry.sourceType === "Purchase Invoice" || entry.entryType === "Debit Note") throw new Error("Use the existing payment workflow for this document");
+  if (entry.approvalStatus && entry.approvalStatus !== "Approved") throw new Error("Bill must be approved before recording payment");
   const details = paymentDetails(body);
   const amount = paymentMoney(body.amount, "Paid Amount");
   if ((body.fromAccountId !== undefined || body.toAccountId !== undefined) && !body.paymentId && !body.receiptId) throw new Error("Payment identity is required for retry protection");
