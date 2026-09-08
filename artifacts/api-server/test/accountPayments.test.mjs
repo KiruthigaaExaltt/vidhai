@@ -108,3 +108,23 @@ test("Excel export round-trips metadata with one Notes column and business refer
   assert.equal(row.period, "Q3");
   assert.equal(paymentDetails({ paymentDate: "2026-09-07", documentReference: "DOC" }).reference, "DOC");
 });
+
+test("newly created account 31002 - Test Bank Account is accepted by Excel import and prepareBankCash", () => {
+  const newAccounts = [
+    ...accounts,
+    { id: 15, accountCode: "31002", accountName: "Test Bank Account", isActive: true },
+  ];
+  for (const accountInput of ["31002 - Test Bank Account", "31002 \u2013 Test Bank Account", "31002-Test Bank Account", "31002", "Test Bank Account"]) {
+    const rows = parseBankCashSheet([
+      ["Type *", "Account Name *", "Amount *", "Payment Date *"],
+      ["Credit", accountInput, "500", "2026-09-08"],
+    ]);
+    const row = prepareBankCash(rows[0], newAccounts, clients);
+    assert.equal(row.bankCashAccountId, 15);
+  }
+  // Confirm inactive / nonexistent accounts remain rejected
+  assert.throws(() => prepareBankCash({ mode: "Credit", bankCashAccount: "99999 - Unknown", amount: "100", transactionDate: "2026-09-07" }, newAccounts, clients), /choose a valid active COA account/);
+  assert.throws(() => prepareBankCash({ mode: "Credit", bankCashAccount: "1004 - Inactive", amount: "100", transactionDate: "2026-09-07" }, newAccounts, clients), /choose a valid active COA account/);
+});
+
+

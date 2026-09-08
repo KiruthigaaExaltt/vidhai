@@ -1,6 +1,6 @@
 // Accounts-only validation shared by manual entry and Excel import.
 export const paymentMethods = ["Bank Transfer", "UPI", "Cheque", "Cash"];
-const norm = (value: unknown) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const norm = (value: unknown) => String(value ?? "").trim().replace(/[\u2013\u2014]/g, "-").replace(/\s+/g, " ").toLowerCase();
 const supplied = (value: unknown) => value != null && String(value).trim() !== "";
 const validId = (value: unknown) => (typeof value === "string" || typeof value === "number") && /^\d+$/.test(String(value).trim()) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
 export function paymentMoney(value: unknown, label: string, optional = false) {
@@ -38,11 +38,41 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
   if (!mode) throw new Error("Type must be Credit, Debit, or Transfer");
   const resolve = (value: unknown, label: string, required = false, idOnly = false) => {
     if (!supplied(value) && !required) return null;
-    if (idOnly && !validId(value)) throw new Error(`${label}: choose a valid active COA account`);
-    const matches = accounts.filter((account) => account.isActive !== false &&
-      (idOnly ? Number(account.id) === Number(value) : [account.id, account.accountCode, account.accountName, `${account.accountCode} - ${account.accountName}`].some((option) => norm(option) === norm(value))));
-    if (matches.length !== 1) throw new Error(`${label}: choose a valid active COA account`);
-    return Number(matches[0].id);
+    if (!supplied(value)) throw new Error(`${label}: choose a valid active COA account`);
+    const activeAccounts = accounts.filter((account) => account.isActive !== false);
+
+    // Tier 1: Explicit Numeric ID Match (when idOnly is true)
+    if (idOnly && validId(value)) {
+      const idMatches = activeAccounts.filter((a) => Number(a.id) === Number(value));
+      if (idMatches.length === 1) return Number(idMatches[0].id);
+    }
+
+    const normVal = norm(value);
+
+    // Tier 2: Full Label Match ("accountCode - accountName" or "accountCode-accountName")
+    const labelMatches = activeAccounts.filter((a) =>
+      [
+        `${a.accountCode} - ${a.accountName}`,
+        `${a.accountCode}-${a.accountName}`,
+      ].some((opt) => norm(opt) === normVal)
+    );
+    if (labelMatches.length === 1) return Number(labelMatches[0].id);
+
+    // Tier 3: Account Code Match
+    const codeMatches = activeAccounts.filter((a) => norm(a.accountCode) === normVal);
+    if (codeMatches.length === 1) return Number(codeMatches[0].id);
+
+    // Tier 4: Account Name Match
+    const nameMatches = activeAccounts.filter((a) => norm(a.accountName) === normVal);
+    if (nameMatches.length === 1) return Number(nameMatches[0].id);
+
+    // Tier 5: Account ID Fallback
+    if (validId(value)) {
+      const idMatches = activeAccounts.filter((a) => Number(a.id) === Number(value));
+      if (idMatches.length === 1) return Number(idMatches[0].id);
+    }
+
+    throw new Error(`${label}: choose a valid active COA account`);
   };
   const resolveField = (id: unknown, fallback: unknown, label: string, required = false) =>
     resolve(supplied(id) ? id : fallback, label, required, supplied(id));

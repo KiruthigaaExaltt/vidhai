@@ -1300,12 +1300,14 @@ async function insertImportJournal(tx: any, org: number, b: any, userId?: number
 function resolveAccountOption(accounts: any[], value: any) {
   const key = norm(value);
   if (!key) return null;
-  return accounts.find((account: any) =>
-    norm(account.id) === key ||
-    norm(account.accountName) === key ||
-    norm(account.accountCode) === key ||
-    norm(accountLabel(account)) === key
-  ) || null;
+  const activeAccounts = accounts.filter((account: any) => account.isActive !== false);
+  return (
+    activeAccounts.find((a: any) => norm(`${a.accountCode} - ${a.accountName}`) === key || norm(`${a.accountCode}-${a.accountName}`) === key) ||
+    activeAccounts.find((a: any) => norm(a.accountCode) === key) ||
+    activeAccounts.find((a: any) => norm(a.accountName) === key) ||
+    activeAccounts.find((a: any) => norm(a.id) === key) ||
+    null
+  );
 }
 async function exportPartyRows(kind: "ap" | "ar", query: any) {
   const table = kind === "ap" ? accountsPayableTable : accountsReceivableTable;
