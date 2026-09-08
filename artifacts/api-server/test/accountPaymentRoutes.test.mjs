@@ -83,7 +83,7 @@ function fixture(snapshot) {
   }
   return { call, rows, reload: () => fixture(data), fail: (name) => { failTable = name; }, decorate: module.exports.decorateHistoryLines, post: module.exports.postJournal };
 }
-const input = { bankCashAccountId: 100, amount: "100", transactionDate: "2026-09-07", reference: "INV-1", clientId: 7, paymentMethod: "UPI", notes: "Payment note", period: "Sep", bankCharges: "5", transactionFees: "2" };
+const input = { bankCashAccountId: 100, amount: "100", transactionDate: "2026-09-07", reference: "INV-1", creditName: "Client A", debitName: "Client A", clientId: 7, paymentMethod: "UPI", notes: "Payment note", period: "Sep", bankCharges: "5", transactionFees: "2" };
 
 test("INV-1001 settles with 3000 + 2000 + 5000, three journals and reloaded receipt history", async () => {
   const f = fixture();
@@ -145,7 +145,7 @@ test("legacy records and payload aliases remain readable and usable", async () =
   assert.equal(rows.find((row) => row.id === 20).bankCharges, 0);
   assert.equal(rows.find((row) => row.id === 21).paymentMethod, "UPI / NetBanking");
   for (const [dateKey, refKey] of [["entryDate", "referenceId"], ["date", "invoiceNumber"], ["paymentDate", "documentReference"]]) {
-    const result = await f.call("post", "/bank-cash-transactions", { type: "debit", fromChartOfAccount: "Custom Bank", amount: 1, [dateKey]: "2026-09-07", [refKey]: "DOC", paymentMode: "Cash", notes: "Alias" });
+    const result = await f.call("post", "/bank-cash-transactions", { type: "debit", debitName: "Client A", fromChartOfAccount: "Custom Bank", amount: 1, [dateKey]: "2026-09-07", [refKey]: "DOC", paymentMode: "Cash", notes: "Alias" });
     assert.equal(result.statusCode, 201);
     assert.equal(result.body.reference, "DOC");
     assert.equal(result.body.transactionDate, "2026-09-07");
@@ -164,14 +164,14 @@ test("new COA creation refreshes options; duplicate client names use IDs and exp
   assert.ok(!options.accounts.some((account) => account.id === 900));
   assert.ok(options.accounts.every((account) => account.lines === undefined && account.currentBalance === undefined && account.bankAccountNumber === undefined));
   assert.equal(options.clients.length, 2);
-  const result = await f.call("post", "/bank-cash-transactions", { ...input, clientId: 8 });
+  const result = await f.call("post", "/bank-cash-transactions", { ...input, creditName: "", clientId: 8 });
   assert.equal(result.body.clientId, 8);
 });
 
 test("invalid manual and Excel values are rejected without inserting payment rows", async () => {
   const f = fixture();
   f.rows("chartOfAccountsTable").push({ id: 900, organizationId: 1, accountCode: "9990", accountName: "Inactive", accountType: "Asset", isActive: false });
-  for (const patch of [{ bankCashAccountId: 900 }, { bankCashAccountId: 9999 }, { clientId: 9999 }, { clientId: 0 }, { amount: "bad" }, { amount: -1 }, { paymentMethod: "Other" }, { transactionDate: "2026-02-30" }, { bankCharges: -1 }, { transactionFees: "bad" }, { transactionFees: -1 }]) {
+  for (const patch of [{ bankCashAccountId: 900 }, { bankCashAccountId: 9999 }, { creditName: "Unknown Client" }, { clientId: 9999 }, { clientId: 0 }, { amount: "bad" }, { amount: -1 }, { paymentMethod: "Other" }, { transactionDate: "2026-02-30" }, { bankCharges: -1 }, { transactionFees: "bad" }, { transactionFees: -1 }]) {
     assert.equal((await f.call("post", "/bank-cash-transactions", { ...input, ...patch })).statusCode, 400);
     const imported = await f.call("post", "/bank-cash-transactions/import", { rows: [{ ...input, mode: "Credit", ...patch, rowNumber: 42 }] });
     assert.equal(imported.statusCode, 400);
@@ -206,7 +206,7 @@ test("create/read/export preserve all payment fields and options include new COA
   assert.equal(list.body[0].period, "Sep");
   assert.equal(list.body[0].notes, "Payment note");
   const exported = await f.call("get", "/bank-cash-transactions/export");
-  assert.equal(exported.body.rows[0]["Reference ID / Invoice Number"], "INV-1");
+  assert.equal(exported.body.rows[0].Reference, "INV-1");
   assert.equal(exported.body.rows[0].Notes, "Payment note");
   const options = await f.call("get", "/bank-cash-transactions/options", {}, {}, ["accounts.bank_cash.view"]);
   assert.ok(options.body.accounts.some((row) => row.id === 100));
@@ -383,4 +383,157 @@ test("option scopes use the calling module without bypassing normal Ledger prote
   assert.equal(resolve("/party-options", "ar"), "accounts.accounts_receivable");
   assert.equal(resolve("/import-options", "unknown"), "accounts.finance_dashboard");
   assert.equal(resolve("/payment-accounts"), "accounts.finance_dashboard");
+});
+
+test("GET /api/accounts/coa and GET /api/accounts/dashboard-summary return 200 without ReferenceError for clients", async () => {
+  const f = fixture();
+  f.rows("contactsTable").push({ id: 10, name: "Test Client", type: "client" });
+  f.rows("chartOfAccountsTable").push({ id: 100, accountCode: "1030", accountName: "Cash in Hand", accountType: "Asset", organizationId: 1, isActive: true });
+  f.rows("journalEntriesTable").push({ id: 1, organizationId: 1, sourceType: "Bank Cash Transaction", sourceId: 5, reference: "BC-1", metadata: { clientId: 10 } });
+  f.rows("journalLinesTable").push({ id: 1, organizationId: 1, journalEntryId: 1, accountId: 100, accountCode: "1030", accountName: "Cash in Hand", debit: 500, credit: 0 });
+
+  const coaRes = await f.call("get", "/coa");
+  assert.equal(coaRes.statusCode, 200);
+  assert.ok(Array.isArray(coaRes.body));
+
+  const dashRes = await f.call("get", "/dashboard-summary");
+  assert.equal(dashRes.statusCode, 200);
+});
+
+test("Bank & Cash transaction auto-generates reference when empty", async () => {
+  const f = fixture();
+  const res = await f.call("post", "/bank-cash-transactions", {
+    mode: "Credit",
+    bankCashAccountId: 100,
+    creditName: "Client A",
+    amount: "150",
+    transactionDate: "2026-09-08",
+    reference: ""
+  });
+  assert.equal(res.statusCode, 201);
+  assert.ok(res.body.reference.startsWith("BC-"));
+});
+
+test("Bank & Cash endpoints enforce mode-specific CRM requirements", async () => {
+  const f = fixture();
+  // Credit without Credit Name fails
+  const creditFail = await f.call("post", "/bank-cash-transactions", {
+    mode: "Credit",
+    bankCashAccountId: 100,
+    amount: "100",
+    transactionDate: "2026-09-08"
+  });
+  assert.equal(creditFail.statusCode, 400);
+
+  // Debit without Debit Name fails
+  const debitFail = await f.call("post", "/bank-cash-transactions", {
+    mode: "Debit",
+    bankCashAccountId: 100,
+    amount: "100",
+    transactionDate: "2026-09-08"
+  });
+  assert.equal(debitFail.statusCode, 400);
+
+  // Transfer with empty names succeeds
+  f.rows("chartOfAccountsTable").push({ id: 999, organizationId: 1, accountCode: "1098", accountName: "Bank B", accountType: "Asset", isActive: true });
+  const transferOk = await f.call("post", "/bank-cash-transactions", {
+    mode: "Transfer",
+    bankCashAccount: "Custom Bank",
+    transferToAccount: "Bank B",
+    amount: "200",
+    transactionDate: "2026-09-08"
+  });
+  assert.equal(transferOk.statusCode, 201);
+});
+
+
+
+for (const [label, creditContactId, debitContactId, legacyId] of [
+  ["both Aakash names", 1, 1, null], ["distinct names", 1, 7, null],
+  ["credit only", 1, null, null], ["debit only", null, 1, null],
+  ["neither name", null, null, null], ["legacy clientId", null, null, 1],
+]) {
+  test(`Transfer persists and reloads separate CRM names: ${label}`, async () => {
+    const f = fixture();
+    f.rows("contactsTable").push({ id: 1, type: "client", name: "Aakash" });
+    f.rows("chartOfAccountsTable").push({ id: 999, organizationId: 1, accountCode: "1098", accountName: "Bank B", accountType: "Asset", isActive: true });
+    const response = await f.call("post", "/bank-cash-transactions", JSON.parse(JSON.stringify({
+      mode: "Transfer", bankCashAccountId: 100, transferToAccountId: 999,
+      creditContactId: creditContactId ?? undefined, debitContactId: debitContactId ?? undefined,
+      clientId: legacyId ?? undefined, amount: 1200, transactionDate: "2026-09-08",
+      reference: "TRANSFER-REGRESSION", paymentMethod: "Bank Transfer", notes: "CRM transfer",
+    })));
+    assert.equal(response.statusCode, 201);
+    const stored = f.rows("bankCashTransactionsTable").find(row => row.id === response.body.id);
+    assert.equal(stored.creditContactId, creditContactId);
+    assert.equal(stored.debitContactId, debitContactId);
+    assert.equal(stored.clientId, creditContactId || debitContactId || legacyId);
+    const fresh = f.reload();
+    const approved = await fresh.call("post", "/bank-cash-transactions/:id/approve", {}, { id: stored.id });
+    assert.equal(approved.statusCode, 200);
+    const reloaded = fresh.reload();
+    const history = await reloaded.call("get", "/bank-cash-transactions");
+    const row = history.body.find(row => row.id === stored.id);
+    const creditName = creditContactId ? "Aakash" : "";
+    const debitName = debitContactId === 7 ? "Client A" : debitContactId ? "Aakash" : "";
+    assert.equal(row.creditContactId, creditContactId);
+    assert.equal(row.debitContactId, debitContactId);
+    assert.equal(row.creditContactName, creditName);
+    assert.equal(row.debitContactName, debitName);
+    if (legacyId) assert.equal(row.clientName, "Aakash");
+    assert.equal(row.paymentDate, "2026-09-08");
+    assert.equal(row.paymentMethod, "Bank Transfer");
+    const journal = reloaded.rows("journalEntriesTable").find(row => row.id === approved.body.journalEntryId);
+    assert.equal(journal.metadata.creditContactId, creditContactId);
+    assert.equal(journal.metadata.debitContactId, debitContactId);
+    assert.equal(journal.metadata.creditContactName, creditName);
+    assert.equal(journal.metadata.debitContactName, debitName);
+    const lines = reloaded.rows("journalLinesTable").filter(row => row.journalEntryId === journal.id);
+    assert.equal(lines.length, 2);
+    assert.equal(lines.find(row => row.accountId === 100).credit, 1200);
+    assert.equal(lines.find(row => row.accountId === 999).debit, 1200);
+    const accounts = [{ accountName: "Bank B", lines: [{ sourceType: "Bank Cash Transaction", metadata: journal.metadata, entryDate: journal.entryDate }] }];
+    reloaded.decorate(accounts, [], [], [], [], reloaded.rows("contactsTable"));
+    const line = accounts[0].lines[0];
+    assert.equal(line.creditContactName, creditName);
+    assert.equal(line.debitContactName, debitName);
+    assert.equal(line.partyName, [creditName && `Credit: ${creditName}`, debitName && `Debit: ${debitName}`].filter(Boolean).join("; ") || (legacyId ? "Aakash" : "N/A"));
+    assert.equal(line.paymentMethod, "Bank Transfer");
+    assert.equal(line.paymentDate, "2026-09-08");
+  });
+}
+
+test("real Mongo model serializes both Transfer contact IDs for insertion", async () => {
+  const compiled = await build({
+    stdin: { contents: 'export { modelFor } from "../../lib/db/src/query"; export { bankCashTransactionsTable } from "../../lib/db/src/schema/accounts";', resolveDir: fileURLToPath(new URL("..", import.meta.url)), loader: "ts" },
+    bundle: true, write: false, format: "cjs", platform: "node", packages: "external",
+  });
+  const module = { exports: {} };
+  new Function("require", "module", "exports", compiled.outputFiles[0].text)(createRequire(new URL("../../../lib/db/package.json", import.meta.url)), module, module.exports);
+  const Model = module.exports.modelFor(module.exports.bankCashTransactionsTable);
+  // Exercise real validation and serialization with isolated collection I/O.
+  const restores = [];
+  for (const field of Object.values(module.exports.bankCashTransactionsTable)) {
+    if (!field.reference) continue;
+    const collection = module.exports.modelFor(field.reference().table).collection;
+    const originalFind = collection.findOne;
+    collection.findOne = async filter => ({ id: filter.id });
+    restores.push(() => { collection.findOne = originalFind; });
+  }
+  const original = Model.collection.insertOne;
+  let inserted;
+  Model.collection.insertOne = async doc => { inserted = structuredClone(doc); return { acknowledged: true, insertedId: doc._id }; };
+  try {
+    const f = fixture();
+    f.rows("contactsTable").push({ id: 1, type: "client", name: "Aakash" });
+    f.rows("chartOfAccountsTable").push({ id: 999, organizationId: 1, accountCode: "1098", accountName: "Bank B", accountType: "Asset", isActive: true });
+    const result = await f.call("post", "/bank-cash-transactions", { mode: "Transfer", bankCashAccountId: 100, transferToAccountId: 999, creditContactId: 1, debitContactId: 1, amount: 1200, transactionDate: "2026-09-08" });
+    assert.equal(result.statusCode, 201);
+    await new Model(f.rows("bankCashTransactionsTable")[0]).save();
+    assert.equal(inserted.creditContactId, 1);
+    assert.equal(inserted.debitContactId, 1);
+    const reloaded = Model.hydrate(inserted).toObject();
+    assert.equal(reloaded.creditContactId, 1);
+    assert.equal(reloaded.debitContactId, 1);
+  } finally { Model.collection.insertOne = original; restores.reverse().forEach(restore => restore()); }
 });

@@ -93,7 +93,7 @@ const inr = (v: any) =>
   }).format(numberValue(v));
 type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal";
 const paymentMethods = ["Bank Transfer", "UPI", "Cheque", "Cash"];
-const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
+const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", creditContactId: "", debitContactId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
 export default function Accounts() {
   const { can } = useAuth();
   const { toast } = useToast();
@@ -249,7 +249,7 @@ export default function Accounts() {
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
-  const loadArDocuments = async (clientId?: string, mode?: string) => {
+const loadArDocuments = async (clientId?: string, mode?: string) => {
     if (!can("accounts.accounts_receivable.view")) return;
     const params = new URLSearchParams();
     if (clientId) params.set("clientId", clientId);
@@ -473,8 +473,8 @@ export default function Accounts() {
         ? [["c", "/coa"]]
         : []),
       ...(!fullCoa && !bankOptions &&
-        (can("accounts.accounts_receivable.edit") ||
-          can("accounts.accounts_payable.edit"))
+      (can("accounts.accounts_receivable.edit") ||
+        can("accounts.accounts_payable.edit"))
         ? [["paymentCoa", `/payment-accounts?context=${can("accounts.accounts_receivable.edit") ? "ar" : "ap"}`]]
         : []),
       // DISABLED: Masters module is not required for this phase
@@ -486,27 +486,27 @@ export default function Accounts() {
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
-          [
-            "j",
-            withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
-          ],
-        ]
+            [
+              "j",
+              withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
+            ],
+          ]
         : []),
       ...(can("accounts.accounts_payable.view")
         ? [
-          [
-            "ap",
-            withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
-          ],
-        ]
+            [
+              "ap",
+              withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
+            ],
+          ]
         : []),
       ...(can("accounts.accounts_receivable.view")
         ? [
-          [
-            "ar",
-            withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
-          ],
-        ]
+            [
+              "ar",
+              withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
+            ],
+          ]
         : []),
       ...(can("accounts.customer_ledger.view")
         ? [["cu", withListingDates("/customer-ledger")]]
@@ -635,8 +635,8 @@ export default function Accounts() {
     Math.max(
       0,
       numberValue(row.amount) -
-      numberValue(row.receivedAmount) -
-      numberValue(row.adjustedAmount),
+        numberValue(row.receivedAmount) -
+        numberValue(row.adjustedAmount),
     );
   const saveSettlement = async () => {
     if (!settlement) return;
@@ -645,8 +645,8 @@ export default function Accounts() {
     const remaining = Math.max(
       0,
       numberValue(settlement.row.amount) -
-      numberValue(settlement.row[field]) -
-      numberValue(settlement.row.adjustedAmount),
+        numberValue(settlement.row[field]) -
+        numberValue(settlement.row.adjustedAmount),
     );
     if (!(amount > 0) || amount > remaining + 0.009) {
       setError(
@@ -658,11 +658,15 @@ export default function Accounts() {
     setError("");
     try {
       if (settlement.kind === "ap") {
-        await api(`/ap/${settlement.row.id}/payment`, {
+        await flexApi("/vendor-payments", {
           method: "POST",
           body: JSON.stringify({
+            vendorName: settlement.row.vendorName,
+            invoiceReference: settlement.row.billNumber,
+            payableId: settlement.row.id,
             amount,
             settlementAccountId: Number(apSettlementAccountId),
+            recordImmediately: true,
             ...apPayment,
           }),
         });
@@ -688,8 +692,8 @@ export default function Accounts() {
     const balance = Math.max(
       0,
       numberValue(row.amount) -
-      numberValue(row[paidField]) -
-      numberValue(row.adjustedAmount),
+        numberValue(row[paidField]) -
+        numberValue(row.adjustedAmount),
     );
     setSettlement({ kind, row });
     setSettlementAmount(balance.toFixed(2));
@@ -830,7 +834,7 @@ export default function Accounts() {
     setError("");
     try {
       const type = (masters.transactionTypes || []).find((row: any) => String(row.id) === String(bankForm.transactionTypeId));
-      await api("/bank-cash-transactions", { method: "POST", body: JSON.stringify({ ...bankForm, transactionTypeName: bankForm.transactionTypeName || type?.name || "Bank/Cash Transaction", transactionTypeId: bankForm.transactionTypeId ? Number(bankForm.transactionTypeId) : undefined, bankCashAccountId: Number(bankForm.bankCashAccountId), transferToAccountId: bankForm.transferToAccountId ? Number(bankForm.transferToAccountId) : undefined, counterAccountId: bankForm.counterAccountId ? Number(bankForm.counterAccountId) : undefined, amount: numberValue(bankForm.amount), document: accountDocument }) });
+      await api("/bank-cash-transactions", { method: "POST", body: JSON.stringify({ ...bankForm, transactionTypeName: bankForm.transactionTypeName || type?.name || "Bank/Cash Transaction", transactionTypeId: bankForm.transactionTypeId ? Number(bankForm.transactionTypeId) : undefined, bankCashAccountId: Number(bankForm.bankCashAccountId), transferToAccountId: bankForm.transferToAccountId ? Number(bankForm.transferToAccountId) : undefined, counterAccountId: bankForm.counterAccountId ? Number(bankForm.counterAccountId) : undefined, creditContactId: bankForm.creditContactId ? Number(bankForm.creditContactId) : undefined, debitContactId: bankForm.debitContactId ? Number(bankForm.debitContactId) : undefined, clientId: bankForm.mode === "Credit" ? (bankForm.creditContactId ? Number(bankForm.creditContactId) : undefined) : bankForm.mode === "Debit" ? (bankForm.debitContactId ? Number(bankForm.debitContactId) : undefined) : undefined, amount: numberValue(bankForm.amount), document: accountDocument }) });
       setBankForm(emptyBankForm());
       setAccountDocument(null);
       await load();
@@ -914,9 +918,9 @@ export default function Accounts() {
       endpoint: "/bank-cash-transactions/import",
       exportEndpoint: "/bank-cash-transactions/export",
       exportQuery: "",
-      headers: ["Type *", "Account Name *", "Counter Account", "Amount *", "Payment Date *", "Reference ID / Invoice Number", "Notes", "Client Name", "Payment Method", "Period", "Bank Charges", "Transaction Fees"],
-      keys: ["mode", "bankCashAccount", "counterAccount", "amount", "transactionDate", "reference", "remarks", "clientName", "paymentMethod", "period", "bankCharges", "transactionFees"],
-      dropdowns: { 0: ["Credit", "Debit", "Transfer"], 1: "accounts", 2: "accounts", 7: "clients", 8: paymentMethods },
+      headers: ["Type *", "Account Name", "Counter Account", "Amount *", "Payment Date *", "Reference", "Notes", "Credit Name", "Debit Name", "Payment Method", "Period", "Bank Charges", "Transaction Fees"],
+      keys: ["mode", "bankCashAccount", "counterAccount", "amount", "transactionDate", "reference", "remarks", "creditName", "debitName", "paymentMethod", "period", "bankCharges", "transactionFees"],
+      dropdowns: { 0: ["Credit", "Debit", "Transfer"], 1: "accounts", 2: "accounts", 7: "clients", 8: "clients", 9: paymentMethods },
     },
     apBill: {
       title: "Pending Bills",
@@ -1335,17 +1339,17 @@ export default function Accounts() {
             onPageChange={(page) =>
               serverKey
                 ? setListPaging((current) => ({
-                  ...current,
-                  [serverKey]: { ...current[serverKey], page },
-                }))
+                    ...current,
+                    [serverKey]: { ...current[serverKey], page },
+                  }))
                 : clientPagination.setCurrentPage(page)
             }
             onPageSizeChange={(size) =>
               serverKey
                 ? setListPaging((current) => ({
-                  ...current,
-                  [serverKey]: { page: 1, size },
-                }))
+                    ...current,
+                    [serverKey]: { page: 1, size },
+                  }))
                 : clientPagination.setPageSize(size)
             }
             loading={loading}
@@ -1374,8 +1378,8 @@ export default function Accounts() {
           Math.max(
             0,
             numberValue(row.amount) -
-            numberValue(row.paidAmount) -
-            numberValue(row.adjustedAmount),
+              numberValue(row.paidAmount) -
+              numberValue(row.adjustedAmount),
           ),
         0,
       ),
@@ -1390,8 +1394,8 @@ export default function Accounts() {
             Math.max(
               0,
               numberValue(row.amount) -
-              numberValue(row.paidAmount) -
-              numberValue(row.adjustedAmount),
+                numberValue(row.paidAmount) -
+                numberValue(row.adjustedAmount),
             ),
           0,
         ),
@@ -1406,8 +1410,8 @@ export default function Accounts() {
             Math.max(
               0,
               numberValue(row.amount) -
-              numberValue(row.paidAmount) -
-              numberValue(row.adjustedAmount),
+                numberValue(row.paidAmount) -
+                numberValue(row.adjustedAmount),
             ),
           0,
         ),
@@ -1593,7 +1597,7 @@ export default function Accounts() {
               can={can}
             />
           </TabsContent>
-          <TabsContent value="customers" className="space-y-3">
+                    <TabsContent value="customers" className="space-y-3">
             {f(customers).map((customer) => {
               const key = String(customer.clientId || customer.clientName);
               const open = Boolean(expandedCustomers[key]);
@@ -1837,7 +1841,6 @@ export default function Accounts() {
                                             <th className="px-3 py-2 text-left">Payment Method</th>
                                             <th className="px-3 py-2 text-left">Notes</th>
                                             <th className="px-3 py-2 text-left">Description</th>
-                                            <th className="px-3 py-2 text-left">Created By</th>
                                             <th className="px-3 py-2 text-right">Debit Amount</th>
                                             <th className="px-3 py-2 text-right">Credit Amount</th>
                                             <th className="px-3 py-2 text-right">Running Balance (₹)</th>
@@ -1866,9 +1869,6 @@ export default function Accounts() {
                                               <td className="px-3 py-1.5">{line.notes || "—"}</td>
                                               <td className="px-3 py-1.5 text-muted-foreground">
                                                 {line.description || "—"}
-                                              </td>
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                                                {line.createdByUserId || "System"}
                                               </td>
                                               <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold">
                                                 {line.debit ? inr(line.debit) : "—"}
@@ -1900,17 +1900,43 @@ export default function Accounts() {
           <TabsContent value="bankcash" className="space-y-3">
             <Card className="rounded-md border bg-white shadow-sm">
               <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-5">
-                <select className="h-10 rounded-md border px-3 text-sm" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value, transferToAccountId: "", counterAccountId: "" })}><option>Credit</option><option>Debit</option><option>Transfer</option></select>
-                <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                  <option value="">{bankForm.mode === "Transfer" ? "From Chart of Account" : "Chart of Account"}</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountName} — {a.accountCode}</option>)}
-                </select>
-                {bankForm.mode === "Transfer" && <select className="h-10 rounded-md border px-3 text-sm md:col-span-2" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}><option value="">Counter / To Chart of Account</option>{coa.map((a: any) => <option key={a.id} value={a.id}>{a.accountName} — {a.accountCode}</option>)}</select>}
-                <Input type="number" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
-                <Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
-                <Input placeholder="Reference (optional)" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} />
-                <Input placeholder="Remarks (optional)" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} />
-                <Button disabled={submitting || !bankForm.bankCashAccountId || !bankForm.amount || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+              <CardContent className="grid gap-4 md:grid-cols-12">
+                <label className="space-y-1 text-sm md:col-span-4">Transaction Type *<select aria-label="Credit/Debit/Transfer" className="h-10 w-full rounded-md border px-3" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value, creditContactId: "", debitContactId: "" })}><option>Credit</option><option>Debit</option><option>Transfer</option></select></label>
+                {bankForm.mode === "Transfer" ? (
+                  <>
+                    <label className="space-y-1 text-sm md:col-span-4">From Account *<select aria-label="From Account" className="h-10 w-full rounded-md border px-3" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
+                      <option value="">From Account *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                    </select></label>
+                    <label className="space-y-1 text-sm md:col-span-4">To Account *<select aria-label="To Account" className="h-10 w-full rounded-md border px-3" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}>
+                      <option value="">To Account *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                    </select></label>
+                    <label className="space-y-1 text-sm md:col-span-4">Credit Name (optional)<select className="h-10 w-full rounded-md border px-3" value={bankForm.creditContactId} onChange={(e) => setBankForm({ ...bankForm, creditContactId: e.target.value })}><option value="">Select CRM client (optional)</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                    <label className="space-y-1 text-sm md:col-span-4">Debit Name (optional)<select className="h-10 w-full rounded-md border px-3" value={bankForm.debitContactId} onChange={(e) => setBankForm({ ...bankForm, debitContactId: e.target.value })}><option value="">Select CRM client (optional)</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                  </>
+                ) : bankForm.mode === "Credit" ? (
+                  <>
+                    <label className="space-y-1 text-sm md:col-span-4">Account Name *<select aria-label="Account Name" className="h-10 w-full rounded-md border px-3" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
+                      <option value="">Account Name *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                    </select></label>
+                    <label className="space-y-1 text-sm md:col-span-4">Credit Name *<select className="h-10 w-full rounded-md border px-3" value={bankForm.creditContactId} onChange={(e) => setBankForm({ ...bankForm, creditContactId: e.target.value })}><option value="">Select CRM client *</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                  </>
+                ) : (
+                  <>
+                    <label className="space-y-1 text-sm md:col-span-4">Account Name *<select aria-label="Account Name" className="h-10 w-full rounded-md border px-3" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
+                      <option value="">Account Name *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
+                    </select></label>
+                    <label className="space-y-1 text-sm md:col-span-4">Debit Name *<select className="h-10 w-full rounded-md border px-3" value={bankForm.debitContactId} onChange={(e) => setBankForm({ ...bankForm, debitContactId: e.target.value })}><option value="">Select CRM client *</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                  </>
+                )}
+                <label className="space-y-1 text-sm md:col-span-3">Total Payment *<Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} /></label>
+                <label className="space-y-1 text-sm md:col-span-3">Payment Date *<Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} /></label>
+                <label className="space-y-1 text-sm md:col-span-3">Payment Method<select className="h-10 w-full rounded-md border px-3" value={bankForm.paymentMethod} onChange={(e) => setBankForm({ ...bankForm, paymentMethod: e.target.value })}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label>
+                <label className="space-y-1 text-sm md:col-span-3">Reference ID / Invoice Number<Input value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
+                <label className="space-y-1 text-sm md:col-span-3">Period (optional)<Input value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
+                <label className="space-y-1 text-sm md:col-span-3">Bank Charges (optional)<Input type="number" min="0" step="0.01" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
+                <label className="space-y-1 text-sm md:col-span-3">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
+                <label className="space-y-1 text-sm md:col-span-9">Notes<Input value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
+                <Button className="md:col-span-3" disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
             <div className="flex flex-wrap justify-end gap-2">
@@ -1918,7 +1944,11 @@ export default function Accounts() {
               {can("accounts.bank_cash.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("bankCash")} />}
             </div>
             <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
-              ["Payment Date", "transactionDate"], ["Client Name", "clientName"], ["Account Name", "accountName"], ["Payment Method", "paymentMethod"], ["Reference ID / Invoice Number", "reference"], ["Type", "transactionTypeName"], ["Credit/Debit", "mode"], ["Amount", "amount", inr], ["Period", "period"], ["Bank Charges", "bankCharges", inr], ["Transaction Fees (informational)", "transactionFees", inr], ["Status", "approvalStatus", statusBadge],
+              ["Payment Date", "transactionDate"], ["Party / Name", "clientName", (_: any, row: any) => row.mode === "Transfer"
+                ? (row.creditContactName || row.debitContactName
+                  ? <div>{row.creditContactName && <div>Credit: {row.creditContactName}</div>}{row.debitContactName && <div>Debit: {row.debitContactName}</div>}</div>
+                  : row.clientName || "—")
+                : row.creditContactName || row.debitContactName || row.clientName || "—"], ["Account Name", "accountName"], ["Payment Method", "paymentMethod", (value: any) => String(value || "").trim() || "—"], ["Reference ID / Invoice Number", "reference", (value: any) => String(value || "").trim() || "—"], ["Type", "transactionTypeName"], ["Credit/Debit", "mode"], ["Amount", "amount", inr], ["Period", "period", (value: any) => String(value || "").trim() || "—"], ["Bank Charges", "bankCharges", inr], ["Transaction Fees (informational)", "transactionFees", inr], ["Status", "approvalStatus", statusBadge],
               ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => setBankDecision({ row, remarks: "" })}>Reject</Button></div> : "—"],
               ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
               ["Notes", "remarks", (value: any) => String(value || "").trim() || "—"],
@@ -2001,8 +2031,8 @@ export default function Accounts() {
                             Math.max(
                               0,
                               numberValue(row.amount) -
-                              numberValue(row.paidAmount) -
-                              numberValue(row.adjustedAmount),
+                                numberValue(row.paidAmount) -
+                                numberValue(row.adjustedAmount),
                             ),
                           )}
                         </span>
@@ -2016,8 +2046,8 @@ export default function Accounts() {
                         const balance = Math.max(
                           0,
                           numberValue(row.amount) -
-                          numberValue(row.paidAmount) -
-                          numberValue(row.adjustedAmount),
+                            numberValue(row.paidAmount) -
+                            numberValue(row.adjustedAmount),
                         );
                         return (
                           <div className="flex items-center gap-2">
@@ -2223,7 +2253,7 @@ export default function Accounts() {
                           Math.max(
                             0,
                             numberValue(row.amount) -
-                            numberValue(row.adjustedAmount),
+                              numberValue(row.adjustedAmount),
                           ),
                         ),
                     ],
@@ -2432,7 +2462,7 @@ export default function Accounts() {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountName} — {a.accountCode}
+                            {a.accountCode} - {a.accountName}
                           </option>
                         ))}
                       </select>
@@ -2449,7 +2479,7 @@ export default function Accounts() {
                         <option value="">Select account</option>
                         {coa.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.accountName} — {a.accountCode}
+                            {a.accountCode} - {a.accountName}
                           </option>
                         ))}
                       </select>
@@ -2578,7 +2608,7 @@ export default function Accounts() {
                         <Input type="number" min="0" step="0.01" value={manual.adjustedAmount || ""} onChange={(e) => setManualField("adjustedAmount", e.target.value)} />
                       </div>
                     )}
-                    {manual.entryType === "Debit Note" && (
+{manual.entryType === "Debit Note" && (
                       <div className="space-y-1.5">
                         <Label>Account Name *</Label>
                         <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.coaAccountId || ""} onChange={(e) => setManualField("coaAccountId", e.target.value)}>
@@ -2836,8 +2866,8 @@ export default function Accounts() {
                         Math.max(
                           0,
                           numberValue(settlement.row.amount) -
-                          numberValue(settlement.row.paidAmount) -
-                          numberValue(settlement.row.adjustedAmount),
+                            numberValue(settlement.row.paidAmount) -
+                            numberValue(settlement.row.adjustedAmount),
                         ),
                       )}
                     </p>

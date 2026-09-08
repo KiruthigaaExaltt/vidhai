@@ -84,28 +84,29 @@ const crewPayScope = (req: any) =>
     ? "crewpay.payroll"
     : "crewpay.salary_slip";
 const accountsScope = (req: any) =>
-  segment(req.path) === "import-options"
-    ? null
-    : ({
-      coa: "accounts.chart_of_accounts",
-      "journal-entries": "accounts.journal_entries",
-      ap: "accounts.accounts_payable",
-      ar: "accounts.accounts_receivable",
-      reconcile: "accounts.journal_entries",
-      // DISABLED: Masters module is not required for this phase
-      // masters: "accounts.masters",
-      sources: "accounts.finance_dashboard",
-      // DISABLED: Opening Balances is handled through Bank & Cash.\r\n    // "opening-balances": "accounts.opening_balances",
-      "bank-cash-transactions": "accounts.bank_cash",
-      "bank-cash-accounts": "accounts.bank_cash",
-      files: "accounts.bank_cash",
-      tally: "accounts.tally",
-      "customer-ledger": "accounts.customer_ledger",
-      "vendor-ledger": "accounts.vendor_ledger",
-      "accounts-payable": "accounts.accounts_payable",
-      "accounts-receivable": "accounts.accounts_receivable",
-      "financial-statements": "accounts.financial_statements",
-    }[segment(req.path)] ?? "accounts.finance_dashboard");
+  ({
+    "payment-accounts": req.query.context === "ap" ? "accounts.accounts_payable" : req.query.context === "ar" ? "accounts.accounts_receivable" : "accounts.finance_dashboard",
+    "party-options": req.query.context === "ap" ? "accounts.accounts_payable" : req.query.context === "ar" ? "accounts.accounts_receivable" : "accounts.finance_dashboard",
+    "import-options": ({ ap: "accounts.accounts_payable", ar: "accounts.accounts_receivable", journal: "accounts.journal_entries" } as Record<string, string>)[String(req.query.context)] || "accounts.finance_dashboard",
+    coa: "accounts.chart_of_accounts",
+    "journal-entries": "accounts.journal_entries",
+    ap: "accounts.accounts_payable",
+    ar: "accounts.accounts_receivable",
+    reconcile: "accounts.journal_entries",
+    // DISABLED: Masters module is not required for this phase
+    // masters: "accounts.masters",
+    sources: "accounts.finance_dashboard",
+    // DISABLED: Opening Balances is handled through Bank & Cash.\r\n    // "opening-balances": "accounts.opening_balances",
+    "bank-cash-transactions": "accounts.bank_cash",
+    "bank-cash-accounts": "accounts.bank_cash",
+    files: "accounts.bank_cash",
+    tally: "accounts.tally",
+    "customer-ledger": "accounts.customer_ledger",
+    "vendor-ledger": "accounts.vendor_ledger",
+    "accounts-payable": "accounts.accounts_payable",
+    "accounts-receivable": "accounts.accounts_receivable",
+    "financial-statements": "accounts.financial_statements",
+  })[segment(req.path)] ?? "accounts.finance_dashboard";
 const router: IRouter = Router();
 router.use(healthRouter);
 router.use("/auth", authRouter);
