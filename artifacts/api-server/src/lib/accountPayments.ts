@@ -170,6 +170,17 @@ export function addBankChargeLines(lines: any[], entry: any, accounts: any[]) {
   }
   return [...combined.values()].filter((line) => line.debit > 0 || line.credit > 0);
 }
+export function buildBankChargeJournalLines(entry: any, accounts: any[]) {
+  const charges = paymentMoney(String(entry.bankCharges ?? 0), "Bank Charges", true);
+  if (!charges) return [];
+  if (entry.transactionTypeName === "Opening Balance") throw new Error("Bank Charges cannot be applied to an opening balance");
+  const chargeAccount = accounts.find((account) => account.accountCode === "5150" && account.isActive !== false);
+  if (!chargeAccount) throw new Error("The existing bank-charge COA account is not configured or active");
+  return [
+    { accountId: chargeAccount.id, debit: charges, credit: 0 },
+    { accountId: Number(entry.bankCashAccountId), debit: 0, credit: charges },
+  ];
+}
 export function bankCashExportRow(row: any) {
   return {
     "Type *": row.mode,

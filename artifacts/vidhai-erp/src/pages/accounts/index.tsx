@@ -1224,6 +1224,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     if (!accountImport || !file) return;
     setAccountImportFile(file.name);
     setAccountImportRows([]);
+    setError("");
     if (!/\.xlsx$/i.test(file.name)) {
       setError("Select an Excel .xlsx file");
       return;
@@ -1231,8 +1232,85 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const config = accountImportConfig[accountImport];
     const XLSX = await import("xlsx");
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    let sheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (accountImport === "apBill") {
+      const match = workbook.SheetNames.find((name) => {
+        const s = workbook.Sheets[name];
+        if (!s) return false;
+        const rows = XLSX.utils.sheet_to_json<any[]>(s, { header: 1, defval: "", raw: false });
+        return rows.some((row) => row.some((c) => /vendor/i.test(String(c))) && row.some((c) => /bill/i.test(String(c))));
+      }) || workbook.SheetNames.find((name) => /pending\s*bills|bills|payables/i.test(name)) || workbook.SheetNames[0];
+      sheet = workbook.Sheets[match];
+    } else if (accountImport === "arInvoice") {
+      const match = workbook.SheetNames.find((name) => {
+        const s = workbook.Sheets[name];
+        if (!s) return false;
+        const rows = XLSX.utils.sheet_to_json<any[]>(s, { header: 1, defval: "", raw: false });
+        return rows.some((row) => row.some((c) => /customer/i.test(String(c))) && row.some((c) => /invoice/i.test(String(c))));
+      }) || workbook.SheetNames.find((name) => /unpaid\s*invoices|pending\s*invoices|invoices|receivables/i.test(name)) || workbook.SheetNames[0];
+      sheet = workbook.Sheets[match];
+    }
     const data = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: "", raw: false });
+    if (accountImport === "bankCash") {
+      try {
+        const rows = parseBankCashSheet(data);
+        if (!rows.length) {
+          setError("The Excel worksheet contains no import rows");
+          setAccountImportRows([]);
+          return;
+        }
+        if (rows.length > 5000) {
+          setError("Maximum 5000 rows can be imported at once");
+          setAccountImportRows([]);
+          return;
+        }
+        setAccountImportRows(rows);
+      } catch (error: any) {
+        setError(error.message);
+        setAccountImportRows([]);
+      }
+      return;
+    }
+    if (accountImport === "arInvoice") {
+      try {
+        const rows = parseReceivableSheet(data);
+        if (!rows.length) {
+          setError("The Excel worksheet contains no import rows");
+          setAccountImportRows([]);
+          return;
+        }
+        if (rows.length > 5000) {
+          setError("Maximum 5000 rows can be imported at once");
+          setAccountImportRows([]);
+          return;
+        }
+        setAccountImportRows(rows);
+      } catch (error: any) {
+        setError(error.message);
+        setAccountImportRows([]);
+      }
+      return;
+    }
+    if (accountImport === "apBill") {
+      try {
+        const rows = parsePayableSheet(data);
+        if (!rows.length) {
+          setError("The Excel worksheet contains no import rows");
+          setAccountImportRows([]);
+          return;
+        }
+        if (rows.length > 5000) {
+          setError("Maximum 5000 rows can be imported at once");
+          setAccountImportRows([]);
+          return;
+        }
+        setAccountImportRows(rows);
+      } catch (error: any) {
+        setError(error.message);
+        setAccountImportRows([]);
+      }
+      return;
+    }
     const bodyRows = data.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
     if (!bodyRows.length) {
       setError("The Excel worksheet contains no import rows");
@@ -1240,21 +1318,6 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     }
     if (bodyRows.length > 5000) {
       setError("Maximum 5000 rows can be imported at once");
-      return;
-    }
-    if (accountImport === "bankCash") {
-      try { setAccountImportRows(parseBankCashSheet(data)); }
-      catch (error: any) { setError(error.message); }
-      return;
-    }
-    if (accountImport === "arInvoice") {
-      try { setAccountImportRows(parseReceivableSheet(data)); }
-      catch (error: any) { setError(error.message); setAccountImportRows([]); }
-      return;
-    }
-    if (accountImport === "apBill") {
-      try { setAccountImportRows(parsePayableSheet(data)); }
-      catch (error: any) { setError(error.message); setAccountImportRows([]); }
       return;
     }
     setAccountImportRows(bodyRows.map((row, index) => {
@@ -2314,15 +2377,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         <summary className="cursor-pointer whitespace-nowrap">{row.paymentHistory.length} receipts</summary>
                         <div className="mt-2 space-y-3 min-w-64">
                           {row.paymentHistory.map((payment: any) => <div key={payment.id} className="rounded border p-3 text-xs space-y-1">
-                            <p>Payment Date: {payment.paymentDate}</p>
-                            <p>Client Name: {payment.clientName}</p>
                             <p>From Account: {payment.fromAccountName || "—"}</p>
                             <p>To Account: {payment.toAccountName || payment.accountName || "—"}</p>
                             <p>Payment Method: {payment.paymentMethod || "—"}</p>
-                            <p>{payment.mode}: {inr(payment.amount)}</p>
-                            <p>Reference ID / Invoice Number: {payment.reference}</p>
-                            <p>Notes: {payment.notes || "—"}</p>
-                            {payment.period && <p>Period: {payment.period}</p>}
                             <p>Bank Charges: {inr(payment.bankCharges)}</p>
                             <p>Transaction Fees (informational): {inr(payment.transactionFees)}</p>
                           </div>)}
@@ -2440,7 +2497,13 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
               rows={f(journals)}
               cols={[
                 ["Date", "entryDate"],
-                ["Reference", "reference"],
+                ["Reference", "reference", (value: any, row: any) => {
+                  const docRef = row.metadata?.documentReference;
+                  if (docRef && value && !String(value).includes(docRef)) {
+                    return `${docRef} (${value})`;
+                  }
+                  return value || docRef || "—";
+                }],
                 ["Description", "description"],
                 ["Debit", "totalDebit", inr],
                 ["Credit", "totalCredit", inr],
@@ -2481,6 +2544,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                   <Label className="text-sm">Upload .xlsx file</Label>
                   <Input className="mt-2" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void parseAccountImportFile(event.target.files?.[0])} />
                   {accountImportFile && <p className="mt-2 text-xs text-muted-foreground">{accountImportFile} - {accountImportRows.length} row(s) ready</p>}
+                  {error && <div className="mt-2 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
                 </div>
               </div>
             )}

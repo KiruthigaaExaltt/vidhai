@@ -229,7 +229,7 @@ test("Credit, Debit and Transfer approval balance charges and retries do not rep
     assert.equal(lines.filter((line) => line.accountCode === "5150").reduce((sum, line) => sum + line.debit, 0), 5);
     assert.equal(Number(f.rows("chartOfAccountsTable").find((row) => row.id === 100).currentBalance), mode === "Credit" ? 95 : -105);
     await f.call("post", "/bank-cash-transactions/:id/approve", {}, params);
-    assert.equal(f.rows("journalEntriesTable").length, 1);
+    assert.equal(f.rows("journalEntriesTable").length, 2);
     assert.equal((await f.call("post", "/bank-cash-transactions/:id/reject", { remarks: "No" }, params)).statusCode, 409);
   }
 });
@@ -240,7 +240,7 @@ test("two transactions with the same document reference have distinct journals",
     await f.call("post", "/bank-cash-transactions/:id/approve", {}, { id: created.body.id });
   }
   const journals = f.rows("journalEntriesTable");
-  assert.equal(journals.length, 2);
+  assert.equal(journals.length, 4);
   assert.notEqual(journals[0].reference, journals[1].reference);
   assert.ok(journals.every((row) => row.metadata.documentReference === "INV-1"));
 });
@@ -337,7 +337,7 @@ test("multi-level approval retains its order and posting failure can be retried"
   assert.equal(f.rows("journalEntriesTable").length, 0);
   f.fail("");
   assert.equal((await f.call("post", "/bank-cash-transactions/:id/approve", {}, params, ["*"], 1, {}, 2)).body.approvalStatus, "Approved");
-  assert.equal(f.rows("journalEntriesTable").length, 1);
+  assert.equal(f.rows("journalEntriesTable").length, 2);
 });
 test("existing AP, AR, debit/credit note and journal imports and exports still work", async () => {
   const f = fixture();
@@ -536,4 +536,127 @@ test("real Mongo model serializes both Transfer contact IDs for insertion", asyn
     assert.equal(reloaded.creditContactId, 1);
     assert.equal(reloaded.debitContactId, 1);
   } finally { Model.collection.insertOne = original; restores.reverse().forEach(restore => restore()); }
+});
+
+test("LIVE-BC-CHARGES-FINAL-001 scenario: ₹1,000 credit with ₹50 bank charges posts separate 5150 journal, both searchable", async () => {
+  const f = fixture();
+  f.rows("chartOfAccountsTable").push({ id: 38, organizationId: 1, accountCode: "31002", accountName: "Test Bank Account", accountType: "Asset", isActive: true, currentBalance: 0, openingBalance: 0 });
+  const txInput = {
+    bankCashAccountId: 38,
+    amount: "1000",
+    bankCharges: "50",
+    transactionDate: "2026-09-09",
+    reference: "LIVE-BC-CHARGES-FINAL-001",
+    creditName: "Client A",
+    debitName: "Client A",
+    clientId: 7,
+    paymentMethod: "UPI",
+    mode: "Credit",
+    remarks: "Final Bank Charges Test",
+  };
+  const created = await f.call("post", "/bank-cash-transactions", txInput);
+  assert.equal(created.statusCode, 201);
+  const approved = await f.call("post", "/bank-cash-transactions/:id/approve", {}, { id: created.body.id });
+  assert.equal(approved.statusCode, 200);
+
+  const journals = f.rows("journalEntriesTable");
+  assert.equal(journals.length, 2);
+
+  // 1. Main journal: full 1000 principal
+  const mainJournal = journals.find((j) => j.sourceType === "Bank Cash Transaction");
+  assert.ok(mainJournal);
+  assert.equal(mainJournal.totalDebit, 1000);
+  assert.equal(mainJournal.totalCredit, 1000);
+  assert.equal(mainJournal.entryDate, "2026-09-09");
+  assert.equal(mainJournal.voucherType, "Receipt");
+  assert.equal(mainJournal.metadata?.documentReference, "LIVE-BC-CHARGES-FINAL-001");
+  const mainLines = f.rows("journalLinesTable").filter((l) => l.journalEntryId === mainJournal.id);
+  assert.equal(mainLines.find((l) => Number(l.accountId) === 38)?.debit, 1000);
+  assert.equal(mainLines.find((l) => Number(l.accountId) === 38)?.credit, 0);
+
+  // 2. Separate Bank Charges journal: Dr 5150 ₹50, Cr 31002 ₹50
+  const chargeJournal = journals.find((j) => j.sourceType === "Bank Cash Transaction Charges");
+  assert.ok(chargeJournal);
+  assert.equal(chargeJournal.totalDebit, 50);
+  assert.equal(chargeJournal.totalCredit, 50);
+  assert.equal(chargeJournal.entryDate, "2026-09-09");
+  assert.equal(chargeJournal.voucherType, "Payment");
+  assert.equal(chargeJournal.metadata?.documentReference, "LIVE-BC-CHARGES-FINAL-001");
+  assert.equal(chargeJournal.metadata?.isBankChargeEntry, true);
+  const chargeLines = f.rows("journalLinesTable").filter((l) => l.journalEntryId === chargeJournal.id);
+  assert.equal(chargeLines.find((l) => l.accountCode === "5150")?.debit, 50);
+  assert.equal(chargeLines.find((l) => l.accountCode === "5150")?.credit, 0);
+  assert.equal(chargeLines.find((l) => Number(l.accountId) === 38)?.debit, 0);
+  assert.equal(chargeLines.find((l) => Number(l.accountId) === 38)?.credit, 50);
+
+  // 3. Search Journal Entries by reference returns both journals
+  const searchRes = await f.call("get", "/journal-entries", {}, {}, ["*"], 1, { search: "LIVE-BC-CHARGES-FINAL-001" });
+  assert.equal(searchRes.statusCode, 200);
+  assert.equal(searchRes.body.items.length, 2);
+  const searchRefs = searchRes.body.items.map((item) => item.reference);
+  assert.ok(searchRefs.some((r) => r.includes("LIVE-BC-CHARGES-FINAL-001") && r.includes("AUTO:BANKCASH:1")));
+  assert.ok(searchRefs.some((r) => r.includes("LIVE-BC-CHARGES-FINAL-001") && r.includes("AUTO:BANKCASH:CHARGES:1")));
+});
+
+test("reconcileBankCashCharges splits legacy combined bank charges journal into separate balanced entries", async () => {
+  const f = fixture();
+  f.rows("chartOfAccountsTable").push({ id: 38, organizationId: 1, accountCode: "31002", accountName: "Test Bank Account", accountType: "Asset", isActive: true, currentBalance: 950, openingBalance: 0 });
+  f.rows("chartOfAccountsTable").push({ id: 102, organizationId: 1, accountCode: "5150", accountName: "Bank Charges", accountType: "Expense", isActive: true, currentBalance: 50, openingBalance: 0 });
+  const chargeAccount = f.rows("chartOfAccountsTable").find((a) => a.accountCode === "5150");
+
+  f.rows("bankCashTransactionsTable").push({
+    id: 25,
+    organizationId: 1,
+    transactionDate: "2026-09-09",
+    reference: "LIVE-BC-CHARGES-FINAL-001",
+    mode: "Credit",
+    amount: 1000,
+    bankCharges: 50,
+    transactionFees: 0,
+    bankCashAccountId: 38,
+    approvalStatus: "Approved",
+    status: "Approved",
+    journalEntryId: 42,
+  });
+
+  f.rows("journalEntriesTable").push({
+    id: 42,
+    organizationId: 1,
+    entryDate: "2026-09-09",
+    reference: "AUTO:BANKCASH:1:25",
+    description: "Bank/Cash Transaction - Test Bank Account",
+    sourceType: "Bank Cash Transaction",
+    sourceId: 25,
+    voucherType: "Receipt",
+    totalDebit: 1000,
+    totalCredit: 1000,
+    metadata: {
+      bankCashTransactionId: 25,
+      documentReference: "LIVE-BC-CHARGES-FINAL-001",
+      bankCharges: 50,
+    },
+  });
+
+  f.rows("journalLinesTable").push(
+    { id: 89, organizationId: 1, journalEntryId: 42, accountId: 38, accountCode: "31002", accountName: "Test Bank Account", debit: 950, credit: 0 },
+    { id: 90, organizationId: 1, journalEntryId: 42, accountId: 100, accountCode: "3000", accountName: "Capital", debit: 0, credit: 1000 },
+    { id: 91, organizationId: 1, journalEntryId: 42, accountId: chargeAccount.id, accountCode: "5150", accountName: "Bank Charges", debit: 50, credit: 0 },
+  );
+
+  const searchRes = await f.call("get", "/journal-entries", {}, {}, ["*"], 1, { search: "LIVE-BC-CHARGES-FINAL-001" });
+  assert.equal(searchRes.statusCode, 200);
+  assert.equal(searchRes.body.items.length, 2);
+
+  const lines42 = f.rows("journalLinesTable").filter((l) => l.journalEntryId === 42);
+  assert.equal(lines42.length, 2);
+  assert.equal(lines42.find((l) => Number(l.accountId) === 38)?.debit, 1000);
+  assert.equal(lines42.find((l) => l.accountCode === "5150"), undefined);
+
+  const chargeJournal = f.rows("journalEntriesTable").find((j) => j.sourceType === "Bank Cash Transaction Charges");
+  assert.ok(chargeJournal);
+  assert.equal(chargeJournal.totalDebit, 50);
+  assert.equal(chargeJournal.totalCredit, 50);
+  const chargeLines = f.rows("journalLinesTable").filter((l) => l.journalEntryId === chargeJournal.id);
+  assert.equal(chargeLines.find((l) => l.accountCode === "5150")?.debit, 50);
+  assert.equal(chargeLines.find((l) => Number(l.accountId) === 38)?.credit, 50);
 });

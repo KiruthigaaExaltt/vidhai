@@ -132,7 +132,16 @@ test("three partial disbursements retain dates, direction, history, vendor ledge
   assert.equal(record.outstanding, 0);
   const coa = await fresh.call("get", "/coa");
   assert.equal(coa.body.find(row => row.id === 100).payablePaymentEvents.length, 3);
-  assert.equal(coa.body.find(row => row.id === body.toAccountId).payablePaymentEvents.length, 3);
+  const apCoa = coa.body.find(row => row.id === body.toAccountId);
+  assert.equal(apCoa.payablePaymentEvents.length, 3);
+  assert.equal(apCoa.lines.length, 4);
+  const billLine = apCoa.lines.find(l => l.credit === 10000);
+  assert.ok(billLine, "Bill credit line exists");
+  assert.equal(billLine.debit, 0);
+  const paymentLines = apCoa.lines.filter(l => l.debit > 0);
+  assert.equal(paymentLines.length, 3);
+  assert.deepEqual(paymentLines.map(l => l.debit), [3000, 2000, 5000]);
+  assert.equal(apCoa.lines[apCoa.lines.length - 1].runningBalance, 0);
   assert.equal(f.rows("journalEntriesTable").length, 3);
 });
 
@@ -316,3 +325,236 @@ test("manual vendor ledger does not borrow Purchase events with colliding source
   const result = await f.call("get", "/vendor-ledger");
   assert.equal(result.body[0].records[0].payments.length, 0);
 });
+
+test("Account 2100 retains real AP payment journal lines for LIVE-AP-PARTIAL-003-P1/P2/P3 with preserved dates, debits, references, and no duplicate synthetic payment rows", async () => {
+  const {f} = await payableFixture();
+  const apAccount = f.rows("chartOfAccountsTable").find(row => row.accountCode === "2100");
+  const bankAccount = f.rows("chartOfAccountsTable").find(row => row.accountCode === "1099");
+
+  // Setup bill LIVE-AP-PARTIAL-003
+  f.rows("accountsPayableTable").push({
+    id: 8,
+    organizationId: 1,
+    sourceType: "Manual",
+    entryType: "Bill",
+    vendorId: 8,
+    vendorName: "Praneesh AP",
+    billNumber: "LIVE-AP-PARTIAL-003",
+    billDate: "2026-09-09",
+    dueDate: "2026-09-30",
+    amount: 10000,
+    paidAmount: 0,
+    adjustedAmount: 0,
+    approvalStatus: "Approved"
+  });
+
+  // 1. P1: 2026-09-09, Debit ₹3,000
+  const r1 = await f.call("post", "/ap/:id/payment", {
+    amount: 3000,
+    paymentDate: "2026-09-09",
+    fromAccountId: bankAccount.id,
+    toAccountId: apAccount.id,
+    reference: "LIVE-AP-PARTIAL-003-P1",
+    paymentId: "p1",
+    paymentMethod: "Bank Transfer",
+    notes: "Live AP Partial Payment 3000"
+  }, { id: 8 });
+  assert.equal(r1.statusCode, 201);
+
+  // 2. P2: 2026-09-03, Debit ₹2,000
+  const r2 = await f.call("post", "/ap/:id/payment", {
+    amount: 2000,
+    paymentDate: "2026-09-03",
+    fromAccountId: bankAccount.id,
+    toAccountId: apAccount.id,
+    reference: "LIVE-AP-PARTIAL-003-P2",
+    paymentId: "p2",
+    paymentMethod: "Bank Transfer",
+    notes: "Live AP Partial Payment 2000"
+  }, { id: 8 });
+  assert.equal(r2.statusCode, 201);
+
+  // 3. P3: 2026-09-04, Debit ₹5,000
+  const r3 = await f.call("post", "/ap/:id/payment", {
+    amount: 5000,
+    paymentDate: "2026-09-04",
+    fromAccountId: bankAccount.id,
+    toAccountId: apAccount.id,
+    reference: "LIVE-AP-PARTIAL-003-P3",
+    paymentId: "p3",
+    paymentMethod: "Bank Transfer",
+    notes: "Live AP Partial Payment 5000"
+  }, { id: 8 });
+  assert.equal(r3.statusCode, 201);
+
+  // Check GET /coa
+  const fresh = f.reload();
+  const coaRes = await fresh.call("get", "/coa");
+  const ap = coaRes.body.find(row => row.accountCode === "2100");
+  assert.ok(ap, "Account 2100 exists in COA");
+
+  const targetLines = ap.lines.filter(l =>
+    String(l.reference || "").includes("LIVE-AP-PARTIAL-003") ||
+    String(l.referenceId || "").includes("LIVE-AP-PARTIAL-003") ||
+    String(l.metadata?.documentReference || "").includes("LIVE-AP-PARTIAL-003")
+  );
+
+  // Must have 4 lines: 1 bill credit + 3 payment debits
+  assert.equal(targetLines.length, 4, `Expected 4 target lines, got ${targetLines.length}`);
+
+  const p2 = targetLines.find(l => (l.referenceId || l.reference || "").includes("LIVE-AP-PARTIAL-003-P2"));
+  assert.ok(p2, "LIVE-AP-PARTIAL-003-P2 appears in ledger movement");
+  assert.equal(p2.debit, 2000);
+  assert.equal(p2.credit, 0);
+  assert.equal(p2.paymentDate || p2.date, "2026-09-03");
+  assert.equal(p2.partyName, "Praneesh AP");
+  assert.equal(p2.source, "Payables");
+  assert.equal(p2.paymentMethod, "Bank Transfer");
+
+  const p3 = targetLines.find(l => (l.referenceId || l.reference || "").includes("LIVE-AP-PARTIAL-003-P3"));
+  assert.ok(p3, "LIVE-AP-PARTIAL-003-P3 appears in ledger movement");
+  assert.equal(p3.debit, 5000);
+  assert.equal(p3.credit, 0);
+  assert.equal(p3.paymentDate || p3.date, "2026-09-04");
+  assert.equal(p3.partyName, "Praneesh AP");
+  assert.equal(p3.source, "Payables");
+  assert.equal(p3.paymentMethod, "Bank Transfer");
+
+  const p1 = targetLines.find(l => (l.referenceId || l.reference || "").includes("LIVE-AP-PARTIAL-003-P1"));
+  assert.ok(p1, "LIVE-AP-PARTIAL-003-P1 appears in ledger movement");
+  assert.equal(p1.debit, 3000);
+  assert.equal(p1.credit, 0);
+  assert.equal(p1.paymentDate || p1.date, "2026-09-09");
+  assert.equal(p1.partyName, "Praneesh AP");
+  assert.equal(p1.source, "Payables");
+  assert.equal(p1.paymentMethod, "Bank Transfer");
+
+  const bill = targetLines.find(l => l.credit === 10000);
+  assert.ok(bill, "Bill credit line appears in ledger movement");
+  assert.equal(bill.debit, 0);
+  assert.equal(bill.partyName, "Praneesh AP");
+  assert.equal(bill.source, "Payables");
+
+  // No duplicate synthetic payments
+  const syntheticPayments = targetLines.filter(l => l.id && String(l.id).startsWith("ap-hist-pay"));
+  assert.equal(syntheticPayments.length, 0, "No duplicate synthetic payment rows created");
+});
+
+test("Payables Excel import parses 10-column file, validates, imports LIVE-AP-EXCEL-FINAL-001, posts Dr 2100 / Cr 31002, and protects against duplicates", async () => {
+  const f = fixture();
+  await f.call("get", "/coa");
+  f.rows("contactsTable").push({ id: 2, type: "vendor", name: "Praneesh AP", contactCode: "V2" });
+  f.rows("chartOfAccountsTable").push(
+    { id: 38, organizationId: 1, accountCode: "31002", accountName: "Test Bank Account", accountType: "Asset", isActive: true, currentBalance: 0, openingBalance: 0 }
+  );
+
+  const rawSheetData = [
+    ["Vendor *", "Bill Number *", "Bill Date *", "Due Date *", "Amount *", "Paid Amount", "Payment Date", "From Account", "To Account", "Notes"],
+    ["Praneesh AP", "LIVE-AP-EXCEL-FINAL-001", "2026-09-09", "2026-09-30", "5000", "5000", "2026-09-09", "31002 - Test Bank Account", "2100 - Accounts Payable", "Final AP Excel Test"]
+  ];
+
+  const parsed = parsePayableSheet(rawSheetData);
+  assert.equal(parsed.length, 1, "Parser returns exactly 1 row");
+  assert.equal(parsed[0].vendor, "Praneesh AP");
+  assert.equal(parsed[0].billNumber, "LIVE-AP-EXCEL-FINAL-001");
+  assert.equal(parsed[0].amount, "5000");
+  assert.equal(parsed[0].paidAmount, "5000");
+  assert.equal(parsed[0].fromAccount, "31002 - Test Bank Account");
+  assert.equal(parsed[0].toAccount, "2100 - Accounts Payable");
+
+  // Post import
+  const res = await f.call("post", "/ap/import", { rows: parsed });
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.created, 1);
+
+  // Verify created bill
+  const bills = f.rows("accountsPayableTable");
+  const bill = bills.find(b => b.billNumber === "LIVE-AP-EXCEL-FINAL-001");
+  assert.ok(bill, "Bill exists in database");
+  assert.equal(bill.vendorName, "Praneesh AP");
+  assert.equal(bill.amount, 5000);
+  assert.equal(bill.paidAmount, 5000);
+  assert.equal(bill.status, "Paid");
+
+  // Verify payment journal entry
+  const journals = f.rows("journalEntriesTable");
+  const apJournals = journals.filter(j =>
+    String(j.reference || "").includes("LIVE-AP-EXCEL-FINAL-001") ||
+    String(j.description || "").includes("LIVE-AP-EXCEL-FINAL-001") ||
+    String(j.metadata?.documentReference || "").includes("LIVE-AP-EXCEL-FINAL-001")
+  );
+  assert.equal(apJournals.length, 1, "Payment is posted exactly once in journal");
+  const pJournal = apJournals[0];
+  assert.equal(pJournal.entryDate, "2026-09-09");
+  assert.equal(pJournal.totalDebit, 5000);
+  assert.equal(pJournal.totalCredit, 5000);
+
+  const jLines = f.rows("journalLinesTable").filter(l => l.journalEntryId === pJournal.id);
+  assert.equal(jLines.length, 2);
+
+  const apAccount = f.rows("chartOfAccountsTable").find(a => a.accountCode === "2100");
+  const bankAccount = f.rows("chartOfAccountsTable").find(a => a.accountCode === "31002");
+
+  const drLine = jLines.find(l => l.accountId === apAccount.id);
+  assert.ok(drLine, "Dr Accounts Payable 2100 exists");
+  assert.equal(drLine.debit, 5000);
+  assert.equal(drLine.credit, 0);
+
+  const crLine = jLines.find(l => l.accountId === bankAccount.id);
+  assert.ok(crLine, "Cr Test Bank Account 31002 exists");
+  assert.equal(crLine.debit, 0);
+  assert.equal(crLine.credit, 5000);
+
+  // Duplicate import attempt must not duplicate payment or journal
+  const dupRes = await f.call("post", "/ap/import", { rows: parsed });
+  assert.equal(dupRes.statusCode, 400);
+  assert.match(dupRes.body.error, /already exists/i);
+
+  const journalsAfterDup = f.rows("journalEntriesTable").filter(j =>
+    String(j.reference || "").includes("LIVE-AP-EXCEL-FINAL-001") ||
+    String(j.description || "").includes("LIVE-AP-EXCEL-FINAL-001") ||
+    String(j.metadata?.documentReference || "").includes("LIVE-AP-EXCEL-FINAL-001")
+  );
+  assert.equal(journalsAfterDup.length, 1, "Duplicate import did not duplicate payment/journal");
+});
+
+test("legacy 8-column Payables Excel format still works without payment fields", async () => {
+  const f = fixture();
+  await f.call("get", "/coa");
+  f.rows("contactsTable").push({ id: 2, type: "vendor", name: "Praneesh AP", contactCode: "V2" });
+
+  const legacySheetData = [
+    ["Vendor *", "Bill Number *", "Bill Date *", "Due Date *", "Amount *", "Paid Amount", "Adjusted Amount", "Notes"],
+    ["Praneesh AP", "LEGACY-AP-BILL-001", "2026-09-01", "2026-09-20", "2500", "0", "0", "Legacy import test"]
+  ];
+
+  const parsed = parsePayableSheet(legacySheetData);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].billNumber, "LEGACY-AP-BILL-001");
+  assert.equal(parsed[0].paymentFieldsPresent, false);
+
+  const res = await f.call("post", "/ap/import", { rows: parsed });
+  assert.equal(res.statusCode, 201);
+
+  const bill = f.rows("accountsPayableTable").find(b => b.billNumber === "LEGACY-AP-BILL-001");
+  assert.ok(bill);
+  assert.equal(bill.amount, 2500);
+  assert.equal(bill.paidAmount, 0);
+  assert.equal(bill.status, "Pending");
+});
+
+test("parsePayableSheet handles formatted amounts with commas and currency symbols, slash/dash dates, and extra header spacing", async () => {
+  const rawSheetData = [
+    ["  Vendor * ", "Bill Number *  ", "Bill Date *", "Due Date *", " Amount * ", "Paid Amount ", "Payment Date", "From Account", "To Account", "Notes"],
+    ["Praneesh AP", "FMT-AP-BILL-001", "09/09/2026", "2026/09/30", "₹5,000.00", "5,000", "09-09-2026", "31002 - Test Bank Account", "2100 - Accounts Payable", "Formatted test"]
+  ];
+
+  const parsed = parsePayableSheet(rawSheetData);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].amount, "5000.00");
+  assert.equal(parsed[0].paidAmount, "5000");
+  assert.equal(parsed[0].billDate, "2026-09-09");
+  assert.equal(parsed[0].dueDate, "2026-09-30");
+  assert.equal(parsed[0].paymentDate, "2026-09-09");
+});
+

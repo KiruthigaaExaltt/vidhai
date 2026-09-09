@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addBankChargeLines, bankCashExportRow, paymentDetails, paymentMoney, prepareBankCash } from "../src/lib/accountPayments.ts";
+import { addBankChargeLines, bankCashExportRow, buildBankChargeJournalLines, paymentDetails, paymentMoney, prepareBankCash } from "../src/lib/accountPayments.ts";
 import { parseBankCashSheet } from "../../vidhai-erp/src/pages/accounts/bankCashImport.ts";
 
 const accounts = [
@@ -178,4 +178,23 @@ test("downloaded and exported Excel template generates exact 13-column headers i
     "Transaction Fees"
   ];
   assert.deepEqual(Object.keys(exported), expectedHeaders);
+});
+
+test("buildBankChargeJournalLines produces separate Dr 5150 Cr Bank lines, rejects opening balance, requires active 5150", () => {
+  assert.deepEqual(buildBankChargeJournalLines({ ...base, bankCharges: 0 }, accounts), []);
+  assert.deepEqual(buildBankChargeJournalLines({ ...base, bankCharges: "" }, accounts), []);
+
+  for (const mode of ["Credit", "Debit", "Transfer"]) {
+    const lines = buildBankChargeJournalLines({ ...base, mode, bankCashAccountId: 1, bankCharges: 50 }, accounts);
+    assert.deepEqual(lines, [
+      { accountId: 3, debit: 50, credit: 0 },
+      { accountId: 1, debit: 0, credit: 50 },
+    ]);
+    assert.equal(lines.reduce((s, l) => s + l.debit - l.credit, 0), 0);
+  }
+
+  assert.throws(() => buildBankChargeJournalLines({ ...base, transactionTypeName: "Opening Balance", bankCharges: 10 }, accounts), /Bank Charges cannot be applied to an opening balance/);
+
+  const noChargeAccounts = accounts.filter(a => a.accountCode !== "5150");
+  assert.throws(() => buildBankChargeJournalLines({ ...base, bankCharges: 10 }, noChargeAccounts), /The existing bank-charge COA account is not configured or active/);
 });

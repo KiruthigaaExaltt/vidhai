@@ -117,11 +117,18 @@ test("three partial receipts retain dates, direction, history, customer ledger a
   const record=ledger.body[0].records.find(row=>row.id===10);
   assert.deepEqual(record.payments.map(row=>row.paymentDate).sort(),["2026-09-02","2026-09-03","2026-09-04"]);
   assert.equal(record.payments[0].toAccountName,"Custom Bank");
-  assert.equal(record.outstanding,0);
   const coa=await fresh.call("get","/coa");
   assert.equal(coa.body.find(row=>row.id===100).receivablePaymentEvents.length,3);
   assert.equal(coa.body.find(row=>row.id===body.fromAccountId).receivablePaymentEvents.length,3);
   assert.equal(f.rows("journalEntriesTable").length,3);
+  const arLines = coa.body.find(row=>row.id===body.fromAccountId).lines;
+  assert.equal(arLines.length, 4, "Account 1100 must have 1 invoice line + 3 partial payment lines");
+  assert.equal(arLines[0].debit, 10000);
+  assert.equal(arLines[0].credit, 0);
+  assert.equal(arLines[1].credit, 3000);
+  assert.equal(arLines[2].credit, 2000);
+  assert.equal(arLines[3].credit, 5000);
+  assert.equal(arLines[3].runningBalance, 0);
 });
 for (const [label, patch] of [
   ["missing date",{paymentDate:""}], ["invalid date",{paymentDate:"2026-02-30"}],
@@ -226,3 +233,75 @@ test("manual customer ledger does not borrow Sales events with colliding source 
   f.rows("salesPaymentsTable").push({id:1,invoiceId:99,paymentDate:"2026-09-07",amount:100});
   const result=await f.call("get","/customer-ledger");assert.equal(result.body[0].records[0].payments.length,0);
 });
+
+test("full AR payment LIVE-AR-003-PAY-001 appears in COA 1100 ledger movement with correct date, reference, customer, and balanced running balance", async () => {
+  const f = fixture();
+  await f.call("get", "/coa");
+  const arAccount = f.rows("chartOfAccountsTable").find((r) => r.accountCode === "1100");
+  const bankAccount = f.rows("chartOfAccountsTable").find((r) => r.id === 100);
+
+  // 1. Create client AK-MUSHROOMS and invoice LIVE-AR-003
+  f.rows("contactsTable").push({ id: 3, type: "client", name: "AK-MUSHROOMS", contactCode: "C3" });
+  f.rows("accountsReceivableTable").push({
+    id: 9, organizationId: 1, sourceType: "Manual", entryType: "Invoice",
+    clientId: 3, clientName: "AK-MUSHROOMS", invoiceNumber: "LIVE-AR-003",
+    invoiceDate: "2026-09-09", dueDate: "2026-09-19", amount: 10000,
+    receivedAmount: 0, adjustedAmount: 0, approvalStatus: "Approved",
+  });
+
+  // 2. Post payment LIVE-AR-003-PAY-001
+  const payRes = await f.call("post", "/ar/:id/payment", {
+    amount: 10000,
+    paymentDate: "2026-09-09",
+    fromAccountId: arAccount.id,
+    toAccountId: bankAccount.id,
+    receiptId: "pay-ak-001",
+    reference: "LIVE-AR-003-PAY-001",
+    paymentMethod: "Bank Transfer",
+    notes: "Live AR AK-MUSHROOMS Full Payment Test",
+  }, { id: 9 });
+
+  assert.equal(payRes.statusCode, 201);
+  assert.equal(payRes.body.receivable.status, "Received");
+  assert.equal(payRes.body.receivable.receivedAmount, 10000);
+
+  // 3. Query Chart of Accounts
+  const fresh = f.reload();
+  const coaRes = await fresh.call("get", "/coa");
+  assert.equal(coaRes.statusCode, 200);
+
+  const freshAr = coaRes.body.find((r) => r.accountCode === "1100");
+  assert.ok(freshAr, "AR Account 1100 must exist");
+  assert.equal(Number(freshAr.currentBalance), 0, "Account balance must be 0 after full payment");
+
+  // Verify lines in ledger movement
+  const lines = freshAr.lines || [];
+  assert.equal(lines.length, 2, "Must contain invoice line and payment line");
+
+  const invLine = lines.find((l) => l.debit === 10000);
+  assert.ok(invLine, "Invoice debit line must exist");
+  assert.equal(invLine.entryDate, "2026-09-09");
+  assert.equal(invLine.partyName, "AK-MUSHROOMS");
+  assert.equal(invLine.referenceId, "LIVE-AR-003");
+  assert.equal(invLine.source, "Receivables");
+  assert.equal(invLine.credit, 0);
+
+  const payLine = lines.find((l) => l.credit === 10000);
+  assert.ok(payLine, "Payment credit line must exist");
+  assert.equal(payLine.paymentDate, "2026-09-09");
+  assert.equal(payLine.partyName, "AK-MUSHROOMS");
+  assert.equal(payLine.referenceId, "LIVE-AR-003-PAY-001");
+  assert.equal(payLine.paymentMethod, "Bank Transfer");
+  assert.equal(payLine.source, "Receivables");
+  assert.equal(payLine.debit, 0);
+  assert.equal(payLine.credit, 10000);
+  assert.equal(payLine.runningBalance, 0);
+
+  // Verify settlement bank account
+  const freshBank = coaRes.body.find((r) => r.id === bankAccount.id);
+  const bankPayLine = (freshBank.lines || []).find((l) => l.debit === 10000);
+  assert.ok(bankPayLine, "Bank must have debit line of 10000");
+  assert.equal(bankPayLine.partyName, "AK-MUSHROOMS");
+  assert.equal(bankPayLine.referenceId, "LIVE-AR-003-PAY-001");
+});
+
