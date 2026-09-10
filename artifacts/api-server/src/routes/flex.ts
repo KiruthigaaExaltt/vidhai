@@ -186,8 +186,8 @@ async function publishAccountsPayablePaymentNotification(
   const balance = Math.max(
     0,
     Number(bill.amount || 0) -
-      Number(bill.paidAmount || 0) -
-      Number(bill.adjustedAmount || 0),
+    Number(bill.paidAmount || 0) -
+    Number(bill.adjustedAmount || 0),
   );
   const fullyPaid = balance <= 0.005;
   await publishNotification({
@@ -590,13 +590,13 @@ router.get("/purchase-requests", requireAuth, async (req, res) => {
           Array.isArray(pr.lineItems) && pr.lineItems.length > 0
             ? pr.lineItems
             : [
-                {
-                  itemName: pr.itemName,
-                  description: "",
-                  quantity: Number(pr.quantity || 1),
-                  unit: pr.unit,
-                },
-              ],
+              {
+                itemName: pr.itemName,
+                description: "",
+                quantity: Number(pr.quantity || 1),
+                unit: pr.unit,
+              },
+            ],
         quantity: Number(pr.quantity || 1),
         unit: pr.unit,
         project: pr.project || "",
@@ -623,10 +623,10 @@ router.post("/purchase-requests", requireAuth, async (req, res) => {
   const selectedItemId = Number(req.body.itemId || 0);
   const [selectedItem] = selectedItemId
     ? await db
-        .select()
-        .from(materialsTable)
-        .where(eq(materialsTable.id, selectedItemId))
-        .limit(1)
+      .select()
+      .from(materialsTable)
+      .where(eq(materialsTable.id, selectedItemId))
+      .limit(1)
     : [null];
   if (selectedItemId && (!selectedItem || selectedItem.active === false)) {
     return res
@@ -684,16 +684,16 @@ router.post("/purchase-requests", requireAuth, async (req, res) => {
   const selectedDepartmentId = Number(req.body.departmentId || 0);
   const [selectedDepartment] = selectedDepartmentId
     ? await db
-        .select()
-        .from(departmentsTable)
-        .where(
-          and(
-            eq(departmentsTable.id, selectedDepartmentId),
-            eq(departmentsTable.organizationId, org),
-            eq(departmentsTable.status, "Active"),
-          ),
-        )
-        .limit(1)
+      .select()
+      .from(departmentsTable)
+      .where(
+        and(
+          eq(departmentsTable.id, selectedDepartmentId),
+          eq(departmentsTable.organizationId, org),
+          eq(departmentsTable.status, "Active"),
+        ),
+      )
+      .limit(1)
     : [null];
   if (selectedDepartmentId && !selectedDepartment) {
     return res
@@ -1068,8 +1068,8 @@ router.post("/purchase-orders", requireAuth, async (req, res) => {
     : [];
   const selectedItems = selectedItemIds.length
     ? (await db.select().from(materialsTable)).filter((item: any) =>
-        selectedItemIds.includes(Number(item.id)),
-      )
+      selectedItemIds.includes(Number(item.id)),
+    )
     : [];
   const items = String(
     selectedItems.length
@@ -1089,10 +1089,10 @@ router.post("/purchase-orders", requireAuth, async (req, res) => {
   const warehouseId = Number(req.body.warehouseId || 0);
   const [selectedWarehouse] = warehouseId
     ? await db
-        .select()
-        .from(inventoryLocationsTable)
-        .where(eq(inventoryLocationsTable.id, warehouseId))
-        .limit(1)
+      .select()
+      .from(inventoryLocationsTable)
+      .where(eq(inventoryLocationsTable.id, warehouseId))
+      .limit(1)
     : [null];
   const warehouse = String(
     selectedWarehouse?.locationName ?? req.body.warehouse ?? "",
@@ -1353,15 +1353,15 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
           g.receivedQuantity != null
             ? Number(g.receivedQuantity)
             : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-                (sum: number, line: any) => sum + Number(line.receivedQty || 0),
-                0,
-              ),
+              (sum: number, line: any) => sum + Number(line.receivedQty || 0),
+              0,
+            ),
         totalAmount: (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
           (sum: number, line: any) =>
             sum +
             Number(
               line.lineTotal ??
-                Number(line.receivedQty || 0) * Number(line.unitPrice || 0),
+              Number(line.receivedQty || 0) * Number(line.unitPrice || 0),
             ),
           0,
         ),
@@ -1369,23 +1369,23 @@ router.get("/goods-receipts", requireAuth, async (req, res) => {
           g.orderedQuantity != null
             ? Number(g.orderedQuantity)
             : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-                (sum: number, line: any) => sum + Number(line.orderedQty || 0),
-                0,
-              ),
+              (sum: number, line: any) => sum + Number(line.orderedQty || 0),
+              0,
+            ),
         remainingQuantity:
           g.remainingQuantity != null
             ? Number(g.remainingQuantity)
             : (Array.isArray(g.lineItems) ? g.lineItems : []).reduce(
-                (sum: number, line: any) =>
-                  sum +
-                  Math.max(
-                    0,
-                    Number(line.orderedQty || 0) -
-                      Number(line.alreadyReceived || 0) -
-                      Number(line.receivedQty || 0),
-                  ),
-                0,
-              ),
+              (sum: number, line: any) =>
+                sum +
+                Math.max(
+                  0,
+                  Number(line.orderedQty || 0) -
+                  Number(line.alreadyReceived || 0) -
+                  Number(line.receivedQty || 0),
+                ),
+              0,
+            ),
         status: mappedPurchaseOrderIds.some((purchaseOrderId: number) =>
           completedPurchaseOrderIds.has(purchaseOrderId),
         )
@@ -1510,15 +1510,15 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
     const numericId = Number(id);
     const [vendor] = Number.isFinite(numericId)
       ? await db
-          .select()
-          .from(contactsTable)
-          .where(
-            and(
-              eq(contactsTable.id, numericId),
-              eq(contactsTable.type, "vendor"),
-            ),
-          )
-          .limit(1)
+        .select()
+        .from(contactsTable)
+        .where(
+          and(
+            eq(contactsTable.id, numericId),
+            eq(contactsTable.type, "vendor"),
+          ),
+        )
+        .limit(1)
       : [null];
     if (!vendor)
       return res
@@ -1562,12 +1562,12 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
   const receiptLines: any[] = [];
   const priorManualReceipts = requestedLines.some((line: any) => line.externalReference)
     ? await db
-        .select({
-          lineItems: goodsReceiptsTable.lineItems,
-          status: goodsReceiptsTable.status,
-        })
-        .from(goodsReceiptsTable)
-        .where(eq(goodsReceiptsTable.organizationId, org))
+      .select({
+        lineItems: goodsReceiptsTable.lineItems,
+        status: goodsReceiptsTable.status,
+      })
+      .from(goodsReceiptsTable)
+      .where(eq(goodsReceiptsTable.organizationId, org))
     : [];
   const priorByPo = new Map<number, Map<string, number>>();
   for (const po of purchaseOrders) {
@@ -1584,10 +1584,10 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
     for (const receipt of prior as any[])
       for (const line of Array.isArray(receipt.lineItems)
         ? receipt.lineItems.filter(
-            (item: any) =>
-              Number(item.purchaseOrderId || receipt.purchaseOrderId) ===
-              Number(po.id),
-          )
+          (item: any) =>
+            Number(item.purchaseOrderId || receipt.purchaseOrderId) ===
+            Number(po.id),
+        )
         : [])
         priorByItem.set(
           keyOf(line),
@@ -1614,8 +1614,8 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
     const ordered = isManualItem
       ? null
       : (Array.isArray(po.lineItems) ? po.lineItems : []).find(
-          (line: any) => keyOf(line) === keyOf(requested),
-        );
+        (line: any) => keyOf(line) === keyOf(requested),
+      );
     if (!isManualItem && !ordered)
       return res
         .status(400)
@@ -1626,15 +1626,15 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       .toUpperCase();
     const priorExternalLines = externalReference
       ? priorManualReceipts.flatMap((receipt: any) =>
-          (Array.isArray(receipt.lineItems) ? receipt.lineItems : [])
-            .filter(
+        (Array.isArray(receipt.lineItems) ? receipt.lineItems : [])
+          .filter(
             (line: any) =>
               String(line.externalReference || "").trim().toUpperCase() ===
-                externalReference &&
+              externalReference &&
               line.externalVaultType === requested.externalVaultType,
           )
-            .map((line: any) => ({ ...line, receiptStatus: receipt.status })),
-        )
+          .map((line: any) => ({ ...line, receiptStatus: receipt.status })),
+      )
       : [];
     const priorExternalReceived = priorExternalLines.reduce(
       (sum: number, line: any) => sum + Number(line.receivedQty || 0),
@@ -1642,8 +1642,8 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
     );
     const priorExternalOrdered = priorExternalLines.length
       ? Math.max(
-          ...priorExternalLines.map((line: any) => Number(line.orderedQty || 0)),
-        )
+        ...priorExternalLines.map((line: any) => Number(line.orderedQty || 0)),
+      )
       : 0;
     if (
       priorExternalLines.some(
@@ -1683,10 +1683,10 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
         .json({ error: "A received line is not linked to an Inventory item" });
     let [material] = materialId
       ? await db
-          .select()
-          .from(materialsTable)
-          .where(eq(materialsTable.id, materialId))
-          .limit(1)
+        .select()
+        .from(materialsTable)
+        .where(eq(materialsTable.id, materialId))
+        .limit(1)
       : [];
     if (!material && isExternalVaultItem) {
       const specialName =
@@ -1786,11 +1786,11 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       ? "Complete"
       : "Partial"
     : receiptLines.every(
-          (line) =>
-            line.markComplete === true ||
-            Number(line.alreadyReceived || 0) + Number(line.receivedQty || 0) >=
-              Number(line.orderedQty || 0),
-        )
+      (line) =>
+        line.markComplete === true ||
+        Number(line.alreadyReceived || 0) + Number(line.receivedQty || 0) >=
+        Number(line.orderedQty || 0),
+    )
       ? "Complete"
       : "Partial";
 
@@ -1808,8 +1808,8 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
           line.markComplete === true
             ? 0
             : Number(line.orderedQty || 0) -
-                Number(line.alreadyReceived || 0) -
-                Number(line.receivedQty || 0),
+            Number(line.alreadyReceived || 0) -
+            Number(line.receivedQty || 0),
         ),
       0,
     );
@@ -1964,10 +1964,10 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
         .limit(1);
       const [category] = material?.categoryId
         ? await db
-            .select()
-            .from(inventoryCategoriesTable)
-            .where(eq(inventoryCategoriesTable.id, material.categoryId))
-            .limit(1)
+          .select()
+          .from(inventoryCategoriesTable)
+          .where(eq(inventoryCategoriesTable.id, material.categoryId))
+          .limit(1)
         : [];
       const isSpawn =
         line.externalVaultType === "spawn" ||
@@ -1982,10 +1982,10 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
         if (!existingPosting) {
           let [entry] = line.externalReference
             ? await db
-                .select()
-                .from(spawnEntriesTable)
-                .where(eq(spawnEntriesTable.sourceReference, line.externalReference))
-                .limit(1)
+              .select()
+              .from(spawnEntriesTable)
+              .where(eq(spawnEntriesTable.sourceReference, line.externalReference))
+              .limit(1)
             : [];
           const existingSpawnEntry = Boolean(entry);
           if (entry) {
@@ -2049,11 +2049,11 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
             .set({
               originalQuantityKg: String(
                 Number(existingSource.originalQuantityKg || 0) +
-                  Number(line.receivedQty || 0),
+                Number(line.receivedQty || 0),
               ),
               availableQuantityKg: String(
                 Number(existingSource.availableQuantityKg || 0) +
-                  Number(line.receivedQty || 0),
+                Number(line.receivedQty || 0),
               ),
               stockDate: receivedDate,
               origin: "external",
@@ -2128,7 +2128,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       for (const receipt of relatedReceipts as any[]) {
         const receiptPurchaseOrderIds =
           Array.isArray(receipt.purchaseOrderIds) &&
-          receipt.purchaseOrderIds.length
+            receipt.purchaseOrderIds.length
             ? receipt.purchaseOrderIds.map(Number).filter(Boolean)
             : receipt.purchaseOrderId
               ? [Number(receipt.purchaseOrderId)]
@@ -2159,7 +2159,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
               line.externalReference &&
               (line.markComplete === true ||
                 Number(line.alreadyReceived || 0) + Number(line.receivedQty || 0) >=
-                  Number(line.orderedQty || 0)),
+                Number(line.orderedQty || 0)),
           )
           .map((line) => String(line.externalReference).toUpperCase()),
       );
@@ -2289,7 +2289,7 @@ router.patch("/goods-receipts/:id", requireAuth, async (req, res) => {
     for (const receipt of relatedReceipts as any[]) {
       const receiptPurchaseOrderIds =
         Array.isArray(receipt.purchaseOrderIds) &&
-        receipt.purchaseOrderIds.length
+          receipt.purchaseOrderIds.length
           ? receipt.purchaseOrderIds.map(Number).filter(Boolean)
           : receipt.purchaseOrderId
             ? [Number(receipt.purchaseOrderId)]
@@ -2351,8 +2351,8 @@ function calculatePurchaseInvoiceMatchStatus(
   const isClose = (comparisonAmount: number) =>
     comparisonAmount > 0 &&
     Math.abs(invoiceAmount - comparisonAmount) /
-      Math.max(invoiceAmount, comparisonAmount) <=
-      0.05;
+    Math.max(invoiceAmount, comparisonAmount) <=
+    0.05;
   if (poAmount > 0 && grnAmount > 0) {
     if (poMatch && grnMatch) return "3-Way Match";
     if (poMatch || grnMatch) return "2-Way Match";
@@ -2472,13 +2472,13 @@ async function settleApprovedVendorPayment(
     .where(
       payableId
         ? and(
-            eq(accountsPayableTable.organizationId, org),
-            eq(accountsPayableTable.id, payableId),
-          )
+          eq(accountsPayableTable.organizationId, org),
+          eq(accountsPayableTable.id, payableId),
+        )
         : and(
-            eq(accountsPayableTable.organizationId, org),
-            eq(accountsPayableTable.billNumber, payment.invoiceReference),
-          ),
+          eq(accountsPayableTable.organizationId, org),
+          eq(accountsPayableTable.billNumber, payment.invoiceReference),
+        ),
     )
     .limit(1);
   if (!bill) throw new Error("Accounts Payable bill not found");
@@ -2492,8 +2492,8 @@ async function settleApprovedVendorPayment(
     throw new Error("Only approved AP bills can be paid");
   const outstanding = money(
     Number(bill.amount || 0) -
-      Number(bill.paidAmount || 0) -
-      Number(bill.adjustedAmount || 0),
+    Number(bill.paidAmount || 0) -
+    Number(bill.adjustedAmount || 0),
   );
   if (money(payment.amount) <= 0 || money(payment.amount) > outstanding + 0.005)
     throw new Error(
@@ -2719,20 +2719,20 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
 
   const purchaseOrders = poReferences.length
     ? (
-        await db
-          .select()
-          .from(purchaseOrdersTable)
-          .where(eq(purchaseOrdersTable.organizationId, org))
-      ).filter((order) => poReferences.includes(order.poNumber))
+      await db
+        .select()
+        .from(purchaseOrdersTable)
+        .where(eq(purchaseOrdersTable.organizationId, org))
+    ).filter((order) => poReferences.includes(order.poNumber))
     : [];
   const purchaseOrder = purchaseOrders[0];
   const goodsReceipts = grnReferences.length
     ? (
-        await db
-          .select()
-          .from(goodsReceiptsTable)
-          .where(eq(goodsReceiptsTable.organizationId, org))
-      ).filter((receipt) => grnReferences.includes(receipt.grnNumber))
+      await db
+        .select()
+        .from(goodsReceiptsTable)
+        .where(eq(goodsReceiptsTable.organizationId, org))
+    ).filter((receipt) => grnReferences.includes(receipt.grnNumber))
     : [];
   const goodsReceipt = goodsReceipts[0];
 
@@ -2779,17 +2779,17 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     purchaseOrder ||
     (goodsReceipt?.purchaseOrderId
       ? (
-          await db
-            .select()
-            .from(purchaseOrdersTable)
-            .where(
-              and(
-                eq(purchaseOrdersTable.organizationId, org),
-                eq(purchaseOrdersTable.id, goodsReceipt.purchaseOrderId),
-              ),
-            )
-            .limit(1)
-        )[0]
+        await db
+          .select()
+          .from(purchaseOrdersTable)
+          .where(
+            and(
+              eq(purchaseOrdersTable.organizationId, org),
+              eq(purchaseOrdersTable.id, goodsReceipt.purchaseOrderId),
+            ),
+          )
+          .limit(1)
+      )[0]
       : undefined);
   // Only an explicitly selected PO participates in matching. A GRN-linked PO is
   // retained for traceability, but GRN-only invoices remain a 2-way comparison.
@@ -2815,8 +2815,8 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
               sum +
               Number(
                 line.lineTotal ??
-                  line.total ??
-                  quantity * rate * (1 + taxPercent / 100),
+                line.total ??
+                quantity * rate * (1 + taxPercent / 100),
               )
             );
           },
@@ -2862,7 +2862,7 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
     (sum: number, line: any) =>
       sum +
       Number(line.qty ?? line.quantity ?? 0) *
-        Number(line.price ?? line.rate ?? 0),
+      Number(line.price ?? line.rate ?? 0),
     0,
   );
   const taxAmount = (key: "cgst" | "sgst" | "igst") =>
@@ -2901,9 +2901,9 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       goodsReceiptId: goodsReceipt?.id || null,
       vendorId: String(
         req.body.vendorId ??
-          linkedPurchaseOrder?.vendorId ??
-          goodsReceipt?.vendorId ??
-          "",
+        linkedPurchaseOrder?.vendorId ??
+        goodsReceipt?.vendorId ??
+        "",
       ),
       amount,
       taxableAmount,
@@ -2923,11 +2923,11 @@ router.post("/purchase-invoices", requireAuth, async (req, res) => {
       paymentDueDays: Number(req.body.paymentDueDays ?? 30),
       dueDate: String(
         req.body.dueDate ??
-          (() => {
-            const due = new Date(req.body.invoiceDate ?? new Date());
-            due.setDate(due.getDate() + Number(req.body.paymentDueDays ?? 30));
-            return due.toISOString().split("T")[0];
-          })(),
+        (() => {
+          const due = new Date(req.body.invoiceDate ?? new Date());
+          due.setDate(due.getDate() + Number(req.body.paymentDueDays ?? 30));
+          return due.toISOString().split("T")[0];
+        })(),
       ),
       status: String(req.body.status ?? "Unpaid"),
       notes: String(req.body.notes ?? ""),
@@ -3233,7 +3233,7 @@ router.get(
       completedPaymentsByInvoice.set(
         reference,
         (completedPaymentsByInvoice.get(reference) || 0) +
-          Number(payment.amount || 0),
+        Number(payment.amount || 0),
       );
     }
     const invoiceByNumber = new Map(
@@ -3269,7 +3269,7 @@ router.get(
       const overdue =
         covered < amount - 0.005 &&
         String(bill.dueDate).slice(0, 10) <
-          new Date().toISOString().slice(0, 10);
+        new Date().toISOString().slice(0, 10);
       const billStatus =
         covered >= amount - 0.005
           ? "Paid"
@@ -3399,7 +3399,7 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     .where(eq(vendorPaymentsTable.organizationId, org));
   const paymentNumber = String(
     req.body.paymentNumber ??
-      `PAY-${String(existingPayments.length + 1).padStart(6, "0")}`,
+    `PAY-${String(existingPayments.length + 1).padStart(6, "0")}`,
   ).trim();
   const vendorName = String(
     req.body.vendorName ?? req.body.vendor ?? "",
@@ -3434,13 +3434,13 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
     .limit(1);
   const billFilter = payableId
     ? and(
-        eq(accountsPayableTable.organizationId, org),
-        eq(accountsPayableTable.id, payableId),
-      )
+      eq(accountsPayableTable.organizationId, org),
+      eq(accountsPayableTable.id, payableId),
+    )
     : and(
-        eq(accountsPayableTable.organizationId, org),
-        eq(accountsPayableTable.billNumber, invoiceReference),
-      );
+      eq(accountsPayableTable.organizationId, org),
+      eq(accountsPayableTable.billNumber, invoiceReference),
+    );
   const [bill] = await db
     .select()
     .from(accountsPayableTable)
@@ -3468,8 +3468,8 @@ router.post("/vendor-payments", requireAuth, async (req, res) => {
   const outstanding = Math.max(
     0,
     Number(bill.amount || 0) -
-      Number(bill.paidAmount || 0) -
-      Number(bill.adjustedAmount || 0),
+    Number(bill.paidAmount || 0) -
+    Number(bill.adjustedAmount || 0),
   );
   const pendingAmount = req.body.recordImmediately === true
     ? 0
@@ -3732,7 +3732,7 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
     .where(eq(purchaseReturnsTable.organizationId, org));
   const returnNumber = String(
     req.body.returnNumber ??
-      `RET-${String(existingReturns.length + 1).padStart(6, "0")}`,
+    `RET-${String(existingReturns.length + 1).padStart(6, "0")}`,
   ).trim();
   const vendorName = String(
     req.body.vendorName ?? req.body.vendor ?? "",
@@ -3815,31 +3815,31 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
     ).trim();
     const linkedInvoice = requestedInvoiceReference
       ? (
+        await db
+          .select()
+          .from(purchaseInvoicesTable)
+          .where(
+            and(
+              eq(purchaseInvoicesTable.organizationId, org),
+              eq(
+                purchaseInvoicesTable.invoiceNumber,
+                requestedInvoiceReference,
+              ),
+            ),
+          )
+          .limit(1)
+      )[0]
+      : created.grnReference
+        ? (
           await db
             .select()
             .from(purchaseInvoicesTable)
-            .where(
-              and(
-                eq(purchaseInvoicesTable.organizationId, org),
-                eq(
-                  purchaseInvoicesTable.invoiceNumber,
-                  requestedInvoiceReference,
-                ),
-              ),
-            )
-            .limit(1)
-        )[0]
-      : created.grnReference
-        ? (
-            await db
-              .select()
-              .from(purchaseInvoicesTable)
-              .where(eq(purchaseInvoicesTable.organizationId, org))
-          ).find(
-            (invoice: any) =>
-              String(invoice.grnReference || "") ===
-              String(created.grnReference),
-          )
+            .where(eq(purchaseInvoicesTable.organizationId, org))
+        ).find(
+          (invoice: any) =>
+            String(invoice.grnReference || "") ===
+            String(created.grnReference),
+        )
         : undefined;
     const againstBillNumber = String(
       linkedInvoice?.invoiceNumber || requestedInvoiceReference,
@@ -3903,7 +3903,7 @@ router.post("/purchase-returns", requireAuth, async (req, res) => {
             status:
               (linkedInvoice.status === "Paid" ? invoiceAmount : 0) +
                 adjustedAmount >=
-              invoiceAmount
+                invoiceAmount
                 ? "Paid"
                 : adjustedAmount > 0
                   ? "Partial"
@@ -4025,12 +4025,12 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
       const material = Number(line.itemId)
         ? materials.find((item) => Number(item.id) === Number(line.itemId))
         : materials.find(
-            (item) =>
-              String(item.name).trim().toLowerCase() ===
-              String(line.item || line.description || "")
-                .trim()
-                .toLowerCase(),
-          );
+          (item) =>
+            String(item.name).trim().toLowerCase() ===
+            String(line.item || line.description || "")
+              .trim()
+              .toLowerCase(),
+        );
       const warehouse: any = warehouseByName.get(
         String(line.warehouse || "")
           .trim()
@@ -4106,15 +4106,15 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
     ).trim();
     const [linkedInvoice] = invoiceReference
       ? await db
-          .select()
-          .from(purchaseInvoicesTable)
-          .where(
-            and(
-              eq(purchaseInvoicesTable.organizationId, org),
-              eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
-            ),
-          )
-          .limit(1)
+        .select()
+        .from(purchaseInvoicesTable)
+        .where(
+          and(
+            eq(purchaseInvoicesTable.organizationId, org),
+            eq(purchaseInvoicesTable.invoiceNumber, invoiceReference),
+          ),
+        )
+        .limit(1)
       : [];
     const againstBillNumber = String(
       linkedInvoice?.invoiceNumber || invoiceReference,
@@ -4204,7 +4204,7 @@ router.patch("/purchase-returns/:id", requireAuth, async (req, res) => {
               })
               .returning();
             await postPurchaseReturnDebitNoteJournal(org, debitNote, userId);
-      await publishAccountsPayableEntryNotification(req, debitNote);
+            await publishAccountsPayableEntryNotification(req, debitNote);
           }
         } else {
           const outstanding = Math.max(

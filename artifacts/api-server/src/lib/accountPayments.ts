@@ -6,7 +6,7 @@ const validId = (value: unknown) => (typeof value === "string" || typeof value =
 export function paymentMoney(value: unknown, label: string, optional = false) {
   if (!supplied(value) && optional) return 0;
   if ((typeof value !== "string" && typeof value !== "number") ||
-      !/^\d*(?:\.\d+)?$/.test(String(value).trim()) || !supplied(value))
+    !/^\d*(?:\.\d+)?$/.test(String(value).trim()) || !supplied(value))
     throw new Error(`${label} must be a valid non-negative number`);
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount < 0 || !Number.isSafeInteger(Math.round(amount * 100)))

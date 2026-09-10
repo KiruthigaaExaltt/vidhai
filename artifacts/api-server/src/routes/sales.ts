@@ -143,10 +143,10 @@ async function salesLinesWithReservations(
         : 0,
       remainingQuantity: reservation
         ? Math.max(
-            0,
-            Number(reservation.orderedQuantity) -
-              Number(reservation.dispatchedQuantity),
-          )
+          0,
+          Number(reservation.orderedQuantity) -
+          Number(reservation.dispatchedQuantity),
+        )
         : Number(serialized.quantity || 0),
       reservationStatus: reservation?.status ?? null,
     };
@@ -159,9 +159,9 @@ function serializeProforma<T extends Record<string, any>>(row: T) {
     result[field] =
       Number(
         row[field]?.$numberDecimal ??
-          row[field]?.toString?.() ??
-          row[field] ??
-          0,
+        row[field]?.toString?.() ??
+        row[field] ??
+        0,
       ) || 0;
   return result as T;
 }
@@ -204,10 +204,10 @@ function proformaData(payload: any) {
     quoteId: payload.quoteId ? Number(payload.quoteId) : null,
     quoteIds: Array.isArray(payload.quoteIds)
       ? [
-          ...new Set(
-            payload.quoteIds.map(Number).filter((id: number) => id > 0),
-          ),
-        ]
+        ...new Set(
+          payload.quoteIds.map(Number).filter((id: number) => id > 0),
+        ),
+      ]
       : payload.quoteId
         ? [Number(payload.quoteId)]
         : [],
@@ -422,7 +422,7 @@ async function invoiceWithItems(doc: any) {
         returnedByInvoiceItem.set(
           invoiceItemId,
           (returnedByInvoiceItem.get(invoiceItemId) || 0) +
-            Number(returnedItem.returnedQty || 0),
+          Number(returnedItem.returnedQty || 0),
         );
     }
   }
@@ -525,8 +525,8 @@ async function publishAccountsReceivablePaymentNotification(
   const balance = Math.max(
     0,
     Number(receivable.amount || 0) -
-      Number(receivable.receivedAmount || 0) -
-      Number(receivable.adjustedAmount || 0),
+    Number(receivable.receivedAmount || 0) -
+    Number(receivable.adjustedAmount || 0),
   );
   const fullyPaid = balance <= 0.005;
   await publishNotification({
@@ -1759,9 +1759,9 @@ router.get("/approved-quotations", requireAuth, async (req, res) => {
     const quantity =
       Number(
         (row.quantityOnHand as any)?.$numberDecimal ??
-          (row.quantityOnHand as any)?.toString?.() ??
-          row.quantityOnHand ??
-          0,
+        (row.quantityOnHand as any)?.toString?.() ??
+        row.quantityOnHand ??
+        0,
       ) || 0;
     stock.set(
       Number(row.materialId),
@@ -1787,13 +1787,13 @@ router.get("/approved-quotations", requireAuth, async (req, res) => {
     const items =
       source === "Quotation"
         ? await db
-            .select()
-            .from(quotationItemsTable)
-            .where(eq(quotationItemsTable.quoteId, doc.id))
+          .select()
+          .from(quotationItemsTable)
+          .where(eq(quotationItemsTable.quoteId, doc.id))
         : await db
-            .select()
-            .from(proformaInvoiceItemsTable)
-            .where(eq(proformaInvoiceItemsTable.piId, doc.id));
+          .select()
+          .from(proformaInvoiceItemsTable)
+          .where(eq(proformaInvoiceItemsTable.piId, doc.id));
     const serializedItems = items.map(serializeQuotationItem);
     const insufficientItems = serializedItems
       .filter(
@@ -2041,10 +2041,10 @@ router.patch("/proforma-invoices/:id", requireAuth, async (req, res) => {
     await saveProformaItems(
       Number(doc.id),
       payload.items ||
-        (await db
-          .select()
-          .from(proformaInvoiceItemsTable)
-          .where(eq(proformaInvoiceItemsTable.piId, id))),
+      (await db
+        .select()
+        .from(proformaInvoiceItemsTable)
+        .where(eq(proformaInvoiceItemsTable.piId, id))),
     );
     const items = await db
       .select()
@@ -2115,10 +2115,10 @@ router.post("/proforma-invoices/:id/send", requireAuth, async (req, res) => {
     await saveProformaItems(
       Number(doc.id),
       payload.items ||
-        (await db
-          .select()
-          .from(proformaInvoiceItemsTable)
-          .where(eq(proformaInvoiceItemsTable.piId, id))),
+      (await db
+        .select()
+        .from(proformaInvoiceItemsTable)
+        .where(eq(proformaInvoiceItemsTable.piId, id))),
     );
     const items = await db
       .select()
@@ -2845,14 +2845,14 @@ router.get("/payments", requireAuth, async (req, res) => {
   const invoiceId = Number(req.query.invoiceId || 0);
   const rows = invoiceId
     ? await db
-        .select()
-        .from(salesPaymentsTable)
-        .where(eq(salesPaymentsTable.invoiceId, invoiceId))
-        .orderBy(desc(salesPaymentsTable.createdAt))
+      .select()
+      .from(salesPaymentsTable)
+      .where(eq(salesPaymentsTable.invoiceId, invoiceId))
+      .orderBy(desc(salesPaymentsTable.createdAt))
     : await db
-        .select()
-        .from(salesPaymentsTable)
-        .orderBy(desc(salesPaymentsTable.createdAt));
+      .select()
+      .from(salesPaymentsTable)
+      .orderBy(desc(salesPaymentsTable.createdAt));
   return res.json(
     rows.map((row) => ({
       ...row,
@@ -3038,22 +3038,22 @@ router.get("/receivable-adjustments", requireAuth, async (req, res) => {
   const invoiceId = Number(req.query.invoiceId || 0);
   const rows = invoiceId
     ? await db
-        .select()
-        .from(salesReceivableAdjustmentsTable)
-        .where(eq(salesReceivableAdjustmentsTable.invoiceId, invoiceId))
-        .orderBy(desc(salesReceivableAdjustmentsTable.createdAt))
+      .select()
+      .from(salesReceivableAdjustmentsTable)
+      .where(eq(salesReceivableAdjustmentsTable.invoiceId, invoiceId))
+      .orderBy(desc(salesReceivableAdjustmentsTable.createdAt))
     : await db
-        .select()
-        .from(salesReceivableAdjustmentsTable)
-        .orderBy(desc(salesReceivableAdjustmentsTable.createdAt));
+      .select()
+      .from(salesReceivableAdjustmentsTable)
+      .orderBy(desc(salesReceivableAdjustmentsTable.createdAt));
   return res.json(
     rows.map((row) => ({
       ...row,
       amount: Number(
         row.amount?.$numberDecimal ??
-          row.amount?.toString?.() ??
-          row.amount ??
-          0,
+        row.amount?.toString?.() ??
+        row.amount ??
+        0,
       ),
     })),
   );
@@ -3081,11 +3081,11 @@ router.post("/receivable-adjustments", requireAuth, async (req, res) => {
       amount >
       Number(
         invoice.balanceDue?.$numberDecimal ??
-          invoice.balanceDue?.toString?.() ??
-          invoice.balanceDue ??
-          0,
+        invoice.balanceDue?.toString?.() ??
+        invoice.balanceDue ??
+        0,
       ) +
-        0.009
+      0.009
     )
       return res
         .status(400)
@@ -3097,10 +3097,10 @@ router.post("/receivable-adjustments", requireAuth, async (req, res) => {
         invoiceId,
         adjustmentNumber: String(
           req.body.adjustmentNumber ||
-            adjustmentCode(
-              (await db.select().from(salesReceivableAdjustmentsTable)).length +
-                1,
-            ),
+          adjustmentCode(
+            (await db.select().from(salesReceivableAdjustmentsTable)).length +
+            1,
+          ),
         ),
         adjustmentDate:
           req.body.adjustmentDate || new Date().toISOString().slice(0, 10),
@@ -3245,7 +3245,7 @@ async function validateInvoiceReturnAvailability(
         alreadyReturned.set(
           invoiceItemId,
           (alreadyReturned.get(invoiceItemId) || 0) +
-            Number(prior.returnedQty || 0),
+          Number(prior.returnedQty || 0),
         );
     }
   }

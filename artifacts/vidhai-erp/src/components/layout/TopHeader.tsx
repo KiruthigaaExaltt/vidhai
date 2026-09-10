@@ -124,13 +124,18 @@ export function TopHeader({
           )}
           <DropdownMenuItem
             disabled={pwa.updating}
+            className={
+              pwa.updateAvailable
+                ? "bg-primary text-primary-foreground font-medium focus:bg-primary/90 focus:text-primary-foreground"
+                : ""
+            }
             onSelect={() =>
               void (pwa.updateAvailable
                 ? pwa.applyUpdate()
                 : pwa.checkForUpdates())
             }
           >
-            <RefreshCw />
+            <RefreshCw className={pwa.updating ? "animate-spin" : ""} />
             {pwa.updating ? "Updating…" : "Update App"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />

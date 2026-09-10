@@ -56,6 +56,7 @@ import { NotificationProvider } from "@/notifications/NotificationProvider";
 import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
 import { Shell } from "@/components/layout/Shell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { RadialPreloader } from "@/components/ui/radial-preloader";
 
 const queryClient = new QueryClient();
 
@@ -103,13 +104,7 @@ function ProtectedRoute({
   }, [isLoading, user, setLocation]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-sm font-mono text-muted-foreground">
-          Loading...
-        </div>
-      </div>
-    );
+    return <RadialPreloader />;
   }
 
   if (!user) return null;
@@ -211,17 +206,14 @@ function LandingRoute() {
     setLocation(destination?.path ?? "/profile");
   }, [isLoading, user, can, isModuleEnabled, setLocation]);
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-sm font-mono text-muted-foreground">Loading...</div>
-    </div>
-  );
+  return <RadialPreloader />;
 }
 function LedgerPage() {
   return (
     <ModuleEncryptionGate
       module="ledger"
       label="Ledger"
+      hideFloatingLock={true}
       lockedLayout={(content) => <Shell>{content}</Shell>}
     >
       <Accounts />

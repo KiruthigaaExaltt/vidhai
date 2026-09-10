@@ -21,6 +21,7 @@ import {
 import { Label } from "@/components/ui/label";
 import {
   BookOpen,
+  Calendar,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -30,14 +31,18 @@ import {
   FileDown,
   FileUp,
   Plus,
+  Receipt,
   RefreshCw,
+  Search,
   Trash2,
+  X,
+  LogOut,
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useClientPagination } from "@/hooks/use-client-pagination";
 import { useToast } from "@/hooks/use-toast";
-import { notifyModuleLocked } from "@/components/security/ModuleEncryptionGate";
+import { notifyModuleLocked, lockModule } from "@/components/security/ModuleEncryptionGate";
 import { FinancialStatements } from "./FinancialStatements";
 import { FinanceDashboard } from "./FinanceDashboard";
 import { parseBankCashSheet } from "./bankCashImport";
@@ -108,8 +113,6 @@ export default function Accounts() {
     [vendors, setVendors] = useState<any[]>([]),
     [crmClients, setCrmClients] = useState<any[]>([]),
     [crmVendors, setCrmVendors] = useState<any[]>([]),
-    [arDocuments, setArDocuments] = useState<any[]>([]),
-    [apDocuments, setApDocuments] = useState<any[]>([]),
     [masters, setMasters] = useState<any>({ transactionTypes: [], sourceRegistry: {} }),
     [bankCash, setBankCash] = useState<any[]>([]),
     [bankDecision, setBankDecision] = useState<{ row: any; remarks: string } | null>(null),
@@ -134,15 +137,13 @@ export default function Accounts() {
     [arToDate, setArToDate] = useState(""),
     [arCustomer, setArCustomer] = useState("All"),
     [submitting, setSubmitting] = useState(false),
-    [manualType, setManualType] = useState<
-      "account" | "journal" | "ap" | "ar" | null
-    >(null),
-    [manual, setManual] = useState<any>({}),
     [settlement, setSettlement] = useState<{
       kind: "ap" | "ar";
       row: any;
     } | null>(null),
-    [settlementAmount, setSettlementAmount] = useState("");
+    [settlementAmount, setSettlementAmount] = useState(""),
+    [manualType, setManualType] = useState<"account" | "journal" | null>(null),
+    [manual, setManual] = useState<any>({});
   const [accountImport, setAccountImport] = useState<AccountImportKind | null>(null);
   const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
   const [accountImportFile, setAccountImportFile] = useState("");
@@ -200,6 +201,18 @@ export default function Accounts() {
   });
   const [bankForm, setBankForm] = useState(emptyBankForm);
   const [accountDocument, setAccountDocument] = useState<any | null>(null);
+  const [historyModal, setHistoryModal] = useState<{
+    title: string;
+    reference?: string;
+    contactName?: string;
+    payments: any[];
+  } | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    type: "payable" | "receivable";
+    row: any;
+    title: string;
+    description: string;
+  } | null>(null);
   const accountTabGroups = [
     {
       group: "Overview",
@@ -240,115 +253,39 @@ export default function Accounts() {
     }))
     .filter((section) => section.tabs.length);
   const visibleAccountTabs = visibleAccountGroups.flatMap((section) => section.tabs);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat("en-CA").format(new Date());
   const openManual = (
-    type: "account" | "journal" | "ap" | "ar",
+    type: "account" | "journal",
     seed: any = {},
   ) => {
     setManualType(type);
+    setError("");
     setManual({
       entryDate: today,
-      billDate: today,
-      dueDate: today,
-      invoiceDate: today,
+      accountCode: "",
+      accountName: "",
       accountType: "Asset",
-      entryType: type === "ap" ? "Bill" : "Invoice",
+      description: "",
+      reference: "",
+      debitAccountId: "",
+      creditAccountId: "",
       amount: "",
-      paidAmount: "",
-      receivedAmount: "",
-      adjustedAmount: "",
-      debit: "",
-      credit: "",
-      sourceType: "Manual",
-      sourceId: null,
+      memo: "",
       ...seed,
+      openingBalance: seed.openingBalance ?? seed.currentBalance ?? "",
     });
-    if (type === "ar") void loadArDocuments(seed.clientId ? String(seed.clientId) : undefined, seed.entryType === "Credit Note" ? "credit-note" : undefined);
-    if (type === "ap") void loadApDocuments(seed.vendorId ? String(seed.vendorId) : undefined, seed.entryType === "Debit Note" ? "debit-note" : undefined);
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
-const loadArDocuments = async (clientId?: string, mode?: string) => {
-    if (!can("accounts.accounts_receivable.view")) return;
-    const params = new URLSearchParams();
-    if (clientId) params.set("clientId", clientId);
-    if (mode) params.set("mode", mode);
-    const suffix = params.toString() ? `?${params.toString()}` : "";
-    setArDocuments(await api(`/receivable-documents${suffix}`).catch(() => []));
-  };
-  const loadApDocuments = async (vendorId?: string, mode?: string) => {
-    if (!can("accounts.accounts_payable.view")) return;
-    const params = new URLSearchParams();
-    if (vendorId) params.set("vendorId", vendorId);
-    if (mode) params.set("mode", mode);
-    const suffix = params.toString() ? `?${params.toString()}` : "";
-    setApDocuments(await api(`/payable-documents${suffix}`).catch(() => []));
-  };
-  const selectClient = (id: string) => {
-    const client = crmClients.find((row) => String(row.id) === id);
-    setManual((current: any) => ({
-      ...current,
-      clientId: id,
-      clientName: client?.name || "",
-      sourceType: current.sourceType === "Sales Invoice" ? "Manual" : current.sourceType,
-      sourceId: current.sourceType === "Sales Invoice" ? null : current.sourceId,
-    }));
-    void loadArDocuments(id, manual.entryType === "Credit Note" ? "credit-note" : undefined);
-  };
-  const selectVendor = (id: string) => {
-    const vendor = crmVendors.find((row) => String(row.id) === id);
-    setManual((current: any) => ({
-      ...current,
-      vendorId: id,
-      vendorName: vendor?.name || "",
-      sourceType: current.sourceType === "Purchase Invoice" ? "Manual" : current.sourceType,
-      sourceId: current.sourceType === "Purchase Invoice" ? null : current.sourceId,
-    }));
-    void loadApDocuments(id, manual.entryType === "Debit Note" ? "debit-note" : undefined);
-  };
-  const selectArDocument = (value: string) => {
-    const doc = arDocuments.find((row) => row.displayName === value || row.invoiceNumber === value);
-    setManual((current: any) => ({
-      ...current,
-      invoiceNumber: doc?.invoiceNumber || value,
-      clientId: doc ? String(doc.clientId) : current.clientId,
-      clientName: doc?.clientName || current.clientName,
-      invoiceDate: doc?.invoiceDate || current.invoiceDate,
-      dueDate: doc?.dueDate || current.dueDate,
-      amount: doc ? String(doc.totalAmount) : current.amount,
-      receivedAmount: doc ? String(doc.amountReceived || 0) : current.receivedAmount,
-      adjustedAmount: doc ? String(doc.adjustedAmount || 0) : current.adjustedAmount,
-      sourceType: doc ? "Sales Invoice" : "Manual",
-      sourceId: doc?.id || null,
-    }));
-  };
-  const selectLinkedArInvoice = (value: string) => {
-    const doc = arDocuments.find((row) => String(row.invoiceNumber) === value || row.displayName === value);
-    setManual((current: any) => ({ ...current, linkedInvoiceNumber: doc?.invoiceNumber || value, clientId: doc ? String(doc.clientId) : current.clientId, clientName: doc?.clientName || current.clientName, invoiceDate: current.invoiceDate || doc?.invoiceDate, dueDate: current.dueDate || doc?.dueDate }));
-  };
-  const selectApDocument = (value: string) => {
-    const doc = apDocuments.find((row) => row.displayName === value || row.billNumber === value);
-    setManual((current: any) => ({
-      ...current,
-      billNumber: current.entryType === "Debit Note" ? current.billNumber : doc?.billNumber || value,
-      againstBillNumber: current.entryType === "Debit Note" ? doc?.billNumber || value : current.againstBillNumber,
-      vendorId: doc ? String(doc.vendorId) : current.vendorId,
-      vendorName: doc?.vendorName || current.vendorName,
-      billDate: doc?.billDate || current.billDate,
-      dueDate: doc?.dueDate || current.dueDate,
-      amount: current.entryType === "Debit Note" ? current.amount : doc ? String(doc.totalAmount) : current.amount,
-      paidAmount: current.entryType === "Debit Note" ? current.paidAmount : doc ? String(doc.paidAmount || 0) : current.paidAmount,
-      adjustedAmount: current.entryType === "Debit Note" ? current.adjustedAmount : doc ? String(doc.debitNoteAmount || 0) : current.adjustedAmount,
-      sourceType: current.entryType === "Debit Note" ? "Manual" : doc ? "Purchase Invoice" : "Manual",
-      sourceId: current.entryType === "Debit Note" ? null : doc?.id || null,
-    }));
-  };
   const submitManual = async () => {
     if (!manualType) return;
     setSubmitting(true);
     setError("");
     try {
-      if (manualType === "account")
+      if (manualType === "account") {
+        if (!manual.accountCode?.trim() || !manual.accountName?.trim()) {
+          throw Error("Account Code and Account Name are required.");
+        }
         await api(manual.id ? `/coa/${manual.id}` : "/coa", {
           method: manual.id ? "PATCH" : "POST",
           body: JSON.stringify({
@@ -360,7 +297,11 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             isActive: manual.isActive !== false,
           }),
         });
+      }
       if (manualType === "journal") {
+        if (manual.entryDate && manual.entryDate > today) {
+          throw Error("Entry Date cannot be a future date");
+        }
         const debitAccount = coa.find(
           (account) => String(account.id) === String(manual.debitAccountId),
         );
@@ -373,19 +314,23 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
           !creditAccount ||
           debitAccount.id === creditAccount.id ||
           amount <= 0
-        )
+        ) {
           throw Error(
             "Choose two different accounts and enter a positive amount.",
           );
+        }
+        if (!manual.reference?.trim() || !manual.description?.trim()) {
+          throw Error("Reference and Description are required.");
+        }
         await api("/journal-entries", {
           method: "POST",
           body: JSON.stringify({
-            entryDate: manual.entryDate,
+            entryDate: manual.entryDate || today,
             reference: manual.reference?.trim(),
             description: manual.description?.trim(),
-            sourceType: manual.sourceType || "Manual",
-            sourceId: manual.sourceId ? Number(manual.sourceId) : null,
-            metadata: { notes: manual.notes || "" },
+            sourceType: "Manual",
+            sourceId: null,
+            metadata: { notes: manual.notes || manual.memo || "" },
             lines: [
               {
                 accountId: debitAccount.id,
@@ -407,56 +352,6 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
           }),
         });
       }
-      if (manualType === "ap")
-        await api("/ap", {
-          method: "POST",
-          body: JSON.stringify({
-            vendorId: manual.vendorId ? Number(manual.vendorId) : null,
-            vendorName: manual.vendorName?.trim(),
-            billNumber: manual.billNumber?.trim(),
-            againstBillNumber:
-              manual.entryType === "Debit Note"
-                ? manual.againstBillNumber?.trim()
-                : "",
-            billDate: manual.billDate,
-            dueDate: manual.dueDate,
-            amount: numberValue(manual.amount),
-            paidAmount: manual.entryType === "Debit Note" ? numberValue(manual.amount) : numberValue(manual.paidAmount),
-            adjustedAmount: manual.entryType === "Debit Note" ? 0 : numberValue(manual.adjustedAmount),
-            coaAccountId: manual.coaAccountId ? Number(manual.coaAccountId) : null,
-            entryType: manual.entryType,
-            notes: manual.notes || "",
-            sourceType: manual.sourceType || "Manual",
-            sourceId: manual.sourceId ? Number(manual.sourceId) : null,
-          }),
-        });
-      if (manualType === "ar")
-        await api("/ar", {
-          method: "POST",
-          body: JSON.stringify({
-            clientId: manual.clientId ? Number(manual.clientId) : null,
-            clientName: manual.clientName?.trim(),
-            invoiceNumber: manual.invoiceNumber?.trim(),
-            creditNoteNumber:
-              manual.entryType === "Credit Note"
-                ? manual.invoiceNumber?.trim()
-                : "",
-            linkedInvoiceNumber:
-              manual.entryType === "Credit Note"
-                ? manual.linkedInvoiceNumber?.trim()
-                : "",
-            invoiceDate: manual.invoiceDate,
-            dueDate: manual.dueDate,
-            amount: numberValue(manual.amount),
-            receivedAmount: manual.entryType === "Credit Note" ? numberValue(manual.amount) : numberValue(manual.receivedAmount),
-            adjustedAmount: manual.entryType === "Credit Note" ? 0 : numberValue(manual.adjustedAmount),
-            coaAccountId: manual.coaAccountId ? Number(manual.coaAccountId) : null,
-            entryType: manual.entryType,
-            notes: manual.notes || "",
-            sourceType: manual.sourceType || "Manual",
-            sourceId: manual.sourceId ? Number(manual.sourceId) : null,
-          }),
-        });
       setManualType(null);
       setManual({});
       await load();
@@ -492,8 +387,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
         ? [["c", "/coa"]]
         : []),
       ...(!fullCoa && !bankOptions &&
-      (can("accounts.accounts_receivable.edit") ||
-        can("accounts.accounts_payable.edit"))
+        (can("accounts.accounts_receivable.edit") ||
+          can("accounts.accounts_payable.edit"))
         ? [["paymentCoa", `/payment-accounts?context=${can("accounts.accounts_receivable.edit") ? "ar" : "ap"}`]]
         : []),
       // DISABLED: Masters module is not required for this phase
@@ -505,27 +400,27 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
         ? [
-            [
-              "j",
-              withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
-            ],
-          ]
+          [
+            "j",
+            withListingDates(`/journal-entries?skip=${(listPaging.j.page - 1) * listPaging.j.size}&limit=${listPaging.j.size}`),
+          ],
+        ]
         : []),
       ...(can("accounts.accounts_payable.view")
         ? [
-            [
-              "ap",
-              withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
-            ],
-          ]
+          [
+            "ap",
+            withListingDates(`/ap?skip=${(listPaging.ap.page - 1) * listPaging.ap.size}&limit=${listPaging.ap.size}`),
+          ],
+        ]
         : []),
       ...(can("accounts.accounts_receivable.view")
         ? [
-            [
-              "ar",
-              withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
-            ],
-          ]
+          [
+            "ar",
+            withListingDates(`/ar?skip=${(listPaging.ar.page - 1) * listPaging.ar.size}&limit=${listPaging.ar.size}`),
+          ],
+        ]
         : []),
       ...(can("accounts.customer_ledger.view")
         ? [["cu", withListingDates("/customer-ledger")]]
@@ -605,6 +500,17 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       setLoading(false);
     }
   };
+  const [lockingLedger, setLockingLedger] = useState(false);
+  const handleLockLedger = async () => {
+    setLockingLedger(true);
+    try {
+      await lockModule("ledger");
+    } catch {
+      notifyModuleLocked("ledger");
+    } finally {
+      setLockingLedger(false);
+    }
+  };
   const toggleCustomer = (key: string) =>
     setExpandedCustomers((current) => ({ ...current, [key]: !current[key] }));
   const toggleVendor = (key: string) =>
@@ -654,15 +560,15 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     Math.max(
       0,
       numberValue(row.amount) -
-        numberValue(row.receivedAmount) -
-        numberValue(row.adjustedAmount),
+      numberValue(row.receivedAmount) -
+      numberValue(row.adjustedAmount),
     );
   const payableOutstanding = (row: any) =>
     Math.max(
       0,
       numberValue(row?.amount) -
-        numberValue(row?.paidAmount) -
-        numberValue(row?.adjustedAmount),
+      numberValue(row?.paidAmount) -
+      numberValue(row?.adjustedAmount),
     );
   const saveSettlement = async () => {
     if (!settlement) return;
@@ -671,8 +577,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const remaining = Math.max(
       0,
       numberValue(settlement.row.amount) -
-        numberValue(settlement.row[field]) -
-        numberValue(settlement.row.adjustedAmount),
+      numberValue(settlement.row[field]) -
+      numberValue(settlement.row.adjustedAmount),
     );
     if (!(amount > 0) || amount > remaining + 0.009) {
       setError(
@@ -718,8 +624,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const balance = Math.max(
       0,
       numberValue(row.amount) -
-        numberValue(row[paidField]) -
-        numberValue(row.adjustedAmount),
+      numberValue(row[paidField]) -
+      numberValue(row.adjustedAmount),
     );
     setSettlement({ kind, row });
     setSettlementAmount(balance.toFixed(2));
@@ -727,15 +633,12 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     setError("");
   };
   const reviewAp = async (row: any, action: "approve" | "reject") => {
-    const remarks = window.prompt(
-      `${action === "approve" ? "Approval" : "Rejection"} remarks`,
-    );
-    if (action === "reject" && !remarks) return;
     setSubmitting(true);
+    setError("");
     try {
       await api(`/ap/${row.id}/${action}`, {
         method: "POST",
-        body: JSON.stringify({ remarks: remarks || "Approved" }),
+        body: JSON.stringify({ remarks: action === "approve" ? "Approved" : "Rejected" }),
       });
       await load();
     } catch (e: any) {
@@ -756,7 +659,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       settlementAccountId: defaultFrom,
       toAccountId: String(payableAccount?.id || ""),
       paymentId: crypto.randomUUID(),
-      reference: "",
+      reference: String(row.billNumber || row.reference || row.invoiceNumber || ""),
       notes: "",
       period: "",
       transactionFees: "",
@@ -832,19 +735,15 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
   const openPayment = (row: any) => {
     setPaymentAr(row);
     setPaymentAmount(String(outstanding(row)));
-    setArPayment((value) => ({ ...value, paymentDate: new Date().toISOString().slice(0, 10), fromAccountId: String(coa.find((account) => account.accountCode === "1100" && account.isActive !== false)?.id || ""), settlementAccountId: "", receiptId: crypto.randomUUID(), reference: "", notes: "", period: "", transactionFees: "", bankCharges: "0" }));
+    setArPayment((value) => ({ ...value, paymentDate: new Date().toISOString().slice(0, 10), fromAccountId: String(coa.find((account) => account.accountCode === "1100" && account.isActive !== false)?.id || ""), settlementAccountId: "", receiptId: crypto.randomUUID(), reference: String(row.invoiceNumber || row.reference || row.billNumber || ""), notes: "", period: "", transactionFees: "", bankCharges: "0" }));
   };
   const reviewAr = async (row: any, action: "approve" | "reject") => {
-    const remarks = window.prompt(
-      `${action === "approve" ? "Approval" : "Rejection"} remarks`,
-    );
-    if (action === "reject" && !remarks) return;
     setSubmitting(true);
     setError("");
     try {
       await api(`/ar/${row.id}/${action}`, {
         method: "POST",
-        body: JSON.stringify({ remarks: remarks || "Approved" }),
+        body: JSON.stringify({ remarks: action === "approve" ? "Approved" : "Rejected" }),
       });
       await load();
     } catch (e: any) {
@@ -902,35 +801,64 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
       setSubmitting(false);
     }
   };
-  const deleteReceivable = async (row: any) => {
-    const message =
-      row.sourceType === "Sales Invoice"
-        ? `Cancel invoice ${row.invoiceNumber} and remove its receivable and accounting entries?`
-        : `Delete receivable ${row.invoiceNumber}?`;
-    if (!window.confirm(message)) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      if (row.sourceType === "Sales Invoice" && row.sourceId)
-        await salesApi(`/invoices/${row.sourceId}/cancel`, { method: "POST" });
-      else await api(`/ar/${row.id}`, { method: "DELETE" });
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
+  const confirmDeleteReceivable = (row: any) => {
+    const isSalesInvoice = row.sourceType === "Sales Invoice";
+    setDeleteConfirmation({
+      type: "receivable",
+      row,
+      title: isSalesInvoice ? "Cancel Sales Invoice" : "Delete Receivable",
+      description: isSalesInvoice
+        ? `Are you sure you want to cancel invoice ${row.invoiceNumber} and remove its receivable and accounting entries?`
+        : `Are you sure you want to delete receivable ${row.invoiceNumber}? This action cannot be undone.`,
+    });
   };
-  const deletePayable = async (row: any) => {
+
+  const confirmDeletePayable = (row: any) => {
     if (row.sourceType !== "Manual") return;
-    if (!window.confirm(`Delete payable ${row.billNumber}?`)) return;
+    setDeleteConfirmation({
+      type: "payable",
+      row,
+      title: "Delete Payable",
+      description: `Are you sure you want to delete payable ${row.billNumber}? This action cannot be undone.`,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirmation) return;
+    const { type, row } = deleteConfirmation;
     setSubmitting(true);
     setError("");
     try {
-      await api(`/ap/${row.id}`, { method: "DELETE" });
+      if (type === "payable") {
+        await api(`/ap/${row.id}`, { method: "DELETE" });
+        toast({
+          title: "Deleted Successfully",
+          description: `Payable ${row.billNumber} has been deleted.`,
+        });
+      } else if (type === "receivable") {
+        if (row.sourceType === "Sales Invoice" && row.sourceId) {
+          await salesApi(`/invoices/${row.sourceId}/cancel`, { method: "POST" });
+          toast({
+            title: "Invoice Cancelled",
+            description: `Invoice ${row.invoiceNumber} has been cancelled and removed.`,
+          });
+        } else {
+          await api(`/ar/${row.id}`, { method: "DELETE" });
+          toast({
+            title: "Deleted Successfully",
+            description: `Receivable ${row.invoiceNumber} has been deleted.`,
+          });
+        }
+      }
+      setDeleteConfirmation(null);
       await load();
     } catch (e: any) {
       setError(e.message);
+      toast({
+        title: "Delete Failed",
+        description: e.message || "Unable to delete record.",
+        variant: "destructive",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1381,23 +1309,17 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
     const isImport = action === "import";
     const label = isImport ? "Import" : "Export";
     return (
-      <TooltipProvider delayDuration={150}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              disabled={submitting}
-              onClick={onClick}
-              aria-label={label}
-              className={`h-9 w-9 rounded-md border-0 text-white shadow-sm ${isImport ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"}`}
-            >
-              {isImport ? <FileUp className="h-4 w-4" /> : <FileDown className="h-4 w-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{label}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={submitting}
+        onClick={onClick}
+        aria-label={label}
+        className="h-9 px-3 gap-1.5 border-primary bg-background text-black dark:text-white hover:bg-primary hover:text-white hover:border-primary transition-colors font-medium text-xs sm:text-sm shadow-xs"
+      >
+        {isImport ? <FileUp className="h-4 w-4 shrink-0" /> : <FileDown className="h-4 w-4 shrink-0" />}
+        <span>{label}</span>
+      </Button>
     );
   };
   const statusBadge = (value: any) => {
@@ -1529,17 +1451,17 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             onPageChange={(page) =>
               serverKey
                 ? setListPaging((current) => ({
-                    ...current,
-                    [serverKey]: { ...current[serverKey], page },
-                  }))
+                  ...current,
+                  [serverKey]: { ...current[serverKey], page },
+                }))
                 : clientPagination.setCurrentPage(page)
             }
             onPageSizeChange={(size) =>
               serverKey
                 ? setListPaging((current) => ({
-                    ...current,
-                    [serverKey]: { page: 1, size },
-                  }))
+                  ...current,
+                  [serverKey]: { page: 1, size },
+                }))
                 : clientPagination.setPageSize(size)
             }
             loading={loading}
@@ -1568,8 +1490,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
           Math.max(
             0,
             numberValue(row.amount) -
-              numberValue(row.paidAmount) -
-              numberValue(row.adjustedAmount),
+            numberValue(row.paidAmount) -
+            numberValue(row.adjustedAmount),
           ),
         0,
       ),
@@ -1584,8 +1506,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             Math.max(
               0,
               numberValue(row.amount) -
-                numberValue(row.paidAmount) -
-                numberValue(row.adjustedAmount),
+              numberValue(row.paidAmount) -
+              numberValue(row.adjustedAmount),
             ),
           0,
         ),
@@ -1600,8 +1522,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             Math.max(
               0,
               numberValue(row.amount) -
-                numberValue(row.paidAmount) -
-                numberValue(row.adjustedAmount),
+              numberValue(row.paidAmount) -
+              numberValue(row.adjustedAmount),
             ),
           0,
         ),
@@ -1691,87 +1613,150 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
   const activePageTitle = pageTitles[activeTab] || ["Accounts", "Finance and accounting operations"];
   return (
     <Shell>
-      <div className="min-h-full space-y-5 p-4 pt-16 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:pr-36">
-          <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <BookOpen />
-              Accounts
+      <div className="min-h-full space-y-5 p-4 sm:p-6">
+        <div className="sticky top-16 lg:top-[72px] z-30 -mx-4 -mt-4 mb-2 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-xs flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-all">
+          <div className="flex items-center gap-2 min-w-0">
+            <h1 className="text-2xl font-bold flex items-center gap-2.5 text-slate-900 dark:text-slate-100">
+              <BookOpen className="h-6 w-6 text-primary shrink-0" />
+              <span>Accounts</span>
             </h1>
           </div>
-          {can("accounts.finance_dashboard.view") && (
-            <div className="flex w-full gap-2 sm:w-auto">
+          <div className="flex items-center gap-0 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {can("accounts.finance_dashboard.view") && (
               <Button
-                className="w-full sm:w-auto"
-                variant="outline"
+                type="button"
+                variant="ghost"
+                className="h-8 border-0 bg-transparent shadow-none px-3 text-[12px] font-normal text-primary hover:bg-primary/5 hover:text-primary cursor-pointer whitespace-nowrap inline-flex items-center gap-2 transition-colors"
+                style={{ border: "unset", fontWeight: 400, fontSize: "12px", background: "unset" }}
                 onClick={() => void reconcile()}
                 disabled={loading}
               >
                 <RefreshCw
-                  className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-                />{" "}
-                Reconcile
+                  className={`h-3.5 w-3.5 shrink-0 text-primary ${loading ? "animate-spin" : ""}`}
+                />
+                <span>Reconcile</span>
               </Button>
-            </div>
-          )}
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 border-0 bg-transparent shadow-none px-3 text-[12px] font-normal text-primary hover:bg-primary/5 hover:text-primary cursor-pointer whitespace-nowrap inline-flex items-center gap-2 transition-colors"
+              style={{ border: "unset", fontWeight: 400, fontSize: "12px", background: "unset" }}
+              onClick={() => void handleLockLedger()}
+              disabled={lockingLedger}
+            >
+              <LogOut className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span>{lockingLedger ? "Locking..." : "Lock Ledger"}</span>
+            </Button>
+          </div>
         </div>
         {error && (
           <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm">
             {error}
           </div>
         )}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">{activePageTitle[0]}</h2>
-            <p className="text-sm text-muted-foreground">{activePageTitle[1]}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 text-xs">
-              <span className="text-muted-foreground font-medium whitespace-nowrap">From:</span>
-              <Input
-                type="date"
-                value={fromDate}
-                onChange={(e) => setListingFromDate(e.target.value)}
-                className="h-9 w-36 text-xs bg-background"
-              />
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            {activePageTitle[0]}
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {activePageTitle[1]}
+          </p>
+        </div>
+
+        {/* Dedicated Filter & Search Bar */}
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-card p-3 shadow-xs">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            {/* Date Filters */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 px-2.5 py-1 text-xs transition-colors focus-within:border-primary focus-within:bg-background">
+                <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap select-none">
+                  From:
+                </span>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setListingFromDate(e.target.value)}
+                  className="h-7 border-0 bg-transparent p-0 text-xs font-medium text-foreground outline-none focus:ring-0 cursor-pointer"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 px-2.5 py-1 text-xs transition-colors focus-within:border-primary focus-within:bg-background">
+                <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap select-none">
+                  To:
+                </span>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setListingToDate(e.target.value)}
+                  className="h-7 border-0 bg-transparent p-0 text-xs font-medium text-foreground outline-none focus:ring-0 cursor-pointer"
+                />
+              </div>
+              {(fromDate || toDate) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1 rounded-lg cursor-pointer transition-colors"
+                  onClick={clearListingDates}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear Dates
+                </Button>
+              )}
             </div>
-            <div className="flex items-center gap-1 text-xs">
-              <span className="text-muted-foreground font-medium whitespace-nowrap">To:</span>
+
+            {/* Search Box with Icon */}
+            <div className="relative w-full lg:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
               <Input
-                type="date"
-                value={toDate}
-                onChange={(e) => setListingToDate(e.target.value)}
-                className="h-9 w-36 text-xs bg-background"
+                type="text"
+                placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setListPaging((current) => ({
+                    j: { ...current.j, page: 1 },
+                    ap: { ...current.ap, page: 1 },
+                    ar: { ...current.ar, page: 1 },
+                  }));
+                }}
+                className="h-9 pl-9 pr-8 text-xs bg-slate-50/60 dark:bg-slate-900/60 rounded-lg border-slate-200 dark:border-slate-700 focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary focus-visible:bg-background transition-all"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setListPaging((current) => ({
+                      j: { ...current.j, page: 1 },
+                      ap: { ...current.ap, page: 1 },
+                      ar: { ...current.ar, page: 1 },
+                    }));
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer p-0.5 rounded-full hover:bg-muted"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
-            {(fromDate || toDate) && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-9 text-xs px-2 text-muted-foreground hover:text-foreground"
-                onClick={clearListingDates}
-              >
-                Clear Dates
-              </Button>
-            )}
-            <Input
-              placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setListPaging((current) => ({ j: { ...current.j, page: 1 }, ap: { ...current.ap, page: 1 }, ar: { ...current.ar, page: 1 } })); }}
-              className="h-9 w-48 text-xs bg-background"
-            />
           </div>
         </div>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="space-y-2 rounded-lg border bg-white p-2">
             {visibleAccountGroups.map((section) => (
               <div key={section.group} className="flex flex-col gap-1 md:flex-row md:items-center">
-                <div className="w-28 shrink-0 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="w-28 shrink-0 px-2 text-xs font-bold uppercase tracking-wide text-black dark:text-white">
                   {section.group}
                 </div>
                 <TabsList className="flex h-auto flex-1 justify-start gap-1 overflow-x-auto bg-transparent p-0 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
                   {section.tabs.map(([value, label]) => (
-                    <TabsTrigger key={value} value={value}>
+                    <TabsTrigger
+                      key={value}
+                      value={value}
+                      className="data-[state=active]:text-primary data-[state=active]:font-bold data-[state=active]:shadow-none data-[state=active]:[box-shadow:none]"
+                    >
                       {label}
                     </TabsTrigger>
                   ))}
@@ -1787,7 +1772,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
               can={can}
             />
           </TabsContent>
-                    <TabsContent value="customers" className="space-y-3">
+          <TabsContent value="customers" className="space-y-3">
             {f(customers).map((customer) => {
               const key = String(customer.clientId || customer.clientName);
               const open = Boolean(expandedCustomers[key]);
@@ -1830,8 +1815,27 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                               <td className="px-4 py-2 text-right">{inr(record.receivedAmount)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.credits)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2">{record.paidDate || "-"}
-                                {record.payments?.length > 0 && <details><summary>Payment events</summary>{record.payments.map((payment: any) => <div key={payment.id} className="mt-2 text-xs"><p>{payment.paymentDate}: {inr(payment.amount)}</p>{payment.fromAccountName && <p>From: {payment.fromAccountName}</p>}{payment.toAccountName && <p>To: {payment.toAccountName}</p>}</div>)}</details>}
+                              <td className="px-4 py-2">
+                                {record.paidDate || "-"}
+                                {record.payments?.length > 0 && (
+                                  <div className="mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setHistoryModal({
+                                          title: "Receipt Events",
+                                          reference: record.invoiceNumber,
+                                          contactName: customer.customerDisplay || customer.clientName,
+                                          payments: record.payments,
+                                        })
+                                      }
+                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+                                    >
+                                      {record.payments.length}{" "}
+                                      {record.payments.length === 1 ? "receipt" : "receipts"}
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-2">{record.status || "-"}</td>
                             </tr>
@@ -1887,8 +1891,27 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                               <td className="px-4 py-2 text-right">{inr(record.paidAmount)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.debitNote)}</td>
                               <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2">{record.paidDate || "-"}
-                                {record.payments?.length > 0 && <details><summary>Payment events</summary>{record.payments.map((payment: any) => <div key={payment.id} className="mt-2 text-xs"><p>{payment.paymentDate}: {inr(payment.amount)}</p>{payment.fromAccountName && <p>From: {payment.fromAccountName}</p>}{payment.toAccountName && <p>To: {payment.toAccountName}</p>}</div>)}</details>}
+                              <td className="px-4 py-2">
+                                {record.paidDate || "-"}
+                                {record.payments?.length > 0 && (
+                                  <div className="mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setHistoryModal({
+                                          title: "Payment Events",
+                                          reference: record.billNumber,
+                                          contactName: vendor.vendorDisplay || vendor.vendorName,
+                                          payments: record.payments,
+                                        })
+                                      }
+                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+                                    >
+                                      {record.payments.length}{" "}
+                                      {record.payments.length === 1 ? "payment" : "payments"}
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                               <td className="px-4 py-2">{record.status || "-"}</td>
                             </tr>
@@ -2003,7 +2026,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                       onClick={() => openManual("account", account)}
                                     >
                                       Edit
-                                    </Button>) : null}
+                                    </Button>
+                                  ) : null}
                                 </div>
                               </div>
 
@@ -2017,8 +2041,50 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                                       {historyLines.length} {historyLines.length === 1 ? "entry" : "entries"} recorded
                                     </span>
                                   </div>
-                                  {account.receivablePaymentEvents?.length > 0 && <details className="mb-3 rounded border p-3"><summary>Receivables payment events</summary>{account.receivablePaymentEvents.map((event: any) => <div key={event.id} className="mt-2 text-xs">{event.entryDate} | Debit: {inr(event.debit)} | Credit: {inr(event.credit)} | {event.metadata?.documentReference || event.reference}</div>)}</details>}
-                                  {account.payablePaymentEvents?.length > 0 && <details className="mb-3 rounded border p-3"><summary>Payables payment events</summary>{account.payablePaymentEvents.map((event: any) => <div key={event.id} className="mt-2 text-xs">{event.entryDate} | Debit: {inr(event.debit)} | Credit: {inr(event.credit)} | {event.metadata?.documentReference || event.reference}</div>)}</details>}
+                                  {account.receivablePaymentEvents?.length > 0 && (
+                                    <div className="mb-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setHistoryModal({
+                                            title: "Receivable Payment Events",
+                                            reference: account.accountName,
+                                            payments: account.receivablePaymentEvents.map((event: any) => ({
+                                              ...event,
+                                              paymentDate: event.entryDate,
+                                              amount: event.credit || event.debit,
+                                              reference: event.metadata?.documentReference || event.reference,
+                                            })),
+                                          })
+                                        }
+                                        className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+                                      >
+                                        {account.receivablePaymentEvents.length} receivable payment events
+                                      </button>
+                                    </div>
+                                  )}
+                                  {account.payablePaymentEvents?.length > 0 && (
+                                    <div className="mb-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setHistoryModal({
+                                            title: "Payable Payment Events",
+                                            reference: account.accountName,
+                                            payments: account.payablePaymentEvents.map((event: any) => ({
+                                              ...event,
+                                              paymentDate: event.entryDate,
+                                              amount: event.debit || event.credit,
+                                              reference: event.metadata?.documentReference || event.reference,
+                                            })),
+                                          })
+                                        }
+                                        className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+                                      >
+                                        {account.payablePaymentEvents.length} payable payment events
+                                      </button>
+                                    </div>
+                                  )}
                                   {!historyLines.length ? (
                                     <div className="rounded-md border bg-background p-3 text-center text-xs text-muted-foreground">
                                       No entry history recorded for this account.
@@ -2124,15 +2190,15 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                     <label className="space-y-1 text-sm md:col-span-4">Debit Name *<select className="h-10 w-full rounded-md border px-3" value={bankForm.debitContactId} onChange={(e) => setBankForm({ ...bankForm, debitContactId: e.target.value })}><option value="">Select CRM client *</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
                   </>
                 )}
-                <label className="space-y-1 text-sm md:col-span-3">Total Payment *<Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} /></label>
-                <label className="space-y-1 text-sm md:col-span-3">Payment Date *<Input type="date" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} /></label>
-                <label className="space-y-1 text-sm md:col-span-3">Payment Method<select className="h-10 w-full rounded-md border px-3" value={bankForm.paymentMethod} onChange={(e) => setBankForm({ ...bankForm, paymentMethod: e.target.value })}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label>
-                <label className="space-y-1 text-sm md:col-span-3">Reference ID / Invoice Number<Input value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
-                <label className="space-y-1 text-sm md:col-span-3">Period (optional)<Input value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
-                <label className="space-y-1 text-sm md:col-span-3">Bank Charges (optional)<Input type="number" min="0" step="0.01" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
-                <label className="space-y-1 text-sm md:col-span-3">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
-                <label className="space-y-1 text-sm md:col-span-9">Notes<Input value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
-                <Button className="md:col-span-3" disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Total Payment *<Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" className="h-10 w-full" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} /></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Payment Date *<Input type="date" max={today} className="h-10 w-full" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} /></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Payment Method<select className="h-10 w-full rounded-md border px-3" value={bankForm.paymentMethod} onChange={(e) => setBankForm({ ...bankForm, paymentMethod: e.target.value })}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Reference ID / Invoice Number<Input className="h-10 w-full" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Period (optional)<Input className="h-10 w-full" value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Bank Charges (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Transaction Fees (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground block">Informational; does not change the posted amount.</span></label>
+                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
+                <Button className={`h-10 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`} disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
             <div className="flex flex-wrap justify-end gap-2">
@@ -2162,23 +2228,6 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">TallyPrime Export</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-3">{can("accounts.tally.export") ? <><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("xml")}>Export Chart of Accounts + Posted Vouchers XML</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyXlsx()}>Export Chart of Accounts + Posted Vouchers XLSX</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("csv")}>Export Chart of Accounts + Posted Vouchers CSV</Button></> : <p className="text-sm text-muted-foreground">You need Tally export permission.</p>}</CardContent></Card>
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
-            {can("accounts.accounts_payable.create") && (
-              <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                <Button
-                  className="w-full sm:w-auto"
-                  onClick={() => openManual("ap", { entryType: "Bill" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" /> Add Bill
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  onClick={() => openManual("ap", { entryType: "Debit Note" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" /> Add Debit Note
-                </Button>
-              </div>
-            )}
             <Tabs value={apSubTab} onValueChange={setApSubTab}>
               <TabsList className="mb-3 bg-slate-100">
                 <TabsTrigger value="bills">Pending Bills</TabsTrigger>
@@ -2212,27 +2261,28 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                     [
                       "Payment History",
                       "paymentHistory",
-                      (_value: any, row: any) => row.paymentHistory?.length ? (
-                        <details>
-                          <summary className="cursor-pointer whitespace-nowrap">{row.paymentHistory.length} disbursements</summary>
-                          <div className="mt-2 space-y-3 min-w-64">
-                            {row.paymentHistory.map((payment: any) => <div key={payment.id} className="rounded border p-3 text-xs space-y-1">
-                              <p>Payment Date: {payment.paymentDate}</p>
-                              <p>Vendor Name: {payment.vendorName}</p>
-                              <p>From Account: {payment.fromAccountName || "—"}</p>
-                              <p>To Account: {payment.toAccountName || payment.accountName || "—"}</p>
-                              <p>Payment Method: {payment.paymentMethod || "—"}</p>
-                              <p>{payment.mode || "Debit"}: {inr(payment.amount)}</p>
-                              <p>Reference ID / Bill Number: {payment.reference}</p>
-                              <p>Notes: {payment.notes || "—"}</p>
-                              {payment.period && <p>Period: {payment.period}</p>}
-                              <p>Bank Charges: {inr(payment.bankCharges)}</p>
-                              <p>TDS Amount: {inr(payment.tdsAmount)}</p>
-                              <p>Transaction Fees (informational): {inr(payment.transactionFees)}</p>
-                            </div>)}
-                          </div>
-                        </details>
-                      ) : "—",
+                      (_value: any, row: any) =>
+                        row.paymentHistory?.length ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setHistoryModal({
+                                title: "Disbursement History",
+                                reference: row.billNumber,
+                                contactName: row.vendorName,
+                                payments: row.paymentHistory,
+                              })
+                            }
+                            className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
+                          >
+                            {row.paymentHistory.length}{" "}
+                            {row.paymentHistory.length === 1
+                              ? "disbursement"
+                              : "disbursements"}
+                          </button>
+                        ) : (
+                          "—"
+                        ),
                     ],
                     [
                       "Adjustment",
@@ -2291,8 +2341,8 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                             )}
                             <Button
                               size="icon"
-                              variant="outline"
-                              className="h-8 w-8"
+                              className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
                               title={
                                 row.sourceType === "Manual"
                                   ? "Delete bill"
@@ -2302,9 +2352,9 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                               disabled={
                                 submitting || row.sourceType !== "Manual"
                               }
-                              onClick={() => void deletePayable(row)}
+                              onClick={() => confirmDeletePayable(row)}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-4 w-4 text-white" />
                             </Button>
                           </div>
                         );
@@ -2338,21 +2388,6 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             </Tabs>
           </TabsContent>
           <TabsContent value="ar" className="space-y-3">
-            {can("accounts.accounts_receivable.create") && (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  onClick={() => openManual("ar", { entryType: "Invoice" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" /> Add Invoice
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => openManual("ar", { entryType: "Credit Note" })}
-                >
-                  <Plus className="mr-2 h-4 w-4" /> Add Credit Note
-                </Button>
-              </div>
-            )}
             <Tabs value={arSubTab} onValueChange={setArSubTab} className="space-y-3">
               <TabsList>
                 <TabsTrigger value="invoices">Pending Invoices</TabsTrigger>
@@ -2372,20 +2407,32 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                     ["Due", "dueDate"],
                     ["Amount", "amount", inr],
                     ["Received", "receivedAmount", inr],
-                    ["Payment History", "paymentHistory", (_value: any, row: any) => row.paymentHistory?.length ? (
-                      <details>
-                        <summary className="cursor-pointer whitespace-nowrap">{row.paymentHistory.length} receipts</summary>
-                        <div className="mt-2 space-y-3 min-w-64">
-                          {row.paymentHistory.map((payment: any) => <div key={payment.id} className="rounded border p-3 text-xs space-y-1">
-                            <p>From Account: {payment.fromAccountName || "—"}</p>
-                            <p>To Account: {payment.toAccountName || payment.accountName || "—"}</p>
-                            <p>Payment Method: {payment.paymentMethod || "—"}</p>
-                            <p>Bank Charges: {inr(payment.bankCharges)}</p>
-                            <p>Transaction Fees (informational): {inr(payment.transactionFees)}</p>
-                          </div>)}
-                        </div>
-                      </details>
-                    ) : "—"],
+                    [
+                      "Payment History",
+                      "paymentHistory",
+                      (_value: any, row: any) =>
+                        row.paymentHistory?.length ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setHistoryModal({
+                                title: "Receipt History",
+                                reference: row.invoiceNumber,
+                                contactName: row.clientName,
+                                payments: row.paymentHistory,
+                              })
+                            }
+                            className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
+                          >
+                            {row.paymentHistory.length}{" "}
+                            {row.paymentHistory.length === 1
+                              ? "receipt"
+                              : "receipts"}
+                          </button>
+                        ) : (
+                          "—"
+                        ),
+                    ],
                     ["Adjusted", "adjustedAmount", inr],
                     [
                       "Balance",
@@ -2429,14 +2476,14 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                           )}
                           <Button
                             size="icon"
-                            variant="outline"
-                            className="h-8 w-8"
+                            className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
                             title="Delete"
                             aria-label={`Delete ${row.invoiceNumber}`}
-                            onClick={() => void deleteReceivable(row)}
+                            onClick={() => confirmDeleteReceivable(row)}
                             disabled={submitting || row.sourceType !== "Manual"}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 text-white" />
                           </Button>
                         </div>
                       ),
@@ -2468,7 +2515,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                           Math.max(
                             0,
                             numberValue(row.amount) -
-                              numberValue(row.adjustedAmount),
+                            numberValue(row.adjustedAmount),
                           ),
                         ),
                     ],
@@ -2483,15 +2530,13 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             <div className="flex flex-wrap justify-end gap-2">
               {can("accounts.journal_entries.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("journal")} />}
               {can("accounts.journal_entries.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("journal")} />}
-            </div>
-            {can("accounts.journal_entries.create") && (
-              <div className="flex justify-end">
+              {can("accounts.journal_entries.create") && (
                 <Button onClick={() => openManual("journal")}>
                   <Plus className="mr-2 h-4 w-4" />
                   New Journal
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
             <Table
               serverKey="j"
               rows={f(journals)}
@@ -2515,61 +2560,21 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
             <FinancialStatements request={api} can={can} />
           </TabsContent>
         </Tabs>
-        <Dialog
-          open={Boolean(accountImport)}
-          onOpenChange={(open) => {
-            if (!open && !submitting) {
-              setAccountImport(null);
-              setAccountImportRows([]);
-              setAccountImportFile("");
-            }
-          }}
-        >
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>{accountImport ? `Import ${accountImportConfig[accountImport].title}` : "Import Excel"}</DialogTitle>
-            </DialogHeader>
-            {accountImport && (
-              <div className="space-y-4">
-                <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Download template</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Use the exact headers and YYYY-MM-DD date format.</p>
-                  </div>
-                  <Button type="button" variant="outline" disabled={submitting} onClick={() => downloadAccountTemplate(accountImport)}>
-                    <Download className="mr-2 h-4 w-4" /> Download Template
-                  </Button>
-                </div>
-                <div className="rounded-md border p-4">
-                  <Label className="text-sm">Upload .xlsx file</Label>
-                  <Input className="mt-2" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void parseAccountImportFile(event.target.files?.[0])} />
-                  {accountImportFile && <p className="mt-2 text-xs text-muted-foreground">{accountImportFile} - {accountImportRows.length} row(s) ready</p>}
-                  {error && <div className="mt-2 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" disabled={submitting} onClick={() => setAccountImport(null)}>Cancel</Button>
-              <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>{submitting ? "Importing..." : "Import"}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={Boolean(manualType)}
-          onOpenChange={(open) => {
-            if (!open && !submitting) setManualType(null);
-          }}
-        >
-          <DialogContent className="max-w-2xl">
+        {Boolean(manualType) && (
+          <Dialog
+            open={Boolean(manualType)}
+            onOpenChange={(open) => {
+              if (!open && !submitting) setManualType(null);
+            }}
+          >
+            <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>
                 {manualType === "account"
-                  ? (manual.id ? "Edit Ledger Account" : "Add Ledger Account")
-                  : manualType === "journal"
-                    ? "New Journal Entry"
-                    : manualType === "ap"
-                      ? `Add ${manual.entryType || "Payable"}`
-                      : `Add ${manual.entryType || "Receivable"}`}
+                  ? manual.id
+                    ? "Edit Ledger Account"
+                    : "Add Ledger Account"
+                  : "New Journal Entry"}
               </DialogTitle>
             </DialogHeader>
             {manualType && (
@@ -2648,6 +2653,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       <Label>Date *</Label>
                       <Input
                         type="date"
+                        max={today}
                         value={manual.entryDate}
                         onChange={(e) =>
                           setManualField("entryDate", e.target.value)
@@ -2682,7 +2688,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         }
                       >
                         <option value="">Select account</option>
-                        {coa.map((a) => (
+                        {coa.map((a: any) => (
                           <option key={a.id} value={a.id}>
                             {a.accountCode} - {a.accountName}
                           </option>
@@ -2699,7 +2705,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         }
                       >
                         <option value="">Select account</option>
-                        {coa.map((a) => (
+                        {coa.map((a: any) => (
                           <option key={a.id} value={a.id}>
                             {a.accountCode} - {a.accountName}
                           </option>
@@ -2713,7 +2719,7 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                         min="0.01"
                         step="0.01"
                         value={manual.amount || ""}
-                        onChange={(e) => setManual((current: any) => ({ ...current, amount: e.target.value, paidAmount: current.entryType === "Debit Note" ? e.target.value : current.paidAmount, receivedAmount: current.entryType === "Credit Note" ? e.target.value : current.receivedAmount }))}
+                        onChange={(e) => setManualField("amount", e.target.value)}
                       />
                     </div>
                     <div className="space-y-1.5">
@@ -2721,256 +2727,6 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
                       <Input
                         value={manual.memo || ""}
                         onChange={(e) => setManualField("memo", e.target.value)}
-                      />
-                    </div>
-                  </>
-                )}
-                {manualType === "ap" && (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label>Entry Type</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.entryType}
-                        onChange={(e) =>
-                          setManualField("entryType", e.target.value)
-                        }
-                      >
-                        <option>Bill</option>
-                        <option>Debit Note</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Vendor *</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.vendorId || ""}
-                        onChange={(e) => selectVendor(e.target.value)}
-                      >
-                        <option value="">Select vendor</option>
-                        {crmVendors.map((vendor) => (
-                          <option key={vendor.id} value={vendor.id}>
-                            {vendor.displayName || `${vendor.name} - ${vendor.contactCode}`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>
-                        {manual.entryType === "Debit Note"
-                          ? "Debit Note #"
-                          : "Bill #"}{" "}
-                        *
-                      </Label>
-                      {manual.entryType === "Debit Note" ? (
-                        <Input value={manual.billNumber || ""} onChange={(e) => setManualField("billNumber", e.target.value)} />
-                      ) : (
-                        <Input list="accounts-ap-documents" value={manual.billNumber || ""} onChange={(e) => selectApDocument(e.target.value)} />
-                      )}
-                      <datalist id="accounts-ap-documents">
-                        {apDocuments.map((doc) => (
-                          <option key={doc.id} value={doc.displayName} />
-                        ))}
-                      </datalist>
-                    </div>
-                    {manual.entryType === "Debit Note" && (
-                      <div className="space-y-1.5">
-                        <Label>Against Bill *</Label>
-                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.againstBillNumber || ""} onChange={(e) => selectApDocument(e.target.value)}>
-                          <option value="">Select paid/partial bill</option>
-                          {apDocuments.map((doc) => <option key={doc.id} value={doc.billNumber}>{doc.displayName || doc.billNumber}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      <Label>Bill Date *</Label>
-                      <Input
-                        type="date"
-                        value={manual.billDate}
-                        onChange={(e) =>
-                          setManualField("billDate", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Due Date *</Label>
-                      <Input
-                        type="date"
-                        value={manual.dueDate}
-                        onChange={(e) =>
-                          setManualField("dueDate", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Amount *</Label>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={manual.amount || ""}
-                        onChange={(e) => setManual((current: any) => ({ ...current, amount: e.target.value, paidAmount: current.entryType === "Debit Note" ? e.target.value : current.paidAmount, receivedAmount: current.entryType === "Credit Note" ? e.target.value : current.receivedAmount }))}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Paid Amount</Label>
-                      <Input
-                        readOnly={manual.entryType === "Debit Note"}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={manual.paidAmount || ""}
-                        onChange={(e) =>
-                          setManualField("paidAmount", e.target.value)
-                        }
-                      />
-                    </div>{manual.entryType !== "Debit Note" && (
-                      <div className="space-y-1.5">
-                        <Label>Adjusted Amount</Label>
-                        <Input type="number" min="0" step="0.01" value={manual.adjustedAmount || ""} onChange={(e) => setManualField("adjustedAmount", e.target.value)} />
-                      </div>
-                    )}
-{manual.entryType === "Debit Note" && (
-                      <div className="space-y-1.5">
-                        <Label>Account Name *</Label>
-                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.coaAccountId || ""} onChange={(e) => setManualField("coaAccountId", e.target.value)}>
-                          <option value="">Select account</option>
-                          {coa.map((account: any) => <option key={account.id} value={account.id}>{account.accountCode} - {account.accountName}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      <Label>Notes</Label>
-                      <Input
-                        value={manual.notes || ""}
-                        onChange={(e) =>
-                          setManualField("notes", e.target.value)
-                        }
-                      />
-                    </div>
-                  </>
-                )}
-                {manualType === "ar" && (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label>Entry Type</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.entryType}
-                        onChange={(e) =>
-                          setManualField("entryType", e.target.value)
-                        }
-                      >
-                        <option>Invoice</option>
-                        <option>Credit Note</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Customer *</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.clientId || ""}
-                        onChange={(e) => selectClient(e.target.value)}
-                      >
-                        <option value="">Select customer</option>
-                        {crmClients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.displayName || `${client.name} - ${client.contactCode}`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>
-                        {manual.entryType === "Credit Note"
-                          ? "Credit Note #"
-                          : "Invoice #"}{" "}
-                        *
-                      </Label>
-                      <Input
-                        list={manual.entryType === "Credit Note" ? undefined : "accounts-ar-documents"}
-                        value={manual.invoiceNumber || ""}
-                        onChange={(e) => setManualField("invoiceNumber", e.target.value)}
-                      />
-                      <datalist id="accounts-ar-documents">
-                        {arDocuments.map((doc) => (
-                          <option key={doc.id} value={doc.displayName} />
-                        ))}
-                      </datalist>
-                    </div>
-                    {manual.entryType === "Credit Note" && (
-                      <div className="space-y-1.5">
-                        <Label>Linked Invoice *</Label>
-                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.linkedInvoiceNumber || ""} onChange={(e) => selectLinkedArInvoice(e.target.value)}>
-                          <option value="">Select paid/partial invoice</option>
-                          {arDocuments.map((doc) => <option key={doc.id} value={doc.invoiceNumber}>{doc.displayName || doc.invoiceNumber}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      <Label>Invoice Date *</Label>
-                      <Input
-                        type="date"
-                        value={manual.invoiceDate}
-                        onChange={(e) =>
-                          setManualField("invoiceDate", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Due Date *</Label>
-                      <Input
-                        type="date"
-                        value={manual.dueDate}
-                        onChange={(e) =>
-                          setManualField("dueDate", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Amount *</Label>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={manual.amount || ""}
-                        onChange={(e) => setManual((current: any) => ({ ...current, amount: e.target.value, paidAmount: current.entryType === "Debit Note" ? e.target.value : current.paidAmount, receivedAmount: current.entryType === "Credit Note" ? e.target.value : current.receivedAmount }))}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Received Amount</Label>
-                      <Input
-                        readOnly={manual.entryType === "Credit Note"}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={manual.receivedAmount || ""}
-                        onChange={(e) =>
-                          setManualField("receivedAmount", e.target.value)
-                        }
-                      />
-                    </div>{manual.entryType !== "Credit Note" && (
-                      <div className="space-y-1.5">
-                        <Label>Adjusted Amount</Label>
-                        <Input type="number" min="0" step="0.01" value={manual.adjustedAmount || ""} onChange={(e) => setManualField("adjustedAmount", e.target.value)} />
-                      </div>
-                    )}
-                    {manual.entryType === "Credit Note" && (
-                      <div className="space-y-1.5">
-                        <Label>Account Name *</Label>
-                        <select className="h-10 w-full rounded-md border bg-background px-3" value={manual.coaAccountId || ""} onChange={(e) => setManualField("coaAccountId", e.target.value)}>
-                          <option value="">Select account</option>
-                          {coa.map((account: any) => <option key={account.id} value={account.id}>{account.accountCode} - {account.accountName}</option>)}
-                        </select>
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      <Label>Notes</Label>
-                      <Input
-                        value={manual.notes || ""}
-                        onChange={(e) =>
-                          setManualField("notes", e.target.value)
-                        }
                       />
                     </div>
                   </>
@@ -2985,565 +2741,856 @@ const loadArDocuments = async (clientId?: string, mode?: string) => {
               >
                 Cancel
               </Button>
-              <Button onClick={() => void submitManual()} disabled={submitting || ((manual.entryType === "Credit Note" || manual.entryType === "Debit Note") && !manual.coaAccountId)}>
+              <Button
+                onClick={() => void submitManual()}
+                disabled={
+                  submitting ||
+                  (manualType === "account" &&
+                    (!manual.accountCode?.trim() || !manual.accountName?.trim())) ||
+                  (manualType === "journal" &&
+                    (!manual.entryDate ||
+                      !manual.reference?.trim() ||
+                      !manual.description?.trim() ||
+                      !manual.debitAccountId ||
+                      !manual.creditAccountId ||
+                      !manual.amount))
+                }
+              >
                 {submitting ? "Saving..." : "Save Entry"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        <Dialog
-          open={Boolean(bankDecision)}
-          onOpenChange={(open) => {
-            if (!open && !submitting) setBankDecision(null);
-          }}
-        >
-          <DialogContent className="max-w-md rounded-md border bg-background shadow-xl">
-            <DialogHeader>
-              <DialogTitle>Reject Bank & Cash Transaction</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3 py-2">
-              {bankDecision?.row && (
-                <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                  <div className="font-medium">{bankDecision.row.reference || bankDecision.row.transactionTypeName}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {String(bankDecision.row.transactionDate || "").slice(0, 10)} - {inr(bankDecision.row.amount)}
+        )}
+        {Boolean(accountImport) && (
+          <Dialog
+            open={Boolean(accountImport)}
+            onOpenChange={(open) => {
+              if (!open && !submitting) {
+                setAccountImport(null);
+                setAccountImportRows([]);
+                setAccountImportFile("");
+              }
+            }}
+          >
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{accountImport ? `Import ${accountImportConfig[accountImport].title}` : "Import Excel"}</DialogTitle>
+              </DialogHeader>
+              {accountImport && (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Download template</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Use the exact headers and YYYY-MM-DD date format.</p>
+                    </div>
+                    <Button type="button" variant="outline" disabled={submitting} onClick={() => downloadAccountTemplate(accountImport)}>
+                      <Download className="mr-2 h-4 w-4" /> Download Template
+                    </Button>
+                  </div>
+                  <div className="rounded-md border p-4">
+                    <Label className="text-sm">Upload .xlsx file</Label>
+                    <Input className="mt-2" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void parseAccountImportFile(event.target.files?.[0])} />
+                    {accountImportFile && <p className="mt-2 text-xs text-muted-foreground">{accountImportFile} - {accountImportRows.length} row(s) ready</p>}
+                    {error && <div className="mt-2 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
                   </div>
                 </div>
               )}
-              <label className="space-y-1.5 text-sm">
-                <Label>Rejection Remarks *</Label>
-                <Input
-                  value={bankDecision?.remarks || ""}
-                  onChange={(event) =>
-                    setBankDecision((current) =>
-                      current ? { ...current, remarks: event.target.value } : current,
-                    )
-                  }
-                  placeholder="Enter reason for rejection"
-                />
-              </label>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setBankDecision(null)} disabled={submitting}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={submitting || !bankDecision?.remarks.trim()}
-                onClick={() => bankDecision && void bankCashDecision(bankDecision.row, "reject", bankDecision.remarks.trim())}
-              >
-                {submitting ? "Rejecting..." : "Reject"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={settlement?.kind === "ap"}
-          onOpenChange={(open) => {
-            if (!open && !submitting) {
-              setSettlement(null);
-              setSettlementAmount("");
-            }
-          }}
-        >
-          <DialogContent className="max-w-lg rounded-2xl p-6">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-3">
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-500">
-                  <DollarSign className="h-5 w-5" />
-                </span>
-                Record Payment
-              </DialogTitle>
-            </DialogHeader>
-            {settlement?.kind === "ap" && (
-              <div className="space-y-5 py-2">
-                {error && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                    {error}
+              <DialogFooter>
+                <Button variant="outline" disabled={submitting} onClick={() => setAccountImport(null)}>Cancel</Button>
+                <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>{submitting ? "Importing..." : "Import"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {Boolean(bankDecision) && (
+          <Dialog
+            open={Boolean(bankDecision)}
+            onOpenChange={(open) => {
+              if (!open && !submitting) setBankDecision(null);
+            }}
+          >
+            <DialogContent className="max-w-md rounded-md border bg-background shadow-xl">
+              <DialogHeader>
+                <DialogTitle>Reject Bank & Cash Transaction</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                {bankDecision?.row && (
+                  <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                    <div className="font-medium">{bankDecision.row.reference || bankDecision.row.transactionTypeName}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {String(bankDecision.row.transactionDate || "").slice(0, 10)} - {inr(bankDecision.row.amount)}
+                    </div>
                   </div>
                 )}
-                <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Total Amount
-                    </p>
-                    <p className="font-semibold">
-                      {inr(settlement.row.amount)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Already Paid
-                    </p>
-                    <p className="font-semibold text-emerald-600">
-                      {inr(settlement.row.paidAmount)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Balance
-                    </p>
-                    <p className="font-semibold text-red-500">
-                      {inr(
-                        Math.max(
-                          0,
-                          numberValue(settlement.row.amount) -
+                <label className="space-y-1.5 text-sm">
+                  <Label>Rejection Remarks *</Label>
+                  <Input
+                    value={bankDecision?.remarks || ""}
+                    onChange={(event) =>
+                      setBankDecision((current) =>
+                        current ? { ...current, remarks: event.target.value } : current,
+                      )
+                    }
+                    placeholder="Enter reason for rejection"
+                  />
+                </label>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setBankDecision(null)} disabled={submitting}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={submitting || !bankDecision?.remarks.trim()}
+                  onClick={() => bankDecision && void bankCashDecision(bankDecision.row, "reject", bankDecision.remarks.trim())}
+                >
+                  {submitting ? "Rejecting..." : "Reject"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {settlement?.kind === "ap" && (
+          <Dialog
+            open={settlement?.kind === "ap"}
+            onOpenChange={(open) => {
+              if (!open && !submitting) {
+                setSettlement(null);
+                setSettlementAmount("");
+              }
+            }}
+          >
+            <DialogContent className="max-w-lg rounded-2xl p-6">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-500">
+                    <DollarSign className="h-5 w-5" />
+                  </span>
+                  Record Payment
+                </DialogTitle>
+              </DialogHeader>
+              {settlement?.kind === "ap" && (
+                <div className="space-y-5 py-2">
+                  {error && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                      {error}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Total Amount
+                      </p>
+                      <p className="font-semibold">
+                        {inr(settlement.row.amount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Already Paid
+                      </p>
+                      <p className="font-semibold text-emerald-600">
+                        {inr(settlement.row.paidAmount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Balance
+                      </p>
+                      <p className="font-semibold text-red-500">
+                        {inr(
+                          Math.max(
+                            0,
+                            numberValue(settlement.row.amount) -
                             numberValue(settlement.row.paidAmount) -
                             numberValue(settlement.row.adjustedAmount),
-                        ),
-                      )}
-                    </p>
+                          ),
+                        )}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ap-payment-amount">Payment Amount</Label>
-                  <Input
-                    id="ap-payment-amount"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={settlementAmount}
-                    onChange={(event) =>
-                      setSettlementAmount(event.target.value)
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ap-account-name">Account Name *</Label>
-                  <select
-                    id="ap-account-name"
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={apSettlementAccountId}
-                    onChange={(event) => setApSettlementAccountId(event.target.value)}
-                    required
-                  >
-                    <option value="">Select account</option>
-                    {coa.filter((account) => account.isActive !== false).map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.accountName} ({account.accountCode})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setSettlement(null)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="bg-red-500 hover:bg-red-600"
-                onClick={() => void saveSettlement()}
-                disabled={submitting || !settlementAmount || !apSettlementAccountId}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {submitting ? "Recording..." : "Record Payment"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={Boolean(paymentAr)}
-          onOpenChange={(open) => {
-            if (!open && !submitting) setPaymentAr(null);
-          }}
-        >
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Receive Payment</DialogTitle>
-            </DialogHeader>
-            {paymentAr && (
-              <div className="space-y-5">
-                {error && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                    {error}
-                  </div>
-                )}
-                <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Total Amount
-                    </p>
-                    <p className="font-semibold">{inr(paymentAr.amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Already Paid
-                    </p>
-                    <p className="font-semibold text-primary">
-                      {inr(paymentAr.receivedAmount)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Balance
-                    </p>
-                    <p className="font-semibold">
-                      {inr(outstanding(paymentAr))}
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="payment-amount">Paid Amount *</Label>
-                  <Input
-                    id="payment-amount"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    max={outstanding(paymentAr)}
-                    value={paymentAmount}
-                    onChange={(event) => setPaymentAmount(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ar-from-account">From Account *</Label>
-                  <select id="ar-from-account" className="h-10 w-full rounded-md border bg-background px-3" value={arPayment.fromAccountId} onChange={(event) => setArPayment(value => ({ ...value, fromAccountId: event.target.value }))} required>
-                    <option value="">Select receivable account</option>
-                    {coa.filter(account => account.accountCode === "1100" && account.isActive !== false).map(account => <option key={account.id} value={account.id}>{account.accountCode} - {account.accountName}</option>)}
-                  </select>
-                  <Label htmlFor="ar-account-name">To Account *</Label>
-                  <select
-                    id="ar-account-name"
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={arPayment.settlementAccountId}
-                    onChange={(event) => setArPayment((value) => ({
-                      ...value,
-                      settlementAccountId: event.target.value,
-                    }))}
-                    required
-                  >
-                    <option value="">Select account</option>
-                    {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.accountName} ({account.accountCode})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1.5 text-sm">
-                    <Label>Payment Date *</Label>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ap-payment-amount">Payment Amount</Label>
                     <Input
-                      type="date"
-                      required
-                      value={arPayment.paymentDate}
-                      onChange={(e) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          paymentDate: e.target.value,
-                        }))
+                      id="ap-payment-amount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={settlementAmount}
+                      onChange={(event) =>
+                        setSettlementAmount(event.target.value)
                       }
                     />
-                  </label>
-                  <label className="space-y-1.5 text-sm">
-                    <Label>Payment Method</Label>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ap-account-name">Account Name *</Label>
                     <select
+                      id="ap-account-name"
                       className="h-10 w-full rounded-md border bg-background px-3"
-                      value={arPayment.paymentMethod}
-                      onChange={(e) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          paymentMethod: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Not specified</option>
-                      {paymentMethods.map(
-                        (method) => (
-                          <option key={method}>{method}</option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                  <label className="space-y-1.5 text-sm">
-                    <Label>Bank Charges</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={arPayment.bankCharges}
-                      onChange={(e) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          bankCharges: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  {paymentAr.sourceType !== "Sales Invoice" && <>
-                    <label className="space-y-1.5 text-sm">Period (optional)<Input value={arPayment.period} onChange={(e) => setArPayment((value) => ({ ...value, period: e.target.value }))} /></label>
-                    <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={arPayment.transactionFees} onChange={(e) => setArPayment((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
-                  </>}
-                  <label className="space-y-1.5 text-sm">
-                    <Label>TDS Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={arPayment.tdsAmount}
-                      onChange={(e) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          tdsAmount: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm sm:col-span-2">
-                    <Label>Reference ID / Invoice Number</Label>
-                    <Input
-                      value={arPayment.reference}
-                      onChange={(e) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          reference: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm sm:col-span-2">
-                    <Label>Notes</Label>
-                    <Input
-                      value={arPayment.notes}
-                      onChange={(e) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          notes: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setPaymentAr(null)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void receivePayment()}
-                disabled={submitting || !paymentAmount || !arPayment.settlementAccountId || !arPayment.fromAccountId || !arPayment.paymentDate}
-              >
-                <CreditCard className="mr-2 h-4 w-4" />{" "}
-                {submitting ? "Receiving..." : "Receive Payment"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Dialog
-          open={Boolean(paymentAp)}
-          onOpenChange={(open) => {
-            if (!open && !submitting) setPaymentAp(null);
-          }}
-        >
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
-            </DialogHeader>
-            {paymentAp && (
-              <div className="space-y-5">
-                {error && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                    {error}
-                  </div>
-                )}
-                <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Total Amount
-                    </p>
-                    <p className="font-semibold">{inr(paymentAp.amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Already Paid
-                    </p>
-                    <p className="font-semibold text-primary">
-                      {inr(paymentAp.paidAmount)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase text-muted-foreground">
-                      Balance
-                    </p>
-                    <p className="font-semibold">
-                      {inr(payableOutstanding(paymentAp))}
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ap-paid-amount">Payment Amount *</Label>
-                  <Input
-                    id="ap-paid-amount"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    max={payableOutstanding(paymentAp)}
-                    value={paymentApAmount}
-                    onChange={(event) => setPaymentApAmount(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ap-from-account">From Account *</Label>
-                  <select
-                    id="ap-from-account"
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={apPaymentForm.fromAccountId}
-                    onChange={(event) => setApPaymentForm((value) => ({
-                      ...value,
-                      fromAccountId: event.target.value,
-                      settlementAccountId: event.target.value,
-                    }))}
-                    required
-                  >
-                    <option value="">Select disbursement account</option>
-                    {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.accountName} ({account.accountCode})
-                      </option>
-                    ))}
-                  </select>
-                  <Label htmlFor="ap-to-account">To Account *</Label>
-                  <select
-                    id="ap-to-account"
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={apPaymentForm.toAccountId}
-                    onChange={(event) => setApPaymentForm((value) => ({
-                      ...value,
-                      toAccountId: event.target.value,
-                    }))}
-                    required
-                  >
-                    <option value="">Select payable account</option>
-                    {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.accountCode} - {account.accountName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1.5 text-sm">
-                    <Label>Payment Date *</Label>
-                    <Input
-                      type="date"
+                      value={apSettlementAccountId}
+                      onChange={(event) => setApSettlementAccountId(event.target.value)}
                       required
-                      value={apPaymentForm.paymentDate}
-                      onChange={(e) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          paymentDate: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm">
-                    <Label>Payment Method</Label>
-                    <select
-                      className="h-10 w-full rounded-md border bg-background px-3"
-                      value={apPaymentForm.paymentMethod}
-                      onChange={(e) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          paymentMethod: e.target.value,
-                        }))
-                      }
                     >
-                      <option value="">Not specified</option>
-                      {paymentMethods.map(
-                        (method) => (
-                          <option key={method}>{method}</option>
-                        ),
-                      )}
+                      <option value="">Select account</option>
+                      {coa.filter((account) => account.isActive !== false).map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountName} ({account.accountCode})
+                        </option>
+                      ))}
                     </select>
-                  </label>
-                  <label className="space-y-1.5 text-sm">
-                    <Label>Bank Charges</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={apPaymentForm.bankCharges}
-                      onChange={(e) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          bankCharges: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  {paymentAp.sourceType !== "Purchase Invoice" && <>
-                    <label className="space-y-1.5 text-sm">Period (optional)<Input value={apPaymentForm.period} onChange={(e) => setApPaymentForm((value) => ({ ...value, period: e.target.value }))} /></label>
-                    <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={apPaymentForm.transactionFees} onChange={(e) => setApPaymentForm((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
-                  </>}
-                  <label className="space-y-1.5 text-sm">
-                    <Label>TDS Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={apPaymentForm.tdsAmount}
-                      onChange={(e) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          tdsAmount: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm sm:col-span-2">
-                    <Label>Reference ID / Bill Number</Label>
-                    <Input
-                      value={apPaymentForm.reference}
-                      onChange={(e) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          reference: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1.5 text-sm sm:col-span-2">
-                    <Label>Notes</Label>
-                    <Input
-                      value={apPaymentForm.notes}
-                      onChange={(e) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          notes: e.target.value,
-                        }))
-                      }
-                    />
-                  </label>
+                  </div>
                 </div>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setSettlement(null)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-red-500 hover:bg-red-600"
+                  onClick={() => void saveSettlement()}
+                  disabled={submitting || !settlementAmount || !apSettlementAccountId}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  {submitting ? "Recording..." : "Record Payment"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {Boolean(paymentAr) && (
+          <Dialog
+            open={Boolean(paymentAr)}
+            onOpenChange={(open) => {
+              if (!open && !submitting) setPaymentAr(null);
+            }}
+          >
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Receive Payment</DialogTitle>
+              </DialogHeader>
+              {paymentAr && (
+                <div className="space-y-5">
+                  {error && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                      {error}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Total Amount
+                      </p>
+                      <p className="font-semibold">{inr(paymentAr.amount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Already Paid
+                      </p>
+                      <p className="font-semibold text-primary">
+                        {inr(paymentAr.receivedAmount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Balance
+                      </p>
+                      <p className="font-semibold">
+                        {inr(outstanding(paymentAr))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="payment-amount">Paid Amount *</Label>
+                    <Input
+                      id="payment-amount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={outstanding(paymentAr)}
+                      value={paymentAmount}
+                      onChange={(event) => setPaymentAmount(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="from-account">From Account *</Label>
+                    <select
+                      id="from-account"
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={arPayment.fromAccountId}
+                      onChange={(event) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          fromAccountId: event.target.value,
+                        }))
+                      }
+                      required
+                    >
+                      <option value="">Select account</option>
+                      {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountCode} - {account.accountName}
+                        </option>
+                      ))}
+                    </select>
+                    <Label htmlFor="settlement-account">To Account *</Label>
+                    <select
+                      id="settlement-account"
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={arPayment.settlementAccountId}
+                      onChange={(event) =>
+                        setArPayment((value) => ({
+                          ...value,
+                          settlementAccountId: event.target.value,
+                        }))
+                      }
+                      required
+                    >
+                      <option value="">Select settlement account</option>
+                      {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountName} ({account.accountCode})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1.5 text-sm">
+                      <Label>Payment Date *</Label>
+                      <Input
+                        type="date"
+                        required
+                        value={arPayment.paymentDate}
+                        onChange={(e) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            paymentDate: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-sm">
+                      <Label>Payment Method</Label>
+                      <select
+                        className="h-10 w-full rounded-md border bg-background px-3"
+                        value={arPayment.paymentMethod}
+                        onChange={(e) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            paymentMethod: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Not specified</option>
+                        {paymentMethods.map(
+                          (method) => (
+                            <option key={method}>{method}</option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                    <label className="space-y-1.5 text-sm">
+                      <Label>Bank Charges</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={arPayment.bankCharges}
+                        onChange={(e) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            bankCharges: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    {paymentAr.sourceType !== "Sales Invoice" && <>
+                      <label className="space-y-1.5 text-sm">Period (optional)<Input value={arPayment.period} onChange={(e) => setArPayment((value) => ({ ...value, period: e.target.value }))} /></label>
+                      <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={arPayment.transactionFees} onChange={(e) => setArPayment((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
+                    </>}
+                    <label className="space-y-1.5 text-sm">
+                      <Label>TDS Amount</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={arPayment.tdsAmount}
+                        onChange={(e) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            tdsAmount: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-sm sm:col-span-2">
+                      <Label>Reference ID / Invoice Number</Label>
+                      <Input
+                        placeholder={paymentAr.invoiceNumber || paymentAr.reference || "Reference ID / Invoice Number"}
+                        value={arPayment.reference}
+                        onChange={(e) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            reference: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-sm sm:col-span-2">
+                      <Label>Notes</Label>
+                      <Input
+                        value={arPayment.notes}
+                        onChange={(e) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            notes: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setPaymentAr(null)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void receivePayment()}
+                  disabled={submitting || !paymentAmount || !arPayment.settlementAccountId || !arPayment.fromAccountId || !arPayment.paymentDate}
+                >
+                  <CreditCard className="mr-2 h-4 w-4" />{" "}
+                  {submitting ? "Receiving..." : "Receive Payment"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {Boolean(paymentAp) && (
+          <Dialog
+            open={Boolean(paymentAp)}
+            onOpenChange={(open) => {
+              if (!open && !submitting) setPaymentAp(null);
+            }}
+          >
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Record Payment</DialogTitle>
+              </DialogHeader>
+              {paymentAp && (
+                <div className="space-y-5">
+                  {error && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                      {error}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Total Amount
+                      </p>
+                      <p className="font-semibold">{inr(paymentAp.amount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Already Paid
+                      </p>
+                      <p className="font-semibold text-primary">
+                        {inr(paymentAp.paidAmount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-muted-foreground">
+                        Balance
+                      </p>
+                      <p className="font-semibold">
+                        {inr(payableOutstanding(paymentAp))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ap-paid-amount">Payment Amount *</Label>
+                    <Input
+                      id="ap-paid-amount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={payableOutstanding(paymentAp)}
+                      value={paymentApAmount}
+                      onChange={(event) => setPaymentApAmount(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ap-from-account">From Account *</Label>
+                    <select
+                      id="ap-from-account"
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={apPaymentForm.fromAccountId}
+                      onChange={(event) => setApPaymentForm((value) => ({
+                        ...value,
+                        fromAccountId: event.target.value,
+                        settlementAccountId: event.target.value,
+                      }))}
+                      required
+                    >
+                      <option value="">Select disbursement account</option>
+                      {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountName} ({account.accountCode})
+                        </option>
+                      ))}
+                    </select>
+                    <Label htmlFor="ap-to-account">To Account *</Label>
+                    <select
+                      id="ap-to-account"
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={apPaymentForm.toAccountId}
+                      onChange={(event) => setApPaymentForm((value) => ({
+                        ...value,
+                        toAccountId: event.target.value,
+                      }))}
+                      required
+                    >
+                      <option value="">Select payable account</option>
+                      {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountCode} - {account.accountName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1.5 text-sm">
+                      <Label>Payment Date *</Label>
+                      <Input
+                        type="date"
+                        required
+                        value={apPaymentForm.paymentDate}
+                        onChange={(e) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            paymentDate: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-sm">
+                      <Label>Payment Method</Label>
+                      <select
+                        className="h-10 w-full rounded-md border bg-background px-3"
+                        value={apPaymentForm.paymentMethod}
+                        onChange={(e) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            paymentMethod: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Not specified</option>
+                        {paymentMethods.map(
+                          (method) => (
+                            <option key={method}>{method}</option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                    <label className="space-y-1.5 text-sm">
+                      <Label>Bank Charges</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={apPaymentForm.bankCharges}
+                        onChange={(e) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            bankCharges: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    {paymentAp.sourceType !== "Purchase Invoice" && <>
+                      <label className="space-y-1.5 text-sm">Period (optional)<Input value={apPaymentForm.period} onChange={(e) => setApPaymentForm((value) => ({ ...value, period: e.target.value }))} /></label>
+                      <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={apPaymentForm.transactionFees} onChange={(e) => setApPaymentForm((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
+                    </>}
+                    <label className="space-y-1.5 text-sm">
+                      <Label>TDS Amount</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={apPaymentForm.tdsAmount}
+                        onChange={(e) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            tdsAmount: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-sm sm:col-span-2">
+                      <Label>Reference ID / Bill Number</Label>
+                      <Input
+                        placeholder={paymentAp.billNumber || paymentAp.reference || "Reference ID / Bill Number"}
+                        value={apPaymentForm.reference}
+                        onChange={(e) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            reference: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 text-sm sm:col-span-2">
+                      <Label>Notes</Label>
+                      <Input
+                        value={apPaymentForm.notes}
+                        onChange={(e) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            notes: e.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setPaymentAp(null)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void recordApPayment()}
+                  disabled={submitting || !paymentApAmount || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId || !apPaymentForm.paymentDate}
+                >
+                  <CreditCard className="mr-2 h-4 w-4" />{" "}
+                  {submitting ? "Recording..." : "Record Payment"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {Boolean(historyModal) && (
+          <Dialog
+            open={Boolean(historyModal)}
+            onOpenChange={(open) => {
+              if (!open) setHistoryModal(null);
+            }}
+          >
+            <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+              <DialogHeader className="p-6 pb-4 border-b bg-muted/20">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Receipt className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <DialogTitle className="text-lg font-semibold text-foreground">
+                      {historyModal?.title || "Payment History"}
+                    </DialogTitle>
+                    <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
+                      {historyModal?.reference && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted font-medium text-foreground">
+                          Ref: {historyModal.reference}
+                        </span>
+                      )}
+                      {historyModal?.contactName && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted font-medium text-foreground">
+                          Party: {historyModal.contactName}
+                        </span>
+                      )}
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                        {historyModal?.payments?.length || 0}{" "}
+                        {historyModal?.payments?.length === 1 ? "Record" : "Records"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {(!historyModal?.payments || historyModal.payments.length === 0) ? (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    No payment records found.
+                  </div>
+                ) : (
+                  historyModal.payments.map((payment: any, index: number) => {
+                    const pAmount =
+                      payment.amount ??
+                      payment.paidAmount ??
+                      payment.credit ??
+                      payment.debit ??
+                      0;
+                    const pDate =
+                      payment.paymentDate ||
+                      payment.entryDate ||
+                      payment.date ||
+                      payment.paidDate ||
+                      "—";
+                    const pMethod =
+                      payment.paymentMethod ||
+                      payment.paymentMode ||
+                      payment.mode ||
+                      "—";
+                    const fromAcc =
+                      payment.fromAccountName ||
+                      payment.fromAccount ||
+                      "—";
+                    const toAcc =
+                      payment.toAccountName ||
+                      payment.toAccount ||
+                      payment.accountName ||
+                      "—";
+                    const ref =
+                      payment.reference ||
+                      payment.receiptId ||
+                      payment.paymentId ||
+                      payment.metadata?.documentReference ||
+                      "—";
+
+                    return (
+                      <div
+                        key={payment.id || index}
+                        className="rounded-lg border bg-card text-card-foreground shadow-xs p-4 space-y-3 transition-colors hover:border-primary/40"
+                      >
+                        <div className="flex items-center justify-between border-b pb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-foreground">
+                              #{index + 1}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {pDate}
+                            </span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-secondary-foreground">
+                              {pMethod}
+                            </span>
+                          </div>
+                          <div className="text-base font-bold text-primary">
+                            {inr(pAmount)}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-muted-foreground">From Account: </span>
+                            <span className="font-medium text-foreground">{fromAcc}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">To Account: </span>
+                            <span className="font-medium text-foreground">{toAcc}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Reference: </span>
+                            <span className="font-medium text-foreground">{ref}</span>
+                          </div>
+                          {payment.period && (
+                            <div>
+                              <span className="text-muted-foreground">Period: </span>
+                              <span className="font-medium text-foreground">{payment.period}</span>
+                            </div>
+                          )}
+                          {Number(payment.bankCharges || 0) > 0 && (
+                            <div>
+                              <span className="text-muted-foreground">Bank Charges: </span>
+                              <span className="font-medium text-destructive">{inr(payment.bankCharges)}</span>
+                            </div>
+                          )}
+                          {Number(payment.tdsAmount || 0) > 0 && (
+                            <div>
+                              <span className="text-muted-foreground">TDS: </span>
+                              <span className="font-medium text-foreground">{inr(payment.tdsAmount)}</span>
+                            </div>
+                          )}
+                          {Number(payment.transactionFees || 0) > 0 && (
+                            <div>
+                              <span className="text-muted-foreground">Transaction Fees: </span>
+                              <span className="font-medium text-foreground">{inr(payment.transactionFees)}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {payment.notes && (
+                          <div className="text-xs bg-muted/40 rounded p-2 text-muted-foreground italic">
+                            <span className="font-medium not-italic text-foreground">Notes: </span>
+                            {payment.notes}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setPaymentAp(null)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void recordApPayment()}
-                disabled={submitting || !paymentApAmount || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId || !apPaymentForm.paymentDate}
-              >
-                <CreditCard className="mr-2 h-4 w-4" />{" "}
-                {submitting ? "Recording..." : "Record Payment"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+
+              <DialogFooter className="p-4 border-t bg-muted/10">
+                <Button
+                  variant="outline"
+                  onClick={() => setHistoryModal(null)}
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+        {Boolean(deleteConfirmation) && (
+          <Dialog
+            open={Boolean(deleteConfirmation)}
+            onOpenChange={(open) => {
+              if (!open && !submitting) setDeleteConfirmation(null);
+            }}
+          >
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <div
+                    className="h-10 w-10 rounded-full flex items-center justify-center shrink-0"
+                    style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
+                  >
+                    <Trash2 className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <DialogTitle className="text-lg font-semibold text-foreground">
+                      {deleteConfirmation?.title || "Confirm Delete"}
+                    </DialogTitle>
+                  </div>
+                </div>
+              </DialogHeader>
+              <div className="py-2 text-sm text-muted-foreground leading-relaxed">
+                {deleteConfirmation?.description}
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteConfirmation(null)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
+                  className="text-white hover:opacity-90 cursor-pointer border-0"
+                  onClick={() => void handleConfirmDelete()}
+                  disabled={submitting}
+                >
+                  <Trash2 className="mr-2 h-4 w-4 text-white" />
+                  {submitting ? "Deleting..." : "Delete"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </Shell>
   );

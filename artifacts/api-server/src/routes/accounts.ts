@@ -381,7 +381,7 @@ async function coa(org: number) {
     }).returning();
     rows.push(created as any);
   }
-const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)));
+  const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)));
   const nextAccountCode = (accountType: string) => {
     const bases: Record<string, number> = { Asset: 1000, Liability: 2000, Equity: 3000, Revenue: 4000, Expense: 5000 };
     const used = (rows as any[])
@@ -771,7 +771,7 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
       credit: 0,
     })),
   );
-const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
+  const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
     const account = (rows as any[]).find((row: any) => norm(row.accountName) === norm(accountName));
     if (!account) return;
     const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
@@ -939,8 +939,8 @@ async function reverseJournal(org: number, journalEntryId: number) {
           .set({
             currentBalance: m(
               Number(account.currentBalance) -
-                Number(line.debit) +
-                Number(line.credit),
+              Number(line.debit) +
+              Number(line.credit),
             ),
           })
           .where(eq(chartOfAccountsTable.id, account.id));
@@ -1104,17 +1104,17 @@ async function automate(org: number) {
     const requestedAdjustment =
       ar.sourceType === "Sales Invoice" && ar.sourceId
         ? m(
-            creditedReturns
-              .filter(
-                (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
-              )
-              .reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
-              receivableAdjustments
-                .filter(
-                  (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
-                )
-                .reduce((sum: number, row: any) => sum + m(row.amount), 0),
-          )
+          creditedReturns
+            .filter(
+              (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
+            )
+            .reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
+          receivableAdjustments
+            .filter(
+              (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
+            )
+            .reduce((sum: number, row: any) => sum + m(row.amount), 0),
+        )
         : m(ar.adjustedAmount);
     const adjustedAmount = Math.min(
       Math.max(0, m(ar.amount) - m(ar.receivedAmount)),
@@ -1302,11 +1302,13 @@ function manualArPayments(row: any, journals: any[], accounts: any[]) {
     const metadata = journal.metadata || {};
     const from = accounts.find((account: any) => Number(account.id) === Number(metadata.fromAccountId));
     const to = accounts.find((account: any) => Number(account.id) === Number(metadata.toAccountId ?? metadata.settlementAccountId));
-    return { id: journal.id, journalEntryId: journal.id, paymentDate: journal.entryDate, clientName: row.clientName,
+    return {
+      id: journal.id, journalEntryId: journal.id, paymentDate: journal.entryDate, clientName: row.clientName,
       fromAccountId: metadata.fromAccountId ?? null, toAccountId: metadata.toAccountId ?? metadata.settlementAccountId ?? null,
       fromAccountName: metadata.fromAccountName || from?.accountName || "", toAccountName: metadata.toAccountName || to?.accountName || "",
       accountName: to?.accountName || metadata.toAccountName || "", paymentMethod: metadata.paymentMethod || "", mode: "Credit", amount: m(metadata.amount ?? journal.totalCredit),
-      reference: metadata.documentReference ?? row.invoiceNumber, notes: metadata.notes || "", period: metadata.period || "", bankCharges: m(metadata.bankCharges), transactionFees: m(metadata.transactionFees) };
+      reference: metadata.documentReference ?? row.invoiceNumber, notes: metadata.notes || "", period: metadata.period || "", bankCharges: m(metadata.bankCharges), transactionFees: m(metadata.transactionFees)
+    };
   }).sort((a: any, b: any) => String(b.paymentDate).localeCompare(String(a.paymentDate)) || b.id - a.id);
 }
 function manualApPayments(row: any, journals: any[], accounts: any[]) {
@@ -1905,20 +1907,24 @@ async function bankCashRows(org: number, query: any = {}) {
     const creditContact = clients.find((contact: any) => Number(contact.id) === Number(row.creditContactId));
     const debitContact = clients.find((contact: any) => Number(contact.id) === Number(row.debitContactId));
     const client = clients.find((contact: any) => Number(contact.id) === Number(row.clientId)) || creditContact || debitContact;
-    return { ...row, paymentDate: row.transactionDate, accountName: account?.accountName || "", accountDisplay: account ? accountLabel(account) : "",
+    return {
+      ...row, paymentDate: row.transactionDate, accountName: account?.accountName || "", accountDisplay: account ? accountLabel(account) : "",
       counterAccountDisplay: counter ? accountLabel(counter) : "", clientName: client?.name || "", clientDisplay: client ? contactOptionLabel(client) : "",
       creditContactName: creditContact?.name || "", creditContactDisplay: creditContact ? contactOptionLabel(creditContact) : "",
       debitContactName: debitContact?.name || "", debitContactDisplay: debitContact ? contactOptionLabel(debitContact) : "",
       paymentMethod: row.paymentMethod || "", period: row.period || "", bankCharges: m(row.bankCharges), transactionFees: m(row.transactionFees),
-      notes: row.remarks || "", documents: docs.get(Number(row.id)) || [] };
+      notes: row.remarks || "", documents: docs.get(Number(row.id)) || []
+    };
   }).sort((a: any, b: any) => String(b.transactionDate).localeCompare(String(a.transactionDate)) || Number(b.id) - Number(a.id));
 }
 router.get("/bank-cash-transactions/options", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const accounts = r.query.clientsOnly === "1" ? [] : (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
   const clients = await contactsFor("client");
-  s.json({ accounts: accounts.map((account: any) => ({ id: account.id, accountCode: account.accountCode, accountName: account.accountName, accountType: account.accountType, isActive: account.isActive, isBankCash: account.isBankCash })),
-    clients: clients.map((client: any) => ({ id: client.id, name: client.name, displayName: contactLabel(client) })), paymentMethods });
+  s.json({
+    accounts: accounts.map((account: any) => ({ id: account.id, accountCode: account.accountCode, accountName: account.accountName, accountType: account.accountType, isActive: account.isActive, isBankCash: account.isBankCash })),
+    clients: clients.map((client: any) => ({ id: client.id, name: client.name, displayName: contactLabel(client) })), paymentMethods
+  });
 });
 router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
@@ -2007,12 +2013,14 @@ async function approveBankCash(r: any, s: any) {
     sourceId: entry.id,
     voucherType,
     tallyVoucherType: voucherType === "Opening Balance" ? "Journal" : voucherType,
-    metadata: { bankCashTransactionId: entry.id, mode: entry.mode, documentReference: entry.reference,
+    metadata: {
+      bankCashTransactionId: entry.id, mode: entry.mode, documentReference: entry.reference,
       clientId: entry.clientId, creditContactId: entry.creditContactId || null, debitContactId: entry.debitContactId || null,
       creditContactName: clients.find((client: any) => Number(client.id) === Number(entry.creditContactId))?.name || "",
       debitContactName: clients.find((client: any) => Number(client.id) === Number(entry.debitContactId))?.name || "",
       paymentMethod: entry.paymentMethod || "", notes: entry.remarks || "",
-      period: entry.period || "", bankCharges: m(entry.bankCharges), transactionFees: m(entry.transactionFees) },
+      period: entry.period || "", bankCharges: m(entry.bankCharges), transactionFees: m(entry.transactionFees)
+    },
     lines,
   }, Number(r.acc.user.id));
   if (chargeLines.length > 0) {
@@ -2633,12 +2641,14 @@ async function insertArReceipt(tx: any, org: number, entryId: number, prepared: 
   if (!existing && reference !== autoRef) {
     [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, autoRef))).limit(1);
   }
-  const metadata = { arId: current.id, clientId: current.clientId, clientName: current.clientName,
+  const metadata = {
+    arId: current.id, clientId: current.clientId, clientName: current.clientName,
     documentReference: details.reference || current.invoiceNumber, paymentMethod: details.paymentMethod,
     paymentDate: details.transactionDate, notes: details.remarks, period: details.period,
     bankCharges: charges, transactionFees: details.transactionFees, amount, tdsAmount: tds, settlementAccountId: settlementAccount.id,
     fromAccountId: receivableAccount.id, toAccountId: settlementAccount.id,
-    fromAccountName: receivableAccount.accountName, toAccountName: settlementAccount.accountName };
+    fromAccountName: receivableAccount.accountName, toAccountName: settlementAccount.accountName
+  };
   if (existing) {
     const stored = existing.metadata as Record<string, unknown>;
     if (["amount", "tdsAmount", "bankCharges", "transactionFees", "settlementAccountId", "documentReference", "paymentMethod", "paymentDate", "notes", "period"].some((key) => String(stored?.[key] ?? "") !== String((metadata as Record<string, unknown>)[key] ?? "")))
@@ -2663,12 +2673,15 @@ async function insertArReceipt(tx: any, org: number, entryId: number, prepared: 
   for (const line of lines) {
     const [account] = await tx.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, org), eq(chartOfAccountsTable.id, line.accountId!))).limit(1);
     if (!account) throw new Error("Receipt account is missing");
-    await tx.insert(journalLinesTable).values({ organizationId: org, journalEntryId: journal.id,
-      ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference });
+    await tx.insert(journalLinesTable).values({
+      organizationId: org, journalEntryId: journal.id,
+      ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference
+    });
     await tx.update(chartOfAccountsTable).set({ currentBalance: m(m(account.currentBalance) + line.debit - line.credit) }).where(eq(chartOfAccountsTable.id, account.id));
   }
   const receivedAmount = m(m(current.receivedAmount) + amount);
-  const [updated] = await tx.update(accountsReceivableTable).set({ receivedAmount,
+  const [updated] = await tx.update(accountsReceivableTable).set({
+    receivedAmount,
     status: receivedAmount + m(current.adjustedAmount) >= m(current.amount) - 0.009 ? "Received" : "Partial",
   }).where(eq(accountsReceivableTable.id, current.id)).returning();
   return { receivable: updated, journalEntryId: journal.id, payment: metadata };
@@ -2723,12 +2736,14 @@ async function insertApPayment(tx: any, org: number, entryId: number, prepared: 
   if (!existing && reference !== autoRef) {
     [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, autoRef))).limit(1);
   }
-  const metadata = { apId: current.id, vendorId: current.vendorId, vendorName: current.vendorName,
+  const metadata = {
+    apId: current.id, vendorId: current.vendorId, vendorName: current.vendorName,
     documentReference: details.reference || current.billNumber, paymentMethod: details.paymentMethod,
     paymentDate: details.transactionDate, notes: details.remarks, period: details.period,
     bankCharges: charges, transactionFees: details.transactionFees, amount, tdsAmount: tds, settlementAccountId: settlementAccount.id,
     fromAccountId: settlementAccount.id, toAccountId: payableAccount.id,
-    fromAccountName: settlementAccount.accountName, toAccountName: payableAccount.accountName };
+    fromAccountName: settlementAccount.accountName, toAccountName: payableAccount.accountName
+  };
   if (existing) {
     const stored = existing.metadata as Record<string, unknown>;
     if (["amount", "tdsAmount", "bankCharges", "transactionFees", "settlementAccountId", "documentReference", "paymentMethod", "paymentDate", "notes", "period"].some((key) => String(stored?.[key] ?? "") !== String((metadata as Record<string, unknown>)[key] ?? "")))
@@ -2753,12 +2768,15 @@ async function insertApPayment(tx: any, org: number, entryId: number, prepared: 
   for (const line of lines) {
     const [account] = await tx.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, org), eq(chartOfAccountsTable.id, line.accountId!))).limit(1);
     if (!account) throw new Error("Payment account is missing");
-    await tx.insert(journalLinesTable).values({ organizationId: org, journalEntryId: journal.id,
-      ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference });
+    await tx.insert(journalLinesTable).values({
+      organizationId: org, journalEntryId: journal.id,
+      ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference
+    });
     await tx.update(chartOfAccountsTable).set({ currentBalance: m(m(account.currentBalance) + line.debit - line.credit) }).where(eq(chartOfAccountsTable.id, account.id));
   }
   const paidAmount = m(m(current.paidAmount) + amount);
-  const [updated] = await tx.update(accountsPayableTable).set({ paidAmount,
+  const [updated] = await tx.update(accountsPayableTable).set({
+    paidAmount,
     status: paidAmount + m(current.adjustedAmount) >= m(current.amount) - 0.009 ? "Paid" : "Partial",
   }).where(eq(accountsPayableTable.id, current.id)).returning();
   return { payable: updated, journalEntryId: journal.id, payment: metadata };
@@ -2982,7 +3000,7 @@ router.post("/ar/:id/approve", async (r: any, s): Promise<any> => {
       (row: any) =>
         row.entryType !== "Credit Note" &&
         String(row.invoiceNumber).trim().toLowerCase() ===
-          String(entry.linkedInvoiceNumber).trim().toLowerCase(),
+        String(entry.linkedInvoiceNumber).trim().toLowerCase(),
     );
     if (!linked)
       return s
@@ -3083,16 +3101,16 @@ router.post("/ar/:id/reject", async (r: any, s): Promise<any> => {
 router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.finance_dashboard.view")) return;
   const [a, ap, ar] = await Promise.all([
-      coa(r.acc.org),
-      db
-        .select()
-        .from(accountsPayableTable)
-        .where(eq(accountsPayableTable.organizationId, r.acc.org)),
-      db
-        .select()
-        .from(accountsReceivableTable)
-        .where(eq(accountsReceivableTable.organizationId, r.acc.org)),
-    ]),
+    coa(r.acc.org),
+    db
+      .select()
+      .from(accountsPayableTable)
+      .where(eq(accountsPayableTable.organizationId, r.acc.org)),
+    db
+      .select()
+      .from(accountsReceivableTable)
+      .where(eq(accountsReceivableTable.organizationId, r.acc.org)),
+  ]),
     out = (x: any, p: string) =>
       Math.max(
         0,
@@ -3139,9 +3157,9 @@ router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
       a
         .filter((x: any) => x.accountType === "Revenue")
         .reduce((q: number, x: any) => q - Number(x.currentBalance), 0) -
-        a
-          .filter((x: any) => x.accountType === "Expense")
-          .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
+      a
+        .filter((x: any) => x.accountType === "Expense")
+        .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
     ),
     arAging: age(ar, "receivedAmount", ["Received", "Settled", "Cancelled"]),
     apAging: age(ap, "paidAmount", ["Paid"]),
@@ -3189,8 +3207,16 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
     };
     const periodSales = sales.filter((row: any) => inRange(row.invoiceDate));
     const periodPurchases = purchases.filter((row: any) => inRange(row.invoiceDate));
-    const totalSales = m(periodSales.reduce((sum: number, row: any) => sum + m(row.grandTotal), 0));
-    const totalPurchase = m(periodPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0));
+    const manualArSales = ar.filter((row: any) => row.entryType === "Invoice" && !row.sourceId && inRange(row.invoiceDate));
+    const manualApPurchases = ap.filter((row: any) => row.entryType === "Bill" && !row.sourceId && inRange(row.billDate));
+    const totalSales = m(
+      periodSales.reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
+      manualArSales.reduce((sum: number, row: any) => sum + m(row.amount), 0)
+    );
+    const totalPurchase = m(
+      periodPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0) +
+      manualApPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0)
+    );
     const receivables = m(ar.filter((row: any) => row.entryType === "Invoice").reduce((sum: number, row: any) => sum + outstanding(row, "receivedAmount"), 0));
     const payables = m(ap.filter((row: any) => row.entryType === "Bill").reduce((sum: number, row: any) => sum + outstanding(row, "paidAmount"), 0));
     const inventoryValue = m(inventory.reduce((sum: number, row: any) => sum + m(row.quantityOnHand) * m(row.costBasis), 0));
@@ -3211,11 +3237,15 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
     const trend = Array.from({ length: 6 }, (_, index) => {
       const month = new Date(trendStart.getFullYear(), trendStart.getMonth() + index, 1);
       const key = `${month.getFullYear()}-${pad(month.getMonth() + 1)}`;
+      const sSales = sales.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.grandTotal), 0);
+      const arSales = ar.filter((row: any) => row.entryType === "Invoice" && !row.sourceId && String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0);
+      const pPurchases = purchases.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0);
+      const apPurchases = ap.filter((row: any) => row.entryType === "Bill" && !row.sourceId && String(row.billDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0);
       return {
         key,
         month: month.toLocaleDateString("en-IN", { month: "short" }),
-        sales: m(sales.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.grandTotal), 0)),
-        purchase: m(purchases.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0)),
+        sales: m(sSales + arSales),
+        purchase: m(pPurchases + apPurchases),
       };
     });
     return s.json({

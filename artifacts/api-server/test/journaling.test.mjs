@@ -36,10 +36,10 @@ const bundled = await build({
         contents: args.path === "db"
           ? dbModule
           : args.path === "access"
-          ? "export const getAuthUser = async r => r.acc.user; export const effectivePermissions = async () => ['*'];"
-          : args.path === "uploadStorage"
-          ? "export const resolveUploadPath = () => { throw Error('No test file access'); };"
-          : "export const postMatchedPurchaseInvoice = async () => {};",
+            ? "export const getAuthUser = async r => r.acc.user; export const effectivePermissions = async () => ['*'];"
+            : args.path === "uploadStorage"
+              ? "export const resolveUploadPath = () => { throw Error('No test file access'); };"
+              : "export const postMatchedPurchaseInvoice = async () => {};",
         loader: "js",
       }));
     },
