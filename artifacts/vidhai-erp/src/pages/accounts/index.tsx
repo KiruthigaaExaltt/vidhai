@@ -20,6 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   BookOpen,
   Calendar,
   ChevronDown,
@@ -28,6 +35,8 @@ import {
   CreditCard,
   DollarSign,
   Download,
+  Eye,
+  EyeOff,
   FileDown,
   FileUp,
   Plus,
@@ -37,6 +46,17 @@ import {
   Trash2,
   X,
   LogOut,
+  LayoutDashboard,
+  Wallet,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Users,
+  Building2,
+  FileSpreadsheet,
+  Layers,
+  Briefcase,
+  FileBarChart,
+  Sliders,
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -216,36 +236,47 @@ export default function Accounts() {
   const accountTabGroups = [
     {
       group: "Overview",
-      tabs: [["dashboard", "Dashboard", "accounts.finance_dashboard.view"]],
+      icon: LayoutDashboard,
+      badgeStyle:
+        "bg-emerald-50/90 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200/70 dark:border-emerald-800/60",
+      tabs: [
+        ["dashboard", "Dashboard", "accounts.finance_dashboard.view", LayoutDashboard] as const,
+      ],
     },
     {
       group: "Daily Work",
+      icon: Briefcase,
+      badgeStyle:
+        "bg-sky-50/90 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300 border-sky-200/70 dark:border-sky-800/60",
       tabs: [
-        ["bankcash", "Bank & Cash", "accounts.bank_cash.view"],
-        ["ar", "Receivables", "accounts.accounts_receivable.view"],
-        ["ap", "Payables", "accounts.accounts_payable.view"],
-        ["customers", "Customer Ledger", "accounts.customer_ledger.view"],
-        ["vendors", "Vendor Ledger", "accounts.vendor_ledger.view"],
+        ["bankcash", "Bank & Cash", "accounts.bank_cash.view", Wallet] as const,
+        ["ar", "Receivables", "accounts.accounts_receivable.view", ArrowDownLeft] as const,
+        ["ap", "Payables", "accounts.accounts_payable.view", ArrowUpRight] as const,
+        ["customers", "Customer Ledger", "accounts.customer_ledger.view", Users] as const,
+        ["vendors", "Vendor Ledger", "accounts.vendor_ledger.view", Building2] as const,
       ],
     },
     {
       group: "Reports",
+      icon: FileBarChart,
+      badgeStyle:
+        "bg-purple-50/90 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200/70 dark:border-purple-800/60",
       tabs: [
-        ["statements", "Financial Statements", "accounts.financial_statements.view"],
-        ["journals", "Journal Entries", "accounts.journal_entries.view"],
+        ["statements", "Financial Statements", "accounts.financial_statements.view", FileSpreadsheet] as const,
+        ["journals", "Journal Entries", "accounts.journal_entries.view", BookOpen] as const,
       ],
     },
     {
       group: "Setup & Audit",
+      icon: Sliders,
+      badgeStyle:
+        "bg-amber-50/90 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border-amber-200/70 dark:border-amber-800/60",
       tabs: [
-        ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view"],
-        // DISABLED: Opening Balances is handled through Bank & Cash.
-        // DISABLED: Masters module is not required for this phase
-        // ["masters", "Masters", "accounts.masters.view"],
-        ["tally", "Tally Export", "accounts.tally.view"],
+        ["coa", "Chart of Accounts", "accounts.chart_of_accounts.view", Layers] as const,
+        ["tally", "Tally Export", "accounts.tally.view", Download] as const,
       ],
     },
-  ] as const;
+  ];
   const visibleAccountGroups = accountTabGroups
     .map((section) => ({
       ...section,
@@ -1363,12 +1394,12 @@ export default function Accounts() {
     const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
     return (
       <div className="overflow-hidden rounded-md border bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/60">
+        <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto">
+          <table className="w-full text-sm whitespace-nowrap">
+            <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-sm">
               <tr>
                 {cols.map((c) => (
-                  <th key={c[0]} className="px-3 py-2 text-left">
+                  <th key={c[0]} className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2.5 text-left font-medium whitespace-nowrap border-b">
                     {c[0]}
                   </th>
                 ))}
@@ -1378,7 +1409,7 @@ export default function Accounts() {
               {displayedRows.map((r, i) => (
                 <tr key={r.id ?? i} className="border-t">
                   {cols.map((c) => (
-                    <td key={c[1]} className="px-3 py-2">
+                    <td key={c[1]} className="px-3 py-2 whitespace-nowrap">
                       {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
                     </td>
                   ))}
@@ -1388,7 +1419,7 @@ export default function Accounts() {
                 <tr className="border-t">
                   <td
                     colSpan={cols.length}
-                    className="px-4 py-14 text-center text-muted-foreground"
+                    className="px-4 py-14 text-center text-muted-foreground whitespace-nowrap"
                   >
                     No records found.
                   </td>
@@ -1744,20 +1775,26 @@ export default function Accounts() {
           </div>
         </div>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="space-y-2 rounded-lg border bg-white p-2">
-            {visibleAccountGroups.map((section) => (
-              <div key={section.group} className="flex flex-col gap-1 md:flex-row md:items-center">
-                <div className="w-28 shrink-0 px-2 text-xs font-bold uppercase tracking-wide text-black dark:text-white">
+          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs p-3 space-y-2">
+            {visibleAccountGroups.map((section, idx) => (
+              <div
+                key={section.group}
+                className={`flex items-center gap-3 ${
+                  idx > 0 ? "pt-2 border-t border-slate-100 dark:border-slate-800/60" : ""
+                }`}
+              >
+                <div className="w-28 shrink-0 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   {section.group}
                 </div>
-                <TabsList className="flex h-auto flex-1 justify-start gap-1 overflow-x-auto bg-transparent p-0 [&>*]:shrink-0 [&>*]:whitespace-nowrap">
-                  {section.tabs.map(([value, label]) => (
+                <TabsList className="flex h-auto flex-1 flex-wrap items-center justify-start !justify-start gap-1.5 bg-transparent p-0 [&>*]:shrink-0">
+                  {section.tabs.map(([value, label, , TabIcon]) => (
                     <TabsTrigger
                       key={value}
                       value={value}
-                      className="data-[state=active]:text-primary data-[state=active]:font-bold data-[state=active]:shadow-none data-[state=active]:[box-shadow:none]"
+                      className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 data-[state=active]:bg-[#21C7B3] data-[state=active]:text-white data-[state=active]:font-semibold data-[state=active]:shadow-xs transition-all duration-150 cursor-pointer"
                     >
-                      {label}
+                      <TabIcon className="h-3.5 w-3.5 opacity-75" />
+                      <span>{label}</span>
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -1780,10 +1817,27 @@ export default function Accounts() {
                 <Card key={key} className="overflow-hidden rounded-md">
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40"
+                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
                     onClick={() => toggleCustomer(key)}
+                    title={open ? "Close detail view" : "Open detail view"}
                   >
-                    <div className="font-medium">{open ? "v" : ">"} {customer.customerDisplay || customer.clientName}</div>
+                    <div className="flex items-center gap-2.5 font-medium min-w-0">
+                      <span
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-150 ${
+                          open
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "bg-primary/10 text-primary group-hover:bg-primary/20"
+                        }`}
+                        title={open ? "Close detail view" : "Open detail view"}
+                      >
+                        {open ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="truncate">{customer.customerDisplay || customer.clientName}</span>
+                    </div>
                     <div className="grid min-w-[560px] grid-cols-4 gap-3 text-right text-sm">
                       <span>{inr(customer.invoiced)}</span>
                       <span>{inr(customer.received)}</span>
@@ -1792,30 +1846,30 @@ export default function Accounts() {
                     </div>
                   </button>
                   {open && (
-                    <div className="overflow-x-auto border-t">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/35 text-muted-foreground">
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto border-t">
+                      <table className="w-full text-sm whitespace-nowrap">
+                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
                           <tr>
-                            <th className="px-4 py-2 text-left">Invoice Number</th>
-                            <th className="px-4 py-2 text-left">Invoice Date</th>
-                            <th className="px-4 py-2 text-right">Invoiced</th>
-                            <th className="px-4 py-2 text-right">Received</th>
-                            <th className="px-4 py-2 text-right">Credits</th>
-                            <th className="px-4 py-2 text-right">Outstanding</th>
-                            <th className="px-4 py-2 text-left">Paid Date</th>
-                            <th className="px-4 py-2 text-left">Status</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Invoice Number</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Invoice Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Invoiced</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Received</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Credits</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Outstanding</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Paid Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(customer.records || []).map((record: any) => (
                             <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
-                              <td className="px-4 py-2">{record.invoiceNumber}</td>
-                              <td className="px-4 py-2">{String(record.invoiceDate || "").slice(0, 10)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.invoicedAmount)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.receivedAmount)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.credits)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2">
+                              <td className="px-4 py-2 whitespace-nowrap">{record.invoiceNumber}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">{String(record.invoiceDate || "").slice(0, 10)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.invoicedAmount)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.receivedAmount)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.credits)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.outstanding)}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">
                                 {record.paidDate || "-"}
                                 {record.payments?.length > 0 && (
                                   <div className="mt-1">
@@ -1837,7 +1891,7 @@ export default function Accounts() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-2">{record.status || "-"}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">{record.status || "-"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1856,10 +1910,27 @@ export default function Accounts() {
                 <Card key={key} className="overflow-hidden rounded-md">
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40"
+                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
                     onClick={() => toggleVendor(key)}
+                    title={open ? "Close detail view" : "Open detail view"}
                   >
-                    <div className="font-medium">{open ? "v" : ">"} {vendor.vendorDisplay || vendor.vendorName}</div>
+                    <div className="flex items-center gap-2.5 font-medium min-w-0">
+                      <span
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-150 ${
+                          open
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "bg-primary/10 text-primary group-hover:bg-primary/20"
+                        }`}
+                        title={open ? "Close detail view" : "Open detail view"}
+                      >
+                        {open ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="truncate">{vendor.vendorDisplay || vendor.vendorName}</span>
+                    </div>
                     <div className="grid min-w-[420px] grid-cols-4 gap-3 text-right text-sm">
                       <span>{inr(vendor.billed)}</span>
                       <span>{inr(vendor.paid)}</span>
@@ -1868,30 +1939,30 @@ export default function Accounts() {
                     </div>
                   </button>
                   {open && (
-                    <div className="overflow-x-auto border-t">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/35 text-muted-foreground">
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto border-t">
+                      <table className="w-full text-sm whitespace-nowrap">
+                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
                           <tr>
-                            <th className="px-4 py-2 text-left">Bill Number</th>
-                            <th className="px-4 py-2 text-left">Billed Date</th>
-                            <th className="px-4 py-2 text-right">Billed</th>
-                            <th className="px-4 py-2 text-right">Paid</th>
-                            <th className="px-4 py-2 text-right">Debit Note</th>
-                            <th className="px-4 py-2 text-right">Outstanding</th>
-                            <th className="px-4 py-2 text-left">Paid Date</th>
-                            <th className="px-4 py-2 text-left">Status</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Bill Number</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Billed Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Billed</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Paid</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Debit Note</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Outstanding</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Paid Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(vendor.records || []).map((record: any) => (
                             <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
-                              <td className="px-4 py-2">{record.billNumber}</td>
-                              <td className="px-4 py-2">{String(record.billedDate || "").slice(0, 10)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.billedAmount)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.paidAmount)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.debitNote)}</td>
-                              <td className="px-4 py-2 text-right">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2">
+                              <td className="px-4 py-2 whitespace-nowrap">{record.billNumber}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">{String(record.billedDate || "").slice(0, 10)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.billedAmount)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.paidAmount)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.debitNote)}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.outstanding)}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">
                                 {record.paidDate || "-"}
                                 {record.payments?.length > 0 && (
                                   <div className="mt-1">
@@ -1913,7 +1984,7 @@ export default function Accounts() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-2">{record.status || "-"}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">{record.status || "-"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -2091,54 +2162,54 @@ export default function Accounts() {
                                     </div>
                                   ) : (
                                     <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-md border bg-background">
-                                      <table className="w-full text-xs">
-                                        <thead className="bg-muted/40 font-semibold text-muted-foreground">
+                                      <table className="w-full text-xs whitespace-nowrap">
+                                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
                                           <tr>
-                                            <th className="px-3 py-2 text-left">Date of Payment</th>
-                                            <th className="px-3 py-2 text-left">Source</th>
-                                            <th className="px-3 py-2 text-left">Customer/Vendor</th>
-                                            <th className="px-3 py-2 text-left">Customer/Vendor ID</th>
-                                            <th className="px-3 py-2 text-left">Reference ID</th>
-                                            <th className="px-3 py-2 text-left">Account Name</th>
-                                            <th className="px-3 py-2 text-left">Payment Method</th>
-                                            <th className="px-3 py-2 text-left">Notes</th>
-                                            <th className="px-3 py-2 text-left">Description</th>
-                                            <th className="px-3 py-2 text-right">Debit Amount</th>
-                                            <th className="px-3 py-2 text-right">Credit Amount</th>
-                                            <th className="px-3 py-2 text-right">Running Balance (₹)</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Date of Payment</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Source</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Customer/Vendor</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Customer/Vendor ID</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Reference ID</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Account Name</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Payment Method</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Notes</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Description</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right whitespace-nowrap border-b">Debit Amount</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right whitespace-nowrap border-b">Credit Amount</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right whitespace-nowrap border-b">Running Balance (₹)</th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                           {historyLines.map((line: any, idx: number) => (
                                             <tr key={line.id || idx} className="hover:bg-muted/10">
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap">
                                                 {String(line.paymentDate || line.entryDate || "").slice(0, 10) || "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 font-medium">
+                                              <td className="px-3 py-1.5 font-medium whitespace-nowrap">
                                                 {line.source || line.sourceType || "Manual"}
                                               </td>
-                                              <td className="px-3 py-1.5">
+                                              <td className="px-3 py-1.5 whitespace-nowrap">
                                                 {line.partyName || "N/A"}
                                               </td>
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap">
                                                 {line.partyId || "N/A"}
                                               </td>
-                                              <td className="px-3 py-1.5 font-mono">
+                                              <td className="px-3 py-1.5 font-mono whitespace-nowrap">
                                                 {line.referenceId || line.reference || line.sourceId || "—"}
                                               </td>
-                                              <td className="px-3 py-1.5">{line.accountName || account.accountName}</td>
-                                              <td className="px-3 py-1.5">{line.paymentMethod || "—"}</td>
-                                              <td className="px-3 py-1.5">{line.notes || "—"}</td>
-                                              <td className="px-3 py-1.5 text-muted-foreground">
+                                              <td className="px-3 py-1.5 whitespace-nowrap">{line.accountName || account.accountName}</td>
+                                              <td className="px-3 py-1.5 whitespace-nowrap">{line.paymentMethod || "—"}</td>
+                                              <td className="px-3 py-1.5 whitespace-nowrap">{line.notes || "—"}</td>
+                                              <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">
                                                 {line.description || "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold">
+                                              <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold whitespace-nowrap">
                                                 {line.debit ? inr(line.debit) : "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold">
+                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold whitespace-nowrap">
                                                 {line.credit ? inr(line.credit) : "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 text-right font-mono font-bold">
+                                              <td className="px-3 py-1.5 text-right font-mono font-bold whitespace-nowrap">
                                                 {inr(line.runningBalance)}
                                               </td>
                                             </tr>
@@ -2163,42 +2234,282 @@ export default function Accounts() {
             <Card className="rounded-md border bg-white shadow-sm">
               <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-12">
-                <label className="space-y-1 text-sm md:col-span-4">Transaction Type *<select aria-label="Credit/Debit/Transfer" className="h-10 w-full rounded-md border px-3" value={bankForm.mode} onChange={(e) => setBankForm({ ...bankForm, mode: e.target.value, creditContactId: "", debitContactId: "" })}><option>Credit</option><option>Debit</option><option>Transfer</option></select></label>
+                <div className="space-y-1.5 text-sm md:col-span-4">
+                  <Label className="text-xs font-semibold text-slate-700">Transaction Type *</Label>
+                  <Select
+                    value={bankForm.mode}
+                    onValueChange={(val) =>
+                      setBankForm({
+                        ...bankForm,
+                        mode: val,
+                        creditContactId: "",
+                        debitContactId: "",
+                      })
+                    }
+                  >
+                    <SelectTrigger aria-label="Credit/Debit/Transfer" className="h-10 w-full bg-white font-medium shadow-sm">
+                      <SelectValue placeholder="Transaction Type *" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Credit">
+                        <div className="flex items-center gap-2 font-medium">
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0 shadow-sm" />
+                          <span>Credit</span>
+                          <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Inward / Receipt)</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="Debit">
+                        <div className="flex items-center gap-2 font-medium">
+                          <span className="h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0 shadow-sm" />
+                          <span>Debit</span>
+                          <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Outward / Payment)</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="Transfer">
+                        <div className="flex items-center gap-2 font-medium">
+                          <span className="h-2.5 w-2.5 rounded-full bg-cyan-500 shrink-0 shadow-sm" />
+                          <span>Transfer</span>
+                          <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Account Transfer)</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 {bankForm.mode === "Transfer" ? (
                   <>
-                    <label className="space-y-1 text-sm md:col-span-4">From Account *<select aria-label="From Account" className="h-10 w-full rounded-md border px-3" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                      <option value="">From Account *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
-                    </select></label>
-                    <label className="space-y-1 text-sm md:col-span-4">To Account *<select aria-label="To Account" className="h-10 w-full rounded-md border px-3" value={bankForm.transferToAccountId} onChange={(e) => setBankForm({ ...bankForm, transferToAccountId: e.target.value })}>
-                      <option value="">To Account *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
-                    </select></label>
-                    <label className="space-y-1 text-sm md:col-span-4">Credit Name (optional)<select className="h-10 w-full rounded-md border px-3" value={bankForm.creditContactId} onChange={(e) => setBankForm({ ...bankForm, creditContactId: e.target.value })}><option value="">Select CRM client (optional)</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
-                    <label className="space-y-1 text-sm md:col-span-4">Debit Name (optional)<select className="h-10 w-full rounded-md border px-3" value={bankForm.debitContactId} onChange={(e) => setBankForm({ ...bankForm, debitContactId: e.target.value })}><option value="">Select CRM client (optional)</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">From Account *</Label>
+                      <Select
+                        value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
+                        onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
+                      >
+                        <SelectTrigger aria-label="From Account" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="From Account *" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {a.accountCode}
+                                </span>
+                                <span className="truncate">{a.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">To Account *</Label>
+                      <Select
+                        value={bankForm.transferToAccountId ? String(bankForm.transferToAccountId) : undefined}
+                        onValueChange={(val) => setBankForm({ ...bankForm, transferToAccountId: val })}
+                      >
+                        <SelectTrigger aria-label="To Account" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="To Account *" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {a.accountCode}
+                                </span>
+                                <span className="truncate">{a.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">Credit Name (optional)</Label>
+                      <Select
+                        value={bankForm.creditContactId ? String(bankForm.creditContactId) : "__none__"}
+                        onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select CRM client (optional)" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          <SelectItem value="__none__">
+                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
+                          </SelectItem>
+                          {crmClients.map((client) => (
+                            <SelectItem key={client.id} value={String(client.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate">{client.displayName || client.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">Debit Name (optional)</Label>
+                      <Select
+                        value={bankForm.debitContactId ? String(bankForm.debitContactId) : "__none__"}
+                        onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select CRM client (optional)" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          <SelectItem value="__none__">
+                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
+                          </SelectItem>
+                          {crmClients.map((client) => (
+                            <SelectItem key={client.id} value={String(client.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate">{client.displayName || client.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </>
                 ) : bankForm.mode === "Credit" ? (
                   <>
-                    <label className="space-y-1 text-sm md:col-span-4">Account Name *<select aria-label="Account Name" className="h-10 w-full rounded-md border px-3" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                      <option value="">Account Name *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
-                    </select></label>
-                    <label className="space-y-1 text-sm md:col-span-4">Credit Name *<select className="h-10 w-full rounded-md border px-3" value={bankForm.creditContactId} onChange={(e) => setBankForm({ ...bankForm, creditContactId: e.target.value })}><option value="">Select CRM client *</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">Account Name *</Label>
+                      <Select
+                        value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
+                        onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
+                      >
+                        <SelectTrigger aria-label="Account Name" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Account Name *" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {a.accountCode}
+                                </span>
+                                <span className="truncate">{a.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">Credit Name *</Label>
+                      <Select
+                        value={bankForm.creditContactId ? String(bankForm.creditContactId) : undefined}
+                        onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val })}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select CRM client *" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {crmClients.map((client) => (
+                            <SelectItem key={client.id} value={String(client.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate">{client.displayName || client.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </>
                 ) : (
                   <>
-                    <label className="space-y-1 text-sm md:col-span-4">Account Name *<select aria-label="Account Name" className="h-10 w-full rounded-md border px-3" value={bankForm.bankCashAccountId} onChange={(e) => setBankForm({ ...bankForm, bankCashAccountId: e.target.value })}>
-                      <option value="">Account Name *</option>{coa.filter((a) => a.isActive !== false).map((a: any) => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
-                    </select></label>
-                    <label className="space-y-1 text-sm md:col-span-4">Debit Name *<select className="h-10 w-full rounded-md border px-3" value={bankForm.debitContactId} onChange={(e) => setBankForm({ ...bankForm, debitContactId: e.target.value })}><option value="">Select CRM client *</option>{crmClients.map((client) => <option key={client.id} value={client.id}>{client.displayName || client.name}</option>)}</select></label>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">Account Name *</Label>
+                      <Select
+                        value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
+                        onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
+                      >
+                        <SelectTrigger aria-label="Account Name" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Account Name *" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {a.accountCode}
+                                </span>
+                                <span className="truncate">{a.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 text-sm md:col-span-4">
+                      <Label className="text-xs font-semibold text-slate-700">Debit Name *</Label>
+                      <Select
+                        value={bankForm.debitContactId ? String(bankForm.debitContactId) : undefined}
+                        onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val })}
+                      >
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select CRM client *" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {crmClients.map((client) => (
+                            <SelectItem key={client.id} value={String(client.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate">{client.displayName || client.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </>
                 )}
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Total Payment *<Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" className="h-10 w-full" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} /></label>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Payment Date *<Input type="date" max={today} className="h-10 w-full" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} /></label>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Payment Method<select className="h-10 w-full rounded-md border px-3" value={bankForm.paymentMethod} onChange={(e) => setBankForm({ ...bankForm, paymentMethod: e.target.value })}>{paymentMethods.map((method) => <option key={method}>{method}</option>)}</select></label>
+                <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
+                  <Label className="text-xs font-semibold text-slate-700">Total Payment *</Label>
+                  <Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" className="h-10 w-full bg-white shadow-sm" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
+                </div>
+                <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
+                  <Label className="text-xs font-semibold text-slate-700">Payment Date *</Label>
+                  <Input type="date" max={today} className="h-10 w-full bg-white shadow-sm" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
+                </div>
+                <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
+                  <Label className="text-xs font-semibold text-slate-700">Payment Method</Label>
+                  <Select
+                    value={bankForm.paymentMethod || "Bank Transfer"}
+                    onValueChange={(val) => setBankForm({ ...bankForm, paymentMethod: val })}
+                  >
+                    <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                      <SelectValue placeholder="Payment Method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paymentMethods.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
+                            <span>{method}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Reference ID / Invoice Number<Input className="h-10 w-full" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Period (optional)<Input className="h-10 w-full" value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Bank Charges (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Transaction Fees (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground block">Informational; does not change the posted amount.</span></label>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
-                <Button className={`h-10 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`} disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+                <Button className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`} disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
               </CardContent>
             </Card>
             <div className="flex flex-wrap justify-end gap-2">
@@ -2607,23 +2918,27 @@ export default function Accounts() {
                     </div>
                     <div className="space-y-1.5">
                       <Label>Account Type *</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.accountType}
-                        onChange={(e) =>
-                          setManualField("accountType", e.target.value)
-                        }
+                      <Select
+                        value={manual.accountType || "Asset"}
+                        onValueChange={(val) => setManualField("accountType", val)}
                       >
-                        {[
-                          "Asset",
-                          "Liability",
-                          "Equity",
-                          "Revenue",
-                          "Expense",
-                        ].map((x) => (
-                          <option key={x}>{x}</option>
-                        ))}
-                      </select>
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[
+                            "Asset",
+                            "Liability",
+                            "Equity",
+                            "Revenue",
+                            "Expense",
+                          ].map((x) => (
+                            <SelectItem key={x} value={x}>
+                              {x}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1.5">
                       <Label>Opening Balance *</Label>
@@ -2680,37 +2995,49 @@ export default function Accounts() {
                     </div>
                     <div className="space-y-1.5">
                       <Label>Debit Account *</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.debitAccountId || ""}
-                        onChange={(e) =>
-                          setManualField("debitAccountId", e.target.value)
-                        }
+                      <Select
+                        value={manual.debitAccountId ? String(manual.debitAccountId) : undefined}
+                        onValueChange={(val) => setManualField("debitAccountId", val)}
                       >
-                        <option value="">Select account</option>
-                        {coa.map((a: any) => (
-                          <option key={a.id} value={a.id}>
-                            {a.accountCode} - {a.accountName}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.map((a: any) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {a.accountCode}
+                                </span>
+                                <span className="truncate">{a.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1.5">
                       <Label>Credit Account *</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={manual.creditAccountId || ""}
-                        onChange={(e) =>
-                          setManualField("creditAccountId", e.target.value)
-                        }
+                      <Select
+                        value={manual.creditAccountId ? String(manual.creditAccountId) : undefined}
+                        onValueChange={(val) => setManualField("creditAccountId", val)}
                       >
-                        <option value="">Select account</option>
-                        {coa.map((a: any) => (
-                          <option key={a.id} value={a.id}>
-                            {a.accountCode} - {a.accountName}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.map((a: any) => (
+                            <SelectItem key={a.id} value={String(a.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {a.accountCode}
+                                </span>
+                                <span className="truncate">{a.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1.5">
                       <Label>Amount *</Label>
@@ -2925,20 +3252,26 @@ export default function Accounts() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="ap-account-name">Account Name *</Label>
-                    <select
-                      id="ap-account-name"
-                      className="h-10 w-full rounded-md border bg-background px-3"
-                      value={apSettlementAccountId}
-                      onChange={(event) => setApSettlementAccountId(event.target.value)}
-                      required
+                    <Select
+                      value={apSettlementAccountId || undefined}
+                      onValueChange={(val) => setApSettlementAccountId(val)}
                     >
-                      <option value="">Select account</option>
-                      {coa.filter((account) => account.isActive !== false).map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.accountName} ({account.accountCode})
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="ap-account-name" className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {coa.filter((account) => account.isActive !== false).map((account) => (
+                          <SelectItem key={account.id} value={String(account.id)}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                {account.accountCode}
+                              </span>
+                              <span className="truncate">{account.accountName}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
@@ -3018,48 +3351,60 @@ export default function Accounts() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="from-account">From Account *</Label>
-                    <select
-                      id="from-account"
-                      className="h-10 w-full rounded-md border bg-background px-3"
-                      value={arPayment.fromAccountId}
-                      onChange={(event) =>
+                    <Select
+                      value={arPayment.fromAccountId || undefined}
+                      onValueChange={(val) =>
                         setArPayment((value) => ({
                           ...value,
-                          fromAccountId: event.target.value,
+                          fromAccountId: val,
                         }))
                       }
-                      required
                     >
-                      <option value="">Select account</option>
-                      {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.accountCode} - {account.accountName}
-                        </option>
-                      ))}
-                    </select>
-                    <Label htmlFor="settlement-account">To Account *</Label>
-                    <select
-                      id="settlement-account"
-                      className="h-10 w-full rounded-md border bg-background px-3"
-                      value={arPayment.settlementAccountId}
-                      onChange={(event) =>
+                      <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
+                          <SelectItem key={account.id} value={String(account.id)}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                {account.accountCode}
+                              </span>
+                              <span className="truncate">{account.accountName}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
+                    <Select
+                      value={arPayment.settlementAccountId || undefined}
+                      onValueChange={(val) =>
                         setArPayment((value) => ({
                           ...value,
-                          settlementAccountId: event.target.value,
+                          settlementAccountId: val,
                         }))
                       }
-                      required
                     >
-                      <option value="">Select settlement account</option>
-                      {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.accountName} ({account.accountCode})
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Select settlement account" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                          <SelectItem key={account.id} value={String(account.id)}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                {account.accountCode}
+                              </span>
+                              <span className="truncate">{account.accountName}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="space-y-1.5 text-sm">
+                    <div className="space-y-1.5 text-sm">
                       <Label>Payment Date *</Label>
                       <Input
                         type="date"
@@ -3072,27 +3417,36 @@ export default function Accounts() {
                           }))
                         }
                       />
-                    </label>
-                    <label className="space-y-1.5 text-sm">
+                    </div>
+                    <div className="space-y-1.5 text-sm">
                       <Label>Payment Method</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={arPayment.paymentMethod}
-                        onChange={(e) =>
+                      <Select
+                        value={arPayment.paymentMethod || "__none__"}
+                        onValueChange={(val) =>
                           setArPayment((value) => ({
                             ...value,
-                            paymentMethod: e.target.value,
+                            paymentMethod: val === "__none__" ? "" : val,
                           }))
                         }
                       >
-                        <option value="">Not specified</option>
-                        {paymentMethods.map(
-                          (method) => (
-                            <option key={method}>{method}</option>
-                          ),
-                        )}
-                      </select>
-                    </label>
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Not specified" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">
+                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">Not specified</span>
+                          </SelectItem>
+                          {paymentMethods.map((method) => (
+                            <SelectItem key={method} value={method}>
+                              <div className="flex items-center gap-2">
+                                <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
+                                <span>{method}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <label className="space-y-1.5 text-sm">
                       <Label>Bank Charges</Label>
                       <Input
@@ -3230,45 +3584,61 @@ export default function Accounts() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="ap-from-account">From Account *</Label>
-                    <select
-                      id="ap-from-account"
-                      className="h-10 w-full rounded-md border bg-background px-3"
-                      value={apPaymentForm.fromAccountId}
-                      onChange={(event) => setApPaymentForm((value) => ({
-                        ...value,
-                        fromAccountId: event.target.value,
-                        settlementAccountId: event.target.value,
-                      }))}
-                      required
+                    <Select
+                      value={apPaymentForm.fromAccountId || undefined}
+                      onValueChange={(val) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          fromAccountId: val,
+                          settlementAccountId: val,
+                        }))
+                      }
                     >
-                      <option value="">Select disbursement account</option>
-                      {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.accountName} ({account.accountCode})
-                        </option>
-                      ))}
-                    </select>
-                    <Label htmlFor="ap-to-account">To Account *</Label>
-                    <select
-                      id="ap-to-account"
-                      className="h-10 w-full rounded-md border bg-background px-3"
-                      value={apPaymentForm.toAccountId}
-                      onChange={(event) => setApPaymentForm((value) => ({
-                        ...value,
-                        toAccountId: event.target.value,
-                      }))}
-                      required
+                      <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Select disbursement account" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                          <SelectItem key={account.id} value={String(account.id)}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                {account.accountCode}
+                              </span>
+                              <span className="truncate">{account.accountName}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
+                    <Select
+                      value={apPaymentForm.toAccountId || undefined}
+                      onValueChange={(val) =>
+                        setApPaymentForm((value) => ({
+                          ...value,
+                          toAccountId: val,
+                        }))
+                      }
                     >
-                      <option value="">Select payable account</option>
-                      {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.accountCode} - {account.accountName}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Select payable account" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                          <SelectItem key={account.id} value={String(account.id)}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                {account.accountCode}
+                              </span>
+                              <span className="truncate">{account.accountName}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="space-y-1.5 text-sm">
+                    <div className="space-y-1.5 text-sm">
                       <Label>Payment Date *</Label>
                       <Input
                         type="date"
@@ -3281,27 +3651,36 @@ export default function Accounts() {
                           }))
                         }
                       />
-                    </label>
-                    <label className="space-y-1.5 text-sm">
+                    </div>
+                    <div className="space-y-1.5 text-sm">
                       <Label>Payment Method</Label>
-                      <select
-                        className="h-10 w-full rounded-md border bg-background px-3"
-                        value={apPaymentForm.paymentMethod}
-                        onChange={(e) =>
+                      <Select
+                        value={apPaymentForm.paymentMethod || "__none__"}
+                        onValueChange={(val) =>
                           setApPaymentForm((value) => ({
                             ...value,
-                            paymentMethod: e.target.value,
+                            paymentMethod: val === "__none__" ? "" : val,
                           }))
                         }
                       >
-                        <option value="">Not specified</option>
-                        {paymentMethods.map(
-                          (method) => (
-                            <option key={method}>{method}</option>
-                          ),
-                        )}
-                      </select>
-                    </label>
+                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Not specified" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">
+                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">Not specified</span>
+                          </SelectItem>
+                          {paymentMethods.map((method) => (
+                            <SelectItem key={method} value={method}>
+                              <div className="flex items-center gap-2">
+                                <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
+                                <span>{method}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <label className="space-y-1.5 text-sm">
                       <Label>Bank Charges</Label>
                       <Input
