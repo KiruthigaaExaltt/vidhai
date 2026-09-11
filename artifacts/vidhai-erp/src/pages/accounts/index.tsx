@@ -4,7 +4,15 @@ const SYSTEM_ACCOUNT_CODES = new Set(["1030", "1100", "1200", "2100", "2200", "3
 const SYSTEM_ACCOUNT_NAMES = new Set(["Input CGST", "Input SGST", "Input IGST", "Output CGST", "Output SGST", "Output IGST"]);
 const isSystemAccount = (account: any) => SYSTEM_ACCOUNT_CODES.has(String(account?.accountCode || "")) || SYSTEM_ACCOUNT_NAMES.has(String(account?.accountName || ""));
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -121,6 +129,162 @@ const inr = (v: any) =>
 type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal";
 const paymentMethods = ["Bank Transfer", "UPI", "Cheque", "Cash"];
 const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", creditContactId: "", debitContactId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
+
+interface AccountsTableContextValue {
+  listPaging: Record<"j" | "ap" | "ar", { page: number; size: number }>;
+  listMeta: Record<"j" | "ap" | "ar", { totalCount: number; totalPages: number }>;
+  setListPaging: React.Dispatch<
+    React.SetStateAction<Record<"j" | "ap" | "ar", { page: number; size: number }>>
+  >;
+  loading: boolean;
+}
+
+const AccountsTableContext = createContext<AccountsTableContextValue | null>(null);
+
+const tableScrollPositions = new Map<string, { left: number; top: number }>();
+
+const Table = ({
+  rows,
+  cols,
+  showFooter = true,
+  serverKey,
+  tableId,
+}: {
+  rows: any[];
+  cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
+  showFooter?: boolean;
+  serverKey?: "j" | "ap" | "ar";
+  tableId?: string;
+}) => {
+  const context = useContext(AccountsTableContext);
+  const clientPagination = useClientPagination(serverKey ? [] : rows);
+  const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const tableKey = tableId || serverKey || String(cols[0]?.[0] || "table");
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    tableScrollPositions.set(tableKey, {
+      left: e.currentTarget.scrollLeft,
+      top: e.currentTarget.scrollTop,
+    });
+  };
+
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const saved = tableScrollPositions.get(tableKey);
+    if (saved) {
+      if (el.scrollLeft !== saved.left) el.scrollLeft = saved.left;
+      if (el.scrollTop !== saved.top) el.scrollTop = saved.top;
+    }
+  });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const saved = tableScrollPositions.get(tableKey);
+    if (!saved) return;
+    const raf = requestAnimationFrame(() => {
+      if (el && saved) {
+        if (el.scrollLeft !== saved.left) el.scrollLeft = saved.left;
+        if (el.scrollTop !== saved.top) el.scrollTop = saved.top;
+      }
+    });
+    const timer = setTimeout(() => {
+      if (el && saved) {
+        if (el.scrollLeft !== saved.left) el.scrollLeft = saved.left;
+        if (el.scrollTop !== saved.top) el.scrollTop = saved.top;
+      }
+    }, 50);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+    };
+  }, [displayedRows, tableKey]);
+
+  return (
+    <div className="overflow-hidden rounded-md border bg-white">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        data-table-scroll={tableKey}
+        className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto"
+      >
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-sm">
+            <tr>
+              {cols.map((c) => (
+                <th
+                  key={c[0]}
+                  className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2.5 text-left font-medium max-w-[220px] break-words align-top border-b"
+                >
+                  {c[0]}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {displayedRows.map((r, i) => (
+              <tr key={r.id ?? i} className="border-t">
+                {cols.map((c) => (
+                  <td key={c[1]} className="px-3 py-2 max-w-[240px] break-words align-top">
+                    {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {!displayedRows.length && (
+              <tr className="border-t">
+                <td
+                  colSpan={cols.length}
+                  className="px-4 py-14 text-center text-muted-foreground"
+                >
+                  No records found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {showFooter && context && (
+        <DataPagination
+          currentPage={
+            serverKey
+              ? context.listPaging[serverKey].page
+              : clientPagination.currentPage
+          }
+          pageSize={
+            serverKey ? context.listPaging[serverKey].size : clientPagination.pageSize
+          }
+          totalCount={
+            serverKey
+              ? context.listMeta[serverKey].totalCount
+              : clientPagination.totalCount
+          }
+          totalPages={serverKey ? context.listMeta[serverKey].totalPages : undefined}
+          onPageChange={(page) =>
+            serverKey
+              ? context.setListPaging((current) => ({
+                  ...current,
+                  [serverKey]: { ...current[serverKey], page },
+                }))
+              : clientPagination.setCurrentPage(page)
+          }
+          onPageSizeChange={(size) =>
+            serverKey
+              ? context.setListPaging((current) => ({
+                  ...current,
+                  [serverKey]: { page: 1, size },
+                }))
+              : clientPagination.setPageSize(size)
+          }
+          loading={context.loading}
+        />
+      )}
+    </div>
+  );
+};
+
 export default function Accounts() {
   const { can } = useAuth();
   const { toast } = useToast();
@@ -664,6 +828,15 @@ export default function Accounts() {
     setError("");
   };
   const reviewAp = async (row: any, action: "approve" | "reject") => {
+    const scrollY = window.scrollY;
+    const tableKey = apSubTab === "debit-notes" ? "ap-debit-notes" : "ap-bills";
+    const tableEl = document.querySelector(`[data-table-scroll="${tableKey}"]`) as HTMLDivElement | null;
+    if (tableEl) {
+      tableScrollPositions.set(tableKey, {
+        left: tableEl.scrollLeft,
+        top: tableEl.scrollTop,
+      });
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -676,6 +849,17 @@ export default function Accounts() {
       setError(e.message);
     } finally {
       setSubmitting(false);
+      const restore = () => {
+        window.scrollTo({ top: scrollY, behavior: "instant" });
+        const el = document.querySelector(`[data-table-scroll="${tableKey}"]`) as HTMLDivElement | null;
+        const saved = tableScrollPositions.get(tableKey);
+        if (el && saved) {
+          el.scrollLeft = saved.left;
+          el.scrollTop = saved.top;
+        }
+      };
+      requestAnimationFrame(restore);
+      setTimeout(restore, 50);
     }
   };
   const openApPayment = (row: any) => {
@@ -769,6 +953,15 @@ export default function Accounts() {
     setArPayment((value) => ({ ...value, paymentDate: new Date().toISOString().slice(0, 10), fromAccountId: String(coa.find((account) => account.accountCode === "1100" && account.isActive !== false)?.id || ""), settlementAccountId: "", receiptId: crypto.randomUUID(), reference: String(row.invoiceNumber || row.reference || row.billNumber || ""), notes: "", period: "", transactionFees: "", bankCharges: "0" }));
   };
   const reviewAr = async (row: any, action: "approve" | "reject") => {
+    const scrollY = window.scrollY;
+    const tableKey = arSubTab === "credit-notes" ? "ar-credit-notes" : "ar-invoices";
+    const tableEl = document.querySelector(`[data-table-scroll="${tableKey}"]`) as HTMLDivElement | null;
+    if (tableEl) {
+      tableScrollPositions.set(tableKey, {
+        left: tableEl.scrollLeft,
+        top: tableEl.scrollTop,
+      });
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -781,6 +974,17 @@ export default function Accounts() {
       setError(e.message);
     } finally {
       setSubmitting(false);
+      const restore = () => {
+        window.scrollTo({ top: scrollY, behavior: "instant" });
+        const el = document.querySelector(`[data-table-scroll="${tableKey}"]`) as HTMLDivElement | null;
+        const saved = tableScrollPositions.get(tableKey);
+        if (el && saved) {
+          el.scrollLeft = saved.left;
+          el.scrollTop = saved.top;
+        }
+      };
+      requestAnimationFrame(restore);
+      setTimeout(restore, 50);
     }
   };
   const receivePayment = async () => {
@@ -915,6 +1119,14 @@ export default function Accounts() {
   };
   const bankCashDecision = async (row: any, action: "approve" | "reject", remarks = "Approved") => {
     if (action === "reject" && !remarks.trim()) return;
+    const scrollY = window.scrollY;
+    const tableEl = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
+    if (tableEl) {
+      tableScrollPositions.set("bank-cash", {
+        left: tableEl.scrollLeft,
+        top: tableEl.scrollTop,
+      });
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -928,6 +1140,17 @@ export default function Accounts() {
       setError(e.message);
     } finally {
       setSubmitting(false);
+      const restore = () => {
+        window.scrollTo({ top: scrollY, behavior: "instant" });
+        const el = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
+        const saved = tableScrollPositions.get("bank-cash");
+        if (el && saved) {
+          el.scrollLeft = saved.left;
+          el.scrollTop = saved.top;
+        }
+      };
+      requestAnimationFrame(restore);
+      setTimeout(restore, 50);
     }
   };
   const saveTransactionType = async (row: any, patch: any) => {
@@ -1379,128 +1602,6 @@ export default function Accounts() {
       </span>
     );
   };
-  const Table = ({
-    rows,
-    cols,
-    showFooter = true,
-    serverKey,
-  }: {
-    rows: any[];
-    cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
-    showFooter?: boolean;
-    serverKey?: "j" | "ap" | "ar";
-  }) => {
-    const clientPagination = useClientPagination(serverKey ? [] : rows);
-    const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
-    return (
-      <div className="overflow-hidden rounded-md border bg-white">
-        <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto">
-          <table className="w-full text-sm whitespace-nowrap">
-            <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-sm">
-              <tr>
-                {cols.map((c) => (
-                  <th key={c[0]} className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2.5 text-left font-medium whitespace-nowrap border-b">
-                    {c[0]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {displayedRows.map((r, i) => (
-                <tr key={r.id ?? i} className="border-t">
-                  {cols.map((c) => (
-                    <td key={c[1]} className="px-3 py-2 whitespace-nowrap">
-                      {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {!displayedRows.length && (
-                <tr className="border-t">
-                  <td
-                    colSpan={cols.length}
-                    className="px-4 py-14 text-center text-muted-foreground whitespace-nowrap"
-                  >
-                    No records found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {false && (
-          <div className="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
-            <span>
-              Showing {rows.length ? 1 : 0} to {Math.min(rows.length, 10)} of{" "}
-              {rows.length} records
-            </span>
-            <div className="flex items-center gap-3">
-              <span>Rows per page:</span>
-              <span className="rounded-md border bg-white px-4 py-2 text-foreground">
-                10
-              </span>
-              <Button
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-red-500 font-medium text-white">
-                1
-              </span>
-              <Button
-                size="icon"
-                variant="outline"
-                className="h-8 w-8"
-                disabled={rows.length <= 10}
-                aria-label="Next page"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
-        {showFooter && (
-          <DataPagination
-            currentPage={
-              serverKey
-                ? listPaging[serverKey].page
-                : clientPagination.currentPage
-            }
-            pageSize={
-              serverKey ? listPaging[serverKey].size : clientPagination.pageSize
-            }
-            totalCount={
-              serverKey
-                ? listMeta[serverKey].totalCount
-                : clientPagination.totalCount
-            }
-            totalPages={serverKey ? listMeta[serverKey].totalPages : undefined}
-            onPageChange={(page) =>
-              serverKey
-                ? setListPaging((current) => ({
-                  ...current,
-                  [serverKey]: { ...current[serverKey], page },
-                }))
-                : clientPagination.setCurrentPage(page)
-            }
-            onPageSizeChange={(size) =>
-              serverKey
-                ? setListPaging((current) => ({
-                  ...current,
-                  [serverKey]: { page: 1, size },
-                }))
-                : clientPagination.setPageSize(size)
-            }
-            loading={loading}
-          />
-        )}
-      </div>
-    );
-  };
   const apBills = ap.filter((entry) => entry.entryType !== "Debit Note");
   const apDebitNotes = ap.filter((entry) => entry.entryType === "Debit Note");
   const filterAp = (rows: any[]) =>
@@ -1643,7 +1744,8 @@ export default function Accounts() {
   };
   const activePageTitle = pageTitles[activeTab] || ["Accounts", "Finance and accounting operations"];
   return (
-    <Shell>
+    <AccountsTableContext.Provider value={{ listPaging, listMeta, setListPaging, loading }}>
+      <Shell>
       <div className="min-h-full space-y-5 p-4 sm:p-6">
         <div className="sticky top-16 lg:top-[72px] z-30 -mx-4 -mt-4 mb-2 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-xs flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-all">
           <div className="flex items-center gap-2 min-w-0">
@@ -1847,29 +1949,29 @@ export default function Accounts() {
                   </button>
                   {open && (
                     <div className="overflow-x-auto max-h-96 overflow-y-auto border-t">
-                      <table className="w-full text-sm whitespace-nowrap">
+                      <table className="w-full text-sm">
                         <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
                           <tr>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Invoice Number</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Invoice Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Invoiced</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Received</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Credits</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Outstanding</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Paid Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Status</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[200px] break-words align-top border-b">Invoice Number</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Invoice Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Invoiced</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Received</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Credits</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Outstanding</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Paid Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(customer.records || []).map((record: any) => (
                             <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
-                              <td className="px-4 py-2 whitespace-nowrap">{record.invoiceNumber}</td>
-                              <td className="px-4 py-2 whitespace-nowrap">{String(record.invoiceDate || "").slice(0, 10)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.invoicedAmount)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.receivedAmount)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.credits)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2 whitespace-nowrap">
+                              <td className="px-4 py-2 max-w-[200px] break-words align-top">{record.invoiceNumber}</td>
+                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{String(record.invoiceDate || "").slice(0, 10)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.invoicedAmount)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.receivedAmount)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.credits)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.outstanding)}</td>
+                              <td className="px-4 py-2 max-w-[150px] break-words align-top">
                                 {record.paidDate || "-"}
                                 {record.payments?.length > 0 && (
                                   <div className="mt-1">
@@ -1883,7 +1985,7 @@ export default function Accounts() {
                                           payments: record.payments,
                                         })
                                       }
-                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer"
                                     >
                                       {record.payments.length}{" "}
                                       {record.payments.length === 1 ? "receipt" : "receipts"}
@@ -1891,7 +1993,7 @@ export default function Accounts() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-2 whitespace-nowrap">{record.status || "-"}</td>
+                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{record.status || "-"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1940,29 +2042,29 @@ export default function Accounts() {
                   </button>
                   {open && (
                     <div className="overflow-x-auto max-h-96 overflow-y-auto border-t">
-                      <table className="w-full text-sm whitespace-nowrap">
+                      <table className="w-full text-sm">
                         <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
                           <tr>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Bill Number</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Billed Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Billed</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Paid</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Debit Note</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right whitespace-nowrap border-b">Outstanding</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Paid Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left whitespace-nowrap border-b">Status</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[200px] break-words align-top border-b">Bill Number</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Billed Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Billed</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Paid</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Debit Note</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Outstanding</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Paid Date</th>
+                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {(vendor.records || []).map((record: any) => (
                             <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
-                              <td className="px-4 py-2 whitespace-nowrap">{record.billNumber}</td>
-                              <td className="px-4 py-2 whitespace-nowrap">{String(record.billedDate || "").slice(0, 10)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.billedAmount)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.paidAmount)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.debitNote)}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2 whitespace-nowrap">
+                              <td className="px-4 py-2 max-w-[200px] break-words align-top">{record.billNumber}</td>
+                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{String(record.billedDate || "").slice(0, 10)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.billedAmount)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.paidAmount)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.debitNote)}</td>
+                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.outstanding)}</td>
+                              <td className="px-4 py-2 max-w-[150px] break-words align-top">
                                 {record.paidDate || "-"}
                                 {record.payments?.length > 0 && (
                                   <div className="mt-1">
@@ -1976,7 +2078,7 @@ export default function Accounts() {
                                           payments: record.payments,
                                         })
                                       }
-                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
+                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer"
                                     >
                                       {record.payments.length}{" "}
                                       {record.payments.length === 1 ? "payment" : "payments"}
@@ -1984,7 +2086,7 @@ export default function Accounts() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-2 whitespace-nowrap">{record.status || "-"}</td>
+                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{record.status || "-"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -2162,54 +2264,54 @@ export default function Accounts() {
                                     </div>
                                   ) : (
                                     <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-md border bg-background">
-                                      <table className="w-full text-xs whitespace-nowrap">
+                                      <table className="w-full text-xs">
                                         <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
                                           <tr>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Date of Payment</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Source</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Customer/Vendor</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Customer/Vendor ID</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Reference ID</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Account Name</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Payment Method</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Notes</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left whitespace-nowrap border-b">Description</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right whitespace-nowrap border-b">Debit Amount</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right whitespace-nowrap border-b">Credit Amount</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right whitespace-nowrap border-b">Running Balance (₹)</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Date of Payment</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[100px] break-words align-top border-b">Source</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Customer/Vendor</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Customer/Vendor ID</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[140px] break-words align-top border-b">Reference ID</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[140px] break-words align-top border-b">Account Name</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Payment Method</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Notes</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Description</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Debit Amount</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Credit Amount</th>
+                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Running Balance (₹)</th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                           {historyLines.map((line: any, idx: number) => (
                                             <tr key={line.id || idx} className="hover:bg-muted/10">
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap">
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[120px] break-words align-top">
                                                 {String(line.paymentDate || line.entryDate || "").slice(0, 10) || "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 font-medium whitespace-nowrap">
+                                              <td className="px-3 py-1.5 font-medium max-w-[100px] break-words align-top">
                                                 {line.source || line.sourceType || "Manual"}
                                               </td>
-                                              <td className="px-3 py-1.5 whitespace-nowrap">
+                                              <td className="px-3 py-1.5 max-w-[150px] break-words align-top">
                                                 {line.partyName || "N/A"}
                                               </td>
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground whitespace-nowrap">
+                                              <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[120px] break-words align-top">
                                                 {line.partyId || "N/A"}
                                               </td>
-                                              <td className="px-3 py-1.5 font-mono whitespace-nowrap">
+                                              <td className="px-3 py-1.5 font-mono max-w-[140px] break-words align-top">
                                                 {line.referenceId || line.reference || line.sourceId || "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 whitespace-nowrap">{line.accountName || account.accountName}</td>
-                                              <td className="px-3 py-1.5 whitespace-nowrap">{line.paymentMethod || "—"}</td>
-                                              <td className="px-3 py-1.5 whitespace-nowrap">{line.notes || "—"}</td>
-                                              <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap">
+                                              <td className="px-3 py-1.5 max-w-[140px] break-words align-top">{line.accountName || account.accountName}</td>
+                                              <td className="px-3 py-1.5 max-w-[120px] break-words align-top">{line.paymentMethod || "—"}</td>
+                                              <td className="px-3 py-1.5 max-w-[150px] break-words align-top">{line.notes || "—"}</td>
+                                              <td className="px-3 py-1.5 text-muted-foreground max-w-[150px] break-words align-top">
                                                 {line.description || "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold whitespace-nowrap">
+                                              <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold max-w-[120px] align-top">
                                                 {line.debit ? inr(line.debit) : "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold whitespace-nowrap">
+                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold max-w-[120px] align-top">
                                                 {line.credit ? inr(line.credit) : "—"}
                                               </td>
-                                              <td className="px-3 py-1.5 text-right font-mono font-bold whitespace-nowrap">
+                                              <td className="px-3 py-1.5 text-right font-mono font-bold max-w-[120px] align-top">
                                                 {inr(line.runningBalance)}
                                               </td>
                                             </tr>
@@ -2516,13 +2618,19 @@ export default function Accounts() {
               {can("accounts.bank_cash.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("bankCash")} />}
               {can("accounts.bank_cash.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("bankCash")} />}
             </div>
-            <Table rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
+            <Table tableId="bank-cash" rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
               ["Payment Date", "transactionDate"], ["Party / Name", "clientName", (_: any, row: any) => row.mode === "Transfer"
                 ? (row.creditContactName || row.debitContactName
                   ? <div>{row.creditContactName && <div>Credit: {row.creditContactName}</div>}{row.debitContactName && <div>Debit: {row.debitContactName}</div>}</div>
                   : row.clientName || "—")
                 : row.creditContactName || row.debitContactName || row.clientName || "—"], ["Account Name", "accountName"], ["Payment Method", "paymentMethod", (value: any) => String(value || "").trim() || "—"], ["Reference ID / Invoice Number", "reference", (value: any) => String(value || "").trim() || "—"], ["Type", "transactionTypeName"], ["Credit/Debit", "mode"], ["Amount", "amount", inr], ["Period", "period", (value: any) => String(value || "").trim() || "—"], ["Bank Charges", "bankCharges", inr], ["Transaction Fees (informational)", "transactionFees", inr], ["Status", "approvalStatus", statusBadge],
-              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => setBankDecision({ row, remarks: "" })}>Reject</Button></div> : "—"],
+              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => {
+                const tableEl = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
+                if (tableEl) {
+                  tableScrollPositions.set("bank-cash", { left: tableEl.scrollLeft, top: tableEl.scrollTop });
+                }
+                setBankDecision({ row, remarks: "" });
+              }}>Reject</Button></div> : "—"],
               ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
               ["Notes", "remarks", (value: any) => String(value || "").trim() || "—"],
             ]} />
@@ -2550,6 +2658,7 @@ export default function Accounts() {
                   {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("apBill")} />}
                 </div>
                 <Table
+                  tableId="ap-bills"
                   serverKey="ap"
                   rows={f(
                     ap.filter((entry) => entry.entryType !== "Debit Note"),
@@ -2681,6 +2790,7 @@ export default function Accounts() {
                   {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("apDebitNote")} />}
                 </div>
                 <Table
+                  tableId="ap-debit-notes"
                   serverKey="ap"
                   rows={f(
                     ap.filter((entry) => entry.entryType === "Debit Note"),
@@ -2710,6 +2820,7 @@ export default function Accounts() {
                   {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("arInvoice")} />}
                 </div>
                 <Table
+                  tableId="ar-invoices"
                   serverKey="ar"
                   rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
                   cols={[
@@ -2809,6 +2920,7 @@ export default function Accounts() {
                   {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("arCreditNote")} />}
                 </div>
                 <Table
+                  tableId="ar-credit-notes"
                   serverKey="ar"
                   rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
                   cols={[
@@ -2849,6 +2961,7 @@ export default function Accounts() {
               )}
             </div>
             <Table
+              tableId="journals"
               serverKey="j"
               rows={f(journals)}
               cols={[
@@ -3972,5 +4085,6 @@ export default function Accounts() {
         )}
       </div>
     </Shell>
+    </AccountsTableContext.Provider>
   );
 }

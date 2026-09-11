@@ -35,10 +35,10 @@ const scoped: PermissionAction[] = [
 ];
 export const permissionCatalog: PermissionCatalogRow[] = [
   { module: "Dashboard", key: "dashboard", actions: ["view"] },
-  { module: "CRM � Contacts", key: "crm.contacts", actions: crud },
-  { module: "Task � Task Board", key: "task.task_board", actions: scoped },
+  { module: "CRM • Contacts", key: "crm.contacts", actions: [...crud, "import", "export"] },
+  { module: "Task  Task Board", key: "task.task_board", actions: scoped },
   {
-    module: "Task � Time Logs",
+    module: "Task  Time Logs",
     key: "task.time_logs",
     actions: ["view", "create", "update", "delete", "for_own", "for_others"],
   },

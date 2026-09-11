@@ -58,9 +58,11 @@ export async function effectivePermissions(user: AuthUser): Promise<string[]> {
       : base.delete(override.permissionKey);
   return [...base].filter((key) => allPermissionKeys.includes(key)).sort();
 }
-export function requirePermission(permission: string) {
+export function requirePermission(permission: string, fallbackPermission?: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const key = normalizePermissionKey(permission);
+    const key =
+      normalizePermissionKey(permission) ||
+      (fallbackPermission ? normalizePermissionKey(fallbackPermission) : null);
     if (!key) {
       console.error(`Invalid RBAC permission generated: ${permission}`, {
         method: req.method,
@@ -72,7 +74,14 @@ export function requirePermission(permission: string) {
     if (!user)
       return res.status(401).json({ error: "Authentication required" });
     const permissions = await effectivePermissions(user);
-    if (!permissions.includes("*") && !permissions.includes(key))
+    const fallbackKey = fallbackPermission
+      ? normalizePermissionKey(fallbackPermission)
+      : null;
+    const hasPermission =
+      permissions.includes("*") ||
+      permissions.includes(key) ||
+      (fallbackKey ? permissions.includes(fallbackKey) : false);
+    if (!hasPermission)
       return res.status(403).json({ error: "Access denied", permission: key });
     (req as any).authUser = user;
     return next();
@@ -152,11 +161,28 @@ export function requireModulePermission(
     if (!scope) return next();
     const action = permissionAction(req);
     const requestedPermission = `${scope}.${action}`;
-    const permission =
-      normalizePermissionKey(requestedPermission) || action !== "approve"
-        ? requestedPermission
-        : `${scope}.update`;
-    return requirePermission(permission)(req, res, next);
+    let fallbackAction = "view";
+    if (action === "import" || action === "upload" || req.method === "POST") {
+      fallbackAction = "create";
+    } else if (
+      action === "export" ||
+      action === "download" ||
+      req.method === "GET" ||
+      req.method === "HEAD" ||
+      req.method === "OPTIONS"
+    ) {
+      fallbackAction = "view";
+    } else if (req.method === "DELETE") {
+      fallbackAction = "delete";
+    } else {
+      fallbackAction = "update";
+    }
+    const fallbackPermission = `${scope}.${fallbackAction}`;
+    return requirePermission(requestedPermission, fallbackPermission)(
+      req,
+      res,
+      next,
+    );
   };
 }
 export function organizationId(req: Request): number {

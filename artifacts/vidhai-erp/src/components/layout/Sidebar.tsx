@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useLogout } from "@workspace/api-client-react";
@@ -30,7 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import vidhaiLogo from "@assets/vidhai-logo-transparent.png";
+import vidhaiLogo from "@assets/vidhai-leaf.png";
 import { usePwa } from "@/pwa/PwaProvider";
 
 const ACCOUNT_VIEW_PERMISSIONS = [
@@ -69,14 +70,16 @@ const VidhaiLogo = () => (
     />
     <div className="flex flex-col">
       <span className="font-serif font-bold text-lg leading-none tracking-wider text-sidebar-primary">
-        VIDHAI
+        Vidhaii
       </span>
       <span className="text-[10px] tracking-widest text-sidebar-foreground/50">
-        SYSTEMS
+        ERP SYSTEM
       </span>
     </div>
   </div>
 );
+
+let savedSidebarScrollTop = 0;
 
 export function Sidebar({
   mobileOpen = false,
@@ -86,6 +89,61 @@ export function Sidebar({
   onMobileClose?: () => void;
 }) {
   const [location] = useLocation();
+  const asideRef = useRef<HTMLElement>(null);
+  const navDivRef = useRef<HTMLDivElement>(null);
+
+  const saveCurrentScroll = () => {
+    const top =
+      asideRef.current?.scrollTop ||
+      navDivRef.current?.scrollTop ||
+      savedSidebarScrollTop;
+    if (top !== undefined && top >= 0) {
+      savedSidebarScrollTop = top;
+      try {
+        sessionStorage.setItem("vidhai_sidebar_scroll", String(top));
+      } catch {}
+    }
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
+    const top = e.currentTarget.scrollTop;
+    savedSidebarScrollTop = top;
+    try {
+      sessionStorage.setItem("vidhai_sidebar_scroll", String(top));
+    } catch {}
+  };
+
+  useLayoutEffect(() => {
+    const restore = () => {
+      const top =
+        savedSidebarScrollTop ||
+        Number(sessionStorage.getItem("vidhai_sidebar_scroll") || 0);
+      if (top > 0) {
+        if (asideRef.current && asideRef.current.scrollTop !== top) {
+          asideRef.current.scrollTop = top;
+        }
+        if (navDivRef.current && navDivRef.current.scrollTop !== top) {
+          navDivRef.current.scrollTop = top;
+        }
+      } else {
+        const activeEl = asideRef.current?.querySelector(".border-primary");
+        if (activeEl) {
+          activeEl.scrollIntoView({ block: "nearest" });
+        }
+      }
+    };
+
+    restore();
+    const id1 = requestAnimationFrame(restore);
+    const id2 = setTimeout(restore, 50);
+    const id3 = setTimeout(restore, 150);
+    return () => {
+      cancelAnimationFrame(id1);
+      clearTimeout(id2);
+      clearTimeout(id3);
+    };
+  }, [location]);
+
   const { user, logout: clearUser, can, isModuleEnabled } = useAuth();
   const logoutMutation = useLogout();
   const pwa = usePwa();
@@ -173,12 +231,14 @@ export function Sidebar({
     return (
       <Link
         href={href}
-        onClick={onMobileClose}
-        className={`flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
-          isActive
+        onClick={() => {
+          saveCurrentScroll();
+          onMobileClose?.();
+        }}
+        className={`flex items-center gap-3 px-4 py-2 text-sm transition-colors ${isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary"
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground border-l-2 border-transparent"
-        }`}
+          }`}
       >
         <Icon className="w-4 h-4" />
         <span>{label}</span>
@@ -205,6 +265,8 @@ export function Sidebar({
         />
       )}
       <aside
+        ref={asideRef}
+        onScroll={handleScroll}
         className={`fixed left-0 top-0 z-50 flex h-[100svh] w-64 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar transition-transform duration-200 lg:z-30 lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <button
@@ -217,7 +279,11 @@ export function Sidebar({
         </button>
         <VidhaiLogo />
 
-        <div className="flex-1 overflow-y-auto pb-4">
+        <div
+          ref={navDivRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto pb-4"
+        >
           {/* ── Top-level items ── */}
           <NavItem
             href="/"
@@ -321,8 +387,8 @@ export function Sidebar({
             can("crew.overtime.view") ||
             can("crew.bonus.view") ||
             can("crew.deductions.view")) && (
-            <NavItem href="/crew" icon={Users} label="Crew" />
-          )}
+              <NavItem href="/crew" icon={Users} label="Crew" />
+            )}
           {can("crewpay.salary_slip.view") && (
             <NavItem href="/crewpay" icon={Banknote} label="CrewPay" />
           )}
@@ -387,11 +453,14 @@ export function Sidebar({
         <div className="hidden">
           <Link
             href="/profile"
-            className={`flex items-center gap-3 px-4 py-3 w-full transition-colors ${
-              isProfileActive
+            onClick={() => {
+              saveCurrentScroll();
+              onMobileClose?.();
+            }}
+            className={`flex items-center gap-3 px-4 py-3 w-full transition-colors ${isProfileActive
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "hover:bg-sidebar-accent/50"
-            }`}
+              }`}
           >
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
               <UserCircle className="w-5 h-5 text-primary" />
