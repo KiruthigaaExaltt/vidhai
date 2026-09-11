@@ -46,6 +46,7 @@ import {
   Download,
   FileDown,
   FileUp,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -1025,6 +1026,7 @@ export default function CRMPage() {
               onClick={() => void submitImport()}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
+              {importing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {importing ? "Importing..." : "Import"}
             </Button>
           </DialogFooter>

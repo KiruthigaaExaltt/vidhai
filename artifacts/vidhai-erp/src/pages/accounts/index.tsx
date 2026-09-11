@@ -65,6 +65,15 @@ import {
   Briefcase,
   FileBarChart,
   Sliders,
+  Loader2,
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  MessageSquare,
+  Copy,
+  Check,
+  Printer,
+  ShieldCheck,
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -328,6 +337,7 @@ export default function Accounts() {
     [settlementAmount, setSettlementAmount] = useState(""),
     [manualType, setManualType] = useState<"account" | "journal" | null>(null),
     [manual, setManual] = useState<any>({});
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [accountImport, setAccountImport] = useState<AccountImportKind | null>(null);
   const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
   const [accountImportFile, setAccountImportFile] = useState("");
@@ -391,6 +401,8 @@ export default function Accounts() {
     contactName?: string;
     payments: any[];
   } | null>(null);
+  const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
+  const [copiedRef, setCopiedRef] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     type: "payable" | "receivable";
     row: any;
@@ -837,7 +849,7 @@ export default function Accounts() {
         top: tableEl.scrollTop,
       });
     }
-    setSubmitting(true);
+    setActionLoadingId(`ap-${action}-${row.id}`);
     setError("");
     try {
       await api(`/ap/${row.id}/${action}`, {
@@ -848,7 +860,7 @@ export default function Accounts() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setSubmitting(false);
+      setActionLoadingId(null);
       const restore = () => {
         window.scrollTo({ top: scrollY, behavior: "instant" });
         const el = document.querySelector(`[data-table-scroll="${tableKey}"]`) as HTMLDivElement | null;
@@ -962,7 +974,7 @@ export default function Accounts() {
         top: tableEl.scrollTop,
       });
     }
-    setSubmitting(true);
+    setActionLoadingId(`ar-${action}-${row.id}`);
     setError("");
     try {
       await api(`/ar/${row.id}/${action}`, {
@@ -973,7 +985,7 @@ export default function Accounts() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setSubmitting(false);
+      setActionLoadingId(null);
       const restore = () => {
         window.scrollTo({ top: scrollY, behavior: "instant" });
         const el = document.querySelector(`[data-table-scroll="${tableKey}"]`) as HTMLDivElement | null;
@@ -1107,7 +1119,7 @@ export default function Accounts() {
       reader.readAsDataURL(file);
     });
   const submitBankCash = async () => {
-    setSubmitting(true);
+    setActionLoadingId("bank-cash-form-submit");
     setError("");
     try {
       const type = (masters.transactionTypes || []).find((row: any) => String(row.id) === String(bankForm.transactionTypeId));
@@ -1115,7 +1127,7 @@ export default function Accounts() {
       setBankForm(emptyBankForm());
       setAccountDocument(null);
       await load();
-    } catch (e: any) { setError(e.message); } finally { setSubmitting(false); }
+    } catch (e: any) { setError(e.message); } finally { setActionLoadingId(null); }
   };
   const bankCashDecision = async (row: any, action: "approve" | "reject", remarks = "Approved") => {
     if (action === "reject" && !remarks.trim()) return;
@@ -1127,7 +1139,7 @@ export default function Accounts() {
         top: tableEl.scrollTop,
       });
     }
-    setSubmitting(true);
+    setActionLoadingId(`bank-cash-${action}-${row.id}`);
     setError("");
     try {
       await api(`/bank-cash-transactions/${row.id}/${action}`, {
@@ -1139,7 +1151,7 @@ export default function Accounts() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setSubmitting(false);
+      setActionLoadingId(null);
       const restore = () => {
         window.scrollTo({ top: scrollY, behavior: "instant" });
         const el = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
@@ -1177,7 +1189,7 @@ export default function Accounts() {
     return response;
   };
   const exportTallyFile = async (format: "xml" | "csv") => {
-    setSubmitting(true);
+    setActionLoadingId(`tally-${format}`);
     setError("");
     try {
       const response = await fetchTallyExport(format);
@@ -1186,11 +1198,11 @@ export default function Accounts() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setSubmitting(false);
+      setActionLoadingId(null);
     }
   };
   const exportTallyXlsx = async () => {
-    setSubmitting(true);
+    setActionLoadingId("tally-xlsx");
     setError("");
     try {
       const response = await fetchTallyExport("json");
@@ -1204,7 +1216,7 @@ export default function Accounts() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setSubmitting(false);
+      setActionLoadingId(null);
     }
   };
   const accountImportConfig = {
@@ -1531,7 +1543,7 @@ export default function Accounts() {
   };
   const exportAccountXlsx = async (kind: keyof typeof accountImportConfig) => {
     const config = accountImportConfig[kind];
-    setSubmitting(true);
+    setActionLoadingId(`export-${kind}`);
     setError("");
     try {
       const params = new URLSearchParams(config.exportQuery || "");
@@ -1556,23 +1568,29 @@ export default function Accounts() {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setSubmitting(false);
+      setActionLoadingId(null);
     }
   };
-  const ExcelIconButton = ({ action, onClick }: { action: "import" | "export"; onClick: () => void }) => {
+  const ExcelIconButton = ({ action, loading, onClick }: { action: "import" | "export"; loading?: boolean; onClick: () => void }) => {
     const isImport = action === "import";
     const label = isImport ? "Import" : "Export";
     return (
       <Button
         type="button"
         variant="outline"
-        disabled={submitting}
+        disabled={loading || Boolean(actionLoadingId) || submitting}
         onClick={onClick}
         aria-label={label}
         className="h-9 px-3 gap-1.5 border-primary bg-background text-black dark:text-white hover:bg-primary hover:text-white hover:border-primary transition-colors font-medium text-xs sm:text-sm shadow-xs"
       >
-        {isImport ? <FileUp className="h-4 w-4 shrink-0" /> : <FileDown className="h-4 w-4 shrink-0" />}
-        <span>{label}</span>
+        {loading ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+        ) : isImport ? (
+          <FileUp className="h-4 w-4 shrink-0" />
+        ) : (
+          <FileDown className="h-4 w-4 shrink-0" />
+        )}
+        <span>{loading ? "Exporting..." : label}</span>
       </Button>
     );
   };
@@ -1778,7 +1796,11 @@ export default function Accounts() {
               onClick={() => void handleLockLedger()}
               disabled={lockingLedger}
             >
-              <LogOut className="h-3.5 w-3.5 shrink-0 text-primary" />
+              {lockingLedger ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 text-primary animate-spin" />
+              ) : (
+                <LogOut className="h-3.5 w-3.5 shrink-0 text-primary" />
+              )}
               <span>{lockingLedger ? "Locking..." : "Lock Ledger"}</span>
             </Button>
           </div>
@@ -2611,12 +2633,19 @@ export default function Accounts() {
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Bank Charges (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Transaction Fees (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground block">Informational; does not change the posted amount.</span></label>
                 <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
-                <Button className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`} disabled={submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)} onClick={() => void submitBankCash()}>Submit for Approval</Button>
+                <Button
+                  className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}
+                  disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
+                  onClick={() => void submitBankCash()}
+                >
+                  {actionLoadingId === "bank-cash-form-submit" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {actionLoadingId === "bank-cash-form-submit" ? "Submitting..." : "Submit for Approval"}
+                </Button>
               </CardContent>
             </Card>
             <div className="flex flex-wrap justify-end gap-2">
               {can("accounts.bank_cash.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("bankCash")} />}
-              {can("accounts.bank_cash.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("bankCash")} />}
+              {can("accounts.bank_cash.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-bankCash"} onClick={() => void exportAccountXlsx("bankCash")} />}
             </div>
             <Table tableId="bank-cash" rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
               ["Payment Date", "transactionDate"], ["Party / Name", "clientName", (_: any, row: any) => row.mode === "Transfer"
@@ -2624,13 +2653,42 @@ export default function Accounts() {
                   ? <div>{row.creditContactName && <div>Credit: {row.creditContactName}</div>}{row.debitContactName && <div>Debit: {row.debitContactName}</div>}</div>
                   : row.clientName || "—")
                 : row.creditContactName || row.debitContactName || row.clientName || "—"], ["Account Name", "accountName"], ["Payment Method", "paymentMethod", (value: any) => String(value || "").trim() || "—"], ["Reference ID / Invoice Number", "reference", (value: any) => String(value || "").trim() || "—"], ["Type", "transactionTypeName"], ["Credit/Debit", "mode"], ["Amount", "amount", inr], ["Period", "period", (value: any) => String(value || "").trim() || "—"], ["Bank Charges", "bankCharges", inr], ["Transaction Fees (informational)", "transactionFees", inr], ["Status", "approvalStatus", statusBadge],
-              ["Actions", "id", (_: any, row: any) => row.approvalStatus === "Pending Approval" && can("accounts.bank_cash.approve") ? <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void bankCashDecision(row, "approve")}>Approve</Button><Button size="sm" variant="outline" onClick={() => {
-                const tableEl = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
-                if (tableEl) {
-                  tableScrollPositions.set("bank-cash", { left: tableEl.scrollLeft, top: tableEl.scrollTop });
+              ["Actions", "id", (_: any, row: any) => {
+                if (row.approvalStatus !== "Pending Approval" || !can("accounts.bank_cash.approve")) {
+                  return "—";
                 }
-                setBankDecision({ row, remarks: "" });
-              }}>Reject</Button></div> : "—"],
+                const isApproving = actionLoadingId === `bank-cash-approve-${row.id}`;
+                const isRejecting = actionLoadingId === `bank-cash-reject-${row.id}`;
+                const isBusy = submitting || Boolean(actionLoadingId);
+                return (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => void bankCashDecision(row, "approve")}
+                    >
+                      {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      {isApproving ? "Approving..." : "Approve"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => {
+                        const tableEl = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
+                        if (tableEl) {
+                          tableScrollPositions.set("bank-cash", { left: tableEl.scrollLeft, top: tableEl.scrollTop });
+                        }
+                        setBankDecision({ row, remarks: "" });
+                      }}
+                    >
+                      {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      Reject
+                    </Button>
+                  </div>
+                );
+              }],
               ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
               ["Notes", "remarks", (value: any) => String(value || "").trim() || "—"],
             ]} />
@@ -2644,7 +2702,31 @@ export default function Accounts() {
             <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">Accounts Data Sources</CardTitle></CardHeader><CardContent className="grid gap-2 md:grid-cols-2">{Object.entries(masters.sourceRegistry || {}).map(([key, value]: any) => <div key={key} className="rounded border p-3"><p className="font-medium capitalize">{key.replace(/([A-Z])/g, " $1")}</p><p className="text-xs text-muted-foreground">{(value || []).join(", ")}</p></div>)}</CardContent></Card>
           </TabsContent> */}
           <TabsContent value="tally" className="space-y-3">
-            <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">TallyPrime Export</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-3">{can("accounts.tally.export") ? <><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("xml")}>Export Chart of Accounts + Posted Vouchers XML</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyXlsx()}>Export Chart of Accounts + Posted Vouchers XLSX</Button><Button variant="outline" disabled={submitting} onClick={() => void exportTallyFile("csv")}>Export Chart of Accounts + Posted Vouchers CSV</Button></> : <p className="text-sm text-muted-foreground">You need Tally export permission.</p>}</CardContent></Card>
+            <Card className="rounded-md border bg-white shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-base">TallyPrime Export</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-3">
+                {can("accounts.tally.export") ? (
+                  <>
+                    <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyFile("xml")}>
+                      {actionLoadingId === "tally-xml" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Export Chart of Accounts + Posted Vouchers XML
+                    </Button>
+                    <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyXlsx()}>
+                      {actionLoadingId === "tally-xlsx" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Export Chart of Accounts + Posted Vouchers XLSX
+                    </Button>
+                    <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyFile("csv")}>
+                      {actionLoadingId === "tally-csv" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Export Chart of Accounts + Posted Vouchers CSV
+                    </Button>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">You need Tally export permission.</p>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
           <TabsContent value="ap" className="space-y-3">
             <Tabs value={apSubTab} onValueChange={setApSubTab}>
@@ -2655,7 +2737,7 @@ export default function Accounts() {
               <TabsContent value="bills" className="space-y-3">
                 <div className="flex justify-end gap-2">
                   {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
-                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("apBill")} />}
+                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apBill"} onClick={() => void exportAccountXlsx("apBill")} />}
                 </div>
                 <Table
                   tableId="ap-bills"
@@ -2740,25 +2822,32 @@ export default function Accounts() {
                                   <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
                                 </Button>
                               )}
-                            {row.approvalStatus === "Pending Approval" && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => void reviewAp(row, "approve")}
-                                  disabled={submitting}
-                                >
-                                  Approve
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => void reviewAp(row, "reject")}
-                                  disabled={submitting}
-                                >
-                                  Reject
-                                </Button>
-                              </>
-                            )}
+                            {row.approvalStatus === "Pending Approval" && (() => {
+                              const isApproving = actionLoadingId === `ap-approve-${row.id}`;
+                              const isRejecting = actionLoadingId === `ap-reject-${row.id}`;
+                              const isBusy = submitting || Boolean(actionLoadingId);
+                              return (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => void reviewAp(row, "approve")}
+                                    disabled={isBusy}
+                                  >
+                                    {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                    {isApproving ? "Approving..." : "Approve"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => void reviewAp(row, "reject")}
+                                    disabled={isBusy}
+                                  >
+                                    {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                    {isRejecting ? "Rejecting..." : "Reject"}
+                                  </Button>
+                                </>
+                              );
+                            })()}
                             <Button
                               size="icon"
                               className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2787,7 +2876,7 @@ export default function Accounts() {
               <TabsContent value="debit-notes" className="space-y-3">
                 <div className="flex justify-end gap-2">
                   {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
-                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("apDebitNote")} />}
+                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apDebitNote"} onClick={() => void exportAccountXlsx("apDebitNote")} />}
                 </div>
                 <Table
                   tableId="ap-debit-notes"
@@ -2817,7 +2906,7 @@ export default function Accounts() {
               <TabsContent value="invoices" className="space-y-3">
                 <div className="flex justify-end gap-2">
                   {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
-                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("arInvoice")} />}
+                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arInvoice"} onClick={() => void exportAccountXlsx("arInvoice")} />}
                 </div>
                 <Table
                   tableId="ar-invoices"
@@ -2877,25 +2966,32 @@ export default function Accounts() {
                                 <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
                               </Button>
                             )}
-                          {row.approvalStatus === "Pending Approval" && (
-                            <>
-                              <Button
-                                size="sm"
-                                onClick={() => void reviewAr(row, "approve")}
-                                disabled={submitting}
-                              >
-                                Approve
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => void reviewAr(row, "reject")}
-                                disabled={submitting}
-                              >
-                                Reject
-                              </Button>
-                            </>
-                          )}
+                          {row.approvalStatus === "Pending Approval" && (() => {
+                            const isApproving = actionLoadingId === `ar-approve-${row.id}`;
+                            const isRejecting = actionLoadingId === `ar-reject-${row.id}`;
+                            const isBusy = submitting || Boolean(actionLoadingId);
+                            return (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => void reviewAr(row, "approve")}
+                                  disabled={isBusy}
+                                >
+                                  {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                  {isApproving ? "Approving..." : "Approve"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => void reviewAr(row, "reject")}
+                                  disabled={isBusy}
+                                >
+                                  {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                  {isRejecting ? "Rejecting..." : "Reject"}
+                                </Button>
+                              </>
+                            );
+                          })()}
                           <Button
                             size="icon"
                             className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2917,7 +3013,7 @@ export default function Accounts() {
               <TabsContent value="credit-notes" className="space-y-3">
                 <div className="flex justify-end gap-2">
                   {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
-                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("arCreditNote")} />}
+                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arCreditNote"} onClick={() => void exportAccountXlsx("arCreditNote")} />}
                 </div>
                 <Table
                   tableId="ar-credit-notes"
@@ -2952,7 +3048,7 @@ export default function Accounts() {
           <TabsContent value="journals" className="space-y-3">
             <div className="flex flex-wrap justify-end gap-2">
               {can("accounts.journal_entries.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("journal")} />}
-              {can("accounts.journal_entries.export") && <ExcelIconButton action="export" onClick={() => void exportAccountXlsx("journal")} />}
+              {can("accounts.journal_entries.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-journal"} onClick={() => void exportAccountXlsx("journal")} />}
               {can("accounts.journal_entries.create") && (
                 <Button onClick={() => openManual("journal")}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -3196,6 +3292,7 @@ export default function Accounts() {
                       !manual.amount))
                 }
               >
+                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {submitting ? "Saving..." : "Save Entry"}
               </Button>
             </DialogFooter>
@@ -3238,7 +3335,10 @@ export default function Accounts() {
               )}
               <DialogFooter>
                 <Button variant="outline" disabled={submitting} onClick={() => setAccountImport(null)}>Cancel</Button>
-                <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>{submitting ? "Importing..." : "Import"}</Button>
+                <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>
+                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {submitting ? "Importing..." : "Import"}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -3285,6 +3385,7 @@ export default function Accounts() {
                   disabled={submitting || !bankDecision?.remarks.trim()}
                   onClick={() => bankDecision && void bankCashDecision(bankDecision.row, "reject", bankDecision.remarks.trim())}
                 >
+                  {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                   {submitting ? "Rejecting..." : "Reject"}
                 </Button>
               </DialogFooter>
@@ -3401,7 +3502,11 @@ export default function Accounts() {
                   onClick={() => void saveSettlement()}
                   disabled={submitting || !settlementAmount || !apSettlementAccountId}
                 >
-                  <Plus className="mr-2 h-4 w-4" />
+                  {submitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-4 w-4" />
+                  )}
                   {submitting ? "Recording..." : "Record Payment"}
                 </Button>
               </DialogFooter>
@@ -3634,7 +3739,11 @@ export default function Accounts() {
                   onClick={() => void receivePayment()}
                   disabled={submitting || !paymentAmount || !arPayment.settlementAccountId || !arPayment.fromAccountId || !arPayment.paymentDate}
                 >
-                  <CreditCard className="mr-2 h-4 w-4" />{" "}
+                  {submitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="mr-2 h-4 w-4" />
+                  )}{" "}
                   {submitting ? "Receiving..." : "Receive Payment"}
                 </Button>
               </DialogFooter>
@@ -3868,7 +3977,11 @@ export default function Accounts() {
                   onClick={() => void recordApPayment()}
                   disabled={submitting || !paymentApAmount || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId || !apPaymentForm.paymentDate}
                 >
-                  <CreditCard className="mr-2 h-4 w-4" />{" "}
+                  {submitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="mr-2 h-4 w-4" />
+                  )}{" "}
                   {submitting ? "Recording..." : "Record Payment"}
                 </Button>
               </DialogFooter>
@@ -3879,160 +3992,319 @@ export default function Accounts() {
           <Dialog
             open={Boolean(historyModal)}
             onOpenChange={(open) => {
-              if (!open) setHistoryModal(null);
+              if (!open) {
+                setHistoryModal(null);
+                setActiveHistoryIdx(0);
+                setCopiedRef(false);
+              }
             }}
           >
-            <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
-              <DialogHeader className="p-6 pb-4 border-b bg-muted/20">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                    <Receipt className="h-5 w-5" />
+            <DialogContent className="max-w-3xl sm:max-w-4xl max-h-[88vh] flex flex-col p-0 overflow-hidden rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-2xl bg-slate-50/90 dark:bg-slate-950 gap-0 backdrop-blur-md [&>button.absolute]:hidden">
+              {/* Top Accent Ribbon */}
+              <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 shrink-0" />
+
+              {/* Minimalist Top Bar (No X button) */}
+              <div className="px-5 sm:px-6 py-3 flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0 ring-1 ring-emerald-500/20">
+                    <Receipt className="h-4 w-4" />
                   </div>
                   <div>
-                    <DialogTitle className="text-lg font-semibold text-foreground">
-                      {historyModal?.title || "Payment History"}
-                    </DialogTitle>
-                    <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
-                      {historyModal?.reference && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted font-medium text-foreground">
-                          Ref: {historyModal.reference}
-                        </span>
-                      )}
-                      {historyModal?.contactName && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-muted font-medium text-foreground">
-                          Party: {historyModal.contactName}
-                        </span>
-                      )}
-                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                        {historyModal?.payments?.length || 0}{" "}
-                        {historyModal?.payments?.length === 1 ? "Record" : "Records"}
-                      </span>
-                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      {historyModal?.title || "Transaction Receipt"}
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground leading-none mt-0.5">
+                      {historyModal?.contactName || "Accounts Ledger Entry"}
+                    </p>
                   </div>
                 </div>
-              </DialogHeader>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {(!historyModal?.payments || historyModal.payments.length === 0) ? (
-                  <div className="text-center py-8 text-muted-foreground text-sm">
-                    No payment records found.
-                  </div>
-                ) : (
-                  historyModal.payments.map((payment: any, index: number) => {
-                    const pAmount =
-                      payment.amount ??
-                      payment.paidAmount ??
-                      payment.credit ??
-                      payment.debit ??
-                      0;
-                    const pDate =
-                      payment.paymentDate ||
-                      payment.entryDate ||
-                      payment.date ||
-                      payment.paidDate ||
-                      "—";
-                    const pMethod =
-                      payment.paymentMethod ||
-                      payment.paymentMode ||
-                      payment.mode ||
-                      "—";
-                    const fromAcc =
-                      payment.fromAccountName ||
-                      payment.fromAccount ||
-                      "—";
-                    const toAcc =
-                      payment.toAccountName ||
-                      payment.toAccount ||
-                      payment.accountName ||
-                      "—";
-                    const ref =
-                      payment.reference ||
-                      payment.receiptId ||
-                      payment.paymentId ||
-                      payment.metadata?.documentReference ||
-                      "—";
-
-                    return (
-                      <div
-                        key={payment.id || index}
-                        className="rounded-lg border bg-card text-card-foreground shadow-xs p-4 space-y-3 transition-colors hover:border-primary/40"
-                      >
-                        <div className="flex items-center justify-between border-b pb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-foreground">
-                              #{index + 1}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {pDate}
-                            </span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-secondary-foreground">
-                              {pMethod}
-                            </span>
-                          </div>
-                          <div className="text-base font-bold text-primary">
-                            {inr(pAmount)}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <span className="text-muted-foreground">From Account: </span>
-                            <span className="font-medium text-foreground">{fromAcc}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">To Account: </span>
-                            <span className="font-medium text-foreground">{toAcc}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Reference: </span>
-                            <span className="font-medium text-foreground">{ref}</span>
-                          </div>
-                          {payment.period && (
-                            <div>
-                              <span className="text-muted-foreground">Period: </span>
-                              <span className="font-medium text-foreground">{payment.period}</span>
-                            </div>
-                          )}
-                          {Number(payment.bankCharges || 0) > 0 && (
-                            <div>
-                              <span className="text-muted-foreground">Bank Charges: </span>
-                              <span className="font-medium text-destructive">{inr(payment.bankCharges)}</span>
-                            </div>
-                          )}
-                          {Number(payment.tdsAmount || 0) > 0 && (
-                            <div>
-                              <span className="text-muted-foreground">TDS: </span>
-                              <span className="font-medium text-foreground">{inr(payment.tdsAmount)}</span>
-                            </div>
-                          )}
-                          {Number(payment.transactionFees || 0) > 0 && (
-                            <div>
-                              <span className="text-muted-foreground">Transaction Fees: </span>
-                              <span className="font-medium text-foreground">{inr(payment.transactionFees)}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {payment.notes && (
-                          <div className="text-xs bg-muted/40 rounded p-2 text-muted-foreground italic">
-                            <span className="font-medium not-italic text-foreground">Notes: </span>
-                            {payment.notes}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
+                    onClick={() => {
+                      const text = `Transaction Reference: ${historyModal?.reference || ""}\nParty: ${historyModal?.contactName || ""}\nAmount: ${historyModal?.payments?.[activeHistoryIdx]?.amount || ""}`;
+                      navigator.clipboard.writeText(text);
+                      setCopiedRef(true);
+                      setTimeout(() => setCopiedRef(false), 1800);
+                    }}
+                  >
+                    {copiedRef ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-600" />
+                        <span className="text-emerald-600 font-semibold text-[11px]">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3 text-slate-500" />
+                        <span className="text-[11px]">Copy</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
 
-              <DialogFooter className="p-4 border-t bg-muted/10">
+              {/* Segmented Tab Switcher (If multiple payments exist) */}
+              {(historyModal?.payments?.length || 0) > 1 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto px-5 sm:px-6 py-2 border-b border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/40 shrink-0">
+                  <span className="text-[10px] font-semibold text-muted-foreground mr-1 uppercase tracking-wider">
+                    Records:
+                  </span>
+                  {historyModal?.payments.map((p: any, idx: number) => {
+                    const amt = p.amount ?? p.paidAmount ?? p.credit ?? p.debit ?? 0;
+                    const isActive = activeHistoryIdx === idx;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActiveHistoryIdx(idx)}
+                        className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                          isActive
+                            ? "bg-emerald-600 text-white shadow-xs font-bold ring-2 ring-emerald-500/20"
+                            : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        #{idx + 1} • {inr(amt)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Digital Voucher Body Area (Compact Landscape) */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col items-center justify-center">
+                {(!historyModal?.payments || historyModal.payments.length === 0) ? (
+                  <div className="text-center py-10 px-4 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 w-full max-w-md">
+                    <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-2">
+                      <Receipt className="h-5 w-5" />
+                    </div>
+                    <p className="font-semibold text-foreground text-xs">No transaction records</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">There are no recorded receipts for this entry.</p>
+                  </div>
+                ) : (() => {
+                  const payment = historyModal.payments[activeHistoryIdx] || historyModal.payments[0];
+                  const pAmount =
+                    payment.amount ??
+                    payment.paidAmount ??
+                    payment.credit ??
+                    payment.debit ??
+                    0;
+                  const pDate =
+                    payment.paymentDate ||
+                    payment.entryDate ||
+                    payment.date ||
+                    payment.paidDate ||
+                    "—";
+                  const pMethod =
+                    payment.paymentMethod ||
+                    payment.paymentMode ||
+                    payment.mode ||
+                    "—";
+                  const fromAcc =
+                    payment.fromAccountName ||
+                    payment.fromAccount ||
+                    "—";
+                  const toAcc =
+                    payment.toAccountName ||
+                    payment.toAccount ||
+                    payment.accountName ||
+                    "—";
+                  const ref =
+                    payment.reference ||
+                    payment.receiptId ||
+                    payment.paymentId ||
+                    payment.metadata?.documentReference ||
+                    historyModal.reference ||
+                    "—";
+
+                  const isCredit =
+                    String(payment.mode || "").toLowerCase().includes("credit") ||
+                    String(pMethod).toLowerCase().includes("credit") ||
+                    historyModal?.title?.toLowerCase().includes("receipt");
+
+                  return (
+                    <div className="w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-lg overflow-hidden relative">
+                      {/* Top Accent Line */}
+                      <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
+
+                      {/* Landscape 2-Column Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-12 relative">
+                        {/* Left Column: Hero Amount & Route (md:col-span-5) */}
+                        <div className="md:col-span-5 p-4 sm:p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20">
+                          <div>
+                            <div className="flex items-center gap-2.5">
+                              <div className="h-9 w-9 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center ring-4 ring-emerald-500/5 shadow-inner shrink-0">
+                                <CheckCircle2 className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
+                                  <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                                  Reconciled & Posted
+                                </span>
+                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                                  {pDate} • {payment.mode || (isCredit ? "Credit" : "Debit")}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Grand Settled Amount */}
+                            <div className="mt-4">
+                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                                Settled Amount
+                              </span>
+                              <div className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight mt-0.5">
+                                {inr(pAmount)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Transfer Route Visual Card */}
+                          <div className="mt-4 rounded-xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="min-w-0 flex-1">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">From</span>
+                                <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-xs mt-0.5" title={fromAcc}>
+                                  {fromAcc}
+                                </span>
+                              </div>
+                              <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 mx-1.5">
+                                <ArrowRight className="h-3 w-3" />
+                              </div>
+                              <div className="min-w-0 flex-1 text-right">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">To</span>
+                                <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-xs mt-0.5" title={toAcc}>
+                                  {toAcc}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Specification Matrix & Notes (md:col-span-7) */}
+                        <div className="md:col-span-7 p-4 sm:p-5 flex flex-col justify-between">
+                          <div className="space-y-2">
+                            <div className="rounded-xl border border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                              {historyModal.contactName && (
+                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                  <span className="text-slate-500 font-medium text-[11px]">Party / Beneficiary</span>
+                                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
+                                    {historyModal.contactName}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="p-2 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20">
+                                <span className="text-slate-500 font-medium text-[11px]">Reference Number</span>
+                                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
+                                  {ref}
+                                </span>
+                              </div>
+
+                              <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                <span className="text-slate-500 font-medium text-[11px]">Payment Mode</span>
+                                <span className="inline-flex items-center gap-1 font-bold text-slate-900 dark:text-slate-100">
+                                  <CreditCard className="h-3 w-3 text-slate-400" />
+                                  {pMethod}
+                                </span>
+                              </div>
+
+                              <div className="p-2 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20">
+                                <span className="text-slate-500 font-medium text-[11px]">Posting Date</span>
+                                <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                  {pDate}
+                                </span>
+                              </div>
+
+                              {payment.period && (
+                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                  <span className="text-slate-500 font-medium text-[11px]">Accounting Period</span>
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                    {payment.period}
+                                  </span>
+                                </div>
+                              )}
+
+                              {Number(payment.bankCharges || 0) > 0 && (
+                                <div className="p-2 flex items-center justify-between bg-rose-50/50 dark:bg-rose-950/20">
+                                  <span className="text-rose-600 font-medium text-[11px]">Bank Charges</span>
+                                  <span className="font-bold text-rose-600 dark:text-rose-400">
+                                    {inr(payment.bankCharges)}
+                                  </span>
+                                </div>
+                              )}
+
+                              {Number(payment.tdsAmount || 0) > 0 && (
+                                <div className="p-2 flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">
+                                  <span className="text-amber-600 font-medium text-[11px]">TDS Deducted</span>
+                                  <span className="font-bold text-amber-700 dark:text-amber-300">
+                                    {inr(payment.tdsAmount)}
+                                  </span>
+                                </div>
+                              )}
+
+                              {Number(payment.transactionFees || 0) > 0 && (
+                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                  <span className="text-slate-500 font-medium text-[11px]">Transaction Fees</span>
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                    {inr(payment.transactionFees)}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Remarks / Memo Box */}
+                            {payment.notes && (
+                              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/40 p-2 border border-slate-100 dark:border-slate-800 text-xs flex items-start gap-2 text-slate-600 dark:text-slate-300">
+                                <MessageSquare className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="font-bold text-slate-700 dark:text-slate-200 text-[11px]">Notes: </span>
+                                  <span className="italic text-[11px]">{payment.notes}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Security Ledger Stamp */}
+                          <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                            <span className="inline-flex items-center gap-1">
+                              <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                              Vidhai ERP Authenticated Voucher
+                            </span>
+                            <span>Entry #{activeHistoryIdx + 1}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Minimalist Bottom Bar with GREEN Close Button */}
+              <div className="px-5 sm:px-6 py-3 border-t border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 flex items-center justify-between shrink-0">
+                <div className="text-xs text-muted-foreground font-semibold">
+                  {historyModal?.payments?.length || 0} Total Entry ({inr(
+                    (historyModal?.payments || []).reduce(
+                      (sum: number, p: any) =>
+                        sum + Number(p.amount ?? p.paidAmount ?? p.credit ?? p.debit ?? 0),
+                      0
+                    )
+                  )})
+                </div>
                 <Button
-                  variant="outline"
-                  onClick={() => setHistoryModal(null)}
+                  type="button"
+                  variant="default"
+                  className="rounded-xl px-7 font-bold shadow-md bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 transition-all cursor-pointer"
+                  onClick={() => {
+                    setHistoryModal(null);
+                    setActiveHistoryIdx(0);
+                  }}
                 >
                   Close
                 </Button>
-              </DialogFooter>
+              </div>
             </DialogContent>
           </Dialog>
         )}
@@ -4076,7 +4348,11 @@ export default function Accounts() {
                   onClick={() => void handleConfirmDelete()}
                   disabled={submitting}
                 >
-                  <Trash2 className="mr-2 h-4 w-4 text-white" />
+                  {submitting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin text-white" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4 text-white" />
+                  )}
                   {submitting ? "Deleting..." : "Delete"}
                 </Button>
               </DialogFooter>
