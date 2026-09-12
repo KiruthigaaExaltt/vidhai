@@ -48,10 +48,11 @@ const PaginationLink = ({
   <a
     aria-current={isActive ? "page" : undefined}
     className={cn(
-      buttonVariants({
-        variant: isActive ? "outline" : "ghost",
-        size,
-      }),
+      "inline-flex items-center justify-center rounded-lg text-xs font-semibold transition-all shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:pointer-events-none disabled:opacity-40",
+      size === "icon" ? "h-8.5 w-8.5" : "h-8.5 px-3 py-2",
+      isActive
+        ? "bg-primary text-primary-foreground border border-primary shadow-sm hover:bg-primary/90 font-bold"
+        : "border border-border/90 bg-card text-foreground hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:scale-95",
       className
     )}
     {...props}
@@ -67,7 +68,7 @@ const PaginationPrevious = ({
     aria-label="Go to previous page"
     size="icon"
     title="Previous page"
-    className={cn("h-9 w-9", className)}
+    className={cn("h-8.5 w-8.5 border border-border/90 bg-card text-foreground shadow-2xs hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:scale-95", className)}
     {...props}
   >
     <ChevronLeft className="h-4 w-4" />
@@ -84,7 +85,7 @@ const PaginationNext = ({
     aria-label="Go to next page"
     size="icon"
     title="Next page"
-    className={cn("h-9 w-9", className)}
+    className={cn("h-8.5 w-8.5 border border-border/90 bg-card text-foreground shadow-2xs hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:scale-95", className)}
     {...props}
   >
     <span className="sr-only">Next page</span>
@@ -99,7 +100,7 @@ const PaginationEllipsis = ({
 }: React.ComponentProps<"span">) => (
   <span
     aria-hidden
-    className={cn("flex h-9 w-9 items-center justify-center", className)}
+    className={cn("flex h-8.5 w-8.5 items-center justify-center text-muted-foreground", className)}
     {...props}
   >
     <MoreHorizontal className="h-4 w-4" />

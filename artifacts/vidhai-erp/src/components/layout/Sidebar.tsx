@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useLogout } from "@workspace/api-client-react";
@@ -29,10 +29,18 @@ import {
   Landmark,
   History,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import vidhaiLogo from "@assets/vidhai-leaf.png";
 import { usePwa } from "@/pwa/PwaProvider";
+import { useSidebar } from "./SidebarContext";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const ACCOUNT_VIEW_PERMISSIONS = [
   "accounts.finance_dashboard.view",
@@ -61,36 +69,51 @@ const PROCUREMENT_VIEW_PERMISSIONS = [
   "flex.purchase_returns.view",
 ];
 
-const VidhaiLogo = () => (
-  <div className="flex items-center gap-3 px-4 py-4 mb-4">
-    <img
-      src={vidhaiLogo}
-      alt="Vidhai logo"
-      className="w-10 h-10 object-contain"
-    />
-    <div className="flex flex-col">
-      <span className="font-serif font-bold text-lg leading-none tracking-wider text-sidebar-primary">
-        Vidhaii
-      </span>
-      <span className="text-[10px] tracking-widest text-sidebar-foreground/50">
-        ERP SYSTEM
-      </span>
-    </div>
-  </div>
-);
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= 1024;
+  });
+
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => {
+      setIsDesktop(mql.matches);
+    };
+    mql.addEventListener("change", onChange);
+    setIsDesktop(mql.matches);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
+  return isDesktop;
+}
 
 let savedSidebarScrollTop = 0;
 
 export function Sidebar({
-  mobileOpen = false,
-  onMobileClose,
+  mobileOpen: propMobileOpen,
+  onMobileClose: propOnMobileClose,
 }: {
   mobileOpen?: boolean;
   onMobileClose?: () => void;
-}) {
+} = {}) {
   const [location] = useLocation();
   const asideRef = useRef<HTMLElement>(null);
   const navDivRef = useRef<HTMLDivElement>(null);
+  const sidebarContext = useSidebar();
+  const isDesktop = useIsDesktop();
+
+  // On mobile (< 1024px), the drawer is ALWAYS the original full expanded view
+  const isCollapsed = isDesktop && sidebarContext.isCollapsed;
+  const toggleCollapsed = sidebarContext.toggleCollapsed;
+  const mobileOpen = propMobileOpen !== undefined ? propMobileOpen : sidebarContext.mobileOpen;
+  const handleMobileClose = () => {
+    if (propOnMobileClose) {
+      propOnMobileClose();
+    } else {
+      sidebarContext.setMobileOpen(false);
+    }
+  };
 
   const saveCurrentScroll = () => {
     const top =
@@ -220,11 +243,53 @@ export function Sidebar({
       : location === href || location.startsWith(href + "/");
 
     if (disabled) {
+      if (isCollapsed) {
+        return (
+          <div className="flex items-center justify-center h-10 w-10 mx-auto my-0.5 rounded-lg text-sidebar-foreground/25 cursor-not-allowed">
+            <Icon className="w-5 h-5 shrink-0" />
+          </div>
+        );
+      }
       return (
-        <div className="flex items-center gap-3 px-4 py-2 text-sm text-sidebar-foreground/30 cursor-not-allowed">
-          <Icon className="w-4 h-4" />
-          <span>{label}</span>
+        <div className="flex items-center gap-3 px-4 py-2.5 text-sm text-sidebar-foreground/30 cursor-not-allowed">
+          <Icon className="w-4 h-4 shrink-0" />
+          <span className="truncate">{label}</span>
         </div>
+      );
+    }
+
+    if (isCollapsed) {
+      return (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href={href}
+              onClick={() => {
+                saveCurrentScroll();
+                handleMobileClose();
+              }}
+              aria-label={label}
+              className={`flex items-center justify-center h-10 w-10 mx-auto my-0.5 rounded-lg transition-all ${
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-primary font-semibold shadow-2xs ring-1 ring-sidebar-primary/40"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+              }`}
+            >
+              <Icon
+                className={`w-5 h-5 shrink-0 transition-colors ${
+                  isActive ? "text-sidebar-primary" : ""
+                }`}
+              />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent
+            side="right"
+            sideOffset={14}
+            className="z-50 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-3 py-1.5 text-xs font-semibold rounded-md shadow-lg border border-slate-700/50 pointer-events-none"
+          >
+            {label}
+          </TooltipContent>
+        </Tooltip>
       );
     }
 
@@ -233,24 +298,34 @@ export function Sidebar({
         href={href}
         onClick={() => {
           saveCurrentScroll();
-          onMobileClose?.();
+          handleMobileClose();
         }}
-        className={`flex items-center gap-3 px-4 py-2 text-sm transition-colors ${isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary"
+        className={`flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+          isActive
+            ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary font-medium"
             : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground border-l-2 border-transparent"
-          }`}
+        }`}
       >
-        <Icon className="w-4 h-4" />
-        <span>{label}</span>
+        <Icon
+          className={`w-4 h-4 shrink-0 transition-colors ${
+            isActive ? "text-sidebar-primary" : ""
+          }`}
+        />
+        <span className="truncate">{label}</span>
       </Link>
     );
   };
 
-  const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-    <div className="px-4 py-2 mt-4 text-xs font-semibold tracking-wider text-sidebar-foreground/40 uppercase">
-      {children}
-    </div>
-  );
+  const SectionTitle = ({ children }: { children: React.ReactNode }) => {
+    if (isCollapsed) {
+      return <div className="my-1.5 border-t border-sidebar-border/50 mx-3.5" />;
+    }
+    return (
+      <div className="px-4 py-2 mt-4 text-xs font-semibold tracking-wider text-sidebar-foreground/40 uppercase truncate">
+        {children}
+      </div>
+    );
+  };
 
   const isProfileActive = location === "/profile";
 
@@ -260,29 +335,85 @@ export function Sidebar({
         <button
           type="button"
           aria-label="Close navigation"
-          className="fixed inset-0 z-40 bg-black/45 lg:hidden"
-          onClick={onMobileClose}
+          className="fixed inset-0 z-40 bg-black/45 backdrop-blur-xs lg:hidden"
+          onClick={handleMobileClose}
         />
       )}
       <aside
         ref={asideRef}
         onScroll={handleScroll}
-        className={`fixed left-0 top-0 z-50 flex h-[100svh] w-64 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar transition-transform duration-200 lg:z-30 lg:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}
+        className={`fixed left-0 top-0 z-50 flex h-[100svh] flex-col overflow-x-hidden border-r border-sidebar-border bg-sidebar accounts-scroll transition-all duration-300 ease-in-out lg:z-30 lg:translate-x-0 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } ${isCollapsed ? "w-64 lg:w-[76px]" : "w-64 lg:w-[260px]"}`}
       >
-        <button
-          type="button"
-          aria-label="Close navigation"
-          onClick={onMobileClose}
-          className="absolute right-3 top-3 inline-flex h-10 w-10 items-center justify-center rounded-md hover:bg-sidebar-accent lg:hidden"
+        {/* Sidebar Header: Logo & Branding + Collapse/Expand Toggle / Mobile Close Button */}
+        <div
+          className={`flex h-16 lg:h-[72px] shrink-0 items-center border-b border-sidebar-border transition-all duration-300 ${
+            isCollapsed ? "justify-center px-2" : "justify-between px-4"
+          }`}
         >
-          <X className="h-5 w-5" />
-        </button>
-        <VidhaiLogo />
+          {isCollapsed ? (
+            <div className="flex flex-col items-center justify-center gap-1.5 py-1">
+              <img
+                src={vidhaiLogo}
+                alt="Vidhai logo"
+                className="w-8 h-8 shrink-0 object-contain"
+              />
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="hidden lg:inline-flex h-6 w-8 items-center justify-center rounded-md border border-sidebar-border/80 bg-sidebar text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-primary hover:border-primary/40 transition-all shadow-2xs active:scale-95"
+                aria-label="Expand sidebar (Ctrl+B)"
+                title="Expand sidebar (Ctrl+B)"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+                <img
+                  src={vidhaiLogo}
+                  alt="Vidhai logo"
+                  className="w-9 h-9 shrink-0 object-contain"
+                />
+                <div className="flex flex-col min-w-0">
+                  <span className="font-serif font-bold text-lg leading-none tracking-wider text-sidebar-primary truncate">
+                    Vidhai
+                  </span>
+                  <span className="text-[10px] tracking-widest text-sidebar-foreground/50 truncate">
+                    ERP SYSTEM
+                  </span>
+                </div>
+              </div>
+              {/* Desktop collapse toggle */}
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="hidden lg:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-sidebar-border/80 bg-sidebar text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-primary hover:border-primary/40 transition-all shadow-2xs active:scale-95"
+                aria-label="Collapse sidebar (Ctrl+B)"
+                title="Collapse sidebar (Ctrl+B)"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {/* Mobile close button */}
+              <button
+                type="button"
+                aria-label="Close navigation"
+                onClick={handleMobileClose}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md hover:bg-sidebar-accent text-sidebar-foreground lg:hidden"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </>
+          )}
+        </div>
 
+        {/* Scrollable Navigation Menu */}
         <div
           ref={navDivRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto pb-4"
+          className="flex-1 overflow-y-auto overflow-x-hidden pb-4 accounts-scroll"
         >
           {/* ── Top-level items ── */}
           <NavItem
@@ -361,13 +492,13 @@ export function Sidebar({
             label="Casing Soil Batches"
             permission="production.casing_soil.view"
           />
-
           <NavItem
             href="/coimbatore/chambers"
             icon={Thermometer}
             label="Casing Soil Chambers"
             permission="production.chambers.view"
           />
+
           {/* ── Location D — Lab ── */}
           {can("production.spawn_batches.view") && (
             <SectionTitle>LAB · LOCATION D</SectionTitle>
@@ -378,6 +509,7 @@ export function Sidebar({
             label="Spawn Batches"
             permission="production.spawn_batches.view"
           />
+
           {/* ── Cross-site operations ── */}
           {hasOperationsAccess && <SectionTitle>OPERATIONS</SectionTitle>}
           {(can("crew.employees.view") ||
@@ -387,8 +519,8 @@ export function Sidebar({
             can("crew.overtime.view") ||
             can("crew.bonus.view") ||
             can("crew.deductions.view")) && (
-              <NavItem href="/crew" icon={Users} label="Crew" />
-            )}
+            <NavItem href="/crew" icon={Users} label="Crew" />
+          )}
           {can("crewpay.salary_slip.view") && (
             <NavItem href="/crewpay" icon={Banknote} label="CrewPay" />
           )}
@@ -449,18 +581,19 @@ export function Sidebar({
           )}
         </div>
 
-        {/* ── User card — click to open profile ── */}
+        {/* ── User card — click to open profile (Optional footer) ── */}
         <div className="hidden">
           <Link
             href="/profile"
             onClick={() => {
               saveCurrentScroll();
-              onMobileClose?.();
+              handleMobileClose();
             }}
-            className={`flex items-center gap-3 px-4 py-3 w-full transition-colors ${isProfileActive
+            className={`flex items-center gap-3 px-4 py-3 w-full transition-colors ${
+              isProfileActive
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "hover:bg-sidebar-accent/50"
-              }`}
+            }`}
           >
             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0">
               <UserCircle className="w-5 h-5 text-primary" />
@@ -521,3 +654,4 @@ export function Sidebar({
     </>
   );
 }
+

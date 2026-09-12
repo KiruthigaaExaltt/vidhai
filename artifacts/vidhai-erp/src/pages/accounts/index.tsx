@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Landmark,
   BookOpen,
   Calendar,
   ChevronDown,
@@ -135,7 +136,7 @@ const inr = (v: any) =>
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(numberValue(v));
-type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal";
+type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal" | "coa";
 const paymentMethods = ["Bank Transfer", "UPI", "Cheque", "Cash"];
 const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", creditContactId: "", debitContactId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
 
@@ -152,20 +153,39 @@ const AccountsTableContext = createContext<AccountsTableContextValue | null>(nul
 
 const tableScrollPositions = new Map<string, { left: number; top: number }>();
 
+const isNotesColumn = (header: string, key: string) => {
+  const h = String(header || "").toLowerCase();
+  const k = String(key || "").toLowerCase();
+  return (
+    h.includes("note") ||
+    h.includes("remark") ||
+    h.includes("description") ||
+    h.includes("memo") ||
+    k.includes("note") ||
+    k.includes("remark") ||
+    k.includes("description") ||
+    k.includes("memo") ||
+    k.includes("rejectionremarks")
+  );
+};
+
 const Table = ({
   rows,
   cols,
   showFooter = true,
   serverKey,
   tableId,
+  loading: tableLoading,
 }: {
   rows: any[];
   cols: [string, string, ((v: any, row: any) => React.ReactNode)?][];
   showFooter?: boolean;
   serverKey?: "j" | "ap" | "ar";
   tableId?: string;
+  loading?: boolean;
 }) => {
   const context = useContext(AccountsTableContext);
+  const isLoading = tableLoading !== undefined ? tableLoading : Boolean(context?.loading);
   const clientPagination = useClientPagination(serverKey ? [] : rows);
   const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -212,37 +232,75 @@ const Table = ({
   }, [displayedRows, tableKey]);
 
   return (
-    <div className="overflow-hidden rounded-md border bg-white">
+    <div className="overflow-hidden rounded-md border bg-white shadow-xs">
       <div
         ref={containerRef}
         onScroll={handleScroll}
         data-table-scroll={tableKey}
-        className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto"
+        className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto accounts-scroll"
       >
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-sm">
+        <table className="w-full text-sm text-left border-collapse min-w-full">
+          <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-xs border-b">
             <tr>
-              {cols.map((c) => (
-                <th
-                  key={c[0]}
-                  className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2.5 text-left font-medium max-w-[220px] break-words align-top border-b"
-                >
-                  {c[0]}
-                </th>
-              ))}
+              {cols.map((c) => {
+                const isNotes = isNotesColumn(c[0], c[1]);
+                return (
+                  <th
+                    key={c[0]}
+                    className={`sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-3 text-left font-semibold text-xs tracking-wider uppercase text-slate-700 dark:text-slate-200 border-b whitespace-nowrap ${isNotes ? "min-w-[320px]" : "min-w-fit"
+                      }`}
+                  >
+                    {c[0]}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {displayedRows.map((r, i) => (
-              <tr key={r.id ?? i} className="border-t">
-                {cols.map((c) => (
-                  <td key={c[1]} className="px-3 py-2 max-w-[240px] break-words align-top">
-                    {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
-                  </td>
-                ))}
+            {isLoading ? (
+              <tr className="border-t">
+                <td
+                  colSpan={cols.length}
+                  className="px-4 py-16 text-center text-muted-foreground"
+                >
+                  <div className="flex flex-col items-center justify-center gap-3 py-6">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-primary ring-1 ring-emerald-200 dark:ring-emerald-800/60 shadow-xs">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        Loading data...
+                      </p>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                        Please wait while records are being fetched
+                      </p>
+                    </div>
+                  </div>
+                </td>
               </tr>
-            ))}
-            {!displayedRows.length && (
+            ) : displayedRows.length > 0 ? (
+              displayedRows.map((r, i) => (
+                <tr
+                  key={r.id ?? i}
+                  className="border-t hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors"
+                >
+                  {cols.map((c) => {
+                    const isNotes = isNotesColumn(c[0], c[1]);
+                    return (
+                      <td
+                        key={c[1]}
+                        className={`px-4 py-3 align-middle text-sm ${isNotes
+                          ? "min-w-[320px] max-w-[480px] whitespace-normal break-words text-slate-600 dark:text-slate-300"
+                          : "whitespace-nowrap text-slate-800 dark:text-slate-100"
+                          }`}
+                      >
+                        {c[2] ? c[2](r[c[1]], r) : String(r[c[1]] ?? "—")}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
+            ) : (
               <tr className="border-t">
                 <td
                   colSpan={cols.length}
@@ -274,17 +332,17 @@ const Table = ({
           onPageChange={(page) =>
             serverKey
               ? context.setListPaging((current) => ({
-                  ...current,
-                  [serverKey]: { ...current[serverKey], page },
-                }))
+                ...current,
+                [serverKey]: { ...current[serverKey], page },
+              }))
               : clientPagination.setCurrentPage(page)
           }
           onPageSizeChange={(size) =>
             serverKey
               ? context.setListPaging((current) => ({
-                  ...current,
-                  [serverKey]: { page: 1, size },
-                }))
+                ...current,
+                [serverKey]: { page: 1, size },
+              }))
               : clientPagination.setPageSize(size)
           }
           loading={context.loading}
@@ -1284,6 +1342,16 @@ export default function Accounts() {
       keys: ["entryDate", "reference", "description", "debitAccount", "creditAccount", "amount", "memo", "notes"],
       dropdowns: { 3: "accounts", 4: "accounts" },
     },
+    coa: {
+      title: "Chart of Accounts",
+      file: "chart-of-accounts",
+      endpoint: "/coa/import",
+      exportEndpoint: "/coa/export",
+      exportQuery: "",
+      headers: ["Account Code *", "Account Name *", "Account Type *", "Opening Balance *", "Description"],
+      keys: ["accountCode", "accountName", "accountType", "openingBalance", "description"],
+      dropdowns: { 2: ["Asset", "Liability", "Equity", "Revenue", "Expense"] },
+    },
   } as const;
   const localImportOptions = () => ({
     accounts: coa
@@ -1297,6 +1365,11 @@ export default function Accounts() {
       .filter((item: any) => item.label),
   });
   const loadImportOptions = async (kind: AccountImportKind) => {
+    if (kind === "coa") {
+      const options = localImportOptions();
+      setAccountImportOptions(options);
+      return options;
+    }
     const payload = await api(kind === "bankCash" ? "/bank-cash-transactions/options" : `/import-options?context=${kind.startsWith("ap") ? "ap" : kind.startsWith("ar") ? "ar" : "journal"}`);
     const options = kind === "bankCash" ? {
       accounts: payload.accounts.map((account: any) => ({ id: account.id, label: `${account.accountCode} - ${account.accountName}` })),
@@ -1401,7 +1474,7 @@ export default function Accounts() {
       { name: "xl/_rels/workbook.xml.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
       { name: "xl/workbook.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlText(config.title.slice(0, 31))}" sheetId="1" r:id="rId1"/><sheet name="Dropdown Values" sheetId="2" r:id="rId2"/></sheets></workbook>` },
       { name: "xl/styles.xml", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="1" borderId="0" xfId="0" applyFill="1"/></cellXfs></styleSheet>` },
-      { name: "xl/worksheets/sheet1.xml", content: worksheetXml(config.headers, validations) },
+      { name: "xl/worksheets/sheet1.xml", content: worksheetXml(config.headers, validations, []) },
       { name: "xl/worksheets/sheet2.xml", content: worksheetXml(Object.keys(config.dropdowns).map((column) => `${config.headers[Number(column)].replace(" *", "")} Options`), [], dropdownRows) },
     ];
     downloadXlsxBlob(zipStore(files), `${config.file}-template.xlsx`);
@@ -1505,6 +1578,44 @@ export default function Accounts() {
       }
       return;
     }
+    if (accountImport === "coa") {
+      try {
+        const bodyRows = data.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
+        if (!bodyRows.length) {
+          setError("The Excel worksheet contains no import rows");
+          setAccountImportRows([]);
+          return;
+        }
+        if (bodyRows.length > 5000) {
+          setError("Maximum 5000 rows can be imported at once");
+          setAccountImportRows([]);
+          return;
+        }
+        const validTypes = ["Asset", "Liability", "Equity", "Revenue", "Expense"];
+        const rows = bodyRows.map((row, index) => {
+          const rawCode = String(row[0] ?? "").trim();
+          const rawName = String(row[1] ?? "").trim();
+          const rawType = String(row[2] ?? "").trim();
+          const matchedType = validTypes.find((t) => t.toLowerCase() === rawType.toLowerCase()) || rawType;
+          const rawOpening = Number(String(row[3] ?? "0").replace(/[^0-9.-]/g, "")) || 0;
+          const rawDesc = String(row[4] ?? "").trim();
+
+          return {
+            rowNumber: index + 2,
+            accountCode: rawCode,
+            accountName: rawName,
+            accountType: matchedType,
+            openingBalance: rawOpening,
+            description: rawDesc,
+          };
+        });
+        setAccountImportRows(rows);
+      } catch (error: any) {
+        setError(error.message);
+        setAccountImportRows([]);
+      }
+      return;
+    }
     const bodyRows = data.slice(1).filter((row) => row.some((cell) => String(cell || "").trim()));
     if (!bodyRows.length) {
       setError("The Excel worksheet contains no import rows");
@@ -1546,6 +1657,33 @@ export default function Accounts() {
     setActionLoadingId(`export-${kind}`);
     setError("");
     try {
+      if (kind === "coa") {
+        const XLSX = await import("xlsx");
+        const workbook = XLSX.utils.book_new();
+        const exportRows = (coa || []).map((a: any) => ({
+          "Account Code": String(a.accountCode || ""),
+          "Account Name": String(a.accountName || ""),
+          "Account Type": String(a.accountType || ""),
+          "Opening Balance": numberValue(a.openingBalance || 0),
+          "Current Balance": numberValue(a.currentBalance || 0),
+          "Description": String(a.description || ""),
+          "Status": a.isActive !== false ? "Active" : "Inactive",
+        }));
+        const worksheet = XLSX.utils.json_to_sheet(exportRows);
+        worksheet["!cols"] = [
+          { wch: 16 },
+          { wch: 30 },
+          { wch: 18 },
+          { wch: 18 },
+          { wch: 18 },
+          { wch: 35 },
+          { wch: 12 },
+        ];
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Chart of Accounts");
+        XLSX.writeFile(workbook, `chart-of-accounts-${today}.xlsx`);
+        toast({ title: "Chart of Accounts exported", description: `${exportRows.length} account(s) exported to Excel.` });
+        return;
+      }
       const params = new URLSearchParams(config.exportQuery || "");
       if (kind === "apBill" || kind === "apDebitNote") {
         if (apStatusFilter !== "All") params.set("status", apStatusFilter);
@@ -1764,1073 +1902,1288 @@ export default function Accounts() {
   return (
     <AccountsTableContext.Provider value={{ listPaging, listMeta, setListPaging, loading }}>
       <Shell>
-      <div className="min-h-full space-y-5 p-4 sm:p-6">
-        <div className="sticky top-16 lg:top-[72px] z-30 -mx-4 -mt-4 mb-2 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-xs flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-all">
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-2xl font-bold flex items-center gap-2.5 text-slate-900 dark:text-slate-100">
-              <BookOpen className="h-6 w-6 text-primary shrink-0" />
-              <span>Accounts</span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-0 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            {can("accounts.finance_dashboard.view") && (
+        <div className="min-h-full space-y-5 p-4 sm:p-6">
+          <div className="sticky top-16 lg:top-[72px] z-30 -mx-4 -mt-4 mb-2 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 bg-background/95 backdrop-blur-md border-b border-border/70 shadow-xs flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-all">
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-2xl font-bold flex items-center gap-2.5 text-slate-900 dark:text-slate-100">
+                <Landmark className="h-6 w-6 text-primary shrink-0" />
+                <span>Accounts</span>
+              </h1>
+            </div>
+            <div className="flex items-center gap-0 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+              {can("accounts.finance_dashboard.view") && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-8 border-0 bg-transparent shadow-none px-3 text-[12px] font-normal text-primary hover:bg-primary/5 hover:text-primary cursor-pointer whitespace-nowrap inline-flex items-center gap-2 transition-colors"
+                  style={{ border: "unset", fontWeight: 400, fontSize: "12px", background: "unset" }}
+                  onClick={() => void reconcile()}
+                  disabled={loading}
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 shrink-0 text-primary ${loading ? "animate-spin" : ""}`}
+                  />
+                  <span>Refresh</span>
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="ghost"
                 className="h-8 border-0 bg-transparent shadow-none px-3 text-[12px] font-normal text-primary hover:bg-primary/5 hover:text-primary cursor-pointer whitespace-nowrap inline-flex items-center gap-2 transition-colors"
                 style={{ border: "unset", fontWeight: 400, fontSize: "12px", background: "unset" }}
-                onClick={() => void reconcile()}
-                disabled={loading}
+                onClick={() => void handleLockLedger()}
+                disabled={lockingLedger}
               >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 shrink-0 text-primary ${loading ? "animate-spin" : ""}`}
-                />
-                <span>Reconcile</span>
+                {lockingLedger ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 text-primary animate-spin" />
+                ) : (
+                  <LogOut className="h-3.5 w-3.5 shrink-0 text-primary" />
+                )}
+                <span>{lockingLedger ? "Locking..." : "Lock Ledger"}</span>
               </Button>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 border-0 bg-transparent shadow-none px-3 text-[12px] font-normal text-primary hover:bg-primary/5 hover:text-primary cursor-pointer whitespace-nowrap inline-flex items-center gap-2 transition-colors"
-              style={{ border: "unset", fontWeight: 400, fontSize: "12px", background: "unset" }}
-              onClick={() => void handleLockLedger()}
-              disabled={lockingLedger}
-            >
-              {lockingLedger ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 text-primary animate-spin" />
-              ) : (
-                <LogOut className="h-3.5 w-3.5 shrink-0 text-primary" />
-              )}
-              <span>{lockingLedger ? "Locking..." : "Lock Ledger"}</span>
-            </Button>
-          </div>
-        </div>
-        {error && (
-          <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm">
-            {error}
-          </div>
-        )}
-        <div className="space-y-1">
-          <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            {activePageTitle[0]}
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {activePageTitle[1]}
-          </p>
-        </div>
-
-        {/* Dedicated Filter & Search Bar */}
-        <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-card p-3 shadow-xs">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            {/* Date Filters */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 px-2.5 py-1 text-xs transition-colors focus-within:border-primary focus-within:bg-background">
-                <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap select-none">
-                  From:
-                </span>
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setListingFromDate(e.target.value)}
-                  className="h-7 border-0 bg-transparent p-0 text-xs font-medium text-foreground outline-none focus:ring-0 cursor-pointer"
-                />
-              </div>
-              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 px-2.5 py-1 text-xs transition-colors focus-within:border-primary focus-within:bg-background">
-                <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
-                <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap select-none">
-                  To:
-                </span>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setListingToDate(e.target.value)}
-                  className="h-7 border-0 bg-transparent p-0 text-xs font-medium text-foreground outline-none focus:ring-0 cursor-pointer"
-                />
-              </div>
-              {(fromDate || toDate) && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1 rounded-lg cursor-pointer transition-colors"
-                  onClick={clearListingDates}
-                >
-                  <X className="h-3.5 w-3.5" />
-                  Clear Dates
-                </Button>
-              )}
             </div>
+          </div>
+          {error && (
+            <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              {error}
+            </div>
+          )}
+          <div className="space-y-1">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              {activePageTitle[0]}
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {activePageTitle[1]}
+            </p>
+          </div>
 
-            {/* Search Box with Icon */}
-            <div className="relative w-full lg:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-              <Input
-                type="text"
-                placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setListPaging((current) => ({
-                    j: { ...current.j, page: 1 },
-                    ap: { ...current.ap, page: 1 },
-                    ar: { ...current.ar, page: 1 },
-                  }));
-                }}
-                className="h-9 pl-9 pr-8 text-xs bg-slate-50/60 dark:bg-slate-900/60 rounded-lg border-slate-200 dark:border-slate-700 focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary focus-visible:bg-background transition-all"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch("");
+          {/* Dedicated Filter & Search Bar */}
+          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-card p-3 shadow-xs">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              {/* Date Filters */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 px-2.5 py-1 text-xs transition-colors focus-within:border-primary focus-within:bg-background">
+                  <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap select-none">
+                    From:
+                  </span>
+                  <input
+                    type="date"
+                    value={fromDate}
+                    onChange={(e) => setListingFromDate(e.target.value)}
+                    className="h-7 border-0 bg-transparent p-0 text-xs font-medium text-foreground outline-none focus:ring-0 cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/60 px-2.5 py-1 text-xs transition-colors focus-within:border-primary focus-within:bg-background">
+                  <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap select-none">
+                    To:
+                  </span>
+                  <input
+                    type="date"
+                    value={toDate}
+                    onChange={(e) => setListingToDate(e.target.value)}
+                    className="h-7 border-0 bg-transparent p-0 text-xs font-medium text-foreground outline-none focus:ring-0 cursor-pointer"
+                  />
+                </div>
+                {(fromDate || toDate) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1 rounded-lg cursor-pointer transition-colors"
+                    onClick={clearListingDates}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Clear Dates
+                  </Button>
+                )}
+              </div>
+
+              {/* Search Box with Icon */}
+              <div className="relative w-full lg:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                <Input
+                  type="text"
+                  placeholder={`Search ${activePageTitle[0].toLowerCase()}...`}
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
                     setListPaging((current) => ({
                       j: { ...current.j, page: 1 },
                       ap: { ...current.ap, page: 1 },
                       ar: { ...current.ar, page: 1 },
                     }));
                   }}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer p-0.5 rounded-full hover:bg-muted"
-                  aria-label="Clear search"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
+                  className="h-9 pl-9 pr-8 text-xs bg-slate-50/60 dark:bg-slate-900/60 rounded-lg border-slate-200 dark:border-slate-700 focus-visible:ring-1 focus-visible:ring-primary focus-visible:border-primary focus-visible:bg-background transition-all"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setListPaging((current) => ({
+                        j: { ...current.j, page: 1 },
+                        ap: { ...current.ap, page: 1 },
+                        ar: { ...current.ar, page: 1 },
+                      }));
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer p-0.5 rounded-full hover:bg-muted"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs p-3 space-y-2">
-            {visibleAccountGroups.map((section, idx) => (
-              <div
-                key={section.group}
-                className={`flex items-center gap-3 ${
-                  idx > 0 ? "pt-2 border-t border-slate-100 dark:border-slate-800/60" : ""
-                }`}
-              >
-                <div className="w-28 shrink-0 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  {section.group}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs p-3 space-y-2">
+              {visibleAccountGroups.map((section, idx) => (
+                <div
+                  key={section.group}
+                  className={`flex items-center gap-3 ${idx > 0 ? "pt-2 border-t border-slate-100 dark:border-slate-800/60" : ""
+                    }`}
+                >
+                  <div className="w-28 shrink-0 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                    {section.group}
+                  </div>
+                  <TabsList className="flex h-auto flex-1 flex-wrap items-center justify-start !justify-start gap-1.5 bg-transparent p-0 [&>*]:shrink-0">
+                    {section.tabs.map(([value, label, , TabIcon]) => (
+                      <TabsTrigger
+                        key={value}
+                        value={value}
+                        className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 data-[state=active]:bg-[#21C7B3] data-[state=active]:text-white data-[state=active]:font-semibold data-[state=active]:shadow-xs transition-all duration-150 cursor-pointer focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus:ring-0 select-none"
+                      >
+                        <TabIcon className="h-3.5 w-3.5 opacity-75" />
+                        <span>{label}</span>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
                 </div>
-                <TabsList className="flex h-auto flex-1 flex-wrap items-center justify-start !justify-start gap-1.5 bg-transparent p-0 [&>*]:shrink-0">
-                  {section.tabs.map(([value, label, , TabIcon]) => (
-                    <TabsTrigger
-                      key={value}
-                      value={value}
-                      className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 data-[state=active]:bg-[#21C7B3] data-[state=active]:text-white data-[state=active]:font-semibold data-[state=active]:shadow-xs transition-all duration-150 cursor-pointer"
-                    >
-                      <TabIcon className="h-3.5 w-3.5 opacity-75" />
-                      <span>{label}</span>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
-            ))}
-          </div>          <TabsContent value="dashboard">
-            <FinanceDashboard
-              request={api}
-              summary={summary}
-              receivables={ar}
-              payables={ap}
-              can={can}
-            />
-          </TabsContent>
-          <TabsContent value="customers" className="space-y-3">
-            {f(customers).map((customer) => {
-              const key = String(customer.clientId || customer.clientName);
-              const open = Boolean(expandedCustomers[key]);
-              return (
-                <Card key={key} className="overflow-hidden rounded-md">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
-                    onClick={() => toggleCustomer(key)}
-                    title={open ? "Close detail view" : "Open detail view"}
-                  >
-                    <div className="flex items-center gap-2.5 font-medium min-w-0">
-                      <span
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-150 ${
-                          open
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "bg-primary/10 text-primary group-hover:bg-primary/20"
-                        }`}
-                        title={open ? "Close detail view" : "Open detail view"}
-                      >
-                        {open ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </span>
-                      <span className="truncate">{customer.customerDisplay || customer.clientName}</span>
+              ))}
+            </div>          <TabsContent value="dashboard">
+              <FinanceDashboard
+                request={api}
+                summary={summary}
+                receivables={ar}
+                payables={ap}
+                can={can}
+              />
+            </TabsContent>
+            <TabsContent value="customers" className="space-y-3">
+              {loading ? (
+                <Card className="rounded-md border bg-white p-12 text-center">
+                  <div className="flex flex-col items-center justify-center gap-3 py-6">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-primary ring-1 ring-emerald-200 dark:ring-emerald-800/60 shadow-xs">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     </div>
-                    <div className="grid min-w-[560px] grid-cols-4 gap-3 text-right text-sm">
-                      <span>{inr(customer.invoiced)}</span>
-                      <span>{inr(customer.received)}</span>
-                      <span>{inr(customer.credited)}</span>
-                      <span className="font-semibold">{inr(customer.outstanding)}</span>
-                    </div>
-                  </button>
-                  {open && (
-                    <div className="overflow-x-auto max-h-96 overflow-y-auto border-t">
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
-                          <tr>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[200px] break-words align-top border-b">Invoice Number</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Invoice Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Invoiced</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Received</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Credits</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Outstanding</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Paid Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(customer.records || []).map((record: any) => (
-                            <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
-                              <td className="px-4 py-2 max-w-[200px] break-words align-top">{record.invoiceNumber}</td>
-                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{String(record.invoiceDate || "").slice(0, 10)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.invoicedAmount)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.receivedAmount)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.credits)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2 max-w-[150px] break-words align-top">
-                                {record.paidDate || "-"}
-                                {record.payments?.length > 0 && (
-                                  <div className="mt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setHistoryModal({
-                                          title: "Receipt Events",
-                                          reference: record.invoiceNumber,
-                                          contactName: customer.customerDisplay || customer.clientName,
-                                          payments: record.payments,
-                                        })
-                                      }
-                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer"
-                                    >
-                                      {record.payments.length}{" "}
-                                      {record.payments.length === 1 ? "receipt" : "receipts"}
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{record.status || "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
-          </TabsContent>
-          <TabsContent value="vendors" className="space-y-3">
-            {f(vendors).map((vendor) => {
-              const key = String(vendor.vendorId || vendor.vendorName);
-              const open = Boolean(expandedVendors[key]);
-              return (
-                <Card key={key} className="overflow-hidden rounded-md">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
-                    onClick={() => toggleVendor(key)}
-                    title={open ? "Close detail view" : "Open detail view"}
-                  >
-                    <div className="flex items-center gap-2.5 font-medium min-w-0">
-                      <span
-                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-150 ${
-                          open
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "bg-primary/10 text-primary group-hover:bg-primary/20"
-                        }`}
-                        title={open ? "Close detail view" : "Open detail view"}
-                      >
-                        {open ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </span>
-                      <span className="truncate">{vendor.vendorDisplay || vendor.vendorName}</span>
-                    </div>
-                    <div className="grid min-w-[420px] grid-cols-4 gap-3 text-right text-sm">
-                      <span>{inr(vendor.billed)}</span>
-                      <span>{inr(vendor.paid)}</span>
-                      <span>{inr(vendor.credited)}</span>
-                      <span className="font-semibold">{inr(vendor.outstanding)}</span>
-                    </div>
-                  </button>
-                  {open && (
-                    <div className="overflow-x-auto max-h-96 overflow-y-auto border-t">
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
-                          <tr>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[200px] break-words align-top border-b">Bill Number</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Billed Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Billed</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Paid</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Debit Note</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-right max-w-[150px] align-top border-b">Outstanding</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Paid Date</th>
-                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2 text-left max-w-[150px] break-words align-top border-b">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(vendor.records || []).map((record: any) => (
-                            <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t">
-                              <td className="px-4 py-2 max-w-[200px] break-words align-top">{record.billNumber}</td>
-                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{String(record.billedDate || "").slice(0, 10)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.billedAmount)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.paidAmount)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.debitNote)}</td>
-                              <td className="px-4 py-2 text-right max-w-[150px] align-top">{inr(record.outstanding)}</td>
-                              <td className="px-4 py-2 max-w-[150px] break-words align-top">
-                                {record.paidDate || "-"}
-                                {record.payments?.length > 0 && (
-                                  <div className="mt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setHistoryModal({
-                                          title: "Payment Events",
-                                          reference: record.billNumber,
-                                          contactName: vendor.vendorDisplay || vendor.vendorName,
-                                          payments: record.payments,
-                                        })
-                                      }
-                                      className="font-semibold text-xs text-primary hover:underline cursor-pointer"
-                                    >
-                                      {record.payments.length}{" "}
-                                      {record.payments.length === 1 ? "payment" : "payments"}
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-4 py-2 max-w-[150px] break-words align-top">{record.status || "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
-          </TabsContent>
-          <TabsContent value="coa" className="space-y-4">
-            {can("accounts.chart_of_accounts.create") && (
-              <div className="flex justify-end">
-                <Button onClick={() => openManual("account")}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Account
-                </Button>
-              </div>
-            )}
-            {["Asset", "Liability", "Equity", "Revenue", "Expense"].map((type) => {
-              const categoryAccounts = f(coa).filter(
-                (a: any) => String(a.accountType || "").toLowerCase() === type.toLowerCase()
-              );
-              if (!categoryAccounts.length && search) return null;
-              const categoryTotal = categoryAccounts.reduce(
-                (sum: number, a: any) => sum + numberValue(a.currentBalance),
-                0
-              );
-              const isTypeExpanded = expandedTypes[type] !== false;
-
-              return (
-                <Card key={type} className="overflow-hidden border border-border shadow-xs">
-                  <div
-                    onClick={() => toggleType(type)}
-                    className="flex cursor-pointer items-center justify-between bg-muted/40 px-4 py-3 font-semibold hover:bg-muted/70 transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Button size="icon" variant="ghost" className="h-6 w-6 p-0 pointer-events-none">
-                        {isTypeExpanded ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <span className="text-base text-foreground font-bold">{type}</span>
-                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary font-semibold">
-                        {categoryAccounts.length} {categoryAccounts.length === 1 ? "account" : "accounts"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground font-medium">Category Balance:</span>
-                      <span className="text-sm font-bold text-foreground font-mono">
-                        {inr(categoryTotal)}
-                      </span>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        Loading customer ledger data...
+                      </p>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                        Please wait while records are being fetched
+                      </p>
                     </div>
                   </div>
-
-                  {isTypeExpanded && (
-                    <div className="divide-y border-t">
-                      {!categoryAccounts.length ? (
-                        <div className="p-4 text-center text-xs text-muted-foreground">
-                          No accounts configured under {type}.
-                        </div>
-                      ) : (
-                        categoryAccounts.map((account: any) => {
-                          const isAccExpanded = Boolean(expandedAccounts[account.id]);
-                          const historyLines = account.lines || [];
-                          const isCreditNormalAccount = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
-                          const displayedBalance = isCreditNormalAccount ? Math.abs(numberValue(account.currentBalance)) : numberValue(account.currentBalance);
-                          return (
-                            <div key={account.id} className="bg-background">
-                              <div className="flex flex-wrap items-center justify-between px-4 py-3 hover:bg-muted/20 gap-2">
-                                <div className="flex items-center gap-3">
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-6 w-6 p-0"
-                                    onClick={() => toggleAccount(account.id)}
-                                    title="Toggle Entry History"
-                                  >
-                                    {isAccExpanded ? (
-                                      <ChevronDown className="h-4 w-4 text-primary" />
-                                    ) : (
-                                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                    )}
-                                  </Button>
-                                  <span className="font-mono text-xs font-semibold text-muted-foreground min-w-14">
-                                    {account.accountCode}
-                                  </span>
-                                  <span className="text-sm font-semibold text-foreground">
-                                    {account.accountName}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-mono text-sm font-bold text-foreground">
-                                      {inr(displayedBalance)}
-                                    </span>
-                                    {isCreditNormalAccount && numberValue(account.currentBalance) > 0 && (
-                                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
-                                        Credit
-                                      </span>
-                                    )}
-                                  </div>
-                                  {can("accounts.chart_of_accounts.edit") ? (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs"
-                                      onClick={() => openManual("account", account)}
-                                    >
-                                      Edit
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              </div>
-
-                              {isAccExpanded && (
-                                <div className="bg-muted/15 p-4 border-t">
-                                  <div className="mb-2 flex items-center justify-between">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                      Entry History & Ledger Movement
-                                    </h4>
-                                    <span className="text-[11px] text-muted-foreground font-medium">
-                                      {historyLines.length} {historyLines.length === 1 ? "entry" : "entries"} recorded
-                                    </span>
-                                  </div>
-                                  {account.receivablePaymentEvents?.length > 0 && (
-                                    <div className="mb-2">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setHistoryModal({
-                                            title: "Receivable Payment Events",
-                                            reference: account.accountName,
-                                            payments: account.receivablePaymentEvents.map((event: any) => ({
-                                              ...event,
-                                              paymentDate: event.entryDate,
-                                              amount: event.credit || event.debit,
-                                              reference: event.metadata?.documentReference || event.reference,
-                                            })),
-                                          })
-                                        }
-                                        className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
-                                      >
-                                        {account.receivablePaymentEvents.length} receivable payment events
-                                      </button>
-                                    </div>
-                                  )}
-                                  {account.payablePaymentEvents?.length > 0 && (
-                                    <div className="mb-2">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setHistoryModal({
-                                            title: "Payable Payment Events",
-                                            reference: account.accountName,
-                                            payments: account.payablePaymentEvents.map((event: any) => ({
-                                              ...event,
-                                              paymentDate: event.entryDate,
-                                              amount: event.debit || event.credit,
-                                              reference: event.metadata?.documentReference || event.reference,
-                                            })),
-                                          })
-                                        }
-                                        className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap"
-                                      >
-                                        {account.payablePaymentEvents.length} payable payment events
-                                      </button>
-                                    </div>
-                                  )}
-                                  {!historyLines.length ? (
-                                    <div className="rounded-md border bg-background p-3 text-center text-xs text-muted-foreground">
-                                      No entry history recorded for this account.
-                                    </div>
-                                  ) : (
-                                    <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-md border bg-background">
-                                      <table className="w-full text-xs">
-                                        <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
-                                          <tr>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Date of Payment</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[100px] break-words align-top border-b">Source</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Customer/Vendor</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Customer/Vendor ID</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[140px] break-words align-top border-b">Reference ID</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[140px] break-words align-top border-b">Account Name</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Payment Method</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Notes</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Description</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Debit Amount</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Credit Amount</th>
-                                            <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Running Balance (₹)</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y">
-                                          {historyLines.map((line: any, idx: number) => (
-                                            <tr key={line.id || idx} className="hover:bg-muted/10">
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[120px] break-words align-top">
-                                                {String(line.paymentDate || line.entryDate || "").slice(0, 10) || "—"}
-                                              </td>
-                                              <td className="px-3 py-1.5 font-medium max-w-[100px] break-words align-top">
-                                                {line.source || line.sourceType || "Manual"}
-                                              </td>
-                                              <td className="px-3 py-1.5 max-w-[150px] break-words align-top">
-                                                {line.partyName || "N/A"}
-                                              </td>
-                                              <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[120px] break-words align-top">
-                                                {line.partyId || "N/A"}
-                                              </td>
-                                              <td className="px-3 py-1.5 font-mono max-w-[140px] break-words align-top">
-                                                {line.referenceId || line.reference || line.sourceId || "—"}
-                                              </td>
-                                              <td className="px-3 py-1.5 max-w-[140px] break-words align-top">{line.accountName || account.accountName}</td>
-                                              <td className="px-3 py-1.5 max-w-[120px] break-words align-top">{line.paymentMethod || "—"}</td>
-                                              <td className="px-3 py-1.5 max-w-[150px] break-words align-top">{line.notes || "—"}</td>
-                                              <td className="px-3 py-1.5 text-muted-foreground max-w-[150px] break-words align-top">
-                                                {line.description || "—"}
-                                              </td>
-                                              <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold max-w-[120px] align-top">
-                                                {line.debit ? inr(line.debit) : "—"}
-                                              </td>
-                                              <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold max-w-[120px] align-top">
-                                                {line.credit ? inr(line.credit) : "—"}
-                                              </td>
-                                              <td className="px-3 py-1.5 text-right font-mono font-bold max-w-[120px] align-top">
-                                                {inr(line.runningBalance)}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
                 </Card>
-              );
-            })}
-          </TabsContent>
-          <TabsContent value="bankcash" className="space-y-3">
-            <Card className="rounded-md border bg-white shadow-sm">
-              <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-12">
-                <div className="space-y-1.5 text-sm md:col-span-4">
-                  <Label className="text-xs font-semibold text-slate-700">Transaction Type *</Label>
-                  <Select
-                    value={bankForm.mode}
-                    onValueChange={(val) =>
-                      setBankForm({
-                        ...bankForm,
-                        mode: val,
-                        creditContactId: "",
-                        debitContactId: "",
-                      })
-                    }
-                  >
-                    <SelectTrigger aria-label="Credit/Debit/Transfer" className="h-10 w-full bg-white font-medium shadow-sm">
-                      <SelectValue placeholder="Transaction Type *" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Credit">
-                        <div className="flex items-center gap-2 font-medium">
-                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0 shadow-sm" />
-                          <span>Credit</span>
-                          <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Inward / Receipt)</span>
+              ) : !f(customers).length ? (
+                <Card className="rounded-md border bg-white p-12 text-center text-sm text-muted-foreground">
+                  No customer records found.
+                </Card>
+              ) : (
+                f(customers).map((customer) => {
+                  const key = String(customer.clientId || customer.clientName);
+                  const open = Boolean(expandedCustomers[key]);
+                  return (
+                    <Card key={key} className="overflow-hidden rounded-md">
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
+                        onClick={() => toggleCustomer(key)}
+                        title={open ? "Close detail view" : "Open detail view"}
+                      >
+                        <div className="flex items-center gap-2.5 font-medium min-w-0">
+                          <span
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-150 ${open
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "bg-primary/10 text-primary group-hover:bg-primary/20"
+                              }`}
+                            title={open ? "Close detail view" : "Open detail view"}
+                          >
+                            {open ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </span>
+                          <span className="truncate">{customer.customerDisplay || customer.clientName}</span>
                         </div>
-                      </SelectItem>
-                      <SelectItem value="Debit">
-                        <div className="flex items-center gap-2 font-medium">
-                          <span className="h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0 shadow-sm" />
-                          <span>Debit</span>
-                          <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Outward / Payment)</span>
+                        <div className="grid min-w-[560px] grid-cols-4 gap-3 text-right text-sm">
+                          <span>{inr(customer.invoiced)}</span>
+                          <span>{inr(customer.received)}</span>
+                          <span>{inr(customer.credited)}</span>
+                          <span className="font-semibold">{inr(customer.outstanding)}</span>
                         </div>
-                      </SelectItem>
-                      <SelectItem value="Transfer">
-                        <div className="flex items-center gap-2 font-medium">
-                          <span className="h-2.5 w-2.5 rounded-full bg-cyan-500 shrink-0 shadow-sm" />
-                          <span>Transfer</span>
-                          <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Account Transfer)</span>
+                      </button>
+                      {open && (
+                        <div className="overflow-x-auto max-h-96 overflow-y-auto border-t accounts-scroll">
+                          <table className="w-full text-sm min-w-full">
+                            <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-xs uppercase tracking-wider text-muted-foreground shadow-sm">
+                              <tr>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Invoice Number</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Invoice Date</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Invoiced</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Received</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Credits</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Outstanding</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Paid Date</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(customer.records || []).map((record: any) => (
+                                <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">{record.invoiceNumber}</td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">{String(record.invoiceDate || "").slice(0, 10)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.invoicedAmount)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.receivedAmount)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.credits)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle font-medium">{inr(record.outstanding)}</td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+                                    {record.paidDate || "-"}
+                                    {record.payments?.length > 0 && (
+                                      <div className="mt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setHistoryModal({
+                                              title: "Receipt Events",
+                                              reference: record.invoiceNumber,
+                                              contactName: customer.customerDisplay || customer.clientName,
+                                              payments: record.payments,
+                                            })
+                                          }
+                                          className="font-semibold text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer"
+                                        >
+                                          {record.payments.length}{" "}
+                                          {record.payments.length === 1 ? "receipt" : "receipts"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">{record.status || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                      )}
+                    </Card>
+                  );
+                }))}
+            </TabsContent>
+            <TabsContent value="vendors" className="space-y-3">
+              {loading ? (
+                <Card className="rounded-md border bg-white p-12 text-center">
+                  <div className="flex flex-col items-center justify-center gap-3 py-6">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-primary ring-1 ring-emerald-200 dark:ring-emerald-800/60 shadow-xs">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        Loading vendor ledger data...
+                      </p>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                        Please wait while records are being fetched
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              ) : !f(vendors).length ? (
+                <Card className="rounded-md border bg-white p-12 text-center text-sm text-muted-foreground">
+                  No vendor records found.
+                </Card>
+              ) : (
+                f(vendors).map((vendor) => {
+                  const key = String(vendor.vendorId || vendor.vendorName);
+                  const open = Boolean(expandedVendors[key]);
+                  return (
+                    <Card key={key} className="overflow-hidden rounded-md">
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
+                        onClick={() => toggleVendor(key)}
+                        title={open ? "Close detail view" : "Open detail view"}
+                      >
+                        <div className="flex items-center gap-2.5 font-medium min-w-0">
+                          <span
+                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-150 ${open
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "bg-primary/10 text-primary group-hover:bg-primary/20"
+                              }`}
+                            title={open ? "Close detail view" : "Open detail view"}
+                          >
+                            {open ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </span>
+                          <span className="truncate">{vendor.vendorDisplay || vendor.vendorName}</span>
+                        </div>
+                        <div className="grid min-w-[420px] grid-cols-4 gap-3 text-right text-sm">
+                          <span>{inr(vendor.billed)}</span>
+                          <span>{inr(vendor.paid)}</span>
+                          <span>{inr(vendor.credited)}</span>
+                          <span className="font-semibold">{inr(vendor.outstanding)}</span>
+                        </div>
+                      </button>
+                      {open && (
+                        <div className="overflow-x-auto max-h-96 overflow-y-auto border-t accounts-scroll">
+                          <table className="w-full text-sm min-w-full">
+                            <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-xs uppercase tracking-wider text-muted-foreground shadow-sm">
+                              <tr>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Bill Number</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Billed Date</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Billed</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Paid</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Debit Note</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-right whitespace-nowrap border-b">Outstanding</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Paid Date</th>
+                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-4 py-2.5 text-left whitespace-nowrap border-b">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(vendor.records || []).map((record: any) => (
+                                <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">{record.billNumber}</td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">{String(record.billedDate || "").slice(0, 10)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.billedAmount)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.paidAmount)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.debitNote)}</td>
+                                  <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle font-medium">{inr(record.outstanding)}</td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+                                    {record.paidDate || "-"}
+                                    {record.payments?.length > 0 && (
+                                      <div className="mt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setHistoryModal({
+                                              title: "Payment Events",
+                                              reference: record.billNumber,
+                                              contactName: vendor.vendorDisplay || vendor.vendorName,
+                                              payments: record.payments,
+                                            })
+                                          }
+                                          className="font-semibold text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer"
+                                        >
+                                          {record.payments.length}{" "}
+                                          {record.payments.length === 1 ? "payment" : "payments"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap align-middle">{record.status || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                }))}
+            </TabsContent>
+            <TabsContent value="coa" className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm font-medium text-muted-foreground">
+                  Master ledger accounts, groupings and opening balances
                 </div>
-                {bankForm.mode === "Transfer" ? (
-                  <>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">From Account *</Label>
-                      <Select
-                        value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
-                        onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
-                      >
-                        <SelectTrigger aria-label="From Account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="From Account *" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {a.accountCode}
-                                </span>
-                                <span className="truncate">{a.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">To Account *</Label>
-                      <Select
-                        value={bankForm.transferToAccountId ? String(bankForm.transferToAccountId) : undefined}
-                        onValueChange={(val) => setBankForm({ ...bankForm, transferToAccountId: val })}
-                      >
-                        <SelectTrigger aria-label="To Account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="To Account *" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {a.accountCode}
-                                </span>
-                                <span className="truncate">{a.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">Credit Name (optional)</Label>
-                      <Select
-                        value={bankForm.creditContactId ? String(bankForm.creditContactId) : "__none__"}
-                        onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select CRM client (optional)" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          <SelectItem value="__none__">
-                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
-                          </SelectItem>
-                          {crmClients.map((client) => (
-                            <SelectItem key={client.id} value={String(client.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
-                                </span>
-                                <span className="truncate">{client.displayName || client.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">Debit Name (optional)</Label>
-                      <Select
-                        value={bankForm.debitContactId ? String(bankForm.debitContactId) : "__none__"}
-                        onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select CRM client (optional)" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          <SelectItem value="__none__">
-                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
-                          </SelectItem>
-                          {crmClients.map((client) => (
-                            <SelectItem key={client.id} value={String(client.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
-                                </span>
-                                <span className="truncate">{client.displayName || client.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                ) : bankForm.mode === "Credit" ? (
-                  <>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">Account Name *</Label>
-                      <Select
-                        value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
-                        onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
-                      >
-                        <SelectTrigger aria-label="Account Name" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Account Name *" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {a.accountCode}
-                                </span>
-                                <span className="truncate">{a.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">Credit Name *</Label>
-                      <Select
-                        value={bankForm.creditContactId ? String(bankForm.creditContactId) : undefined}
-                        onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val })}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select CRM client *" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {crmClients.map((client) => (
-                            <SelectItem key={client.id} value={String(client.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
-                                </span>
-                                <span className="truncate">{client.displayName || client.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">Account Name *</Label>
-                      <Select
-                        value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
-                        onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
-                      >
-                        <SelectTrigger aria-label="Account Name" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Account Name *" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((a) => a.isActive !== false).map((a: any) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {a.accountCode}
-                                </span>
-                                <span className="truncate">{a.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5 text-sm md:col-span-4">
-                      <Label className="text-xs font-semibold text-slate-700">Debit Name *</Label>
-                      <Select
-                        value={bankForm.debitContactId ? String(bankForm.debitContactId) : undefined}
-                        onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val })}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select CRM client *" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {crmClients.map((client) => (
-                            <SelectItem key={client.id} value={String(client.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
-                                </span>
-                                <span className="truncate">{client.displayName || client.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                )}
-                <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
-                  <Label className="text-xs font-semibold text-slate-700">Total Payment *</Label>
-                  <Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" className="h-10 w-full bg-white shadow-sm" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
+                <div className="flex flex-wrap items-center gap-2">
+                  {(can("accounts.chart_of_accounts.import") || can("accounts.chart_of_accounts.create")) && (
+                    <ExcelIconButton action="import" onClick={() => openAccountImport("coa")} />
+                  )}
+                  {(can("accounts.chart_of_accounts.export") || can("accounts.chart_of_accounts.view")) && (
+                    <ExcelIconButton
+                      action="export"
+                      loading={actionLoadingId === "export-coa"}
+                      onClick={() => void exportAccountXlsx("coa")}
+                    />
+                  )}
+                  {can("accounts.chart_of_accounts.create") && (
+                    <Button onClick={() => openManual("account")}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Account
+                    </Button>
+                  )}
                 </div>
-                <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
-                  <Label className="text-xs font-semibold text-slate-700">Payment Date *</Label>
-                  <Input type="date" max={today} className="h-10 w-full bg-white shadow-sm" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
-                </div>
-                <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
-                  <Label className="text-xs font-semibold text-slate-700">Payment Method</Label>
-                  <Select
-                    value={bankForm.paymentMethod || "Bank Transfer"}
-                    onValueChange={(val) => setBankForm({ ...bankForm, paymentMethod: val })}
-                  >
-                    <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                      <SelectValue placeholder="Payment Method" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paymentMethods.map((method) => (
-                        <SelectItem key={method} value={method}>
-                          <div className="flex items-center gap-2">
-                            <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
-                            <span>{method}</span>
+              </div>
+              {loading ? (
+                <Card className="rounded-md border bg-white p-12 text-center">
+                  <div className="flex flex-col items-center justify-center gap-3 py-6">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-primary ring-1 ring-emerald-200 dark:ring-emerald-800/60 shadow-xs">
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                        Loading chart of accounts...
+                      </p>
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                        Please wait while records are being fetched
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              ) : (
+                ["Asset", "Liability", "Equity", "Revenue", "Expense"].map((type) => {
+                  const categoryAccounts = f(coa).filter(
+                    (a: any) => String(a.accountType || "").toLowerCase() === type.toLowerCase()
+                  );
+                  if (!categoryAccounts.length && search) return null;
+                  const categoryTotal = categoryAccounts.reduce(
+                    (sum: number, a: any) => sum + numberValue(a.currentBalance),
+                    0
+                  );
+                  const isTypeExpanded = expandedTypes[type] !== false;
+
+                  return (
+                    <Card key={type} className="overflow-hidden border border-border shadow-xs">
+                      <div
+                        onClick={() => toggleType(type)}
+                        className="flex cursor-pointer items-center justify-between bg-muted/40 px-4 py-3 font-semibold hover:bg-muted/70 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Button size="icon" variant="ghost" className="h-6 w-6 p-0 pointer-events-none">
+                            {isTypeExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <span className="text-base text-foreground font-bold">{type}</span>
+                          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary font-semibold">
+                            {categoryAccounts.length} {categoryAccounts.length === 1 ? "account" : "accounts"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-muted-foreground font-medium">Category Balance:</span>
+                          <span className="text-sm font-bold text-foreground font-mono">
+                            {inr(categoryTotal)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isTypeExpanded && (
+                        <div className="divide-y border-t">
+                          {!categoryAccounts.length ? (
+                            <div className="p-4 text-center text-xs text-muted-foreground">
+                              No accounts configured under {type}.
+                            </div>
+                          ) : (
+                            categoryAccounts.map((account: any) => {
+                              const isAccExpanded = Boolean(expandedAccounts[account.id]);
+                              const historyLines = account.lines || [];
+                              const isCreditNormalAccount = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
+                              const displayedBalance = isCreditNormalAccount ? Math.abs(numberValue(account.currentBalance)) : numberValue(account.currentBalance);
+                              return (
+                                <div key={account.id} className="bg-background">
+                                  <div className="flex flex-wrap items-center justify-between px-4 py-3 hover:bg-muted/20 gap-2">
+                                    <div className="flex items-center gap-3">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => toggleAccount(account.id)}
+                                        title="Toggle Entry History"
+                                      >
+                                        {isAccExpanded ? (
+                                          <ChevronDown className="h-4 w-4 text-primary" />
+                                        ) : (
+                                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                        )}
+                                      </Button>
+                                      <span className="font-mono text-xs font-semibold text-muted-foreground min-w-14">
+                                        {account.accountCode}
+                                      </span>
+                                      <span className="text-sm font-semibold text-foreground">
+                                        {account.accountName}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-sm font-bold text-foreground">
+                                          {inr(displayedBalance)}
+                                        </span>
+                                        {isCreditNormalAccount && numberValue(account.currentBalance) > 0 && (
+                                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
+                                            Credit
+                                          </span>
+                                        )}
+                                      </div>
+                                      {can("accounts.chart_of_accounts.edit") ? (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 text-xs"
+                                          onClick={() => openManual("account", account)}
+                                        >
+                                          Edit
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+
+                                  {isAccExpanded && (
+                                    <div className="bg-muted/15 p-4 border-t">
+                                      <div className="mb-2 flex items-center justify-between">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                          Entry History & Ledger Movement
+                                        </h4>
+                                        <span className="text-[11px] text-muted-foreground font-medium">
+                                          {historyLines.length} {historyLines.length === 1 ? "entry" : "entries"} recorded
+                                        </span>
+                                      </div>
+                                      {account.receivablePaymentEvents?.length > 0 && (
+                                        <div className="mb-2">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setHistoryModal({
+                                                title: "Receivable Payment Events",
+                                                reference: account.accountName,
+                                                payments: account.receivablePaymentEvents.map((event: any) => ({
+                                                  ...event,
+                                                  paymentDate: event.entryDate,
+                                                  amount: event.credit || event.debit,
+                                                  reference: event.metadata?.documentReference || event.reference,
+                                                })),
+                                              })
+                                            }
+                                            className="font-semibold text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer whitespace-nowrap"
+                                          >
+                                            {account.receivablePaymentEvents.length} receivable payment events
+                                          </button>
+                                        </div>
+                                      )}
+                                      {account.payablePaymentEvents?.length > 0 && (
+                                        <div className="mb-2">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setHistoryModal({
+                                                title: "Payable Payment Events",
+                                                reference: account.accountName,
+                                                payments: account.payablePaymentEvents.map((event: any) => ({
+                                                  ...event,
+                                                  paymentDate: event.entryDate,
+                                                  amount: event.debit || event.credit,
+                                                  reference: event.metadata?.documentReference || event.reference,
+                                                })),
+                                              })
+                                            }
+                                            className="font-semibold text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer whitespace-nowrap"
+                                          >
+                                            {account.payablePaymentEvents.length} payable payment events
+                                          </button>
+                                        </div>
+                                      )}
+                                      {!historyLines.length ? (
+                                        <div className="rounded-md border bg-background p-3 text-center text-xs text-muted-foreground">
+                                          No entry history recorded for this account.
+                                        </div>
+                                      ) : (
+                                        <div className="max-h-96 overflow-y-auto overflow-x-auto rounded-md border bg-background accounts-scroll">
+                                          <table className="w-full text-xs">
+                                            <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted font-semibold text-muted-foreground shadow-sm">
+                                              <tr>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Date of Payment</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[100px] break-words align-top border-b">Source</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Customer/Vendor</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Customer/Vendor ID</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[140px] break-words align-top border-b">Reference ID</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[140px] break-words align-top border-b">Account Name</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[120px] break-words align-top border-b">Payment Method</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Notes</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-left max-w-[150px] break-words align-top border-b">Description</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Debit Amount</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Credit Amount</th>
+                                                <th className="sticky top-0 z-20 bg-slate-100 dark:bg-muted px-3 py-2 text-right max-w-[120px] align-top border-b">Running Balance (₹)</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                              {historyLines.map((line: any, idx: number) => (
+                                                <tr key={line.id || idx} className="hover:bg-muted/10">
+                                                  <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[120px] break-words align-top">
+                                                    {String(line.paymentDate || line.entryDate || "").slice(0, 10) || "—"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 font-medium max-w-[100px] break-words align-top">
+                                                    {line.source || line.sourceType || "Manual"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 max-w-[150px] break-words align-top">
+                                                    {line.partyName || "N/A"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 font-mono text-muted-foreground max-w-[120px] break-words align-top">
+                                                    {line.partyId || "N/A"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 font-mono max-w-[140px] break-words align-top">
+                                                    {line.referenceId || line.reference || line.sourceId || "—"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 max-w-[140px] break-words align-top">{line.accountName || account.accountName}</td>
+                                                  <td className="px-3 py-1.5 max-w-[120px] break-words align-top">{line.paymentMethod || "—"}</td>
+                                                  <td className="px-3 py-1.5 max-w-[150px] break-words align-top">{line.notes || "—"}</td>
+                                                  <td className="px-3 py-1.5 text-muted-foreground max-w-[150px] break-words align-top">
+                                                    {line.description || "—"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 text-right font-mono text-emerald-600 font-semibold max-w-[120px] align-top">
+                                                    {line.debit ? inr(line.debit) : "—"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 text-right font-mono text-blue-600 font-semibold max-w-[120px] align-top">
+                                                    {line.credit ? inr(line.credit) : "—"}
+                                                  </td>
+                                                  <td className="px-3 py-1.5 text-right font-mono font-bold max-w-[120px] align-top">
+                                                    {inr(line.runningBalance)}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                }))}
+            </TabsContent>
+            <TabsContent value="bankcash" className="space-y-3">
+              <Card className="rounded-md border bg-white shadow-sm">
+                <CardHeader><CardTitle className="text-base">Bank & Cash Transaction</CardTitle></CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-12">
+                  <div className="space-y-1.5 text-sm md:col-span-4">
+                    <Label className="text-xs font-semibold text-slate-700">Transaction Type *</Label>
+                    <Select
+                      value={bankForm.mode}
+                      onValueChange={(val) =>
+                        setBankForm({
+                          ...bankForm,
+                          mode: val,
+                          creditContactId: "",
+                          debitContactId: "",
+                        })
+                      }
+                    >
+                      <SelectTrigger aria-label="Credit/Debit/Transfer" className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Transaction Type *" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Credit">
+                          <div className="flex items-center gap-2 font-medium">
+                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0 shadow-sm" />
+                            <span>Credit</span>
+                            <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Inward / Receipt)</span>
                           </div>
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Reference ID / Invoice Number<Input className="h-10 w-full" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Period (optional)<Input className="h-10 w-full" value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Bank Charges (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Transaction Fees (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground block">Informational; does not change the posted amount.</span></label>
-                <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
-                <Button
-                  className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}
-                  disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
-                  onClick={() => void submitBankCash()}
-                >
-                  {actionLoadingId === "bank-cash-form-submit" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {actionLoadingId === "bank-cash-form-submit" ? "Submitting..." : "Submit for Approval"}
-                </Button>
-              </CardContent>
-            </Card>
-            <div className="flex flex-wrap justify-end gap-2">
-              {can("accounts.bank_cash.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("bankCash")} />}
-              {can("accounts.bank_cash.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-bankCash"} onClick={() => void exportAccountXlsx("bankCash")} />}
-            </div>
-            <Table tableId="bank-cash" rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
-              ["Payment Date", "transactionDate"], ["Party / Name", "clientName", (_: any, row: any) => row.mode === "Transfer"
-                ? (row.creditContactName || row.debitContactName
-                  ? <div>{row.creditContactName && <div>Credit: {row.creditContactName}</div>}{row.debitContactName && <div>Debit: {row.debitContactName}</div>}</div>
-                  : row.clientName || "—")
-                : row.creditContactName || row.debitContactName || row.clientName || "—"], ["Account Name", "accountName"], ["Payment Method", "paymentMethod", (value: any) => String(value || "").trim() || "—"], ["Reference ID / Invoice Number", "reference", (value: any) => String(value || "").trim() || "—"], ["Type", "transactionTypeName"], ["Credit/Debit", "mode"], ["Amount", "amount", inr], ["Period", "period", (value: any) => String(value || "").trim() || "—"], ["Bank Charges", "bankCharges", inr], ["Transaction Fees (informational)", "transactionFees", inr], ["Status", "approvalStatus", statusBadge],
-              ["Actions", "id", (_: any, row: any) => {
-                if (row.approvalStatus !== "Pending Approval" || !can("accounts.bank_cash.approve")) {
-                  return "—";
-                }
-                const isApproving = actionLoadingId === `bank-cash-approve-${row.id}`;
-                const isRejecting = actionLoadingId === `bank-cash-reject-${row.id}`;
-                const isBusy = submitting || Boolean(actionLoadingId);
-                return (
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy}
-                      onClick={() => void bankCashDecision(row, "approve")}
-                    >
-                      {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                      {isApproving ? "Approving..." : "Approve"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy}
-                      onClick={() => {
-                        const tableEl = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
-                        if (tableEl) {
-                          tableScrollPositions.set("bank-cash", { left: tableEl.scrollLeft, top: tableEl.scrollTop });
-                        }
-                        setBankDecision({ row, remarks: "" });
-                      }}
-                    >
-                      {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                      Reject
-                    </Button>
+                        <SelectItem value="Debit">
+                          <div className="flex items-center gap-2 font-medium">
+                            <span className="h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0 shadow-sm" />
+                            <span>Debit</span>
+                            <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Outward / Payment)</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="Transfer">
+                          <div className="flex items-center gap-2 font-medium">
+                            <span className="h-2.5 w-2.5 rounded-full bg-cyan-500 shrink-0 shadow-sm" />
+                            <span>Transfer</span>
+                            <span className="text-xs text-muted-foreground group-data-[highlighted]:text-white/80 font-normal ml-auto pl-2">(Account Transfer)</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                );
-              }],
-              ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
-              ["Notes", "remarks", (value: any) => String(value || "").trim() || "—"],
-            ]} />
-          </TabsContent>
-          {/* DISABLED: Masters module is not required for this phase */}
-          {/* <TabsContent value="masters" className="space-y-3">
+                  {bankForm.mode === "Transfer" ? (
+                    <>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">From Account *</Label>
+                        <Select
+                          value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
+                        >
+                          <SelectTrigger aria-label="From Account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="From Account *" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                              <SelectItem key={a.id} value={String(a.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {a.accountCode}
+                                  </span>
+                                  <span className="truncate">{a.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">To Account *</Label>
+                        <Select
+                          value={bankForm.transferToAccountId ? String(bankForm.transferToAccountId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, transferToAccountId: val })}
+                        >
+                          <SelectTrigger aria-label="To Account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="To Account *" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                              <SelectItem key={a.id} value={String(a.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {a.accountCode}
+                                  </span>
+                                  <span className="truncate">{a.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">Credit Name (optional)</Label>
+                        <Select
+                          value={bankForm.creditContactId ? String(bankForm.creditContactId) : "__none__"}
+                          onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
+                        >
+                          <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select CRM client (optional)" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="__none__">
+                              <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
+                            </SelectItem>
+                            {crmClients.map((client) => (
+                              <SelectItem key={client.id} value={String(client.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                  </span>
+                                  <span className="truncate">{client.displayName || client.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">Debit Name (optional)</Label>
+                        <Select
+                          value={bankForm.debitContactId ? String(bankForm.debitContactId) : "__none__"}
+                          onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
+                        >
+                          <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select CRM client (optional)" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            <SelectItem value="__none__">
+                              <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
+                            </SelectItem>
+                            {crmClients.map((client) => (
+                              <SelectItem key={client.id} value={String(client.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                  </span>
+                                  <span className="truncate">{client.displayName || client.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  ) : bankForm.mode === "Credit" ? (
+                    <>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">Account Name *</Label>
+                        <Select
+                          value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
+                        >
+                          <SelectTrigger aria-label="Account Name" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Account Name *" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                              <SelectItem key={a.id} value={String(a.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {a.accountCode}
+                                  </span>
+                                  <span className="truncate">{a.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">Credit Name *</Label>
+                        <Select
+                          value={bankForm.creditContactId ? String(bankForm.creditContactId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val })}
+                        >
+                          <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select CRM client *" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {crmClients.map((client) => (
+                              <SelectItem key={client.id} value={String(client.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                  </span>
+                                  <span className="truncate">{client.displayName || client.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">Account Name *</Label>
+                        <Select
+                          value={bankForm.bankCashAccountId ? String(bankForm.bankCashAccountId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, bankCashAccountId: val })}
+                        >
+                          <SelectTrigger aria-label="Account Name" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Account Name *" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((a) => a.isActive !== false).map((a: any) => (
+                              <SelectItem key={a.id} value={String(a.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {a.accountCode}
+                                  </span>
+                                  <span className="truncate">{a.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5 text-sm md:col-span-4">
+                        <Label className="text-xs font-semibold text-slate-700">Debit Name *</Label>
+                        <Select
+                          value={bankForm.debitContactId ? String(bankForm.debitContactId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val })}
+                        >
+                          <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select CRM client *" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {crmClients.map((client) => (
+                              <SelectItem key={client.id} value={String(client.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
+                                  </span>
+                                  <span className="truncate">{client.displayName || client.name}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  )}
+                  <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
+                    <Label className="text-xs font-semibold text-slate-700">Total Payment *</Label>
+                    <Input aria-label="Amount" type="number" min="0.01" step="0.01" placeholder="Amount" className="h-10 w-full bg-white shadow-sm" value={bankForm.amount} onChange={(e) => setBankForm({ ...bankForm, amount: e.target.value })} />
+                  </div>
+                  <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
+                    <Label className="text-xs font-semibold text-slate-700">Payment Date *</Label>
+                    <Input type="date" max={today} className="h-10 w-full bg-white shadow-sm" value={bankForm.transactionDate} onChange={(e) => setBankForm({ ...bankForm, transactionDate: e.target.value })} />
+                  </div>
+                  <div className={`space-y-1.5 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>
+                    <Label className="text-xs font-semibold text-slate-700">Payment Method</Label>
+                    <Select
+                      value={bankForm.paymentMethod || "Bank Transfer"}
+                      onValueChange={(val) => setBankForm({ ...bankForm, paymentMethod: val })}
+                    >
+                      <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                        <SelectValue placeholder="Payment Method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {paymentMethods.map((method) => (
+                          <SelectItem key={method} value={method}>
+                            <div className="flex items-center gap-2">
+                              <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
+                              <span>{method}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Reference ID / Invoice Number<Input className="h-10 w-full" value={bankForm.reference} onChange={(e) => setBankForm({ ...bankForm, reference: e.target.value })} /></label>
+                  <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Period (optional)<Input className="h-10 w-full" value={bankForm.period} onChange={(e) => setBankForm({ ...bankForm, period: e.target.value })} /></label>
+                  <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Bank Charges (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.bankCharges} onChange={(e) => setBankForm({ ...bankForm, bankCharges: e.target.value })} /></label>
+                  <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}>Transaction Fees (optional)<Input type="number" min="0" step="0.01" className="h-10 w-full" value={bankForm.transactionFees} onChange={(e) => setBankForm({ ...bankForm, transactionFees: e.target.value })} /><span className="text-xs text-muted-foreground block">Informational; does not change the posted amount.</span></label>
+                  <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
+                  <Button
+                    className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}
+                    disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
+                    onClick={() => void submitBankCash()}
+                  >
+                    {actionLoadingId === "bank-cash-form-submit" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {actionLoadingId === "bank-cash-form-submit" ? "Submitting..." : "Submit for Approval"}
+                  </Button>
+                </CardContent>
+              </Card>
+              <div className="flex flex-wrap justify-end gap-2">
+                {can("accounts.bank_cash.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("bankCash")} />}
+                {can("accounts.bank_cash.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-bankCash"} onClick={() => void exportAccountXlsx("bankCash")} />}
+              </div>
+              <Table tableId="bank-cash" rows={f(bankCash.filter((row) => row.transactionTypeName !== "Opening Balance"))} cols={[
+                ["Payment Date", "transactionDate"], ["Party / Name", "clientName", (_: any, row: any) => row.mode === "Transfer"
+                  ? (row.creditContactName || row.debitContactName
+                    ? <div>{row.creditContactName && <div>Credit: {row.creditContactName}</div>}{row.debitContactName && <div>Debit: {row.debitContactName}</div>}</div>
+                    : row.clientName || "—")
+                  : row.creditContactName || row.debitContactName || row.clientName || "—"], ["Account Name", "accountName"], ["Payment Method", "paymentMethod", (value: any) => String(value || "").trim() || "—"], ["Reference ID / Invoice Number", "reference", (value: any) => String(value || "").trim() || "—"], ["Type", "transactionTypeName"], ["Credit/Debit", "mode"], ["Amount", "amount", inr], ["Period", "period", (value: any) => String(value || "").trim() || "—"], ["Bank Charges", "bankCharges", inr], ["Transaction Fees (informational)", "transactionFees", inr], ["Status", "approvalStatus", statusBadge],
+                ["Actions", "id", (_: any, row: any) => {
+                  if (row.approvalStatus !== "Pending Approval" || !can("accounts.bank_cash.approve")) {
+                    return "—";
+                  }
+                  const isApproving = actionLoadingId === `bank-cash-approve-${row.id}`;
+                  const isRejecting = actionLoadingId === `bank-cash-reject-${row.id}`;
+                  const isBusy = submitting || Boolean(actionLoadingId);
+                  return (
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isBusy}
+                        onClick={() => void bankCashDecision(row, "approve")}
+                      >
+                        {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        {isApproving ? "Approving..." : "Approve"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isBusy}
+                        onClick={() => {
+                          const tableEl = document.querySelector('[data-table-scroll="bank-cash"]') as HTMLDivElement | null;
+                          if (tableEl) {
+                            tableScrollPositions.set("bank-cash", { left: tableEl.scrollLeft, top: tableEl.scrollTop });
+                          }
+                          setBankDecision({ row, remarks: "" });
+                        }}
+                      >
+                        {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                        Reject
+                      </Button>
+                    </div>
+                  );
+                }],
+                ["Reject Remarks", "rejectionRemarks", (value: any) => String(value || "").trim() || "-"],
+                ["Notes", "remarks", (value: any) => String(value || "").trim() || "—"],
+              ]} />
+            </TabsContent>
+            {/* DISABLED: Masters module is not required for this phase */}
+            {/* <TabsContent value="masters" className="space-y-3">
             <Table rows={f(masters.transactionTypes || [])} cols={[
               ["Code", "code"], ["Name", "name"], ["Direction", "direction"], ["Tally Voucher", "tallyVoucherType"], ["Active", "isActive", (v: any) => v === false ? "No" : "Yes"],
               ["Actions", "id", (_: any, row: any) => <Button size="sm" variant="outline" onClick={() => void saveTransactionType(row, { isActive: row.isActive === false })}>{row.isActive === false ? "Enable" : "Disable"}</Button>],
             ]} />
             <Card className="rounded-md border bg-white shadow-sm"><CardHeader><CardTitle className="text-base">Accounts Data Sources</CardTitle></CardHeader><CardContent className="grid gap-2 md:grid-cols-2">{Object.entries(masters.sourceRegistry || {}).map(([key, value]: any) => <div key={key} className="rounded border p-3"><p className="font-medium capitalize">{key.replace(/([A-Z])/g, " $1")}</p><p className="text-xs text-muted-foreground">{(value || []).join(", ")}</p></div>)}</CardContent></Card>
           </TabsContent> */}
-          <TabsContent value="tally" className="space-y-3">
-            <Card className="rounded-md border bg-white shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base">TallyPrime Export</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-3">
-                {can("accounts.tally.export") ? (
-                  <>
-                    <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyFile("xml")}>
-                      {actionLoadingId === "tally-xml" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Export Chart of Accounts + Posted Vouchers XML
-                    </Button>
-                    <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyXlsx()}>
-                      {actionLoadingId === "tally-xlsx" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Export Chart of Accounts + Posted Vouchers XLSX
-                    </Button>
-                    <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyFile("csv")}>
-                      {actionLoadingId === "tally-csv" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Export Chart of Accounts + Posted Vouchers CSV
-                    </Button>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">You need Tally export permission.</p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="ap" className="space-y-3">
-            <Tabs value={apSubTab} onValueChange={setApSubTab}>
-              <TabsList className="mb-3 bg-slate-100">
-                <TabsTrigger value="bills">Pending Bills</TabsTrigger>
-                <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
-              </TabsList>
-              <TabsContent value="bills" className="space-y-3">
-                <div className="flex justify-end gap-2">
-                  {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
-                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apBill"} onClick={() => void exportAccountXlsx("apBill")} />}
-                </div>
-                <Table
-                  tableId="ap-bills"
-                  serverKey="ap"
-                  rows={f(
-                    ap.filter((entry) => entry.entryType !== "Debit Note"),
+            <TabsContent value="tally" className="space-y-3">
+              <Card className="rounded-md border bg-white shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-base">TallyPrime Export</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-wrap gap-3">
+                  {can("accounts.tally.export") ? (
+                    <>
+                      <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyFile("xml")}>
+                        {actionLoadingId === "tally-xml" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Export Chart of Accounts + Posted Vouchers XML
+                      </Button>
+                      <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyXlsx()}>
+                        {actionLoadingId === "tally-xlsx" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Export Chart of Accounts + Posted Vouchers XLSX
+                      </Button>
+                      <Button variant="outline" disabled={Boolean(actionLoadingId) || submitting} onClick={() => void exportTallyFile("csv")}>
+                        {actionLoadingId === "tally-csv" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Export Chart of Accounts + Posted Vouchers CSV
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">You need Tally export permission.</p>
                   )}
-                  cols={[
-                    ["Vendor", "vendorName"],
-                    ["Bill #", "billNumber"],
-                    ["Bill Date", "billDate"],
-                    ["Due Date", "dueDate"],
-                    ["Amount", "amount", inr],
-                    [
-                      "Paid",
-                      "paidAmount",
-                      (value) => (
-                        <span className="font-medium text-emerald-600">
-                          {inr(value)}
-                        </span>
-                      ),
-                    ],
-                    [
-                      "Payment History",
-                      "paymentHistory",
-                      (_value: any, row: any) =>
-                        row.paymentHistory?.length ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setHistoryModal({
-                                title: "Disbursement History",
-                                reference: row.billNumber,
-                                contactName: row.vendorName,
-                                payments: row.paymentHistory,
-                              })
-                            }
-                            className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
-                          >
-                            {row.paymentHistory.length}{" "}
-                            {row.paymentHistory.length === 1
-                              ? "disbursement"
-                              : "disbursements"}
-                          </button>
-                        ) : (
-                          "—"
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="ap" className="space-y-3">
+              <Tabs value={apSubTab} onValueChange={setApSubTab}>
+                <TabsList className="mb-3 bg-slate-100">
+                  <TabsTrigger value="bills">Pending Bills</TabsTrigger>
+                  <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
+                </TabsList>
+                <TabsContent value="bills" className="space-y-3">
+                  <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
+                    {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apBill"} onClick={() => void exportAccountXlsx("apBill")} />}
+                  </div>
+                  <Table
+                    tableId="ap-bills"
+                    serverKey="ap"
+                    rows={f(
+                      ap.filter((entry) => entry.entryType !== "Debit Note"),
+                    )}
+                    cols={[
+                      ["Vendor", "vendorName"],
+                      ["Bill #", "billNumber"],
+                      ["Bill Date", "billDate"],
+                      ["Due Date", "dueDate"],
+                      ["Amount", "amount", inr],
+                      [
+                        "Paid",
+                        "paidAmount",
+                        (value) => (
+                          <span className="font-medium text-emerald-600">
+                            {inr(value)}
+                          </span>
                         ),
-                    ],
-                    [
-                      "Adjustment",
-                      "adjustedAmount",
-                      (value) => (
-                        <span className="font-medium text-sky-600">
-                          {inr(value)}
-                        </span>
-                      ),
-                    ],
-                    [
-                      "Balance",
-                      "balance",
-                      (_value, row) => (
-                        <span className="font-medium text-red-500">
-                          {inr(payableOutstanding(row))}
-                        </span>
-                      ),
-                    ],
-                    ["Status", "status", statusBadge],
-                    [
-                      "Actions",
-                      "actions",
-                      (_value, row) => {
-                        const balance = payableOutstanding(row);
-                        return (
+                      ],
+                      [
+                        "Payment History",
+                        "paymentHistory",
+                        (_value: any, row: any) =>
+                          row.paymentHistory?.length ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setHistoryModal({
+                                  title: "Disbursement History",
+                                  reference: row.billNumber,
+                                  contactName: row.vendorName,
+                                  payments: row.paymentHistory,
+                                })
+                              }
+                              className="font-semibold text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
+                            >
+                              {row.paymentHistory.length}{" "}
+                              {row.paymentHistory.length === 1
+                                ? "disbursement"
+                                : "disbursements"}
+                            </button>
+                          ) : (
+                            "—"
+                          ),
+                      ],
+                      [
+                        "Adjustment",
+                        "adjustedAmount",
+                        (value) => (
+                          <span className="font-medium text-sky-600">
+                            {inr(value)}
+                          </span>
+                        ),
+                      ],
+                      [
+                        "Balance",
+                        "balance",
+                        (_value, row) => (
+                          <span className="font-medium text-red-500">
+                            {inr(payableOutstanding(row))}
+                          </span>
+                        ),
+                      ],
+                      ["Status", "status", statusBadge],
+                      [
+                        "Actions",
+                        "actions",
+                        (_value, row) => {
+                          const balance = payableOutstanding(row);
+                          return (
+                            <div className="flex items-center gap-2">
+                              {balance > 0 &&
+                                row.approvalStatus === "Approved" && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => openApPayment(row)}
+                                    disabled={submitting}
+                                  >
+                                    <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                                  </Button>
+                                )}
+                              {row.approvalStatus === "Pending Approval" && (() => {
+                                const isApproving = actionLoadingId === `ap-approve-${row.id}`;
+                                const isRejecting = actionLoadingId === `ap-reject-${row.id}`;
+                                const isBusy = submitting || Boolean(actionLoadingId);
+                                return (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => void reviewAp(row, "approve")}
+                                      disabled={isBusy}
+                                    >
+                                      {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                      {isApproving ? "Approving..." : "Approve"}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => void reviewAp(row, "reject")}
+                                      disabled={isBusy}
+                                    >
+                                      {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                                      {isRejecting ? "Rejecting..." : "Reject"}
+                                    </Button>
+                                  </>
+                                );
+                              })()}
+                              <Button
+                                size="icon"
+                                className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
+                                title={
+                                  row.sourceType === "Manual"
+                                    ? "Delete bill"
+                                    : "Linked bills cannot be deleted"
+                                }
+                                aria-label={`Delete ${row.billNumber}`}
+                                disabled={
+                                  submitting || row.sourceType !== "Manual"
+                                }
+                                onClick={() => confirmDeletePayable(row)}
+                              >
+                                <Trash2 className="h-4 w-4 text-white" />
+                              </Button>
+                            </div>
+                          );
+                        },
+                      ],
+                      ["Notes", "notes"],
+                    ]}
+                  />
+                </TabsContent>
+                <TabsContent value="debit-notes" className="space-y-3">
+                  <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
+                    {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apDebitNote"} onClick={() => void exportAccountXlsx("apDebitNote")} />}
+                  </div>
+                  <Table
+                    tableId="ap-debit-notes"
+                    serverKey="ap"
+                    rows={f(
+                      ap.filter((entry) => entry.entryType === "Debit Note"),
+                    )}
+                    cols={[
+                      ["Vendor", "vendorName"],
+                      ["Debit Note #", "billNumber"],
+                      ["Against Bill", "againstBillNumber"],
+                      ["Date", "billDate"],
+                      ["Amount", "amount", inr],
+                      ["Status", "status", statusBadge],
+                      ["Notes", "notes"],
+                    ]}
+                  />
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+            <TabsContent value="ar" className="space-y-3">
+              <Tabs value={arSubTab} onValueChange={setArSubTab} className="space-y-3">
+                <TabsList>
+                  <TabsTrigger value="invoices">Pending Invoices</TabsTrigger>
+                  <TabsTrigger value="credit-notes">Credit Notes</TabsTrigger>
+                </TabsList>
+                <TabsContent value="invoices" className="space-y-3">
+                  <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
+                    {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arInvoice"} onClick={() => void exportAccountXlsx("arInvoice")} />}
+                  </div>
+                  <Table
+                    tableId="ar-invoices"
+                    serverKey="ar"
+                    rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
+                    cols={[
+                      ["Invoice", "invoiceNumber"],
+                      ["Customer", "clientName"],
+                      ["Due", "dueDate"],
+                      ["Amount", "amount", inr],
+                      ["Received", "receivedAmount", inr],
+                      [
+                        "Payment History",
+                        "paymentHistory",
+                        (_value: any, row: any) =>
+                          row.paymentHistory?.length ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setHistoryModal({
+                                  title: "Receipt History",
+                                  reference: row.invoiceNumber,
+                                  contactName: row.clientName,
+                                  payments: row.paymentHistory,
+                                })
+                              }
+                              className="font-semibold text-xs text-primary hover:text-primary/80 transition-colors cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
+                            >
+                              {row.paymentHistory.length}{" "}
+                              {row.paymentHistory.length === 1
+                                ? "receipt"
+                                : "receipts"}
+                            </button>
+                          ) : (
+                            "—"
+                          ),
+                      ],
+                      ["Adjusted", "adjustedAmount", inr],
+                      [
+                        "Balance",
+                        "balance",
+                        (_value, row) => inr(outstanding(row)),
+                      ],
+                      ["Status", "status"],
+                      [
+                        "Actions",
+                        "actions",
+                        (_value, row) => (
                           <div className="flex items-center gap-2">
-                            {balance > 0 &&
-                              row.approvalStatus === "Approved" && (
+                            {row.approvalStatus === "Approved" &&
+                              outstanding(row) > 0 && (
                                 <Button
                                   size="sm"
-                                  onClick={() => openApPayment(row)}
+                                  onClick={() => openPayment(row)}
                                   disabled={submitting}
                                 >
                                   <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
                                 </Button>
                               )}
                             {row.approvalStatus === "Pending Approval" && (() => {
-                              const isApproving = actionLoadingId === `ap-approve-${row.id}`;
-                              const isRejecting = actionLoadingId === `ap-reject-${row.id}`;
+                              const isApproving = actionLoadingId === `ar-approve-${row.id}`;
+                              const isRejecting = actionLoadingId === `ar-reject-${row.id}`;
                               const isBusy = submitting || Boolean(actionLoadingId);
                               return (
                                 <>
                                   <Button
                                     size="sm"
-                                    onClick={() => void reviewAp(row, "approve")}
+                                    onClick={() => void reviewAr(row, "approve")}
                                     disabled={isBusy}
                                   >
                                     {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
@@ -2839,7 +3192,7 @@ export default function Accounts() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
-                                    onClick={() => void reviewAp(row, "reject")}
+                                    onClick={() => void reviewAr(row, "reject")}
                                     disabled={isBusy}
                                   >
                                     {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
@@ -2852,1515 +3205,1370 @@ export default function Accounts() {
                               size="icon"
                               className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                               style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                              title={
-                                row.sourceType === "Manual"
-                                  ? "Delete bill"
-                                  : "Linked bills cannot be deleted"
-                              }
-                              aria-label={`Delete ${row.billNumber}`}
-                              disabled={
-                                submitting || row.sourceType !== "Manual"
-                              }
-                              onClick={() => confirmDeletePayable(row)}
+                              title="Delete"
+                              aria-label={`Delete ${row.invoiceNumber}`}
+                              onClick={() => confirmDeleteReceivable(row)}
+                              disabled={submitting || row.sourceType !== "Manual"}
                             >
                               <Trash2 className="h-4 w-4 text-white" />
                             </Button>
                           </div>
-                        );
-                      },
-                    ],
-                    ["Notes", "notes"],
-                  ]}
-                />
-              </TabsContent>
-              <TabsContent value="debit-notes" className="space-y-3">
-                <div className="flex justify-end gap-2">
-                  {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
-                  {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apDebitNote"} onClick={() => void exportAccountXlsx("apDebitNote")} />}
-                </div>
-                <Table
-                  tableId="ap-debit-notes"
-                  serverKey="ap"
-                  rows={f(
-                    ap.filter((entry) => entry.entryType === "Debit Note"),
-                  )}
-                  cols={[
-                    ["Vendor", "vendorName"],
-                    ["Debit Note #", "billNumber"],
-                    ["Against Bill", "againstBillNumber"],
-                    ["Date", "billDate"],
-                    ["Amount", "amount", inr],
-                    ["Status", "status", statusBadge],
-                    ["Notes", "notes"],
-                  ]}
-                />
-              </TabsContent>
-            </Tabs>
-          </TabsContent>
-          <TabsContent value="ar" className="space-y-3">
-            <Tabs value={arSubTab} onValueChange={setArSubTab} className="space-y-3">
-              <TabsList>
-                <TabsTrigger value="invoices">Pending Invoices</TabsTrigger>
-                <TabsTrigger value="credit-notes">Credit Notes</TabsTrigger>
-              </TabsList>
-              <TabsContent value="invoices" className="space-y-3">
-                <div className="flex justify-end gap-2">
-                  {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
-                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arInvoice"} onClick={() => void exportAccountXlsx("arInvoice")} />}
-                </div>
-                <Table
-                  tableId="ar-invoices"
-                  serverKey="ar"
-                  rows={f(ar.filter((row) => row.entryType !== "Credit Note"))}
-                  cols={[
-                    ["Invoice", "invoiceNumber"],
-                    ["Customer", "clientName"],
-                    ["Due", "dueDate"],
-                    ["Amount", "amount", inr],
-                    ["Received", "receivedAmount", inr],
-                    [
-                      "Payment History",
-                      "paymentHistory",
-                      (_value: any, row: any) =>
-                        row.paymentHistory?.length ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setHistoryModal({
-                                title: "Receipt History",
-                                reference: row.invoiceNumber,
-                                contactName: row.clientName,
-                                payments: row.paymentHistory,
-                              })
-                            }
-                            className="font-semibold text-xs text-primary hover:underline cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
-                          >
-                            {row.paymentHistory.length}{" "}
-                            {row.paymentHistory.length === 1
-                              ? "receipt"
-                              : "receipts"}
-                          </button>
-                        ) : (
-                          "—"
                         ),
-                    ],
-                    ["Adjusted", "adjustedAmount", inr],
-                    [
-                      "Balance",
-                      "balance",
-                      (_value, row) => inr(outstanding(row)),
-                    ],
-                    ["Status", "status"],
-                    [
-                      "Actions",
-                      "actions",
-                      (_value, row) => (
-                        <div className="flex items-center gap-2">
-                          {row.approvalStatus === "Approved" &&
-                            outstanding(row) > 0 && (
-                              <Button
-                                size="sm"
-                                onClick={() => openPayment(row)}
-                                disabled={submitting}
-                              >
-                                <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
-                              </Button>
-                            )}
-                          {row.approvalStatus === "Pending Approval" && (() => {
-                            const isApproving = actionLoadingId === `ar-approve-${row.id}`;
-                            const isRejecting = actionLoadingId === `ar-reject-${row.id}`;
-                            const isBusy = submitting || Boolean(actionLoadingId);
-                            return (
-                              <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => void reviewAr(row, "approve")}
-                                  disabled={isBusy}
-                                >
-                                  {isApproving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                                  {isApproving ? "Approving..." : "Approve"}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => void reviewAr(row, "reject")}
-                                  disabled={isBusy}
-                                >
-                                  {isRejecting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                                  {isRejecting ? "Rejecting..." : "Reject"}
-                                </Button>
-                              </>
-                            );
-                          })()}
-                          <Button
-                            size="icon"
-                            className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                            title="Delete"
-                            aria-label={`Delete ${row.invoiceNumber}`}
-                            onClick={() => confirmDeleteReceivable(row)}
-                            disabled={submitting || row.sourceType !== "Manual"}
-                          >
-                            <Trash2 className="h-4 w-4 text-white" />
-                          </Button>
-                        </div>
-                      ),
-                    ],
-                    ["Notes", "notes"],
-                  ]}
-                />
-              </TabsContent>
-              <TabsContent value="credit-notes" className="space-y-3">
-                <div className="flex justify-end gap-2">
-                  {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
-                  {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arCreditNote"} onClick={() => void exportAccountXlsx("arCreditNote")} />}
-                </div>
-                <Table
-                  tableId="ar-credit-notes"
-                  serverKey="ar"
-                  rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
-                  cols={[
-                    ["Credit Note", "creditNoteNumber"],
-                    ["Original Invoice", "linkedInvoiceNumber"],
-                    ["Customer", "clientName"],
-                    ["Date", "invoiceDate"],
-                    ["Credit Amount", "amount", inr],
-                    ["Applied to Invoice", "adjustedAmount", inr],
-                    [
-                      "Customer Credit",
-                      "creditBalance",
-                      (_value, row) =>
-                        inr(
-                          Math.max(
-                            0,
-                            numberValue(row.amount) -
-                            numberValue(row.adjustedAmount),
+                      ],
+                      ["Notes", "notes"],
+                    ]}
+                  />
+                </TabsContent>
+                <TabsContent value="credit-notes" className="space-y-3">
+                  <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
+                    {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arCreditNote"} onClick={() => void exportAccountXlsx("arCreditNote")} />}
+                  </div>
+                  <Table
+                    tableId="ar-credit-notes"
+                    serverKey="ar"
+                    rows={f(ar.filter((row) => row.entryType === "Credit Note"))}
+                    cols={[
+                      ["Credit Note", "creditNoteNumber"],
+                      ["Original Invoice", "linkedInvoiceNumber"],
+                      ["Customer", "clientName"],
+                      ["Date", "invoiceDate"],
+                      ["Credit Amount", "amount", inr],
+                      ["Applied to Invoice", "adjustedAmount", inr],
+                      [
+                        "Customer Credit",
+                        "creditBalance",
+                        (_value, row) =>
+                          inr(
+                            Math.max(
+                              0,
+                              numberValue(row.amount) -
+                              numberValue(row.adjustedAmount),
+                            ),
                           ),
-                        ),
-                    ],
-                    ["Status", "status"],
-                    ["Notes", "notes"],
-                  ]}
-                />
-              </TabsContent>
-            </Tabs>
-          </TabsContent>
-          <TabsContent value="journals" className="space-y-3">
-            <div className="flex flex-wrap justify-end gap-2">
-              {can("accounts.journal_entries.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("journal")} />}
-              {can("accounts.journal_entries.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-journal"} onClick={() => void exportAccountXlsx("journal")} />}
-              {can("accounts.journal_entries.create") && (
-                <Button onClick={() => openManual("journal")}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Journal
-                </Button>
-              )}
-            </div>
-            <Table
-              tableId="journals"
-              serverKey="j"
-              rows={f(journals)}
-              cols={[
-                ["Date", "entryDate"],
-                ["Reference", "reference", (value: any, row: any) => {
-                  const docRef = row.metadata?.documentReference;
-                  if (docRef && value && !String(value).includes(docRef)) {
-                    return `${docRef} (${value})`;
-                  }
-                  return value || docRef || "—";
-                }],
-                ["Description", "description"],
-                ["Debit", "totalDebit", inr],
-                ["Credit", "totalCredit", inr],
-                ["Notes", "notes", (_value: any, row: any) => row.metadata?.notes || "—"],
-              ]}
-            />
-          </TabsContent>
-          <TabsContent value="statements">
-            <FinancialStatements request={api} can={can} />
-          </TabsContent>
-        </Tabs>
-        {Boolean(manualType) && (
-          <Dialog
-            open={Boolean(manualType)}
-            onOpenChange={(open) => {
-              if (!open && !submitting) setManualType(null);
-            }}
-          >
-            <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>
-                {manualType === "account"
-                  ? manual.id
-                    ? "Edit Ledger Account"
-                    : "Add Ledger Account"
-                  : "New Journal Entry"}
-              </DialogTitle>
-            </DialogHeader>
-            {manualType && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {error && (
-                  <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                    {error}
+                      ],
+                      ["Status", "status"],
+                      ["Notes", "notes"],
+                    ]}
+                  />
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
+            <TabsContent value="journals" className="space-y-3">
+              <div className="flex flex-wrap justify-end gap-2">
+                {can("accounts.journal_entries.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("journal")} />}
+                {can("accounts.journal_entries.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-journal"} onClick={() => void exportAccountXlsx("journal")} />}
+                {can("accounts.journal_entries.create") && (
+                  <Button onClick={() => openManual("journal")}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New Journal
+                  </Button>
+                )}
+              </div>
+              <Table
+                tableId="journals"
+                serverKey="j"
+                rows={f(journals)}
+                cols={[
+                  ["Date", "entryDate"],
+                  ["Reference", "reference", (value: any, row: any) => {
+                    const docRef = row.metadata?.documentReference;
+                    if (docRef && value && !String(value).includes(docRef)) {
+                      return `${docRef} (${value})`;
+                    }
+                    return value || docRef || "—";
+                  }],
+                  ["Description", "description"],
+                  ["Debit", "totalDebit", inr],
+                  ["Credit", "totalCredit", inr],
+                  ["Notes", "notes", (_value: any, row: any) => row.metadata?.notes || "—"],
+                ]}
+              />
+            </TabsContent>
+            <TabsContent value="statements">
+              <FinancialStatements request={api} can={can} />
+            </TabsContent>
+          </Tabs>
+          {Boolean(manualType) && (
+            <Dialog
+              open={Boolean(manualType)}
+              onOpenChange={(open) => {
+                if (!open && !submitting) setManualType(null);
+              }}
+            >
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    {manualType === "account"
+                      ? manual.id
+                        ? "Edit Ledger Account"
+                        : "Add Ledger Account"
+                      : "New Journal Entry"}
+                  </DialogTitle>
+                </DialogHeader>
+                {manualType && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {error && (
+                      <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                        {error}
+                      </div>
+                    )}
+                    {manualType === "account" && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label>Account Code *</Label>
+                          <Input
+                            value={manual.accountCode || ""}
+                            onChange={(e) =>
+                              setManualField("accountCode", e.target.value)
+                            }
+                            placeholder="e.g. 6100"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Account Name *</Label>
+                          <Input
+                            value={manual.accountName || ""}
+                            onChange={(e) =>
+                              setManualField("accountName", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Account Type *</Label>
+                          <Select
+                            value={manual.accountType || "Asset"}
+                            onValueChange={(val) => setManualField("accountType", val)}
+                          >
+                            <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {[
+                                "Asset",
+                                "Liability",
+                                "Equity",
+                                "Revenue",
+                                "Expense",
+                              ].map((x) => (
+                                <SelectItem key={x} value={x}>
+                                  {x}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Opening Balance *</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={manual.openingBalance ?? manual.currentBalance ?? ""}
+                            onChange={(e) =>
+                              setManualField("openingBalance", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label>Description</Label>
+                          <Input
+                            value={manual.description || ""}
+                            onChange={(e) =>
+                              setManualField("description", e.target.value)
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
+                    {manualType === "journal" && (
+                      <>
+                        <div className="space-y-1.5">
+                          <Label>Date *</Label>
+                          <Input
+                            type="date"
+                            max={today}
+                            value={manual.entryDate}
+                            onChange={(e) =>
+                              setManualField("entryDate", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Reference *</Label>
+                          <Input
+                            value={manual.reference || ""}
+                            onChange={(e) =>
+                              setManualField("reference", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label>Description *</Label>
+                          <Input
+                            value={manual.description || ""}
+                            onChange={(e) =>
+                              setManualField("description", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Debit Account *</Label>
+                          <Select
+                            value={manual.debitAccountId ? String(manual.debitAccountId) : undefined}
+                            onValueChange={(val) => setManualField("debitAccountId", val)}
+                          >
+                            <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                              <SelectValue placeholder="Select account" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {coa.map((a: any) => (
+                                <SelectItem key={a.id} value={String(a.id)}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                      {a.accountCode}
+                                    </span>
+                                    <span className="truncate">{a.accountName}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Credit Account *</Label>
+                          <Select
+                            value={manual.creditAccountId ? String(manual.creditAccountId) : undefined}
+                            onValueChange={(val) => setManualField("creditAccountId", val)}
+                          >
+                            <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                              <SelectValue placeholder="Select account" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {coa.map((a: any) => (
+                                <SelectItem key={a.id} value={String(a.id)}>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                      {a.accountCode}
+                                    </span>
+                                    <span className="truncate">{a.accountName}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Amount *</Label>
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={manual.amount || ""}
+                            onChange={(e) => setManualField("amount", e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Memo</Label>
+                          <Input
+                            value={manual.memo || ""}
+                            onChange={(e) => setManualField("memo", e.target.value)}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
-                {manualType === "account" && (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label>Account Code *</Label>
-                      <Input
-                        value={manual.accountCode || ""}
-                        onChange={(e) =>
-                          setManualField("accountCode", e.target.value)
-                        }
-                        placeholder="e.g. 6100"
-                      />
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setManualType(null)}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => void submitManual()}
+                    disabled={
+                      submitting ||
+                      (manualType === "account" &&
+                        (!manual.accountCode?.trim() || !manual.accountName?.trim())) ||
+                      (manualType === "journal" &&
+                        (!manual.entryDate ||
+                          !manual.reference?.trim() ||
+                          !manual.description?.trim() ||
+                          !manual.debitAccountId ||
+                          !manual.creditAccountId ||
+                          !manual.amount))
+                    }
+                  >
+                    {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {submitting ? "Saving..." : "Save Entry"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {Boolean(accountImport) && (
+            <Dialog
+              open={Boolean(accountImport)}
+              onOpenChange={(open) => {
+                if (!open && !submitting) {
+                  setAccountImport(null);
+                  setAccountImportRows([]);
+                  setAccountImportFile("");
+                }
+              }}
+            >
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>{accountImport ? `Import ${accountImportConfig[accountImport].title}` : "Import Excel"}</DialogTitle>
+                </DialogHeader>
+                {accountImport && (
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Download template</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Use the exact headers and YYYY-MM-DD date format.</p>
+                      </div>
+                      <Button type="button" variant="outline" disabled={submitting} onClick={() => downloadAccountTemplate(accountImport)}>
+                        <Download className="mr-2 h-4 w-4" /> Download Template
+                      </Button>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label>Account Name *</Label>
-                      <Input
-                        value={manual.accountName || ""}
-                        onChange={(e) =>
-                          setManualField("accountName", e.target.value)
-                        }
-                      />
+                    <div className="rounded-md border p-4">
+                      <Label className="text-sm">Upload .xlsx file</Label>
+                      <Input className="mt-2" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void parseAccountImportFile(event.target.files?.[0])} />
+                      {accountImportFile && <p className="mt-2 text-xs text-muted-foreground">{accountImportFile} - {accountImportRows.length} row(s) ready</p>}
+                      {error && <div className="mt-2 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
                     </div>
-                    <div className="space-y-1.5">
-                      <Label>Account Type *</Label>
-                      <Select
-                        value={manual.accountType || "Asset"}
-                        onValueChange={(val) => setManualField("accountType", val)}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[
-                            "Asset",
-                            "Liability",
-                            "Equity",
-                            "Revenue",
-                            "Expense",
-                          ].map((x) => (
-                            <SelectItem key={x} value={x}>
-                              {x}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Opening Balance *</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={manual.openingBalance ?? manual.currentBalance ?? ""}
-                        onChange={(e) =>
-                          setManualField("openingBalance", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label>Description</Label>
-                      <Input
-                        value={manual.description || ""}
-                        onChange={(e) =>
-                          setManualField("description", e.target.value)
-                        }
-                      />
-                    </div>
-                  </>
+                  </div>
                 )}
-                {manualType === "journal" && (
-                  <>
+                <DialogFooter>
+                  <Button variant="outline" disabled={submitting} onClick={() => setAccountImport(null)}>Cancel</Button>
+                  <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>
+                    {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {submitting ? "Importing..." : "Import"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {Boolean(bankDecision) && (
+            <Dialog
+              open={Boolean(bankDecision)}
+              onOpenChange={(open) => {
+                if (!open && !submitting) setBankDecision(null);
+              }}
+            >
+              <DialogContent className="max-w-md rounded-md border bg-background shadow-xl">
+                <DialogHeader>
+                  <DialogTitle>Reject Bank & Cash Transaction</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  {bankDecision?.row && (
+                    <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                      <div className="font-medium">{bankDecision.row.reference || bankDecision.row.transactionTypeName}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {String(bankDecision.row.transactionDate || "").slice(0, 10)} - {inr(bankDecision.row.amount)}
+                      </div>
+                    </div>
+                  )}
+                  <label className="space-y-1.5 text-sm">
+                    <Label>Rejection Remarks *</Label>
+                    <Input
+                      value={bankDecision?.remarks || ""}
+                      onChange={(event) =>
+                        setBankDecision((current) =>
+                          current ? { ...current, remarks: event.target.value } : current,
+                        )
+                      }
+                      placeholder="Enter reason for rejection"
+                    />
+                  </label>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setBankDecision(null)} disabled={submitting}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={submitting || !bankDecision?.remarks.trim()}
+                    onClick={() => bankDecision && void bankCashDecision(bankDecision.row, "reject", bankDecision.remarks.trim())}
+                  >
+                    {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    {submitting ? "Rejecting..." : "Reject"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {settlement?.kind === "ap" && (
+            <Dialog
+              open={settlement?.kind === "ap"}
+              onOpenChange={(open) => {
+                if (!open && !submitting) {
+                  setSettlement(null);
+                  setSettlementAmount("");
+                }
+              }}
+            >
+              <DialogContent className="max-w-lg rounded-2xl p-6">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-500">
+                      <DollarSign className="h-5 w-5" />
+                    </span>
+                    Record Payment
+                  </DialogTitle>
+                </DialogHeader>
+                {settlement?.kind === "ap" && (
+                  <div className="space-y-5 py-2">
+                    {error && (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                        {error}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Total Amount
+                        </p>
+                        <p className="font-semibold">
+                          {inr(settlement.row.amount)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Already Paid
+                        </p>
+                        <p className="font-semibold text-emerald-600">
+                          {inr(settlement.row.paidAmount)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Balance
+                        </p>
+                        <p className="font-semibold text-red-500">
+                          {inr(
+                            Math.max(
+                              0,
+                              numberValue(settlement.row.amount) -
+                              numberValue(settlement.row.paidAmount) -
+                              numberValue(settlement.row.adjustedAmount),
+                            ),
+                          )}
+                        </p>
+                      </div>
+                    </div>
                     <div className="space-y-1.5">
-                      <Label>Date *</Label>
+                      <Label htmlFor="ap-payment-amount">Payment Amount</Label>
                       <Input
-                        type="date"
-                        max={today}
-                        value={manual.entryDate}
-                        onChange={(e) =>
-                          setManualField("entryDate", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Reference *</Label>
-                      <Input
-                        value={manual.reference || ""}
-                        onChange={(e) =>
-                          setManualField("reference", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label>Description *</Label>
-                      <Input
-                        value={manual.description || ""}
-                        onChange={(e) =>
-                          setManualField("description", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Debit Account *</Label>
-                      <Select
-                        value={manual.debitAccountId ? String(manual.debitAccountId) : undefined}
-                        onValueChange={(val) => setManualField("debitAccountId", val)}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.map((a: any) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {a.accountCode}
-                                </span>
-                                <span className="truncate">{a.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Credit Account *</Label>
-                      <Select
-                        value={manual.creditAccountId ? String(manual.creditAccountId) : undefined}
-                        onValueChange={(val) => setManualField("creditAccountId", val)}
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.map((a: any) => (
-                            <SelectItem key={a.id} value={String(a.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {a.accountCode}
-                                </span>
-                                <span className="truncate">{a.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Amount *</Label>
-                      <Input
+                        id="ap-payment-amount"
                         type="number"
                         min="0.01"
                         step="0.01"
-                        value={manual.amount || ""}
-                        onChange={(e) => setManualField("amount", e.target.value)}
+                        value={settlementAmount}
+                        onChange={(event) =>
+                          setSettlementAmount(event.target.value)
+                        }
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Memo</Label>
+                      <Label htmlFor="ap-account-name">Account Name *</Label>
+                      <Select
+                        value={apSettlementAccountId || undefined}
+                        onValueChange={(val) => setApSettlementAccountId(val)}
+                      >
+                        <SelectTrigger id="ap-account-name" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((account) => account.isActive !== false).map((account) => (
+                            <SelectItem key={account.id} value={String(account.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {account.accountCode}
+                                </span>
+                                <span className="truncate">{account.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSettlement(null)}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="bg-red-500 hover:bg-red-600"
+                    onClick={() => void saveSettlement()}
+                    disabled={submitting || !settlementAmount || !apSettlementAccountId}
+                  >
+                    {submitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="mr-2 h-4 w-4" />
+                    )}
+                    {submitting ? "Recording..." : "Record Payment"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {Boolean(paymentAr) && (
+            <Dialog
+              open={Boolean(paymentAr)}
+              onOpenChange={(open) => {
+                if (!open && !submitting) setPaymentAr(null);
+              }}
+            >
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Receive Payment</DialogTitle>
+                </DialogHeader>
+                {paymentAr && (
+                  <div className="space-y-5">
+                    {error && (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                        {error}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Total Amount
+                        </p>
+                        <p className="font-semibold">{inr(paymentAr.amount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Already Paid
+                        </p>
+                        <p className="font-semibold text-primary">
+                          {inr(paymentAr.receivedAmount)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Balance
+                        </p>
+                        <p className="font-semibold">
+                          {inr(outstanding(paymentAr))}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="payment-amount">Paid Amount *</Label>
                       <Input
-                        value={manual.memo || ""}
-                        onChange={(e) => setManualField("memo", e.target.value)}
+                        id="payment-amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        max={outstanding(paymentAr)}
+                        value={paymentAmount}
+                        onChange={(event) => setPaymentAmount(event.target.value)}
                       />
                     </div>
-                  </>
-                )}
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setManualType(null)}
-                disabled={submitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void submitManual()}
-                disabled={
-                  submitting ||
-                  (manualType === "account" &&
-                    (!manual.accountCode?.trim() || !manual.accountName?.trim())) ||
-                  (manualType === "journal" &&
-                    (!manual.entryDate ||
-                      !manual.reference?.trim() ||
-                      !manual.description?.trim() ||
-                      !manual.debitAccountId ||
-                      !manual.creditAccountId ||
-                      !manual.amount))
-                }
-              >
-                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {submitting ? "Saving..." : "Save Entry"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        )}
-        {Boolean(accountImport) && (
-          <Dialog
-            open={Boolean(accountImport)}
-            onOpenChange={(open) => {
-              if (!open && !submitting) {
-                setAccountImport(null);
-                setAccountImportRows([]);
-                setAccountImportFile("");
-              }
-            }}
-          >
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>{accountImport ? `Import ${accountImportConfig[accountImport].title}` : "Import Excel"}</DialogTitle>
-              </DialogHeader>
-              {accountImport && (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Download template</p>
-                      <p className="mt-1 text-xs text-muted-foreground">Use the exact headers and YYYY-MM-DD date format.</p>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="from-account">From Account *</Label>
+                      <Select
+                        value={arPayment.fromAccountId || undefined}
+                        onValueChange={(val) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            fromAccountId: val,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
+                            <SelectItem key={account.id} value={String(account.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {account.accountCode}
+                                </span>
+                                <span className="truncate">{account.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
+                      <Select
+                        value={arPayment.settlementAccountId || undefined}
+                        onValueChange={(val) =>
+                          setArPayment((value) => ({
+                            ...value,
+                            settlementAccountId: val,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select settlement account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                            <SelectItem key={account.id} value={String(account.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {account.accountCode}
+                                </span>
+                                <span className="truncate">{account.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <Button type="button" variant="outline" disabled={submitting} onClick={() => downloadAccountTemplate(accountImport)}>
-                      <Download className="mr-2 h-4 w-4" /> Download Template
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5 text-sm">
+                        <Label>Payment Date *</Label>
+                        <Input
+                          type="date"
+                          required
+                          value={arPayment.paymentDate}
+                          onChange={(e) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              paymentDate: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5 text-sm">
+                        <Label>Payment Method</Label>
+                        <Select
+                          value={arPayment.paymentMethod || "__none__"}
+                          onValueChange={(val) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              paymentMethod: val === "__none__" ? "" : val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Not specified" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">
+                              <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">Not specified</span>
+                            </SelectItem>
+                            {paymentMethods.map((method) => (
+                              <SelectItem key={method} value={method}>
+                                <div className="flex items-center gap-2">
+                                  <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
+                                  <span>{method}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <label className="space-y-1.5 text-sm">
+                        <Label>Bank Charges</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={arPayment.bankCharges}
+                          onChange={(e) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              bankCharges: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      {paymentAr.sourceType !== "Sales Invoice" && <>
+                        <label className="space-y-1.5 text-sm">Period (optional)<Input value={arPayment.period} onChange={(e) => setArPayment((value) => ({ ...value, period: e.target.value }))} /></label>
+                        <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={arPayment.transactionFees} onChange={(e) => setArPayment((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
+                      </>}
+                      <label className="space-y-1.5 text-sm">
+                        <Label>TDS Amount</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={arPayment.tdsAmount}
+                          onChange={(e) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              tdsAmount: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-sm sm:col-span-2">
+                        <Label>Reference ID / Invoice Number</Label>
+                        <Input
+                          placeholder={paymentAr.invoiceNumber || paymentAr.reference || "Reference ID / Invoice Number"}
+                          value={arPayment.reference}
+                          onChange={(e) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              reference: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-sm sm:col-span-2">
+                        <Label>Notes</Label>
+                        <Input
+                          value={arPayment.notes}
+                          onChange={(e) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              notes: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setPaymentAr(null)}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => void receivePayment()}
+                    disabled={submitting || !paymentAmount || !arPayment.settlementAccountId || !arPayment.fromAccountId || !arPayment.paymentDate}
+                  >
+                    {submitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="mr-2 h-4 w-4" />
+                    )}{" "}
+                    {submitting ? "Receiving..." : "Receive Payment"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {Boolean(paymentAp) && (
+            <Dialog
+              open={Boolean(paymentAp)}
+              onOpenChange={(open) => {
+                if (!open && !submitting) setPaymentAp(null);
+              }}
+            >
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Record Payment</DialogTitle>
+                </DialogHeader>
+                {paymentAp && (
+                  <div className="space-y-5">
+                    {error && (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                        {error}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Total Amount
+                        </p>
+                        <p className="font-semibold">{inr(paymentAp.amount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Already Paid
+                        </p>
+                        <p className="font-semibold text-primary">
+                          {inr(paymentAp.paidAmount)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase text-muted-foreground">
+                          Balance
+                        </p>
+                        <p className="font-semibold">
+                          {inr(payableOutstanding(paymentAp))}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ap-paid-amount">Payment Amount *</Label>
+                      <Input
+                        id="ap-paid-amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        max={payableOutstanding(paymentAp)}
+                        value={paymentApAmount}
+                        onChange={(event) => setPaymentApAmount(event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ap-from-account">From Account *</Label>
+                      <Select
+                        value={apPaymentForm.fromAccountId || undefined}
+                        onValueChange={(val) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            fromAccountId: val,
+                            settlementAccountId: val,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select disbursement account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                            <SelectItem key={account.id} value={String(account.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {account.accountCode}
+                                </span>
+                                <span className="truncate">{account.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
+                      <Select
+                        value={apPaymentForm.toAccountId || undefined}
+                        onValueChange={(val) =>
+                          setApPaymentForm((value) => ({
+                            ...value,
+                            toAccountId: val,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                          <SelectValue placeholder="Select payable account" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                            <SelectItem key={account.id} value={String(account.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                  {account.accountCode}
+                                </span>
+                                <span className="truncate">{account.accountName}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5 text-sm">
+                        <Label>Payment Date *</Label>
+                        <Input
+                          type="date"
+                          required
+                          value={apPaymentForm.paymentDate}
+                          onChange={(e) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              paymentDate: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5 text-sm">
+                        <Label>Payment Method</Label>
+                        <Select
+                          value={apPaymentForm.paymentMethod || "__none__"}
+                          onValueChange={(val) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              paymentMethod: val === "__none__" ? "" : val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Not specified" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">
+                              <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">Not specified</span>
+                            </SelectItem>
+                            {paymentMethods.map((method) => (
+                              <SelectItem key={method} value={method}>
+                                <div className="flex items-center gap-2">
+                                  <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
+                                  <span>{method}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <label className="space-y-1.5 text-sm">
+                        <Label>Bank Charges</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={apPaymentForm.bankCharges}
+                          onChange={(e) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              bankCharges: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      {paymentAp.sourceType !== "Purchase Invoice" && <>
+                        <label className="space-y-1.5 text-sm">Period (optional)<Input value={apPaymentForm.period} onChange={(e) => setApPaymentForm((value) => ({ ...value, period: e.target.value }))} /></label>
+                        <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={apPaymentForm.transactionFees} onChange={(e) => setApPaymentForm((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
+                      </>}
+                      <label className="space-y-1.5 text-sm">
+                        <Label>TDS Amount</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={apPaymentForm.tdsAmount}
+                          onChange={(e) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              tdsAmount: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-sm sm:col-span-2">
+                        <Label>Reference ID / Bill Number</Label>
+                        <Input
+                          placeholder={paymentAp.billNumber || paymentAp.reference || "Reference ID / Bill Number"}
+                          value={apPaymentForm.reference}
+                          onChange={(e) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              reference: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="space-y-1.5 text-sm sm:col-span-2">
+                        <Label>Notes</Label>
+                        <Input
+                          value={apPaymentForm.notes}
+                          onChange={(e) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              notes: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setPaymentAp(null)}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => void recordApPayment()}
+                    disabled={submitting || !paymentApAmount || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId || !apPaymentForm.paymentDate}
+                  >
+                    {submitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="mr-2 h-4 w-4" />
+                    )}{" "}
+                    {submitting ? "Recording..." : "Record Payment"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+          {Boolean(historyModal) && (
+            <Dialog
+              open={Boolean(historyModal)}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setHistoryModal(null);
+                  setActiveHistoryIdx(0);
+                  setCopiedRef(false);
+                }
+              }}
+            >
+              <DialogContent className="max-w-3xl sm:max-w-4xl max-h-[88vh] flex flex-col p-0 overflow-hidden rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-2xl bg-slate-50/90 dark:bg-slate-950 gap-0 backdrop-blur-md [&>button.absolute]:hidden">
+                {/* Top Accent Ribbon */}
+                <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 shrink-0" />
+
+                {/* Minimalist Top Bar (No X button) */}
+                <div className="px-5 sm:px-6 py-3 flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0 ring-1 ring-emerald-500/20">
+                      <Receipt className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                        {historyModal?.title || "Transaction Receipt"}
+                      </h3>
+                      <p className="text-[11px] text-muted-foreground leading-none mt-0.5">
+                        {historyModal?.contactName || "Accounts Ledger Entry"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2.5 text-xs rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
+                      onClick={() => {
+                        const text = `Transaction Reference: ${historyModal?.reference || ""}\nParty: ${historyModal?.contactName || ""}\nAmount: ${historyModal?.payments?.[activeHistoryIdx]?.amount || ""}`;
+                        navigator.clipboard.writeText(text);
+                        setCopiedRef(true);
+                        setTimeout(() => setCopiedRef(false), 1800);
+                      }}
+                    >
+                      {copiedRef ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-600" />
+                          <span className="text-emerald-600 font-semibold text-[11px]">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3 text-slate-500" />
+                          <span className="text-[11px]">Copy</span>
+                        </>
+                      )}
                     </Button>
                   </div>
-                  <div className="rounded-md border p-4">
-                    <Label className="text-sm">Upload .xlsx file</Label>
-                    <Input className="mt-2" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => void parseAccountImportFile(event.target.files?.[0])} />
-                    {accountImportFile && <p className="mt-2 text-xs text-muted-foreground">{accountImportFile} - {accountImportRows.length} row(s) ready</p>}
-                    {error && <div className="mt-2 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div>}
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button variant="outline" disabled={submitting} onClick={() => setAccountImport(null)}>Cancel</Button>
-                <Button disabled={submitting || !accountImportRows.length} onClick={() => void submitAccountImport()}>
-                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {submitting ? "Importing..." : "Import"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {Boolean(bankDecision) && (
-          <Dialog
-            open={Boolean(bankDecision)}
-            onOpenChange={(open) => {
-              if (!open && !submitting) setBankDecision(null);
-            }}
-          >
-            <DialogContent className="max-w-md rounded-md border bg-background shadow-xl">
-              <DialogHeader>
-                <DialogTitle>Reject Bank & Cash Transaction</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                {bankDecision?.row && (
-                  <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                    <div className="font-medium">{bankDecision.row.reference || bankDecision.row.transactionTypeName}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {String(bankDecision.row.transactionDate || "").slice(0, 10)} - {inr(bankDecision.row.amount)}
-                    </div>
-                  </div>
-                )}
-                <label className="space-y-1.5 text-sm">
-                  <Label>Rejection Remarks *</Label>
-                  <Input
-                    value={bankDecision?.remarks || ""}
-                    onChange={(event) =>
-                      setBankDecision((current) =>
-                        current ? { ...current, remarks: event.target.value } : current,
-                      )
-                    }
-                    placeholder="Enter reason for rejection"
-                  />
-                </label>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setBankDecision(null)} disabled={submitting}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  disabled={submitting || !bankDecision?.remarks.trim()}
-                  onClick={() => bankDecision && void bankCashDecision(bankDecision.row, "reject", bankDecision.remarks.trim())}
-                >
-                  {submitting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                  {submitting ? "Rejecting..." : "Reject"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {settlement?.kind === "ap" && (
-          <Dialog
-            open={settlement?.kind === "ap"}
-            onOpenChange={(open) => {
-              if (!open && !submitting) {
-                setSettlement(null);
-                setSettlementAmount("");
-              }
-            }}
-          >
-            <DialogContent className="max-w-lg rounded-2xl p-6">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-500">
-                    <DollarSign className="h-5 w-5" />
-                  </span>
-                  Record Payment
-                </DialogTitle>
-              </DialogHeader>
-              {settlement?.kind === "ap" && (
-                <div className="space-y-5 py-2">
-                  {error && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                      {error}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted/45 p-4 text-center">
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Total Amount
-                      </p>
-                      <p className="font-semibold">
-                        {inr(settlement.row.amount)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Already Paid
-                      </p>
-                      <p className="font-semibold text-emerald-600">
-                        {inr(settlement.row.paidAmount)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Balance
-                      </p>
-                      <p className="font-semibold text-red-500">
-                        {inr(
-                          Math.max(
-                            0,
-                            numberValue(settlement.row.amount) -
-                            numberValue(settlement.row.paidAmount) -
-                            numberValue(settlement.row.adjustedAmount),
-                          ),
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ap-payment-amount">Payment Amount</Label>
-                    <Input
-                      id="ap-payment-amount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={settlementAmount}
-                      onChange={(event) =>
-                        setSettlementAmount(event.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ap-account-name">Account Name *</Label>
-                    <Select
-                      value={apSettlementAccountId || undefined}
-                      onValueChange={(val) => setApSettlementAccountId(val)}
-                    >
-                      <SelectTrigger id="ap-account-name" className="h-10 w-full bg-white font-medium shadow-sm">
-                        <SelectValue placeholder="Select account" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {coa.filter((account) => account.isActive !== false).map((account) => (
-                          <SelectItem key={account.id} value={String(account.id)}>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                {account.accountCode}
-                              </span>
-                              <span className="truncate">{account.accountName}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setSettlement(null)}
-                  disabled={submitting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="bg-red-500 hover:bg-red-600"
-                  onClick={() => void saveSettlement()}
-                  disabled={submitting || !settlementAmount || !apSettlementAccountId}
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Plus className="mr-2 h-4 w-4" />
-                  )}
-                  {submitting ? "Recording..." : "Record Payment"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {Boolean(paymentAr) && (
-          <Dialog
-            open={Boolean(paymentAr)}
-            onOpenChange={(open) => {
-              if (!open && !submitting) setPaymentAr(null);
-            }}
-          >
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Receive Payment</DialogTitle>
-              </DialogHeader>
-              {paymentAr && (
-                <div className="space-y-5">
-                  {error && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                      {error}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Total Amount
-                      </p>
-                      <p className="font-semibold">{inr(paymentAr.amount)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Already Paid
-                      </p>
-                      <p className="font-semibold text-primary">
-                        {inr(paymentAr.receivedAmount)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Balance
-                      </p>
-                      <p className="font-semibold">
-                        {inr(outstanding(paymentAr))}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="payment-amount">Paid Amount *</Label>
-                    <Input
-                      id="payment-amount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      max={outstanding(paymentAr)}
-                      value={paymentAmount}
-                      onChange={(event) => setPaymentAmount(event.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="from-account">From Account *</Label>
-                    <Select
-                      value={arPayment.fromAccountId || undefined}
-                      onValueChange={(val) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          fromAccountId: val,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                        <SelectValue placeholder="Select account" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
-                          <SelectItem key={account.id} value={String(account.id)}>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                {account.accountCode}
-                              </span>
-                              <span className="truncate">{account.accountName}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
-                    <Select
-                      value={arPayment.settlementAccountId || undefined}
-                      onValueChange={(val) =>
-                        setArPayment((value) => ({
-                          ...value,
-                          settlementAccountId: val,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                        <SelectValue placeholder="Select settlement account" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
-                          <SelectItem key={account.id} value={String(account.id)}>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                {account.accountCode}
-                              </span>
-                              <span className="truncate">{account.accountName}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5 text-sm">
-                      <Label>Payment Date *</Label>
-                      <Input
-                        type="date"
-                        required
-                        value={arPayment.paymentDate}
-                        onChange={(e) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            paymentDate: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5 text-sm">
-                      <Label>Payment Method</Label>
-                      <Select
-                        value={arPayment.paymentMethod || "__none__"}
-                        onValueChange={(val) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            paymentMethod: val === "__none__" ? "" : val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Not specified" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">
-                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">Not specified</span>
-                          </SelectItem>
-                          {paymentMethods.map((method) => (
-                            <SelectItem key={method} value={method}>
-                              <div className="flex items-center gap-2">
-                                <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
-                                <span>{method}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <label className="space-y-1.5 text-sm">
-                      <Label>Bank Charges</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={arPayment.bankCharges}
-                        onChange={(e) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            bankCharges: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    {paymentAr.sourceType !== "Sales Invoice" && <>
-                      <label className="space-y-1.5 text-sm">Period (optional)<Input value={arPayment.period} onChange={(e) => setArPayment((value) => ({ ...value, period: e.target.value }))} /></label>
-                      <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={arPayment.transactionFees} onChange={(e) => setArPayment((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
-                    </>}
-                    <label className="space-y-1.5 text-sm">
-                      <Label>TDS Amount</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={arPayment.tdsAmount}
-                        onChange={(e) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            tdsAmount: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 text-sm sm:col-span-2">
-                      <Label>Reference ID / Invoice Number</Label>
-                      <Input
-                        placeholder={paymentAr.invoiceNumber || paymentAr.reference || "Reference ID / Invoice Number"}
-                        value={arPayment.reference}
-                        onChange={(e) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            reference: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 text-sm sm:col-span-2">
-                      <Label>Notes</Label>
-                      <Input
-                        value={arPayment.notes}
-                        onChange={(e) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            notes: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setPaymentAr(null)}
-                  disabled={submitting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => void receivePayment()}
-                  disabled={submitting || !paymentAmount || !arPayment.settlementAccountId || !arPayment.fromAccountId || !arPayment.paymentDate}
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CreditCard className="mr-2 h-4 w-4" />
-                  )}{" "}
-                  {submitting ? "Receiving..." : "Receive Payment"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {Boolean(paymentAp) && (
-          <Dialog
-            open={Boolean(paymentAp)}
-            onOpenChange={(open) => {
-              if (!open && !submitting) setPaymentAp(null);
-            }}
-          >
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Record Payment</DialogTitle>
-              </DialogHeader>
-              {paymentAp && (
-                <div className="space-y-5">
-                  {error && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
-                      {error}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/45 p-4 text-center">
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Total Amount
-                      </p>
-                      <p className="font-semibold">{inr(paymentAp.amount)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Already Paid
-                      </p>
-                      <p className="font-semibold text-primary">
-                        {inr(paymentAp.paidAmount)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase text-muted-foreground">
-                        Balance
-                      </p>
-                      <p className="font-semibold">
-                        {inr(payableOutstanding(paymentAp))}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ap-paid-amount">Payment Amount *</Label>
-                    <Input
-                      id="ap-paid-amount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      max={payableOutstanding(paymentAp)}
-                      value={paymentApAmount}
-                      onChange={(event) => setPaymentApAmount(event.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="ap-from-account">From Account *</Label>
-                    <Select
-                      value={apPaymentForm.fromAccountId || undefined}
-                      onValueChange={(val) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          fromAccountId: val,
-                          settlementAccountId: val,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                        <SelectValue placeholder="Select disbursement account" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
-                          <SelectItem key={account.id} value={String(account.id)}>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                {account.accountCode}
-                              </span>
-                              <span className="truncate">{account.accountName}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
-                    <Select
-                      value={apPaymentForm.toAccountId || undefined}
-                      onValueChange={(val) =>
-                        setApPaymentForm((value) => ({
-                          ...value,
-                          toAccountId: val,
-                        }))
-                      }
-                    >
-                      <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                        <SelectValue placeholder="Select payable account" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
-                          <SelectItem key={account.id} value={String(account.id)}>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                {account.accountCode}
-                              </span>
-                              <span className="truncate">{account.accountName}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5 text-sm">
-                      <Label>Payment Date *</Label>
-                      <Input
-                        type="date"
-                        required
-                        value={apPaymentForm.paymentDate}
-                        onChange={(e) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            paymentDate: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1.5 text-sm">
-                      <Label>Payment Method</Label>
-                      <Select
-                        value={apPaymentForm.paymentMethod || "__none__"}
-                        onValueChange={(val) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            paymentMethod: val === "__none__" ? "" : val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Not specified" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">
-                            <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">Not specified</span>
-                          </SelectItem>
-                          {paymentMethods.map((method) => (
-                            <SelectItem key={method} value={method}>
-                              <div className="flex items-center gap-2">
-                                <CreditCard className="h-3.5 w-3.5 opacity-60 group-data-[highlighted]:text-white shrink-0" />
-                                <span>{method}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <label className="space-y-1.5 text-sm">
-                      <Label>Bank Charges</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={apPaymentForm.bankCharges}
-                        onChange={(e) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            bankCharges: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    {paymentAp.sourceType !== "Purchase Invoice" && <>
-                      <label className="space-y-1.5 text-sm">Period (optional)<Input value={apPaymentForm.period} onChange={(e) => setApPaymentForm((value) => ({ ...value, period: e.target.value }))} /></label>
-                      <label className="space-y-1.5 text-sm">Transaction Fees (optional)<Input type="number" min="0" step="0.01" value={apPaymentForm.transactionFees} onChange={(e) => setApPaymentForm((value) => ({ ...value, transactionFees: e.target.value }))} /><span className="text-xs text-muted-foreground">Informational; does not change the posted amount.</span></label>
-                    </>}
-                    <label className="space-y-1.5 text-sm">
-                      <Label>TDS Amount</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={apPaymentForm.tdsAmount}
-                        onChange={(e) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            tdsAmount: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 text-sm sm:col-span-2">
-                      <Label>Reference ID / Bill Number</Label>
-                      <Input
-                        placeholder={paymentAp.billNumber || paymentAp.reference || "Reference ID / Bill Number"}
-                        value={apPaymentForm.reference}
-                        onChange={(e) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            reference: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 text-sm sm:col-span-2">
-                      <Label>Notes</Label>
-                      <Input
-                        value={apPaymentForm.notes}
-                        onChange={(e) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            notes: e.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setPaymentAp(null)}
-                  disabled={submitting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => void recordApPayment()}
-                  disabled={submitting || !paymentApAmount || !apPaymentForm.fromAccountId || !apPaymentForm.toAccountId || !apPaymentForm.paymentDate}
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CreditCard className="mr-2 h-4 w-4" />
-                  )}{" "}
-                  {submitting ? "Recording..." : "Record Payment"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {Boolean(historyModal) && (
-          <Dialog
-            open={Boolean(historyModal)}
-            onOpenChange={(open) => {
-              if (!open) {
-                setHistoryModal(null);
-                setActiveHistoryIdx(0);
-                setCopiedRef(false);
-              }
-            }}
-          >
-            <DialogContent className="max-w-3xl sm:max-w-4xl max-h-[88vh] flex flex-col p-0 overflow-hidden rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-2xl bg-slate-50/90 dark:bg-slate-950 gap-0 backdrop-blur-md [&>button.absolute]:hidden">
-              {/* Top Accent Ribbon */}
-              <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-500 shrink-0" />
-
-              {/* Minimalist Top Bar (No X button) */}
-              <div className="px-5 sm:px-6 py-3 flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 shrink-0">
-                <div className="flex items-center gap-2.5">
-                  <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0 ring-1 ring-emerald-500/20">
-                    <Receipt className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                      {historyModal?.title || "Transaction Receipt"}
-                    </h3>
-                    <p className="text-[11px] text-muted-foreground leading-none mt-0.5">
-                      {historyModal?.contactName || "Accounts Ledger Entry"}
-                    </p>
-                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2.5 text-xs rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100"
-                    onClick={() => {
-                      const text = `Transaction Reference: ${historyModal?.reference || ""}\nParty: ${historyModal?.contactName || ""}\nAmount: ${historyModal?.payments?.[activeHistoryIdx]?.amount || ""}`;
-                      navigator.clipboard.writeText(text);
-                      setCopiedRef(true);
-                      setTimeout(() => setCopiedRef(false), 1800);
-                    }}
-                  >
-                    {copiedRef ? (
-                      <>
-                        <Check className="h-3 w-3 text-emerald-600" />
-                        <span className="text-emerald-600 font-semibold text-[11px]">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3 w-3 text-slate-500" />
-                        <span className="text-[11px]">Copy</span>
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Segmented Tab Switcher (If multiple payments exist) */}
-              {(historyModal?.payments?.length || 0) > 1 && (
-                <div className="flex items-center gap-1.5 overflow-x-auto px-5 sm:px-6 py-2 border-b border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/40 shrink-0">
-                  <span className="text-[10px] font-semibold text-muted-foreground mr-1 uppercase tracking-wider">
-                    Records:
-                  </span>
-                  {historyModal?.payments.map((p: any, idx: number) => {
-                    const amt = p.amount ?? p.paidAmount ?? p.credit ?? p.debit ?? 0;
-                    const isActive = activeHistoryIdx === idx;
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => setActiveHistoryIdx(idx)}
-                        className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                          isActive
+                {/* Segmented Tab Switcher (If multiple payments exist) */}
+                {(historyModal?.payments?.length || 0) > 1 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto px-5 sm:px-6 py-2 border-b border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/40 shrink-0">
+                    <span className="text-[10px] font-semibold text-muted-foreground mr-1 uppercase tracking-wider">
+                      Records:
+                    </span>
+                    {historyModal?.payments.map((p: any, idx: number) => {
+                      const amt = p.amount ?? p.paidAmount ?? p.credit ?? p.debit ?? 0;
+                      const isActive = activeHistoryIdx === idx;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setActiveHistoryIdx(idx)}
+                          className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${isActive
                             ? "bg-emerald-600 text-white shadow-xs font-bold ring-2 ring-emerald-500/20"
                             : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 hover:bg-slate-50"
-                        }`}
-                      >
-                        #{idx + 1} • {inr(amt)}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Digital Voucher Body Area (Compact Landscape) */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col items-center justify-center">
-                {(!historyModal?.payments || historyModal.payments.length === 0) ? (
-                  <div className="text-center py-10 px-4 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 w-full max-w-md">
-                    <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-2">
-                      <Receipt className="h-5 w-5" />
-                    </div>
-                    <p className="font-semibold text-foreground text-xs">No transaction records</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">There are no recorded receipts for this entry.</p>
+                            }`}
+                        >
+                          #{idx + 1} • {inr(amt)}
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : (() => {
-                  const payment = historyModal.payments[activeHistoryIdx] || historyModal.payments[0];
-                  const pAmount =
-                    payment.amount ??
-                    payment.paidAmount ??
-                    payment.credit ??
-                    payment.debit ??
-                    0;
-                  const pDate =
-                    payment.paymentDate ||
-                    payment.entryDate ||
-                    payment.date ||
-                    payment.paidDate ||
-                    "—";
-                  const pMethod =
-                    payment.paymentMethod ||
-                    payment.paymentMode ||
-                    payment.mode ||
-                    "—";
-                  const fromAcc =
-                    payment.fromAccountName ||
-                    payment.fromAccount ||
-                    "—";
-                  const toAcc =
-                    payment.toAccountName ||
-                    payment.toAccount ||
-                    payment.accountName ||
-                    "—";
-                  const ref =
-                    payment.reference ||
-                    payment.receiptId ||
-                    payment.paymentId ||
-                    payment.metadata?.documentReference ||
-                    historyModal.reference ||
-                    "—";
+                )}
 
-                  const isCredit =
-                    String(payment.mode || "").toLowerCase().includes("credit") ||
-                    String(pMethod).toLowerCase().includes("credit") ||
-                    historyModal?.title?.toLowerCase().includes("receipt");
+                {/* Digital Voucher Body Area (Compact Landscape) */}
+                <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col items-center justify-center">
+                  {(!historyModal?.payments || historyModal.payments.length === 0) ? (
+                    <div className="text-center py-10 px-4 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 w-full max-w-md">
+                      <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-2">
+                        <Receipt className="h-5 w-5" />
+                      </div>
+                      <p className="font-semibold text-foreground text-xs">No transaction records</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">There are no recorded receipts for this entry.</p>
+                    </div>
+                  ) : (() => {
+                    const payment = historyModal.payments[activeHistoryIdx] || historyModal.payments[0];
+                    const pAmount =
+                      payment.amount ??
+                      payment.paidAmount ??
+                      payment.credit ??
+                      payment.debit ??
+                      0;
+                    const pDate =
+                      payment.paymentDate ||
+                      payment.entryDate ||
+                      payment.date ||
+                      payment.paidDate ||
+                      "—";
+                    const pMethod =
+                      payment.paymentMethod ||
+                      payment.paymentMode ||
+                      payment.mode ||
+                      "—";
+                    const fromAcc =
+                      payment.fromAccountName ||
+                      payment.fromAccount ||
+                      "—";
+                    const toAcc =
+                      payment.toAccountName ||
+                      payment.toAccount ||
+                      payment.accountName ||
+                      "—";
+                    const ref =
+                      payment.reference ||
+                      payment.receiptId ||
+                      payment.paymentId ||
+                      payment.metadata?.documentReference ||
+                      historyModal.reference ||
+                      "—";
 
-                  return (
-                    <div className="w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-lg overflow-hidden relative">
-                      {/* Top Accent Line */}
-                      <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
+                    const isCredit =
+                      String(payment.mode || "").toLowerCase().includes("credit") ||
+                      String(pMethod).toLowerCase().includes("credit") ||
+                      historyModal?.title?.toLowerCase().includes("receipt");
 
-                      {/* Landscape 2-Column Grid */}
-                      <div className="grid grid-cols-1 md:grid-cols-12 relative">
-                        {/* Left Column: Hero Amount & Route (md:col-span-5) */}
-                        <div className="md:col-span-5 p-4 sm:p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20">
-                          <div>
-                            <div className="flex items-center gap-2.5">
-                              <div className="h-9 w-9 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center ring-4 ring-emerald-500/5 shadow-inner shrink-0">
-                                <CheckCircle2 className="h-5 w-5" />
-                              </div>
-                              <div>
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
-                                  <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-                                  Reconciled & Posted
-                                </span>
-                                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                                  {pDate} • {payment.mode || (isCredit ? "Credit" : "Debit")}
-                                </p>
-                              </div>
-                            </div>
+                    return (
+                      <div className="w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-lg overflow-hidden relative">
+                        {/* Top Accent Line */}
+                        <div className="h-1 w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500" />
 
-                            {/* Grand Settled Amount */}
-                            <div className="mt-4">
-                              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
-                                Settled Amount
-                              </span>
-                              <div className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight mt-0.5">
-                                {inr(pAmount)}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Transfer Route Visual Card */}
-                          <div className="mt-4 rounded-xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 space-y-1">
-                            <div className="flex items-center justify-between text-xs">
-                              <div className="min-w-0 flex-1">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">From</span>
-                                <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-xs mt-0.5" title={fromAcc}>
-                                  {fromAcc}
-                                </span>
-                              </div>
-                              <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 mx-1.5">
-                                <ArrowRight className="h-3 w-3" />
-                              </div>
-                              <div className="min-w-0 flex-1 text-right">
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">To</span>
-                                <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-xs mt-0.5" title={toAcc}>
-                                  {toAcc}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Right Column: Specification Matrix & Notes (md:col-span-7) */}
-                        <div className="md:col-span-7 p-4 sm:p-5 flex flex-col justify-between">
-                          <div className="space-y-2">
-                            <div className="rounded-xl border border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                              {historyModal.contactName && (
-                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
-                                  <span className="text-slate-500 font-medium text-[11px]">Party / Beneficiary</span>
-                                  <span className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
-                                    {historyModal.contactName}
-                                  </span>
+                        {/* Landscape 2-Column Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 relative">
+                          {/* Left Column: Hero Amount & Route (md:col-span-5) */}
+                          <div className="md:col-span-5 p-4 sm:p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/20">
+                            <div>
+                              <div className="flex items-center gap-2.5">
+                                <div className="h-9 w-9 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center ring-4 ring-emerald-500/5 shadow-inner shrink-0">
+                                  <CheckCircle2 className="h-5 w-5" />
                                 </div>
-                              )}
-
-                              <div className="p-2 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20">
-                                <span className="text-slate-500 font-medium text-[11px]">Reference Number</span>
-                                <span className="font-mono font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
-                                  {ref}
-                                </span>
-                              </div>
-
-                              <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
-                                <span className="text-slate-500 font-medium text-[11px]">Payment Mode</span>
-                                <span className="inline-flex items-center gap-1 font-bold text-slate-900 dark:text-slate-100">
-                                  <CreditCard className="h-3 w-3 text-slate-400" />
-                                  {pMethod}
-                                </span>
-                              </div>
-
-                              <div className="p-2 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20">
-                                <span className="text-slate-500 font-medium text-[11px]">Posting Date</span>
-                                <span className="font-semibold text-slate-900 dark:text-slate-100">
-                                  {pDate}
-                                </span>
-                              </div>
-
-                              {payment.period && (
-                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
-                                  <span className="text-slate-500 font-medium text-[11px]">Accounting Period</span>
-                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                                    {payment.period}
-                                  </span>
-                                </div>
-                              )}
-
-                              {Number(payment.bankCharges || 0) > 0 && (
-                                <div className="p-2 flex items-center justify-between bg-rose-50/50 dark:bg-rose-950/20">
-                                  <span className="text-rose-600 font-medium text-[11px]">Bank Charges</span>
-                                  <span className="font-bold text-rose-600 dark:text-rose-400">
-                                    {inr(payment.bankCharges)}
-                                  </span>
-                                </div>
-                              )}
-
-                              {Number(payment.tdsAmount || 0) > 0 && (
-                                <div className="p-2 flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">
-                                  <span className="text-amber-600 font-medium text-[11px]">TDS Deducted</span>
-                                  <span className="font-bold text-amber-700 dark:text-amber-300">
-                                    {inr(payment.tdsAmount)}
-                                  </span>
-                                </div>
-                              )}
-
-                              {Number(payment.transactionFees || 0) > 0 && (
-                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
-                                  <span className="text-slate-500 font-medium text-[11px]">Transaction Fees</span>
-                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                                    {inr(payment.transactionFees)}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Remarks / Memo Box */}
-                            {payment.notes && (
-                              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/40 p-2 border border-slate-100 dark:border-slate-800 text-xs flex items-start gap-2 text-slate-600 dark:text-slate-300">
-                                <MessageSquare className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
                                 <div>
-                                  <span className="font-bold text-slate-700 dark:text-slate-200 text-[11px]">Notes: </span>
-                                  <span className="italic text-[11px]">{payment.notes}</span>
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
+                                    <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                                    Reconciled & Posted
+                                  </span>
+                                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                                    {pDate} • {payment.mode || (isCredit ? "Credit" : "Debit")}
+                                  </p>
                                 </div>
                               </div>
-                            )}
+
+                              {/* Grand Settled Amount */}
+                              <div className="mt-4">
+                                <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                                  Settled Amount
+                                </span>
+                                <div className="text-3xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight mt-0.5">
+                                  {inr(pAmount)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Transfer Route Visual Card */}
+                            <div className="mt-4 rounded-xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <div className="min-w-0 flex-1">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">From</span>
+                                  <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-xs mt-0.5" title={fromAcc}>
+                                    {fromAcc}
+                                  </span>
+                                </div>
+                                <div className="h-6 w-6 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0 mx-1.5">
+                                  <ArrowRight className="h-3 w-3" />
+                                </div>
+                                <div className="min-w-0 flex-1 text-right">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">To</span>
+                                  <span className="font-bold text-slate-800 dark:text-slate-200 truncate block text-xs mt-0.5" title={toAcc}>
+                                    {toAcc}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
 
-                          {/* Security Ledger Stamp */}
-                          <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] font-semibold text-slate-400 dark:text-slate-500">
-                            <span className="inline-flex items-center gap-1">
-                              <ShieldCheck className="h-3 w-3 text-emerald-500" />
-                              Vidhai ERP Authenticated Voucher
-                            </span>
-                            <span>Entry #{activeHistoryIdx + 1}</span>
+                          {/* Right Column: Specification Matrix & Notes (md:col-span-7) */}
+                          <div className="md:col-span-7 p-4 sm:p-5 flex flex-col justify-between">
+                            <div className="space-y-2">
+                              <div className="rounded-xl border border-slate-100 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                {historyModal.contactName && (
+                                  <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                    <span className="text-slate-500 font-medium text-[11px]">Party / Beneficiary</span>
+                                    <span className="font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
+                                      {historyModal.contactName}
+                                    </span>
+                                  </div>
+                                )}
+
+                                <div className="p-2 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20">
+                                  <span className="text-slate-500 font-medium text-[11px]">Reference Number</span>
+                                  <span className="font-mono font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
+                                    {ref}
+                                  </span>
+                                </div>
+
+                                <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                  <span className="text-slate-500 font-medium text-[11px]">Payment Mode</span>
+                                  <span className="inline-flex items-center gap-1 font-bold text-slate-900 dark:text-slate-100">
+                                    <CreditCard className="h-3 w-3 text-slate-400" />
+                                    {pMethod}
+                                  </span>
+                                </div>
+
+                                <div className="p-2 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/20">
+                                  <span className="text-slate-500 font-medium text-[11px]">Posting Date</span>
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                    {pDate}
+                                  </span>
+                                </div>
+
+                                {payment.period && (
+                                  <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                    <span className="text-slate-500 font-medium text-[11px]">Accounting Period</span>
+                                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                      {payment.period}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {Number(payment.bankCharges || 0) > 0 && (
+                                  <div className="p-2 flex items-center justify-between bg-rose-50/50 dark:bg-rose-950/20">
+                                    <span className="text-rose-600 font-medium text-[11px]">Bank Charges</span>
+                                    <span className="font-bold text-rose-600 dark:text-rose-400">
+                                      {inr(payment.bankCharges)}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {Number(payment.tdsAmount || 0) > 0 && (
+                                  <div className="p-2 flex items-center justify-between bg-amber-50/50 dark:bg-amber-950/20">
+                                    <span className="text-amber-600 font-medium text-[11px]">TDS Deducted</span>
+                                    <span className="font-bold text-amber-700 dark:text-amber-300">
+                                      {inr(payment.tdsAmount)}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {Number(payment.transactionFees || 0) > 0 && (
+                                  <div className="p-2 flex items-center justify-between bg-white dark:bg-slate-900">
+                                    <span className="text-slate-500 font-medium text-[11px]">Transaction Fees</span>
+                                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                      {inr(payment.transactionFees)}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Remarks / Memo Box */}
+                              {payment.notes && (
+                                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/40 p-2 border border-slate-100 dark:border-slate-800 text-xs flex items-start gap-2 text-slate-600 dark:text-slate-300">
+                                  <MessageSquare className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
+                                  <div>
+                                    <span className="font-bold text-slate-700 dark:text-slate-200 text-[11px]">Notes: </span>
+                                    <span className="italic text-[11px]">{payment.notes}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Security Ledger Stamp */}
+                            <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                              <span className="inline-flex items-center gap-1">
+                                <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                                Vidhai ERP Authenticated Voucher
+                              </span>
+                              <span>Entry #{activeHistoryIdx + 1}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })()}
-              </div>
+                    );
+                  })()}
+                </div>
 
-              {/* Minimalist Bottom Bar with GREEN Close Button */}
-              <div className="px-5 sm:px-6 py-3 border-t border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 flex items-center justify-between shrink-0">
-                <div className="text-xs text-muted-foreground font-semibold">
-                  {historyModal?.payments?.length || 0} Total Entry ({inr(
-                    (historyModal?.payments || []).reduce(
-                      (sum: number, p: any) =>
-                        sum + Number(p.amount ?? p.paidAmount ?? p.credit ?? p.debit ?? 0),
-                      0
-                    )
-                  )})
-                </div>
-                <Button
-                  type="button"
-                  variant="default"
-                  className="rounded-xl px-7 font-bold shadow-md bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 transition-all cursor-pointer"
-                  onClick={() => {
-                    setHistoryModal(null);
-                    setActiveHistoryIdx(0);
-                  }}
-                >
-                  Close
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
-        {Boolean(deleteConfirmation) && (
-          <Dialog
-            open={Boolean(deleteConfirmation)}
-            onOpenChange={(open) => {
-              if (!open && !submitting) setDeleteConfirmation(null);
-            }}
-          >
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="h-10 w-10 rounded-full flex items-center justify-center shrink-0"
-                    style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
+                {/* Minimalist Bottom Bar with GREEN Close Button */}
+                <div className="px-5 sm:px-6 py-3 border-t border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 flex items-center justify-between shrink-0">
+                  <div className="text-xs text-muted-foreground font-semibold">
+                    {historyModal?.payments?.length || 0} Total Entry ({inr(
+                      (historyModal?.payments || []).reduce(
+                        (sum: number, p: any) =>
+                          sum + Number(p.amount ?? p.paidAmount ?? p.credit ?? p.debit ?? 0),
+                        0
+                      )
+                    )})
+                  </div>
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="rounded-xl px-7 font-bold shadow-md bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20 transition-all cursor-pointer"
+                    onClick={() => {
+                      setHistoryModal(null);
+                      setActiveHistoryIdx(0);
+                    }}
                   >
-                    <Trash2 className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <DialogTitle className="text-lg font-semibold text-foreground">
-                      {deleteConfirmation?.title || "Confirm Delete"}
-                    </DialogTitle>
-                  </div>
+                    Close
+                  </Button>
                 </div>
-              </DialogHeader>
-              <div className="py-2 text-sm text-muted-foreground leading-relaxed">
-                {deleteConfirmation?.description}
-              </div>
-              <DialogFooter className="gap-2 sm:gap-0 mt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setDeleteConfirmation(null)}
-                  disabled={submitting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                  className="text-white hover:opacity-90 cursor-pointer border-0"
-                  onClick={() => void handleConfirmDelete()}
-                  disabled={submitting}
-                >
-                  {submitting ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin text-white" />
-                  ) : (
-                    <Trash2 className="mr-2 h-4 w-4 text-white" />
-                  )}
-                  {submitting ? "Deleting..." : "Delete"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-      </div>
-    </Shell>
+              </DialogContent>
+            </Dialog>
+          )}
+          {Boolean(deleteConfirmation) && (
+            <Dialog
+              open={Boolean(deleteConfirmation)}
+              onOpenChange={(open) => {
+                if (!open && !submitting) setDeleteConfirmation(null);
+              }}
+            >
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="h-10 w-10 rounded-full flex items-center justify-center shrink-0"
+                      style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
+                    >
+                      <Trash2 className="h-5 w-5 text-white" />
+                    </div>
+                    <div>
+                      <DialogTitle className="text-lg font-semibold text-foreground">
+                        {deleteConfirmation?.title || "Confirm Delete"}
+                      </DialogTitle>
+                    </div>
+                  </div>
+                </DialogHeader>
+                <div className="py-2 text-sm text-muted-foreground leading-relaxed">
+                  {deleteConfirmation?.description}
+                </div>
+                <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setDeleteConfirmation(null)}
+                    disabled={submitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
+                    className="text-white hover:opacity-90 cursor-pointer border-0"
+                    onClick={() => void handleConfirmDelete()}
+                    disabled={submitting}
+                  >
+                    {submitting ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin text-white" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4 text-white" />
+                    )}
+                    {submitting ? "Deleting..." : "Delete"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+      </Shell>
     </AccountsTableContext.Provider>
   );
 }

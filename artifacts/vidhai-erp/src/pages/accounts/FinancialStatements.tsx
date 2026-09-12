@@ -973,7 +973,7 @@ export function FinancialStatements({
             </div>
 
             {/* Trial Balance Table */}
-            <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs">
+            <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs accounts-scroll">
               <table className="w-full text-sm whitespace-nowrap">
                 <thead className="sticky top-0 z-20 bg-slate-50 dark:bg-slate-800/90 font-bold border-b border-slate-200 dark:border-slate-700 backdrop-blur-xs">
                   <tr>

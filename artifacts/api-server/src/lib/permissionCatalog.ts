@@ -151,17 +151,17 @@ export const permissionCatalog: PermissionCatalogRow[] = [
     actions: crud,
   },
   {
-    module: "Accounts � Vendor Ledger",
+    module: "Accounts  Vendor Ledger",
     key: "accounts.vendor_ledger",
     actions: crud,
   },
   {
-    module: "Accounts � Chart of Accounts",
+    module: "Accounts  Chart of Accounts",
     key: "accounts.chart_of_accounts",
-    actions: crud,
+    actions: [...crud, "import", "export"],
   },
   {
-    module: "Accounts � Accounts Payable",
+    module: "Accounts  Accounts Payable",
     key: "accounts.accounts_payable",
     actions: [...crud, "approve", "import", "export"],
   },

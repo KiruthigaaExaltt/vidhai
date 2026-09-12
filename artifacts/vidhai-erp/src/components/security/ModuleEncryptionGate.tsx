@@ -250,23 +250,6 @@ export default function ModuleEncryptionGate({
                 </>
               )}
             </Button>
-
-            <div className="mt-7 flex items-center justify-center gap-1.5 text-xs sm:text-sm text-slate-500 dark:text-slate-400 text-center">
-              <span>
-                Forgot your {label.toLowerCase()} password? Contact your{" "}
-                <button
-                  type="button"
-                  className="text-[#00BDA5] hover:underline font-medium focus:outline-none"
-                  onClick={() =>
-                    toast.info(
-                      "Please contact your system administrator to reset your module password.",
-                    )
-                  }
-                >
-                  administrator.
-                </button>
-              </span>
-            </div>
           </form>
         )}
         {gateState === "error" && (

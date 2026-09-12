@@ -2294,6 +2294,121 @@ router.post("/coa", async (r: any, s): Promise<any> => {
     s.status(409).json({ error: e.message || "Unable to create account" });
   }
 });
+router.post("/coa/import", async (r: any, s): Promise<any> => {
+  if (!can(r, "accounts.chart_of_accounts.create") && !can(r, "accounts.chart_of_accounts.import")) {
+    return s.status(403).json({ error: "Missing permission: accounts.chart_of_accounts.create or import" });
+  }
+  const rows = Array.isArray(r.body?.rows) ? r.body.rows : Array.isArray(r.body) ? r.body : [];
+  if (!rows.length) return s.status(400).json({ error: "No import rows found" });
+  if (rows.length > 5000) return s.status(400).json({ error: "Maximum 5000 rows can be imported at once" });
+
+  const errors: string[] = [];
+  const existing = await coa(r.acc.org);
+  const seenCodes = new Set<string>();
+  const validTypes = new Set(["Asset", "Liability", "Equity", "Revenue", "Expense"]);
+
+  const prepared = rows.map((row: any, i: number) => {
+    const rowNum = Number(row.rowNumber || i + 2);
+    const accountCode = String(row.accountCode || row.code || row["Account Code"] || "").trim();
+    const accountName = String(row.accountName || row.name || row["Account Name"] || "").trim();
+    const rawType = String(row.accountType || row.type || row["Account Type"] || "").trim();
+    
+    // Normalize type to Title Case (Asset, Liability, Equity, Revenue, Expense)
+    const matchedType = Array.from(validTypes).find(t => t.toLowerCase() === rawType.toLowerCase());
+    const accountType = matchedType || rawType;
+    const openingBalance = m(row.openingBalance ?? row.balance ?? row["Opening Balance"] ?? 0);
+    const description = String(row.description ?? row.notes ?? row["Description"] ?? "").trim();
+
+    if (!accountCode) errors.push(`Row ${rowNum}: Account Code is required`);
+    if (!accountName) errors.push(`Row ${rowNum}: Account Name is required`);
+    if (!accountType || !validTypes.has(accountType)) {
+      errors.push(`Row ${rowNum}: Account Type must be Asset, Liability, Equity, Revenue, or Expense`);
+    }
+
+    const codeNorm = accountCode.toLowerCase();
+    if (seenCodes.has(codeNorm)) {
+      errors.push(`Row ${rowNum}: Duplicate Account Code "${accountCode}" in import file`);
+    } else {
+      seenCodes.add(codeNorm);
+    }
+
+    return {
+      accountCode,
+      accountName,
+      accountType,
+      openingBalance,
+      description,
+    };
+  });
+
+  if (errors.length) return s.status(400).json({ error: errors.join("\n") });
+
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  for (const item of prepared) {
+    const existingAcc = existing.find(
+      (a: any) => String(a.accountCode).trim().toLowerCase() === item.accountCode.toLowerCase()
+    );
+
+    if (existingAcc) {
+      await db
+        .update(chartOfAccountsTable)
+        .set({
+          accountName: item.accountName,
+          accountType: item.accountType as any,
+          normalizedAccountCode: norm(item.accountCode),
+          normalizedAccountName: norm(item.accountName),
+          groupName: item.accountType,
+          tallyLedgerName: item.accountName,
+          tallyGroupName: item.accountType,
+          description: item.description || existingAcc.description,
+          openingBalance: item.openingBalance,
+          currentBalance: item.openingBalance,
+          isActive: true,
+        })
+        .where(and(eq(chartOfAccountsTable.organizationId, r.acc.org), eq(chartOfAccountsTable.id, existingAcc.id)));
+      updatedCount++;
+    } else {
+      await db
+        .insert(chartOfAccountsTable)
+        .values({
+          organizationId: r.acc.org,
+          accountCode: item.accountCode,
+          accountName: item.accountName,
+          accountType: item.accountType as any,
+          normalizedAccountCode: norm(item.accountCode),
+          normalizedAccountName: norm(item.accountName),
+          groupName: item.accountType,
+          tallyLedgerName: item.accountName,
+          tallyGroupName: item.accountType,
+          description: item.description,
+          openingBalance: item.openingBalance,
+          currentBalance: item.openingBalance,
+          isActive: true,
+        });
+      createdCount++;
+    }
+  }
+
+  s.status(201).json({ created: createdCount, updated: updatedCount, total: prepared.length });
+});
+router.get("/coa/export", async (r: any, s): Promise<any> => {
+  if (!can(r, "accounts.chart_of_accounts.view") && !can(r, "accounts.chart_of_accounts.export")) {
+    return s.status(403).json({ error: "Missing permission: accounts.chart_of_accounts.view" });
+  }
+  const accounts = await coa(r.acc.org);
+  const rows = accounts.map((a: any) => ({
+    "Account Code": String(a.accountCode || ""),
+    "Account Name": String(a.accountName || ""),
+    "Account Type": String(a.accountType || ""),
+    "Opening Balance": m(a.openingBalance || 0),
+    "Current Balance": m(a.currentBalance || 0),
+    "Description": String(a.description || ""),
+    "Status": a.isActive !== false ? "Active" : "Inactive",
+  }));
+  s.json({ rows });
+});
 router.patch("/coa/:id", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.chart_of_accounts.edit")) return;
   try {

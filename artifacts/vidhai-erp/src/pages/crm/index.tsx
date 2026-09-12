@@ -311,53 +311,47 @@ export default function CRMPage() {
 
   const downloadTemplate = async () => {
     try {
-      const ExcelJS = await import("exceljs");
-      const WorkbookClass = (ExcelJS as any).Workbook || (ExcelJS as any).default?.Workbook;
-      const workbook = new WorkbookClass();
-      const worksheet = workbook.addWorksheet("Contacts Template");
-
-      worksheet.columns = [
-        { header: "Name *", key: "name", width: 25 },
-        { header: "Contact Type *", key: "type", width: 18 },
-        { header: "Company / Organisation", key: "company", width: 25 },
-        { header: "Phone", key: "phone", width: 16 },
-        { header: "Email", key: "email", width: 25 },
-        { header: "WhatsApp Number", key: "whatsapp", width: 18 },
-        { header: "GSTIN", key: "gstin", width: 18 },
-        { header: "GST State Code", key: "stateCode", width: 15 },
-        { header: "Address", key: "address", width: 35 },
-        { header: "Notes", key: "notes", width: 30 },
+      const XLSX = await import("xlsx");
+      const headers = [
+        "Name *",
+        "Contact Type *",
+        "Company / Organisation",
+        "Phone",
+        "Email",
+        "WhatsApp Number",
+        "GSTIN",
+        "GST State Code",
+        "Address",
+        "Notes",
       ];
-
-      const headerRow = worksheet.getRow(1);
-      headerRow.font = { bold: true };
-      headerRow.alignment = { vertical: "middle" };
-      headerRow.height = 24;
-
-      // Add dropdown validation for Contact Type column (B) for rows 2 to 1000
-      for (let r = 2; r <= 1000; r++) {
-        worksheet.getCell(`B${r}`).dataValidation = {
-          type: "list",
-          allowBlank: true,
-          formulae: ['"Client,Vendor,Other"'],
-          showErrorMessage: true,
-          errorTitle: "Invalid Contact Type",
-          error: "Please select Client, Vendor, or Other from the dropdown list",
-        };
-      }
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "contacts-template.xlsx";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const sampleRow = [
+        "Sample Client Name",
+        "Client",
+        "Acme Corp",
+        "9876543210",
+        "client@example.com",
+        "9876543210",
+        "33AAAAA0000A1Z5",
+        "33",
+        "123 Main Street, Chennai",
+        "Contact Type must be Client, Vendor, or Other",
+      ];
+      const worksheet = XLSX.utils.aoa_to_sheet([headers, sampleRow]);
+      worksheet["!cols"] = [
+        { wch: 25 },
+        { wch: 18 },
+        { wch: 25 },
+        { wch: 16 },
+        { wch: 25 },
+        { wch: 18 },
+        { wch: 18 },
+        { wch: 15 },
+        { wch: 35 },
+        { wch: 45 },
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Contacts Template");
+      XLSX.writeFile(workbook, "contacts-template.xlsx");
       toast.success("Contacts template downloaded");
     } catch (err: any) {
       console.error(err);
