@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { LockKeyhole, LogOut, Loader2, Info, ArrowRight } from "lucide-react";
+import { LockKeyhole, LogOut, Loader2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OTPInput } from "input-otp";
 import { cn } from "@/lib/utils";
@@ -226,28 +226,18 @@ export default function ModuleEncryptionGate({
             <Button
               type="submit"
               disabled={gateState === "unlocking"}
-              className="w-full h-12 rounded-xl bg-[#00BDA5] hover:bg-[#00a894] active:bg-[#009b88] text-white font-medium flex items-center justify-between px-5 transition-all shadow-sm active:scale-[0.99] border-0 cursor-pointer"
+              className="w-full h-12 rounded-xl bg-[#00BDA5] hover:bg-[#00a894] active:bg-[#009b88] text-white font-medium flex items-center justify-center gap-2 px-5 transition-all shadow-sm active:scale-[0.99] border-0 cursor-pointer"
             >
               {gateState === "unlocking" ? (
-                <span className="mx-auto flex items-center gap-2 text-white">
+                <span className="flex items-center gap-2 text-white">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Unlocking...
                 </span>
               ) : (
-                <>
-                  <svg
-                    className="h-4 w-4 text-white/50 fill-current shrink-0"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 2C12 7.5 7.5 12 2 12C7.5 12 12 16.5 12 22C12 16.5 16.5 12 22 12C16.5 12 12 7.5 12 2Z" />
-                  </svg>
-                  <span className="flex items-center gap-2 font-semibold text-[15px] text-white">
-                    <LockKeyhole className="h-4 w-4 stroke-[2.2]" />
-                    Unlock {label}
-                  </span>
-                  <ArrowRight className="h-4 w-4 text-white stroke-[2.2] shrink-0" />
-                </>
+                <span className="flex items-center gap-2 font-semibold text-[15px] text-white">
+                  <LockKeyhole className="h-4 w-4 stroke-[2.2]" />
+                  Unlock {label}
+                </span>
               )}
             </Button>
           </form>
