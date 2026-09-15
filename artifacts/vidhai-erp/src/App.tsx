@@ -57,6 +57,7 @@ import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
 import { Shell } from "@/components/layout/Shell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RadialPreloader } from "@/components/ui/radial-preloader";
+import { TitleManager } from "@/components/layout/TitleManager";
 
 const queryClient = new QueryClient();
 
@@ -528,6 +529,7 @@ function App() {
         <AuthProvider>
           <NotificationProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <TitleManager />
               <ErrorBoundary>
                 <Router />
               </ErrorBoundary>
