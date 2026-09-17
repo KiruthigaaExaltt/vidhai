@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -127,7 +128,7 @@ export default function OotyRoomHistory() {
       const response = await fetch("/api/ooty/room-history", {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load growing room history");
+      if (!response.ok) throw await responseError(response, "Unable to load growing room history");
       return response.json();
     },
   });
@@ -140,7 +141,7 @@ export default function OotyRoomHistory() {
       const response = await fetch(`/api/ooty/growing-batches/${selectedRow!.id}`, {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load completed room history");
+      if (!response.ok) throw await responseError(response, "Unable to load completed room history");
       return response.json();
     },
   });

@@ -1,3 +1,4 @@
+import { RequestError } from "./requestError";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
@@ -83,16 +84,16 @@ export async function saveImageDataUrl(
   area: StoredUploadArea,
   maxBytes = 5 * 1024 * 1024,
 ): Promise<string> {
-  if (typeof value !== "string") throw new Error("Uploaded image is invalid");
+  if (typeof value !== "string") throw new RequestError("Uploaded image is invalid");
   if (value.startsWith(`/api/stored-files/${area}/`)) return value;
   const match = value.match(
     /^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)$/s,
   );
-  if (!match) throw new Error("Image must be JPG, PNG or WEBP");
+  if (!match) throw new RequestError("Image must be JPG, PNG or WEBP");
   const buffer = Buffer.from(match[2].replace(/\s/g, ""), "base64");
-  if (!buffer.length) throw new Error("Uploaded image data is malformed");
+  if (!buffer.length) throw new RequestError("Uploaded image data is malformed");
   if (buffer.length > maxBytes)
-    throw new Error(
+    throw new RequestError(
       `Uploaded image must not exceed ${Math.floor(maxBytes / 1024 / 1024)} MB`,
     );
   const extension =

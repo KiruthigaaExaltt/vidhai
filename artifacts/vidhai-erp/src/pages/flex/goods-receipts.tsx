@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData, useFlexPurchaseOrders } from "./flexData";
 import { useEffect, useMemo, useState } from "react";
@@ -120,7 +121,7 @@ async function fetchGoodsReceipts(skip: number, limit: number, search: string): 
   const res = await fetch(`${BASE}/api/flex/goods-receipts?${params}`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error("Failed to load Goods Receipts");
+  if (!res.ok) throw await responseError(res, "Failed to load Goods Receipts");
   const data = await res.json();
   return { ...data, data: (data.data || []).map((g: any) => ({
     id: g.id,
@@ -405,7 +406,7 @@ export default function GoodsReceipts() {
         `${BASE}/api/flex/goods-receipts/external/${encodeURIComponent(reference)}`,
         { credentials: "include" },
       );
-      if (!response.ok) throw new Error("Unable to load external receipt balance");
+      if (!response.ok) throw await responseError(response, "Unable to load external receipt balance");
       const balance = await response.json();
       if (!balance.found) {
         setExternalAlreadyReceivedKg(0);

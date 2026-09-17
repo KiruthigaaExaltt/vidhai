@@ -1,3 +1,4 @@
+import { responseError, getErrorMessage } from "@/lib/errorMessage";
 import { useEffect, useState } from "react";
 import { Bell, BellRing, CheckCheck } from "lucide-react";
 import { useLocation } from "wouter";
@@ -24,7 +25,10 @@ export default function NotificationsPage() {
         `${base}/api/notifications?status=${tab}&limit=50`,
         { credentials: "include" },
       );
-      setItems(r.ok ? (await r.json()).items : []);
+      if (!r.ok) throw await responseError(r, "Unable to load notifications");
+      setItems((await r.json()).items);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to load notifications"));
     } finally {
       setLoading(false);
     }
@@ -32,15 +36,17 @@ export default function NotificationsPage() {
   useEffect(() => {
     void load();
   }, [tab, notifications.latest]);
-  const open = async (item: any) => {
+  const open = async (item: any) => { try {
     if (!item.isRead) await notifications.markRead(item.id);
     if (item.navigationUrl) navigate(normalizeNavigationUrl(item.navigationUrl));
     else await load();
-  };
-  const markAll = async () => {
+
+ } catch (error) { toast.error(getErrorMessage(error, "Unable to update notifications")); } };
+  const markAll = async () => { try {
     await notifications.markAllRead();
     await load();
-  };
+
+ } catch (error) { toast.error(getErrorMessage(error, "Unable to update notifications")); } };
   const testNotification = async () => {
     setTesting(true);
     try {
@@ -48,7 +54,7 @@ export default function NotificationsPage() {
         method: "POST",
         credentials: "include",
       });
-      if (!response.ok) throw new Error((await response.json()).error || "Test failed");
+      if (!response.ok) throw await responseError(response, "Unable to test notifications");
       toast.success("Notification test queued");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to test notifications");

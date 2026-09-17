@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 ﻿import { FLEX_TEXT } from "./flexText";
 import { useQuery } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -48,7 +49,7 @@ async function fetchFlexDashboard(): Promise<FlexDashboardData> {
   const res = await fetch(`${BASE}/api/flex/dashboard`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToLoadFlexDashboard);
+  if (!res.ok) throw await responseError(res, FLEX_TEXT.failedToLoadFlexDashboard);
   return res.json();
 }
  

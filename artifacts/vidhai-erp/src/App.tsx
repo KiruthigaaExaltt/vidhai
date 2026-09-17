@@ -1,6 +1,7 @@
+import { createAppQueryClient } from "@/lib/queryClient";
 import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -59,7 +60,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { RadialPreloader } from "@/components/ui/radial-preloader";
 import { TitleManager } from "@/components/layout/TitleManager";
 
-const queryClient = new QueryClient();
+const queryClient = createAppQueryClient();
 
 const ACCOUNT_VIEW_PERMISSIONS = [
   "accounts.finance_dashboard.view",

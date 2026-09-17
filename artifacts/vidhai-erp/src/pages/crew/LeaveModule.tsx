@@ -1,3 +1,5 @@
+import { toast as notificationToast } from "sonner";
+import { getErrorMessage } from "@/lib/errorMessage";
 import { useEffect, useMemo, useState } from "react";
 import { Check, Eye, Search, X } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
@@ -100,7 +102,7 @@ export function LeaveModule({
       `employees/${form.employeeId}/leave-balance?year=${date.getFullYear()}&month=${date.getMonth() + 1}`,
     )
       .then(setBalance)
-      .catch(() => setBalance(null));
+      .catch((error) => { setBalance(null); notificationToast.error(getErrorMessage(error, "Unable to load leave balance")); });
     const sessions =
       form.session === "first"
         ? [1, 1]
@@ -111,7 +113,7 @@ export function LeaveModule({
       `employees/${form.employeeId}/working-days?startDate=${form.startDate}&endDate=${form.endDate}&fromSession=${sessions[0]}&toSession=${sessions[1]}`,
     )
       .then((data) => setWorkingDays(data.workingDays))
-      .catch(() => setWorkingDays(null));
+      .catch((error) => { setWorkingDays(null); notificationToast.error(getErrorMessage(error, "Unable to calculate working days")); });
   }, [
     form.employeeId,
     form.startDate,

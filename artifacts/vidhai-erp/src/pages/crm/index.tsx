@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useRef, useState } from "react";
 import {
   getListContactsQueryKey,
@@ -125,7 +126,7 @@ export default function CRMPage() {
       const response = await fetch(`/api/contacts?${params}`, {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Could not load contacts");
+      if (!response.ok) throw await responseError(response, "Could not load contacts");
       return response.json();
     },
     placeholderData: keepPreviousData,
@@ -262,7 +263,7 @@ export default function CRMPage() {
       const res = await fetch(`/api/contacts?${params}`, {
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to fetch contacts for export");
+      if (!res.ok) throw await responseError(res, "Failed to fetch contacts for export");
       const json = await res.json();
       const exportList: Contact[] = json.data || [];
       if (!exportList.length) {
@@ -355,7 +356,7 @@ export default function CRMPage() {
       toast.success("Contacts template downloaded");
     } catch (err: any) {
       console.error(err);
-      toast.error("Failed to generate template");
+      toast.error(err?.message || "Failed to generate template");
     }
   };
 

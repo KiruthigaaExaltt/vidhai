@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData } from "./flexData";
 import { useEffect, useMemo, useState } from "react";
@@ -148,11 +149,12 @@ async function fetchPurchaseRequests(params: { skip: number; limit: number; sear
     const res = await fetch(`${BASE}/api/flex/purchase-requests?${query}`, {
       credentials: "include",
     });
+    if (!res.ok) throw await responseError(res, "Unable to load purchase records");
     if (res.ok) {
       const data = await res.json();
       return data;
     }
-  } catch {}
+  } catch (error) { throw error; }
   return { data: [], totalCount: 0, totalPages: 0 };
 }
 
@@ -209,7 +211,7 @@ async function deletePurchaseRequest(id: number) {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToDeletePr);
+  if (!res.ok) throw await responseError(res, FLEX_TEXT.failedToDeletePr);
   return res.json();
 }
 
@@ -221,7 +223,7 @@ async function convertPrToPo(id: number) {
       credentials: "include",
     },
   );
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToConvertPrToPurchaseOrder);
+  if (!res.ok) throw await responseError(res, FLEX_TEXT.failedToConvertPrToPurchaseOrder);
   return res.json();
 }
 
@@ -229,7 +231,7 @@ async function fetchVendorAvailability(): Promise<VendorAvailabilityItem[]> {
   const response = await fetch(`${BASE}/api/flex/vendor-availability`, {
     credentials: "include",
   });
-  if (!response.ok) throw new Error("Failed to load vendor availability");
+  if (!response.ok) throw await responseError(response, "Failed to load vendor availability");
   return response.json();
 }
 

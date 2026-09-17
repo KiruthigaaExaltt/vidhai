@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useEffect, useState } from "react";
 import {
   useCreateCoimbatoreBatch,
@@ -109,7 +110,7 @@ export default function CoimbatoreBatches() {
       const response = await fetch(`/api/coimbatore/batches?${params}`, {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load casing soil batches");
+      if (!response.ok) throw await responseError(response, "Unable to load casing soil batches");
       return response.json() as Promise<{
         data: any[];
         totalCount: number;
@@ -148,7 +149,7 @@ export default function CoimbatoreBatches() {
     enabled: batchOpen,
     queryFn: async () => {
       const response = await fetch("/api/chambers", { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load Casing Soil Chambers");
+      if (!response.ok) throw await responseError(response, "Unable to load Casing Soil Chambers");
       const rows = await response.json();
       return rows.filter(
         (row: any) =>
@@ -179,7 +180,7 @@ export default function CoimbatoreBatches() {
       },
       onError: (e: any) => {
         toast.error(
-          e?.response?.data?.error ?? e?.message ?? "Failed to create batch",
+          e?.data?.error ?? e?.message ?? e?.response?.data?.error ?? e?.message ?? "Failed to create batch",
         );
       },
     },

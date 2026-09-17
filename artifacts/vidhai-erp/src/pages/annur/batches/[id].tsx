@@ -252,7 +252,7 @@ export default function BatchDetail() {
       },
       onError: (e: any) => {
         toast.error(
-          e?.response?.data?.error ??
+          e?.data?.error ?? e?.message ?? e?.response?.data?.error ??
             e?.data?.error ??
             e?.message ??
             "Failed to advance stage",

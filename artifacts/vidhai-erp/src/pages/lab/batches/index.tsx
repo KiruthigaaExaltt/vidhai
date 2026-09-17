@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import {
   useCreateLabBatch,
   getListLabBatchesQueryKey,
@@ -55,7 +56,7 @@ export default function LabBatches() {
     queryKey: ["lab-batches-paged", batchPage, batchPageSize],
     queryFn: async () => {
       const response = await fetch(`/api/lab/batches?skip=${(batchPage - 1) * batchPageSize}&limit=${batchPageSize}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load spawn batches");
+      if (!response.ok) throw await responseError(response, "Unable to load spawn batches");
       return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
     },
     placeholderData: keepPreviousData,
@@ -76,7 +77,7 @@ export default function LabBatches() {
       },
       onError: (error: any) => {
         toast.error(
-          error?.response?.data?.error ??
+          error?.data?.error ?? error?.message ?? error?.response?.data?.error ??
             error?.message ??
             "Unable to create spawn batch",
         );

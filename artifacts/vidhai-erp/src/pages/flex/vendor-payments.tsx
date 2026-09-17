@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData } from "./flexData";
 import { useMemo, useState } from "react";
@@ -55,6 +56,7 @@ async function fetchOutstandingBills(): Promise<OutstandingBillItem[]> {
         credentials: "include",
       },
     );
+    if (!res.ok) throw await responseError(res, "Unable to load purchase records");
     if (res.ok) {
       const data = await res.json();
       return (data || []).map((p: any) => ({
@@ -75,7 +77,7 @@ async function fetchOutstandingBills(): Promise<OutstandingBillItem[]> {
         paymentMode: p.paymentMode,
       }));
     }
-  } catch {}
+  } catch (error) { throw error; }
   return [];
 }
 

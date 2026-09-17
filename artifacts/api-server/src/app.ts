@@ -1,3 +1,4 @@
+import { RequestError } from "./lib/requestError";
 import express, { type Express } from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -98,6 +99,9 @@ app.use(
     res: express.Response,
     next: express.NextFunction,
   ) => {
+    if (error instanceof RequestError && !res.headersSent) {
+      return res.status(error.status).json({ error: error.message });
+    }
     logger.error(
       { err: error, method: req.method, url: req.originalUrl.split("?")[0] },
       "Unhandled request error",

@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import React, { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ export function WarehouseDialog({ open, onOpenChange, formState }: WarehouseDial
     queryKey: ["warehouse-manager-employees"],
     queryFn: async () => {
       const response = await fetch("/api/crew/employees?status=Active&skip=0&limit=1000", { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load employees");
+      if (!response.ok) throw await responseError(response, "Unable to load employees");
       return response.json();
     },
     enabled: open,

@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 ﻿import { useQuery } from "@tanstack/react-query";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -49,7 +50,7 @@ export interface FlexMasterData {
 
 export async function flexFetch<T>(path: string): Promise<T> {
   const response = await fetch(`${BASE}${path}`, { credentials: "include" });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw await responseError(response, `HTTP ${response.status}`);
   return response.json();
 }
 

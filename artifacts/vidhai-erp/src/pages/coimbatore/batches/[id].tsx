@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useState, useMemo, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { ImageLightbox } from "@/components/ImageLightbox";
@@ -177,7 +178,7 @@ export default function CoimbatoreBatchDetail() {
     queryKey: ["coimbatore-casing-chambers"],
     queryFn: async () => {
       const response = await fetch("/api/chambers", { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load casing-soil chambers");
+      if (!response.ok) throw await responseError(response, "Unable to load casing-soil chambers");
       const rows = await response.json();
       return rows.filter(
         (row: any) =>
@@ -249,7 +250,7 @@ export default function CoimbatoreBatchDetail() {
           turnScheduleJson: schedule,
         }),
       });
-      if (!res.ok) throw new Error("Failed to update turn config");
+      if (!res.ok) throw await responseError(res, "Failed to update turn config");
       toast.success("Turn configuration updated");
       refetch();
       setAdjustOpen(false);

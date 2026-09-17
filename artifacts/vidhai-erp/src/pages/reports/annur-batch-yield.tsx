@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ export default function ReportAnnurBatchYield() {
     queryKey: ["report-annur-batch-yield"],
     queryFn: async () => {
       const res = await fetch("/api/reports/annur-batch-yield", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load");
+      if (!res.ok) throw await responseError(res, "Failed to load");
       return res.json() as Promise<{
         rows: {
           annurBatchId: number;

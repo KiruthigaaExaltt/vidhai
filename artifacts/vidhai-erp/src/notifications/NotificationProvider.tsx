@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import React, {
   createContext,
   useCallback,
@@ -77,6 +78,7 @@ export function NotificationProvider({
       method: "PATCH",
       credentials: "include",
     });
+    if (!r.ok) throw await responseError(r, "Unable to mark notification as read");
     if (r.ok)
       setUnreadCount((n) => {
         const next = Math.max(0, n - 1);
@@ -89,6 +91,7 @@ export function NotificationProvider({
       method: "POST",
       credentials: "include",
     });
+    if (!r.ok) throw await responseError(r, "Unable to mark notifications as read");
     if (r.ok) {
       unreadCountRef.current = 0;
       setUnreadCount(0);
