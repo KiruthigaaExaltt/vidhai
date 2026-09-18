@@ -67,7 +67,7 @@ export default function Login() {
       </div>
 
       {/* Right Login Section */}
-      <div className="flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 min-h-[100svh] w-full bg-slate-50/40 dark:bg-background">
+      <div className="relative flex flex-col items-center justify-center p-6 sm:p-8 lg:p-12 pb-24 sm:pb-24 lg:pb-24 min-h-[100svh] w-full bg-slate-50/40 dark:bg-background">
         {/* ONE RESPONSIVE GROUP */}
         <div className="w-full max-w-[400px] flex flex-col items-center gap-7">
           {/* Mobile logo */}
@@ -191,6 +191,14 @@ export default function Login() {
               )}
             </Button>
           </form>
+        </div>
+        <div className="absolute bottom-4 right-6 flex items-center gap-1 sm:right-8 lg:right-12">
+          <span className="text-xs text-muted-foreground">Powered by</span>
+          <img
+            src={`${import.meta.env.BASE_URL}ECT.png`}
+            alt="ECT"
+            className="h-10 w-auto max-w-20 object-contain object-left"
+          />
         </div>
       </div>
     </div>
