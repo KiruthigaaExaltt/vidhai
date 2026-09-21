@@ -52,7 +52,6 @@ import {
   Receipt,
   RefreshCw,
   Search,
-  Trash2,
   X,
   LogOut,
   LayoutDashboard,
@@ -137,7 +136,21 @@ const inr = (v: any) =>
     maximumFractionDigits: 2,
   }).format(numberValue(v));
 type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal" | "coa";
+type ManualPartyEntryKind = "arInvoice" | "arCreditNote" | "apBill" | "apDebitNote";
 const paymentMethods = ["Bank Transfer", "UPI", "Cheque", "Cash"];
+const emptyPartyEntry = (kind: ManualPartyEntryKind, date: string) => ({
+  kind,
+  partyId: "",
+  reference: "",
+  linkedReference: "",
+  documentDate: date,
+  dueDate: date,
+  amount: "",
+  settledAmount: "",
+  adjustedAmount: "",
+  accountId: "",
+  notes: "",
+});
 const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", creditContactId: "", debitContactId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
 
 interface AccountsTableContextValue {
@@ -188,6 +201,9 @@ const Table = ({
   const isLoading = tableLoading !== undefined ? tableLoading : Boolean(context?.loading);
   const clientPagination = useClientPagination(serverKey ? [] : rows);
   const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
+  const displayedCols = tableId === "ap-bills" || tableId === "ar-invoices"
+    ? [...cols.filter((column) => column[0] !== "Actions"), ...cols.filter((column) => column[0] === "Actions")]
+    : cols;
   const containerRef = useRef<HTMLDivElement>(null);
   const tableKey = tableId || serverKey || String(cols[0]?.[0] || "table");
 
@@ -242,7 +258,7 @@ const Table = ({
         <table className="w-full text-sm text-left border-collapse min-w-full">
           <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-xs border-b">
             <tr>
-              {cols.map((c) => {
+              {displayedCols.map((c) => {
                 const isNotes = isNotesColumn(c[0], c[1]);
                 return (
                   <th
@@ -260,7 +276,7 @@ const Table = ({
             {isLoading ? (
               <tr className="border-t">
                 <td
-                  colSpan={cols.length}
+                  colSpan={displayedCols.length}
                   className="px-4 py-16 text-center text-muted-foreground"
                 >
                   <div className="flex flex-col items-center justify-center gap-3 py-6">
@@ -284,7 +300,7 @@ const Table = ({
                   key={r.id ?? i}
                   className="border-t hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors"
                 >
-                  {cols.map((c) => {
+                  {displayedCols.map((c) => {
                     const isNotes = isNotesColumn(c[0], c[1]);
                     return (
                       <td
@@ -303,7 +319,7 @@ const Table = ({
             ) : (
               <tr className="border-t">
                 <td
-                  colSpan={cols.length}
+                  colSpan={displayedCols.length}
                   className="px-4 py-14 text-center text-muted-foreground"
                 >
                   No records found.
@@ -400,6 +416,8 @@ export default function Accounts() {
   const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
   const [accountImportFile, setAccountImportFile] = useState("");
   const [accountImportOptions, setAccountImportOptions] = useState<any | null>(null);
+  const [partyEntry, setPartyEntry] = useState<any | null>(null);
+  const [partyEntryCandidates, setPartyEntryCandidates] = useState<any[]>([]);
   const [apSubTab, setApSubTab] = useState("bills");
   const [arSubTab, setArSubTab] = useState("invoices");
   const [listPaging, setListPaging] = useState<
@@ -461,12 +479,6 @@ export default function Accounts() {
   } | null>(null);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
   const [copiedRef, setCopiedRef] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState<{
-    type: "payable" | "receivable";
-    row: any;
-    title: string;
-    description: string;
-  } | null>(null);
   const accountTabGroups = [
     {
       group: "Overview",
@@ -542,6 +554,90 @@ export default function Accounts() {
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
+  const setPartyEntryField = (key: string, value: any) =>
+    setPartyEntry((current: any) => ({ ...current, [key]: value }));
+  const loadPartyEntryCandidates = async (kind: ManualPartyEntryKind, partyId: string) => {
+    if (kind === "arCreditNote") {
+      setPartyEntryCandidates(await api(`/receivable-documents?mode=credit-note&clientId=${partyId}`));
+    } else if (kind === "apDebitNote") {
+      setPartyEntryCandidates(await api(`/payable-documents?mode=debit-note&vendorId=${partyId}`));
+    }
+  };
+  const openPartyEntry = (kind: ManualPartyEntryKind) => {
+    setError("");
+    setPartyEntry(emptyPartyEntry(kind, today));
+    setPartyEntryCandidates([]);
+  };
+  const submitPartyEntry = async () => {
+    if (!partyEntry) return;
+    const isAr = partyEntry.kind.startsWith("ar");
+    const isNote = partyEntry.kind.endsWith("CreditNote") || partyEntry.kind.endsWith("DebitNote");
+    const amount = numberValue(partyEntry.amount);
+    const settledAmount = numberValue(partyEntry.settledAmount);
+    const adjustedAmount = numberValue(partyEntry.adjustedAmount);
+    if (!partyEntry.partyId || !partyEntry.reference.trim() || !partyEntry.documentDate || !partyEntry.dueDate || !(amount > 0)) {
+      setError("Complete all required fields and enter an amount greater than zero.");
+      return;
+    }
+    if (settledAmount < 0 || adjustedAmount < 0 || settledAmount + adjustedAmount > amount + 0.009) {
+      setError(`${isAr ? "Received" : "Paid"} and adjusted amounts must be non-negative and cannot exceed the amount.`);
+      return;
+    }
+    if (isNote && (!partyEntry.linkedReference || !partyEntry.accountId)) {
+      setError(`${isAr ? "Linked Invoice" : "Against Bill"} and Account Name are required.`);
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    try {
+      const body = isAr
+        ? {
+          clientId: Number(partyEntry.partyId),
+          invoiceNumber: partyEntry.reference.trim(),
+          creditNoteNumber: isNote ? partyEntry.reference.trim() : "",
+          linkedInvoiceNumber: isNote ? partyEntry.linkedReference : "",
+          invoiceDate: partyEntry.documentDate,
+          dueDate: partyEntry.dueDate,
+          amount,
+          receivedAmount: isNote ? amount : settledAmount,
+          adjustedAmount: isNote ? 0 : adjustedAmount,
+          coaAccountId: isNote ? Number(partyEntry.accountId) : null,
+          entryType: isNote ? "Credit Note" : "Invoice",
+          notes: partyEntry.notes || "",
+          sourceType: "Manual",
+        }
+        : {
+          vendorId: Number(partyEntry.partyId),
+          billNumber: partyEntry.reference.trim(),
+          againstBillNumber: isNote ? partyEntry.linkedReference : "",
+          billDate: partyEntry.documentDate,
+          dueDate: partyEntry.dueDate,
+          amount,
+          paidAmount: isNote ? amount : settledAmount,
+          adjustedAmount: isNote ? 0 : adjustedAmount,
+          coaAccountId: isNote ? Number(partyEntry.accountId) : null,
+          entryType: isNote ? "Debit Note" : "Bill",
+          notes: partyEntry.notes || "",
+          sourceType: "Manual",
+        };
+      await api(isAr ? "/ar" : "/ap", { method: "POST", body: JSON.stringify(body) });
+      setPartyEntry(null);
+      setPartyEntryCandidates([]);
+      if (isAr) {
+        setArSubTab(isNote ? "credit-notes" : "invoices");
+        setListPaging((current) => ({ ...current, ar: { ...current.ar, page: 1 } }));
+      } else {
+        setApSubTab(isNote ? "debit-notes" : "bills");
+        setListPaging((current) => ({ ...current, ap: { ...current.ap, page: 1 } }));
+      }
+      await load();
+      toast({ title: `${isNote ? (isAr ? "Credit note" : "Debit note") : (isAr ? "Invoice" : "Bill")} added successfully` });
+    } catch (e: any) {
+      setError(e.message || "Unable to save entry");
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const submitManual = async () => {
     if (!manualType) return;
     setSubmitting(true);
@@ -1102,68 +1198,6 @@ export default function Accounts() {
       await load();
     } catch (e: any) {
       setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  const confirmDeleteReceivable = (row: any) => {
-    const isSalesInvoice = row.sourceType === "Sales Invoice";
-    setDeleteConfirmation({
-      type: "receivable",
-      row,
-      title: isSalesInvoice ? "Cancel Sales Invoice" : "Delete Receivable",
-      description: isSalesInvoice
-        ? `Are you sure you want to cancel invoice ${row.invoiceNumber} and remove its receivable and accounting entries?`
-        : `Are you sure you want to delete receivable ${row.invoiceNumber}? This action cannot be undone.`,
-    });
-  };
-
-  const confirmDeletePayable = (row: any) => {
-    if (row.sourceType !== "Manual") return;
-    setDeleteConfirmation({
-      type: "payable",
-      row,
-      title: "Delete Payable",
-      description: `Are you sure you want to delete payable ${row.billNumber}? This action cannot be undone.`,
-    });
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteConfirmation) return;
-    const { type, row } = deleteConfirmation;
-    setSubmitting(true);
-    setError("");
-    try {
-      if (type === "payable") {
-        await api(`/ap/${row.id}`, { method: "DELETE" });
-        toast({
-          title: "Deleted Successfully",
-          description: `Payable ${row.billNumber} has been deleted.`,
-        });
-      } else if (type === "receivable") {
-        if (row.sourceType === "Sales Invoice" && row.sourceId) {
-          await salesApi(`/invoices/${row.sourceId}/cancel`, { method: "POST" });
-          toast({
-            title: "Invoice Cancelled",
-            description: `Invoice ${row.invoiceNumber} has been cancelled and removed.`,
-          });
-        } else {
-          await api(`/ar/${row.id}`, { method: "DELETE" });
-          toast({
-            title: "Deleted Successfully",
-            description: `Receivable ${row.invoiceNumber} has been deleted.`,
-          });
-        }
-      }
-      setDeleteConfirmation(null);
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-      toast({
-        title: "Delete Failed",
-        description: e.message || "Unable to delete record.",
-        variant: "destructive",
-      });
     } finally {
       setSubmitting(false);
     }
@@ -2944,9 +2978,11 @@ export default function Accounts() {
                   <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
                 </TabsList>
                 <TabsContent value="bills" className="space-y-3">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
                     {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apBill"} onClick={() => void exportAccountXlsx("apBill")} />}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apBill")}><Plus className="mr-1.5 h-4 w-4" />Add Bill</Button>}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apDebitNote")}><Plus className="mr-1.5 h-4 w-4" />Add Debit Note</Button>}
                   </div>
                   <Table
                     tableId="ap-bills"
@@ -3024,11 +3060,14 @@ export default function Accounts() {
                               {balance > 0 &&
                                 row.approvalStatus === "Approved" && (
                                   <Button
-                                    size="sm"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Record payment"
+                                    aria-label={`Pay ${row.billNumber}`}
                                     onClick={() => openApPayment(row)}
                                     disabled={submitting}
                                   >
-                                    <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                                    <CreditCard className="h-4 w-4" />
                                   </Button>
                                 )}
                               {row.approvalStatus === "Pending Approval" && (() => {
@@ -3057,23 +3096,6 @@ export default function Accounts() {
                                   </>
                                 );
                               })()}
-                              <Button
-                                size="icon"
-                                className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                                style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                                title={
-                                  row.sourceType === "Manual"
-                                    ? "Delete bill"
-                                    : "Linked bills cannot be deleted"
-                                }
-                                aria-label={`Delete ${row.billNumber}`}
-                                disabled={
-                                  submitting || row.sourceType !== "Manual"
-                                }
-                                onClick={() => confirmDeletePayable(row)}
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </Button>
                             </div>
                           );
                         },
@@ -3083,9 +3105,11 @@ export default function Accounts() {
                   />
                 </TabsContent>
                 <TabsContent value="debit-notes" className="space-y-3">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
                     {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apDebitNote"} onClick={() => void exportAccountXlsx("apDebitNote")} />}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apBill")}><Plus className="mr-1.5 h-4 w-4" />Add Bill</Button>}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apDebitNote")}><Plus className="mr-1.5 h-4 w-4" />Add Debit Note</Button>}
                   </div>
                   <Table
                     tableId="ap-debit-notes"
@@ -3113,9 +3137,11 @@ export default function Accounts() {
                   <TabsTrigger value="credit-notes">Credit Notes</TabsTrigger>
                 </TabsList>
                 <TabsContent value="invoices" className="space-y-3">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
                     {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arInvoice"} onClick={() => void exportAccountXlsx("arInvoice")} />}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arInvoice")}><Plus className="mr-1.5 h-4 w-4" />Add Invoice</Button>}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arCreditNote")}><Plus className="mr-1.5 h-4 w-4" />Add Credit Note</Button>}
                   </div>
                   <Table
                     tableId="ar-invoices"
@@ -3124,6 +3150,7 @@ export default function Accounts() {
                     cols={[
                       ["Invoice", "invoiceNumber"],
                       ["Customer", "clientName"],
+                      ["Invoice Date", "invoiceDate"],
                       ["Due", "dueDate"],
                       ["Amount", "amount", inr],
                       ["Received", "receivedAmount", inr],
@@ -3168,11 +3195,14 @@ export default function Accounts() {
                             {row.approvalStatus === "Approved" &&
                               outstanding(row) > 0 && (
                                 <Button
-                                  size="sm"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title="Record receipt"
+                                  aria-label={`Record receipt for ${row.invoiceNumber}`}
                                   onClick={() => openPayment(row)}
                                   disabled={submitting}
                                 >
-                                  <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                                  <CreditCard className="h-4 w-4" />
                                 </Button>
                               )}
                             {row.approvalStatus === "Pending Approval" && (() => {
@@ -3201,17 +3231,6 @@ export default function Accounts() {
                                 </>
                               );
                             })()}
-                            <Button
-                              size="icon"
-                              className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                              title="Delete"
-                              aria-label={`Delete ${row.invoiceNumber}`}
-                              onClick={() => confirmDeleteReceivable(row)}
-                              disabled={submitting || row.sourceType !== "Manual"}
-                            >
-                              <Trash2 className="h-4 w-4 text-white" />
-                            </Button>
                           </div>
                         ),
                       ],
@@ -3220,9 +3239,11 @@ export default function Accounts() {
                   />
                 </TabsContent>
                 <TabsContent value="credit-notes" className="space-y-3">
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
                     {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arCreditNote"} onClick={() => void exportAccountXlsx("arCreditNote")} />}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arInvoice")}><Plus className="mr-1.5 h-4 w-4" />Add Invoice</Button>}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arCreditNote")}><Plus className="mr-1.5 h-4 w-4" />Add Credit Note</Button>}
                   </div>
                   <Table
                     tableId="ar-credit-notes"
@@ -3508,6 +3529,79 @@ export default function Accounts() {
               </DialogContent>
             </Dialog>
           )}
+          {Boolean(partyEntry) && (() => {
+            const isAr = partyEntry.kind.startsWith("ar");
+            const isNote = partyEntry.kind.endsWith("CreditNote") || partyEntry.kind.endsWith("DebitNote");
+            const title = isNote ? (isAr ? "Add Credit Note" : "Add Debit Note") : (isAr ? "Add Invoice" : "Add Bill");
+            const parties = isAr ? crmClients : crmVendors;
+            return (
+              <Dialog open onOpenChange={(open) => { if (!open && !submitting) { setPartyEntry(null); setPartyEntryCandidates([]); setError(""); } }}>
+                <DialogContent className="sm:max-w-2xl">
+                  <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+                  <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Entry Type</Label>
+                      <Input value={isNote ? (isAr ? "Credit Note" : "Debit Note") : (isAr ? "Invoice" : "Bill")} disabled />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{isAr ? "Customer" : "Vendor"} *</Label>
+                      <Select value={partyEntry.partyId} onValueChange={(value) => { setPartyEntry((current: any) => ({ ...current, partyId: value, linkedReference: "" })); setPartyEntryCandidates([]); setError(""); if (isNote) void loadPartyEntryCandidates(partyEntry.kind, value).catch((e) => setError(e.message)); }}>
+                        <SelectTrigger><SelectValue placeholder={`Select ${isAr ? "customer" : "vendor"}`} /></SelectTrigger>
+                        <SelectContent>{parties.map((party: any) => <SelectItem key={party.id} value={String(party.id)}>{party.displayName || party.name || party.clientName || party.vendorName}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{isNote ? (isAr ? "Credit Note #" : "Debit Note #") : (isAr ? "Invoice #" : "Bill #")} *</Label>
+                      <Input value={partyEntry.reference} onChange={(event) => setPartyEntryField("reference", event.target.value)} />
+                    </div>
+                    {isNote && <div className="space-y-2">
+                      <Label>{isAr ? "Linked Invoice" : "Against Bill"} *</Label>
+                      <Select value={partyEntry.linkedReference} disabled={!partyEntry.partyId} onValueChange={(value) => setPartyEntryField("linkedReference", value)}>
+                        <SelectTrigger><SelectValue placeholder={partyEntry.partyId ? `Select ${isAr ? "invoice" : "bill"}` : `Select ${isAr ? "customer" : "vendor"} first`} /></SelectTrigger>
+                        <SelectContent>{partyEntryCandidates.map((row: any) => <SelectItem key={row.id} value={String(isAr ? row.invoiceNumber : row.billNumber)}>{row.displayName || (isAr ? row.invoiceNumber : row.billNumber)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>}
+                    <div className="space-y-2">
+                      <Label>{isAr ? "Invoice Date" : "Bill Date"} *</Label>
+                      <Input type="date" value={partyEntry.documentDate} onChange={(event) => setPartyEntryField("documentDate", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Due Date *</Label>
+                      <Input type="date" value={partyEntry.dueDate} onChange={(event) => setPartyEntryField("dueDate", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Amount *</Label>
+                      <Input type="number" min="0.01" step="0.01" value={partyEntry.amount} onChange={(event) => setPartyEntryField("amount", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{isAr ? "Received Amount" : "Paid Amount"}</Label>
+                      <Input type="number" min="0" step="0.01" value={partyEntry.settledAmount} onChange={(event) => setPartyEntryField("settledAmount", event.target.value)} />
+                    </div>
+                    {!isNote && <div className="space-y-2">
+                      <Label>Adjusted Amount</Label>
+                      <Input type="number" min="0" step="0.01" value={partyEntry.adjustedAmount} onChange={(event) => setPartyEntryField("adjustedAmount", event.target.value)} />
+                    </div>}
+                    {isNote && <div className="space-y-2">
+                      <Label>Account Name *</Label>
+                      <Select value={partyEntry.accountId} onValueChange={(value) => setPartyEntryField("accountId", value)}>
+                        <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                        <SelectContent>{coa.filter((account: any) => account.isActive !== false).map((account: any) => <SelectItem key={account.id} value={String(account.id)}>{account.accountCode} - {account.accountName}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>}
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Notes</Label>
+                      <textarea className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={partyEntry.notes} onChange={(event) => setPartyEntryField("notes", event.target.value)} />
+                    </div>
+                  </div>
+                  {error && <p className="text-sm text-destructive whitespace-pre-line">{error}</p>}
+                  <DialogFooter>
+                    <Button variant="outline" disabled={submitting} onClick={() => { setPartyEntry(null); setPartyEntryCandidates([]); setError(""); }}>Cancel</Button>
+                    <Button disabled={submitting} onClick={() => void submitPartyEntry()}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{submitting ? "Saving..." : "Save Entry"}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            );
+          })()}
           {Boolean(accountImport) && (
             <Dialog
               open={Boolean(accountImport)}
@@ -4513,57 +4607,6 @@ export default function Accounts() {
                     Close
                   </Button>
                 </div>
-              </DialogContent>
-            </Dialog>
-          )}
-          {Boolean(deleteConfirmation) && (
-            <Dialog
-              open={Boolean(deleteConfirmation)}
-              onOpenChange={(open) => {
-                if (!open && !submitting) setDeleteConfirmation(null);
-              }}
-            >
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="h-10 w-10 rounded-full flex items-center justify-center shrink-0"
-                      style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                    >
-                      <Trash2 className="h-5 w-5 text-white" />
-                    </div>
-                    <div>
-                      <DialogTitle className="text-lg font-semibold text-foreground">
-                        {deleteConfirmation?.title || "Confirm Delete"}
-                      </DialogTitle>
-                    </div>
-                  </div>
-                </DialogHeader>
-                <div className="py-2 text-sm text-muted-foreground leading-relaxed">
-                  {deleteConfirmation?.description}
-                </div>
-                <DialogFooter className="gap-2 sm:gap-0 mt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDeleteConfirmation(null)}
-                    disabled={submitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                    className="text-white hover:opacity-90 cursor-pointer border-0"
-                    onClick={() => void handleConfirmDelete()}
-                    disabled={submitting}
-                  >
-                    {submitting ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin text-white" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4 text-white" />
-                    )}
-                    {submitting ? "Deleting..." : "Delete"}
-                  </Button>
-                </DialogFooter>
               </DialogContent>
             </Dialog>
           )}

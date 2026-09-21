@@ -379,7 +379,7 @@ export function Sidebar({
                 />
                 <div className="flex flex-col min-w-0">
                   <span className="font-serif font-bold text-lg leading-none tracking-wider text-sidebar-primary truncate">
-                    Vidhai
+                    Vidhaii
                   </span>
                   <span className="text-[10px] tracking-widest text-sidebar-foreground/50 truncate">
                     ERP SYSTEM

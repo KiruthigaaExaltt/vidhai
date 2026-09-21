@@ -1421,7 +1421,7 @@ router.get("/receivable-documents", async (r: any, s): Promise<any> => {
     const rows = (receivables as any[])
       .filter((row) => row.entryType !== "Credit Note")
       .filter((row) => Number(row.clientId) === (clientId || Number(row.clientId)))
-      .filter((row) => m(row.receivedAmount) > 0 || ["received", "partial", "paid"].includes(String(row.status || "").toLowerCase()))
+      .filter((row) => receivableOutstanding(row) > 0 || m(row.receivedAmount) >= m(row.amount) - 0.009)
       .map((row) => {
         const received = m(row.receivedAmount);
         const total = m(row.amount);
@@ -1457,7 +1457,7 @@ router.get("/payable-documents", async (r: any, s): Promise<any> => {
     const rows = (payables as any[])
       .filter((row) => row.entryType !== "Debit Note")
       .filter((row) => Number(row.vendorId) === (vendorId || Number(row.vendorId)))
-      .filter((row) => m(row.paidAmount) > 0 || ["paid", "partial"].includes(String(row.status || "").toLowerCase()))
+      .filter((row) => payableOutstanding(row) > 0 || m(row.paidAmount) >= m(row.amount) - 0.009)
       .map((row) => {
         const paid = m(row.paidAmount);
         const total = m(row.amount);
@@ -1774,11 +1774,9 @@ router.post("/ap/import", async (r: any, s): Promise<any> => {
     if (entryType === "Debit Note") {
       const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && norm(entry.billNumber) === norm(row.againstBillNumber) && (!vendor || Number(entry.vendorId || vendor.id) === Number(vendor.id)));
       const billPaid = m(linkedBill?.paidAmount);
-      const linkedBillStatus = String(linkedBill?.status || "").toLowerCase();
       if (!String(row.againstBillNumber || "").trim()) importError(errors, n, "Against Bill", "is required");
       if (!linkedBill) importError(errors, n, "Against Bill", "linked vendor bill was not found");
-      else if (!billPaid && !["paid", "partial"].includes(linkedBillStatus)) importError(errors, n, "Against Bill", "only paid or partial bills can be linked");
-      else if (amount > (billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : billPaid) + 0.009) importError(errors, n, "Amount", "debit note exceeds eligible paid amount");
+      else if (amount > (billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : payableOutstanding(linkedBill)) + 0.009) importError(errors, n, "Amount", "debit note exceeds the correctable bill amount");
       if (!account) importError(errors, n, "Account Name", "choose a valid account");
     }
     const key = norm(billNumber);
@@ -1856,11 +1854,9 @@ router.post("/ar/import", async (r: any, s): Promise<any> => {
     if (entryType === "Credit Note") {
       const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && norm(entry.invoiceNumber) === norm(row.linkedInvoiceNumber) && (!client || Number(entry.clientId || client.id) === Number(client.id)));
       const received = m(linked?.receivedAmount);
-      const linkedStatus = String(linked?.status || "").toLowerCase();
       if (!String(row.linkedInvoiceNumber || "").trim()) importError(errors, n, "Linked Invoice", "is required");
       if (!linked) importError(errors, n, "Linked Invoice", "linked customer invoice was not found");
-      else if (!received && !["received", "partial", "paid"].includes(linkedStatus)) importError(errors, n, "Linked Invoice", "only paid or partial invoices can be linked");
-      else if (amount > (received >= m(linked.amount) - 0.009 ? m(linked.amount) : received) + 0.009) importError(errors, n, "Amount", "credit note exceeds eligible received amount");
+      else if (amount > (received >= m(linked.amount) - 0.009 ? m(linked.amount) : receivableOutstanding(linked)) + 0.009) importError(errors, n, "Amount", "credit note exceeds the correctable invoice amount");
       if (!account) importError(errors, n, "Account Name", "choose a valid account");
     }
     const key = norm(invoiceNumber);
@@ -2602,9 +2598,7 @@ for (const c of [
         const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && String(entry.billNumber).trim().toLowerCase() === String(r.body.againstBillNumber).trim().toLowerCase() && Number(entry.vendorId || vendor.id) === Number(vendor.id));
         if (!linkedBill) return s.status(400).json({ error: "Linked vendor bill was not found" });
         const billPaid = m(linkedBill.paidAmount);
-        const linkedBillStatus = String(linkedBill.status || "").toLowerCase();
-        if (!billPaid && !["paid", "partial"].includes(linkedBillStatus)) return s.status(400).json({ error: "Only paid or partial bills can be linked" });
-        const maximumDebitNote = billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : billPaid;
+        const maximumDebitNote = billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : payableOutstanding(linkedBill);
         if (amount > maximumDebitNote + 0.009) return s.status(400).json({ error: `Debit note cannot exceed ${maximumDebitNote}` });
         r.body.paidAmount = amount;
         r.body.adjustedAmount = 0;
@@ -2639,9 +2633,7 @@ for (const c of [
         const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && String(entry.invoiceNumber).trim().toLowerCase() === String(r.body.linkedInvoiceNumber).trim().toLowerCase() && Number(entry.clientId || client.id) === Number(client.id));
         if (!linked) return s.status(400).json({ error: "Linked customer invoice was not found" });
         const received = m(linked.receivedAmount);
-        const linkedStatus = String(linked.status || "").toLowerCase();
-        if (!received && !["received", "partial", "paid"].includes(linkedStatus)) return s.status(400).json({ error: "Only paid or partial invoices can be linked" });
-        const eligible = received >= m(linked.amount) - 0.009 ? m(linked.amount) : received;
+        const eligible = received >= m(linked.amount) - 0.009 ? m(linked.amount) : receivableOutstanding(linked);
         if (amount > eligible + 0.009) return s.status(400).json({ error: `Credit note cannot exceed ${eligible}` });
         r.body.receivedAmount = amount;
         r.body.adjustedAmount = 0;
@@ -2651,44 +2643,51 @@ for (const c of [
       }
     }
     const covered = m(r.body[c.paid]) + m(r.body.adjustedAmount);
-    const [x] = await db.insert(c.t).values({
+    const values = {
       ...r.body,
       organizationId: r.acc.org,
       amount: m(r.body.amount),
       approvalStatus: r.body.approvalStatus || "Approved",
       requiredApprovals: Math.max(1, Number(process.env[c.p === "ap" ? "LEDGER_AP_REQUIRED_APPROVALS" : "LEDGER_AR_REQUIRED_APPROVALS"] ?? 1)),
       status: c.p === "ap" && r.body.entryType === "Debit Note" ? "Paid" : c.p === "ar" && r.body.entryType === "Credit Note" ? "Received" : covered >= m(r.body.amount) ? c.done : covered > 0 ? "Partial" : "Pending",
-    }).returning();
-    if (c.p === "ap" && x.entryType === "Debit Note") {
+    };
+    if (c.p === "ap" && r.body.entryType === "Debit Note") {
       const accounts = await coa(r.acc.org);
       const payable = accounts.find((account: any) => account.accountCode === "2100");
-      const selected = accounts.find((account: any) => Number(account.id) === Number(x.coaAccountId));
+      const selected = accounts.find((account: any) => Number(account.id) === Number(r.body.coaAccountId));
       if (!payable || !selected) return s.status(409).json({ error: "Required payable or selected COA account is not configured" });
-      const journal = await post(r.acc.org, { entryDate: x.billDate || day(), reference: x.billNumber, description: `Debit note ${x.billNumber}`, sourceType: "Debit Note", sourceId: x.id, lines: [{ accountId: payable.id, debit: m(x.amount), memo: x.billNumber }, { accountId: selected.id, credit: m(x.amount), memo: x.billNumber }] }, r.acc.user.id);
-      const [linkedBill] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.billNumber, x.againstBillNumber))).limit(1);
-      if (linkedBill) {
+      const updated = await db.transaction(async (tx) => {
+        const [x] = await tx.insert(c.t).values(values).returning();
+        const journal = await insertImportJournal(tx, r.acc.org, { entryDate: x.billDate || day(), reference: x.billNumber, description: `Debit note ${x.billNumber}`, sourceType: "Debit Note", sourceId: x.id, lines: [{ accountId: payable.id, debit: m(x.amount), memo: x.billNumber }, { accountId: selected.id, credit: m(x.amount), memo: x.billNumber }] }, r.acc.user.id);
+        const [linkedBill] = await tx.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.billNumber, x.againstBillNumber))).limit(1);
+        if (!linkedBill) throw Error("Linked vendor bill was not found");
         const adjustedAmount = m(m(linkedBill.adjustedAmount) + m(x.amount));
         const billStatus = m(linkedBill.paidAmount) + adjustedAmount >= m(linkedBill.amount) - 0.009 ? "Paid" : "Partial";
-        await db.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, linkedBill.id));
-      }
-      const [updated] = await db.update(accountsPayableTable).set({ journalEntryId: journal.id, appliedAmount: m(x.amount), availableCredit: 0 }).where(eq(accountsPayableTable.id, x.id)).returning();
+        await tx.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, linkedBill.id));
+        const [result] = await tx.update(accountsPayableTable).set({ journalEntryId: journal.id, appliedAmount: m(x.amount), availableCredit: 0 }).where(eq(accountsPayableTable.id, x.id)).returning();
+        return result;
+      });
       return s.status(201).json(updated);
     }
-    if (c.p === "ar" && x.entryType === "Credit Note") {
+    if (c.p === "ar" && r.body.entryType === "Credit Note") {
       const accounts = await coa(r.acc.org);
-      const selected = accounts.find((account: any) => Number(account.id) === Number(x.coaAccountId));
+      const selected = accounts.find((account: any) => Number(account.id) === Number(r.body.coaAccountId));
       const creditNote = accounts.find((account: any) => account.accountCode === "1200");
       if (!selected || !creditNote) return s.status(409).json({ error: "Required credit-note or selected COA account is not configured" });
-      const journal = await post(r.acc.org, { entryDate: x.invoiceDate || day(), reference: x.creditNoteNumber || x.invoiceNumber, description: `Credit note ${x.creditNoteNumber || x.invoiceNumber}`, sourceType: "Credit Note", sourceId: x.id, lines: [{ accountId: selected.id, debit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }, { accountId: creditNote.id, credit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }] }, r.acc.user.id);
-      const [linked] = await db.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.invoiceNumber, x.linkedInvoiceNumber))).limit(1);
-      if (linked) {
+      const updated = await db.transaction(async (tx) => {
+        const [x] = await tx.insert(c.t).values(values).returning();
+        const journal = await insertImportJournal(tx, r.acc.org, { entryDate: x.invoiceDate || day(), reference: x.creditNoteNumber || x.invoiceNumber, description: `Credit note ${x.creditNoteNumber || x.invoiceNumber}`, sourceType: "Credit Note", sourceId: x.id, lines: [{ accountId: selected.id, debit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }, { accountId: creditNote.id, credit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }] }, r.acc.user.id);
+        const [linked] = await tx.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.invoiceNumber, x.linkedInvoiceNumber))).limit(1);
+        if (!linked) throw Error("Linked customer invoice was not found");
         const adjustedAmount = m(m(linked.adjustedAmount) + m(x.amount));
         const linkedStatus = m(linked.receivedAmount) + adjustedAmount >= m(linked.amount) - 0.009 ? "Received" : "Partial";
-        await db.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
-      }
-      const [updated] = await db.update(accountsReceivableTable).set({ journalEntryId: journal.id }).where(eq(accountsReceivableTable.id, x.id)).returning();
+        await tx.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
+        const [result] = await tx.update(accountsReceivableTable).set({ journalEntryId: journal.id, adjustedAmount: m(x.amount) }).where(eq(accountsReceivableTable.id, x.id)).returning();
+        return result;
+      });
       return s.status(201).json(updated);
     }
+    const [x] = await db.insert(c.t).values(values).returning();
     s.status(201).json(x);
   });
   router.patch(`/${c.p}/:id`, async (r: any, s): Promise<any> => {
@@ -3121,10 +3120,9 @@ router.post("/ar/:id/approve", async (r: any, s): Promise<any> => {
       return s
         .status(400)
         .json({ error: "Linked customer invoice was not found" });
-    const eligible = Math.max(
-      0,
-      m(linked.amount) - m(linked.receivedAmount) - m(linked.adjustedAmount),
-    );
+    const eligible = m(linked.receivedAmount) >= m(linked.amount) - 0.009
+      ? m(linked.amount)
+      : receivableOutstanding(linked);
     if (m(entry.amount) > eligible + 0.009)
       return s
         .status(409)

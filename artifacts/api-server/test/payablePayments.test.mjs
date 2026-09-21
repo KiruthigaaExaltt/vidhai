@@ -212,6 +212,46 @@ test("disbursement with bank charges and TDS creates properly balanced journal l
   assert.equal(totalCredit, 3100);
 });
 
+test("debit-note correction preserves the bill, reduces AP, updates the ledger, and posts a balanced journal", async () => {
+  const { f, body } = await payableFixture();
+  const bill = f.rows("accountsPayableTable")[0];
+  bill.amount = 1500;
+  const expense = f.rows("chartOfAccountsTable").find(row => row.accountCode === "5100");
+  const result = await f.call("post", "/ap", {
+    vendorId: 8,
+    billNumber: "DN-CORRECTION-1",
+    againstBillNumber: bill.billNumber,
+    billDate: "2026-09-02",
+    dueDate: "2026-09-02",
+    amount: 500,
+    coaAccountId: expense.id,
+    entryType: "Debit Note",
+    sourceType: "Manual",
+    notes: "Correct bill amount from 1500 to 1000",
+  });
+  assert.equal(result.statusCode, 201);
+  assert.equal(f.rows("accountsPayableTable").find(row => row.id === bill.id).adjustedAmount, 500);
+  assert.ok(f.rows("accountsPayableTable").find(row => row.billNumber === "DN-CORRECTION-1"));
+  const journal = f.rows("journalEntriesTable").find(row => row.id === result.body.journalEntryId);
+  const lines = f.rows("journalLinesTable").filter(row => row.journalEntryId === journal.id);
+  assert.equal(lines.reduce((sum, line) => sum + line.debit, 0), 500);
+  assert.equal(lines.reduce((sum, line) => sum + line.credit, 0), 500);
+  assert.equal((await f.call("post", "/ap", {
+    vendorId: 8, billNumber: "DN-CORRECTION-1", againstBillNumber: bill.billNumber,
+    billDate: "2026-09-02", dueDate: "2026-09-02", amount: 500,
+    coaAccountId: expense.id, entryType: "Debit Note", sourceType: "Manual",
+  })).statusCode, 409);
+  assert.equal(f.rows("journalEntriesTable").length, 1);
+  const ledger = await f.call("get", "/vendor-ledger");
+  const record = ledger.body[0].records.find(row => row.billNumber === bill.billNumber);
+  assert.equal(record.billedAmount, 1500);
+  assert.equal(record.debitNote, 500);
+  assert.equal(record.outstanding, 1000);
+  const payment = await f.call("post", "/ap/:id/payment", { ...body, amount: 1000, paymentId: "after-correction" }, { id: bill.id });
+  assert.equal(payment.statusCode, 201);
+  assert.equal(payment.body.payable.status, "Paid");
+});
+
 const importRow = {
   entryType: "Bill", vendor: "Vendor A", billNumber: "IMPORTED-AP",
   billDate: "2026-09-01", dueDate: "2026-09-30", amount: "10000",

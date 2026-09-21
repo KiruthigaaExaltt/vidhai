@@ -200,6 +200,47 @@ test("new Excel unpaid invoice requires no invented payment fields",async()=>{
   assert.equal(f.rows("journalEntriesTable").length,0);
 });
 
+test("credit-note correction preserves the invoice, reduces AR, updates the ledger, and posts a balanced journal", async () => {
+  const { f, body } = await receivableFixture();
+  const invoice = f.rows("accountsReceivableTable")[0];
+  invoice.amount = 1500;
+  const sales = f.rows("chartOfAccountsTable").find(row => row.accountCode === "4100");
+  const result = await f.call("post", "/ar", {
+    clientId: 7,
+    invoiceNumber: "CN-CORRECTION-1",
+    creditNoteNumber: "CN-CORRECTION-1",
+    linkedInvoiceNumber: invoice.invoiceNumber,
+    invoiceDate: "2026-09-02",
+    dueDate: "2026-09-02",
+    amount: 500,
+    coaAccountId: sales.id,
+    entryType: "Credit Note",
+    sourceType: "Manual",
+    notes: "Correct invoice amount from 1500 to 1000",
+  });
+  assert.equal(result.statusCode, 201);
+  assert.equal(f.rows("accountsReceivableTable").find(row => row.id === invoice.id).adjustedAmount, 500);
+  assert.ok(f.rows("accountsReceivableTable").find(row => row.creditNoteNumber === "CN-CORRECTION-1"));
+  const journal = f.rows("journalEntriesTable").find(row => row.id === result.body.journalEntryId);
+  const lines = f.rows("journalLinesTable").filter(row => row.journalEntryId === journal.id);
+  assert.equal(lines.reduce((sum, line) => sum + line.debit, 0), 500);
+  assert.equal(lines.reduce((sum, line) => sum + line.credit, 0), 500);
+  assert.equal((await f.call("post", "/ar", {
+    clientId: 7, invoiceNumber: "CN-CORRECTION-1", creditNoteNumber: "CN-CORRECTION-1",
+    linkedInvoiceNumber: invoice.invoiceNumber, invoiceDate: "2026-09-02", dueDate: "2026-09-02",
+    amount: 500, coaAccountId: sales.id, entryType: "Credit Note", sourceType: "Manual",
+  })).statusCode, 409);
+  assert.equal(f.rows("journalEntriesTable").length, 1);
+  const ledger = await f.call("get", "/customer-ledger");
+  const record = ledger.body[0].records.find(row => row.invoiceNumber === invoice.invoiceNumber);
+  assert.equal(record.invoicedAmount, 1500);
+  assert.equal(record.credits, 500);
+  assert.equal(record.outstanding, 1000);
+  const payment = await f.call("post", "/ar/:id/payment", { ...body, amount: 1000, receiptId: "after-correction" }, { id: invoice.id });
+  assert.equal(payment.statusCode, 201);
+  assert.equal(payment.body.receivable.status, "Received");
+});
+
 test("Receivables parser maps new and reordered payment columns",()=>{
   const headers=["Customer *","Invoice Number *","Invoice Date *","Due Date *","Amount *","Received Amount","Payment Date","From Account","To Account","Notes"];
   const values=["Client A","PARSED","2026-09-01","2026-09-30","10000","3000","2026-09-06","1100","1099","note"];
