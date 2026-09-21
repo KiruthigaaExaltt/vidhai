@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import {
@@ -112,12 +113,12 @@ export default function UserManagement() {
       const [u, r, e, c] = await Promise.all([
         api(""),
         fetch(`${BASE}/api/settings/roles`, { credentials: "include" }).then(
-          (x) => (x.ok ? x.json() : []),
+          async (x) => { if (!x.ok) throw await responseError(x, "Unable to load user management options"); return x.json(); },
         ),
         api("/employee-options"),
         fetch(`${BASE}/api/settings/permissions/catalog`, {
           credentials: "include",
-        }).then((x) => (x.ok ? x.json() : [])),
+        }).then(async (x) => { if (!x.ok) throw await responseError(x, "Unable to load user management options"); return x.json(); }),
       ]);
       setUsers(u);
       setRoles(r);
@@ -169,7 +170,7 @@ export default function UserManagement() {
       const latestRoles = await fetch(`${BASE}/api/settings/roles`, {
         credentials: "include",
       }).then(async (response) => {
-        if (!response.ok) throw new Error("Unable to refresh roles");
+        if (!response.ok) throw await responseError(response, "Unable to refresh roles");
         return response.json();
       });
       const assignable = (Array.isArray(latestRoles) ? latestRoles : []).filter(

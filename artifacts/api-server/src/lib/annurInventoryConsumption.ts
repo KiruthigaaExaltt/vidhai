@@ -1,3 +1,4 @@
+import { RequestError } from "./requestError";
 import {
   batchInventoryConsumptionsTable,
   db,
@@ -21,15 +22,15 @@ export async function consumeAnnurBatchMaterials(
   for (const row of input.materials) {
     const quantity = Number(row.quantity);
     if (!row.name?.trim() || !Number.isFinite(quantity) || quantity <= 0)
-      throw new Error(`Invalid material quantity for ${row.name || "unnamed material"}`);
+      throw new RequestError(`Invalid material quantity for ${row.name || "unnamed material"}`);
     const key = normalized(row.name);
     const current = combined.get(key);
     combined.set(key, { name: row.name.trim(), materialId: row.materialId ?? current?.materialId, quantity: (current?.quantity || 0) + quantity });
   }
-  if (!combined.size) throw new Error("At least one formulation material is required");
+  if (!combined.size) throw new RequestError("At least one formulation material is required");
   const [warehouse] = await tx.select().from(inventoryLocationsTable).where(eq(inventoryLocationsTable.systemCode, "ANNUR")).limit(1);
   const [annurLocation] = await tx.select().from(locationsTable).where(eq(locationsTable.code, "A")).limit(1);
-  if (!warehouse || !annurLocation) throw new Error("Annur inventory configuration is missing");
+  if (!warehouse || !annurLocation) throw new RequestError("Annur inventory configuration is missing");
   const [allMaterials, allStock, existingConsumptions] = await Promise.all([
     tx.select().from(materialsTable),
     tx.select().from(inventoryTable).where(eq(inventoryTable.locationId, warehouse.id)),
@@ -39,14 +40,14 @@ export async function consumeAnnurBatchMaterials(
     const material = requested.materialId
       ? allMaterials.find((row) => Number(row.id) === Number(requested.materialId))
       : allMaterials.find((row) => normalized(row.name) === normalized(requested.name));
-    if (!material) throw new Error(`${requested.name} is not available in Item & Product Master`);
+    if (!material) throw new RequestError(`Item "${requested.name}" is missing from Item & Product Master. Add the item before initiating the batch.`);
     const stock = allStock.find((row) => Number(row.materialId) === Number(material.id));
     const available = Number(stock?.quantityOnHand || 0);
     if (!stock || available < requested.quantity)
-      throw new Error(`${material.name}: required ${requested.quantity} ${material.unit}, available ${available} ${material.unit} in Annur`);
+      throw new RequestError(`${material.name}: required ${requested.quantity} ${material.unit}, available ${available} ${material.unit} in Annur`);
     const key = `${input.batchType}:${input.batchId}:${material.id}:${input.operationKey || "INITIAL"}`;
     if (existingConsumptions.some((row) => row.consumptionKey === key))
-      throw new Error(`${input.batchReference} has already consumed ${material.name}`);
+      throw new RequestError(`${input.batchReference} has already consumed ${material.name}`);
     return { requested, material, stock, available, key };
   });
   for (const row of prepared) {
@@ -87,7 +88,7 @@ export async function consumeAnnurMaterialIncreases(
   const requestedByMaterial = new Map<number, { name: string; materialId: number; quantity: number }>();
   for (const row of input.materials) {
     const material = row.materialId ? masters.find((item) => Number(item.id) === Number(row.materialId)) : masters.find((item) => normalized(item.name) === normalized(row.name));
-    if (!material) throw new Error(`${row.name} is not available in Item & Product Master`);
+    if (!material) throw new RequestError(`Item "${row.name}" is missing from Item & Product Master. Add the item before initiating the batch.`);
     const current = requestedByMaterial.get(material.id);
     requestedByMaterial.set(material.id, { name: material.name, materialId: material.id, quantity: (current?.quantity || 0) + Number(row.quantity) });
   }

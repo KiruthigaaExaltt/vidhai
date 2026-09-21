@@ -1,6 +1,7 @@
+import { createAppQueryClient } from "@/lib/queryClient";
 import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -56,8 +57,10 @@ import { NotificationProvider } from "@/notifications/NotificationProvider";
 import ModuleEncryptionGate from "@/components/security/ModuleEncryptionGate";
 import { Shell } from "@/components/layout/Shell";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { RadialPreloader } from "@/components/ui/radial-preloader";
+import { TitleManager } from "@/components/layout/TitleManager";
 
-const queryClient = new QueryClient();
+const queryClient = createAppQueryClient();
 
 const ACCOUNT_VIEW_PERMISSIONS = [
   "accounts.finance_dashboard.view",
@@ -103,13 +106,7 @@ function ProtectedRoute({
   }, [isLoading, user, setLocation]);
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-sm font-mono text-muted-foreground">
-          Loading...
-        </div>
-      </div>
-    );
+    return <RadialPreloader />;
   }
 
   if (!user) return null;
@@ -211,17 +208,14 @@ function LandingRoute() {
     setLocation(destination?.path ?? "/profile");
   }, [isLoading, user, can, isModuleEnabled, setLocation]);
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-sm font-mono text-muted-foreground">Loading...</div>
-    </div>
-  );
+  return <RadialPreloader />;
 }
 function LedgerPage() {
   return (
     <ModuleEncryptionGate
       module="ledger"
       label="Ledger"
+      hideFloatingLock={true}
       lockedLayout={(content) => <Shell>{content}</Shell>}
     >
       <Accounts />
@@ -536,6 +530,7 @@ function App() {
         <AuthProvider>
           <NotificationProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <TitleManager />
               <ErrorBoundary>
                 <Router />
               </ErrorBoundary>

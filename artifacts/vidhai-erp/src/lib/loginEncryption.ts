@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 function pemToBytes(pem: string): ArrayBuffer {
   const base64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s/g, "");
   const decoded = atob(base64);
@@ -14,7 +15,7 @@ export async function encryptLoginPassword(password: string): Promise<string> {
     credentials: "include",
     headers: { Accept: "application/json" },
   });
-  if (!response.ok) throw new Error("Unable to secure login credentials");
+  if (!response.ok) throw await responseError(response, "Unable to secure login credentials");
   const { publicKey } = (await response.json()) as { publicKey: string };
   const key = await crypto.subtle.importKey(
     "spki",

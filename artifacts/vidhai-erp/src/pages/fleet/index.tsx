@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useEffect, useState } from "react";
 import {
   getListVehiclesQueryKey,
@@ -190,7 +191,7 @@ export default function FleetList() {
     queryFn: async () => {
       const params = new URLSearchParams({ status: filterStatus, skip: String((currentPage - 1) * pageSize), limit: String(pageSize) });
       const response = await fetch(`/api/fleet/vehicles?${params}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load vehicles");
+      if (!response.ok) throw await responseError(response, "Unable to load vehicles");
       return response.json();
     },
     placeholderData: keepPreviousData,
@@ -205,7 +206,7 @@ export default function FleetList() {
       if (statusQueryParams.dateTo) params.set("dateTo", statusQueryParams.dateTo);
       if (statusQueryParams.search) params.set("search", statusQueryParams.search);
       const response = await fetch(`/api/fleet/status-history?${params}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load vehicle status history");
+      if (!response.ok) throw await responseError(response, "Unable to load vehicle status history");
       return response.json();
     },
   });
@@ -214,7 +215,7 @@ export default function FleetList() {
     queryKey: ["fleet-diesel-inventory"],
     queryFn: async () => {
       const response = await fetch("/api/fleet/diesel-inventory", { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load Annur Diesel inventory");
+      if (!response.ok) throw await responseError(response, "Unable to load Annur Diesel inventory");
       return response.json();
     },
   });
@@ -263,7 +264,7 @@ export default function FleetList() {
       if (maintenanceQueryParams.dateTo) params.set("dateTo", maintenanceQueryParams.dateTo);
       if (maintenanceQueryParams.vehicleSearch) params.set("vehicleSearch", maintenanceQueryParams.vehicleSearch);
       const response = await fetch(`/api/fleet/maintenance-logs?${params}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load maintenance history");
+      if (!response.ok) throw await responseError(response, "Unable to load maintenance history");
       return response.json();
     },
   });
@@ -289,7 +290,7 @@ export default function FleetList() {
     queryKey: ["fleet-settings"],
     queryFn: async () => {
       const response = await fetch("/api/fleet/settings", { credentials: "include" });
-      if (!response.ok) return { serviceReminderDays: 7 };
+      if (!response.ok) throw await responseError(response, "Unable to load fleet settings");
       return response.json();
     },
   });

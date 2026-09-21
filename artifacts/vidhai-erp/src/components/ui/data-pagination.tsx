@@ -68,46 +68,49 @@ export function DataPagination({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 border-t px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between",
+        "flex flex-col gap-3.5 border-t border-border/80 bg-card/40 px-4 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between transition-colors",
         className,
       )}
       aria-busy={loading}
     >
-      <div className="flex items-center gap-2" aria-live="polite">
-        <span>
-          Showing <strong className="text-foreground">{from}</strong> to{" "}
-          <strong className="text-foreground">{to}</strong> of{" "}
-          <strong className="text-foreground">{totalCount}</strong> records
+      <div className="flex items-center gap-1.5 text-xs sm:text-sm" aria-live="polite">
+        <span className="text-muted-foreground">
+          Showing <span className="font-semibold text-foreground">{from}</span> to{" "}
+          <span className="font-semibold text-foreground">{to}</span> of{" "}
+          <span className="font-semibold text-primary">{totalCount}</span> records
         </span>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-4">
-        <label className="flex items-center gap-2">
-          <span>Rows per page</span>
+
+      <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-4">
+        <label className="flex items-center gap-2 text-xs sm:text-sm font-medium text-muted-foreground">
+          <span className="whitespace-nowrap">Rows per page</span>
           <Select
             value={String(pageSize)}
             disabled={loading}
             onValueChange={(value) => onPageSizeChange(Number(value))}
           >
-            <SelectTrigger className="h-8 w-[72px] bg-background">
+            <SelectTrigger className="h-8.5 min-w-[76px] rounded-lg border border-border/90 bg-card px-2.5 text-xs font-semibold text-foreground shadow-2xs hover:border-primary/50 hover:bg-primary/5 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="rounded-xl border border-border shadow-lg">
               {sizes.map((size) => (
-                <SelectItem key={size} value={String(size)}>
+                <SelectItem key={size} value={String(size)} className="text-xs font-medium cursor-pointer rounded-md">
                   {size}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </label>
+
         <Pagination className="mx-0 w-auto justify-end">
-          <PaginationContent>
+          <PaginationContent className="gap-1 sm:gap-1.5">
+            {/* Previous Page Arrow */}
             <PaginationItem>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-9 w-9"
+                className="h-8.5 w-8.5 rounded-lg border border-border/90 bg-card text-foreground shadow-2xs transition-all hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:scale-95 disabled:pointer-events-none disabled:opacity-40"
                 aria-label="Previous page"
                 title="Previous page"
                 disabled={disabled || page === 1}
@@ -116,14 +119,20 @@ export function DataPagination({
                 <ChevronLeft className="h-4 w-4" aria-hidden="true" />
               </Button>
             </PaginationItem>
+
+            {/* Page Number Boxes */}
             {pageTokens(page, pages).map((token) =>
               typeof token === "number" ? (
                 <PaginationItem key={token}>
                   <Button
                     type="button"
-                    variant={token === page ? "outline" : "ghost"}
                     size="icon"
-                    className="h-9 w-9"
+                    className={cn(
+                      "h-8.5 w-8.5 rounded-lg text-xs font-semibold transition-all shadow-2xs",
+                      token === page
+                        ? "bg-primary text-primary-foreground border border-primary shadow-sm hover:bg-primary/90 font-bold"
+                        : "border border-border/90 bg-card text-foreground hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:scale-95"
+                    )}
                     aria-current={token === page ? "page" : undefined}
                     aria-label={`Go to page ${token}`}
                     disabled={loading}
@@ -134,16 +143,18 @@ export function DataPagination({
                 </PaginationItem>
               ) : (
                 <PaginationItem key={token}>
-                  <PaginationEllipsis />
+                  <PaginationEllipsis className="h-8.5 w-8.5 text-muted-foreground flex items-center justify-center" />
                 </PaginationItem>
               ),
             )}
+
+            {/* Next Page Arrow */}
             <PaginationItem>
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="h-9 w-9"
+                className="h-8.5 w-8.5 rounded-lg border border-border/90 bg-card text-foreground shadow-2xs transition-all hover:border-primary/50 hover:bg-primary/10 hover:text-primary active:scale-95 disabled:pointer-events-none disabled:opacity-40"
                 aria-label="Next page"
                 title="Next page"
                 disabled={disabled || page === pages}

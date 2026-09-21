@@ -1,3 +1,5 @@
+import { receiptAccounts } from "../lib/receivableAccounts";
+import { disbursementAccounts } from "../lib/payableAccounts";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -26,7 +28,7 @@ import { paginateQuery, paginationMetadata } from "../lib/pagination";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 import { resolveUploadPath } from "../lib/uploadStorage";
-import { addBankChargeLines, bankCashExportRow, paymentDetails, paymentMethods, paymentMoney, prepareBankCash } from "../lib/accountPayments";
+import { addBankChargeLines, bankCashExportRow, buildBankChargeJournalLines, paymentDetails, paymentMethods, paymentMoney, prepareBankCash } from "../lib/accountPayments";
 const router = Router(),
   m = (v: any) => {
     const parsed = Number(v?.$numberDecimal ?? v?.toString?.() ?? v ?? 0);
@@ -57,7 +59,7 @@ const gstSeedAccounts = [
   ["Output IGST", "Liability"],
 ] as const;
 const systemAccountCodes = new Set<string>(canonical.map(([code]) => code));
-const norm = (value: any) => String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const norm = (value: any) => String(value ?? "").replace(/[\uFEFF\u200B\u00A0]/g, " ").trim().replace(/[\u2013\u2014]/g, "-").replace(/\s+/g, " ").toLowerCase();
 const systemAccountNames = new Set<string>([
   ...canonical.map(([, name]) => norm(name)),
   ...gstSeedAccounts.map(([name]) => norm(name)),
@@ -273,8 +275,8 @@ function purchaseInvoiceTaxAmount(invoice: any, key: "cgst" | "sgst" | "igst") {
 }
 function historySource(sourceType: any) {
   const value = String(sourceType || "").toLowerCase();
-  if (value === "manual ar receipt" || value === "manual ar") return "Receivables";
-  if (value === "manual ap") return "Payables";
+  if (value.startsWith("manual ar") || value.includes("ar receipt") || value.includes("ar payment")) return "Receivables";
+  if (value.startsWith("manual ap") || value.includes("ap payment")) return "Payables";
   if (value.includes("credit note")) return "Credit Note";
   if (value.includes("debit note")) return "Debit Note";
   if (value.includes("payable") || value.includes("purchase") || value.includes("vendor")) return "Payables";
@@ -284,9 +286,21 @@ function historySource(sourceType: any) {
 function decorateHistoryLines(accounts: any[], receivables: any[], payables: any[], salesPayments: any[] = [], vendorPayments: any[] = [], clients: any[] = []) {
   const arById = new Map(receivables.map((row: any) => [Number(row.id), row]));
   const apById = new Map(payables.map((row: any) => [Number(row.id), row]));
-  const findAr = (line: any) => receivables.find((row: any) => Boolean(line.reference) && (norm(row.invoiceNumber) === norm(line.reference) || norm(row.creditNoteNumber) === norm(line.reference))) ||
+  const findAr = (line: any) =>
+    (line.metadata?.arId ? arById.get(Number(line.metadata.arId)) : undefined) ||
+    receivables.find((row: any) => Boolean(line.reference) && (
+      norm(row.invoiceNumber) === norm(line.reference) ||
+      norm(row.creditNoteNumber) === norm(line.reference) ||
+      (typeof line.reference === "string" && norm(line.reference).includes(norm(row.invoiceNumber)))
+    )) ||
     (line.sourceType === "Sales Invoice" ? receivables.find((row: any) => row.sourceType === "Sales Invoice" && Number(row.sourceId) === Number(line.sourceId)) : arById.get(Number(line.sourceId)));
-  const findAp = (line: any) => payables.find((row: any) => Boolean(line.reference) && norm(row.billNumber) === norm(line.reference)) ||
+  const findAp = (line: any) =>
+    (line.metadata?.apId ? apById.get(Number(line.metadata.apId)) : undefined) ||
+    payables.find((row: any) => Boolean(line.reference) && (
+      norm(row.billNumber) === norm(line.reference) ||
+      norm(row.debitNoteNumber) === norm(line.reference) ||
+      (typeof line.reference === "string" && norm(line.reference).includes(norm(row.billNumber)))
+    )) ||
     (line.sourceType === "Purchase Invoice" ? payables.find((row: any) => row.sourceType === "Purchase Invoice" && Number(row.sourceId) === Number(line.sourceId)) : apById.get(Number(line.sourceId)));
   for (const account of accounts as any[]) {
     for (const line of account.lines || []) {
@@ -294,7 +308,12 @@ function decorateHistoryLines(accounts: any[], receivables: any[], payables: any
       const metadata = line.metadata || {};
       let party: any;
       if (line.sourceType === "Bank Cash Transaction") {
-        const client = clients.find((row: any) => Number(row.id) === Number(metadata.clientId));
+        line.creditContactId = metadata.creditContactId ?? null;
+        line.debitContactId = metadata.debitContactId ?? null;
+        line.creditContactName = metadata.creditContactName || clients.find((row: any) => Number(row.id) === Number(metadata.creditContactId))?.name || "";
+        line.debitContactName = metadata.debitContactName || clients.find((row: any) => Number(row.id) === Number(metadata.debitContactId))?.name || "";
+        const contactId = metadata.creditContactId || metadata.debitContactId || metadata.clientId;
+        const client = clients.find((row: any) => Number(row.id) === Number(contactId));
         party = client ? { clientId: client.id, clientName: client.name } : undefined;
       } else if (line.sourceType === "Manual AR Receipt") {
         party = arById.get(Number(metadata.arId));
@@ -311,13 +330,21 @@ function decorateHistoryLines(accounts: any[], receivables: any[], payables: any
         if (payment) { line.paymentMethod = payment.paymentMode || ""; line.notes = payment.notes || ""; line.referenceId = payment.invoiceReference || payment.transactionReference || ""; }
       } else if (source === "Receivables" || source === "Credit Note") party = findAr(line);
       line.source = source;
-      line.partyName = party?.vendorName || party?.clientName || metadata.clientName || "N/A";
-      line.partyId = party?.vendorId || party?.clientId || "N/A";
-      line.referenceId = metadata.documentReference ?? line.referenceId ?? line.reference ?? "";
+      line.partyName = party?.vendorName || party?.clientName || metadata.vendorName || metadata.clientName || "N/A";
+      if (line.sourceType === "Bank Cash Transaction" && metadata.mode === "Transfer") {
+        line.partyName = [line.creditContactName && `Credit: ${line.creditContactName}`, line.debitContactName && `Debit: ${line.debitContactName}`].filter(Boolean).join("; ") || line.partyName;
+      }
+      line.partyId = party?.vendorId || party?.clientId || metadata.vendorId || metadata.clientId || "N/A";
+      const docRefFromLine = typeof line.reference === "string" && line.reference.includes(" (AUTO:")
+        ? line.reference.split(" (AUTO:")[0]
+        : "";
+      line.referenceId = metadata.documentReference || docRefFromLine || line.referenceId || line.reference || "";
       line.paymentMethod = metadata.paymentMethod || line.paymentMethod || "";
       line.notes = metadata.notes ?? line.notes ?? "";
       line.accountName = account.accountName;
-      line.paymentDate = String(line.paymentDate || line.entryDate || "").slice(0, 10);
+      line.paymentDate = String(metadata.paymentDate || line.paymentDate || line.entryDate || "").slice(0, 10);
+      line.fromAccountName = metadata.fromAccountName || line.fromAccountName || "";
+      line.toAccountName = metadata.toAccountName || line.toAccountName || "";
     }
   }
 }
@@ -354,7 +381,7 @@ async function coa(org: number) {
     }).returning();
     rows.push(created as any);
   }
-const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)));
+  const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)));
   const nextAccountCode = (accountType: string) => {
     const bases: Record<string, number> = { Asset: 1000, Liability: 2000, Equity: 3000, Revenue: 4000, Expense: 5000 };
     const used = (rows as any[])
@@ -461,6 +488,8 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
       h.runningBalance = running;
     }
     a.lines = historyLines;
+    a.receivablePaymentEvents = historyLines.filter((line: any) => line.sourceType === "Manual AR Receipt" || line.sourceType === "Customer Payment");
+    a.payablePaymentEvents = historyLines.filter((line: any) => line.sourceType === "Manual AP Payment" || line.sourceType === "Vendor Payment");
   }
 
   const [receivableRows, payableRows, salesPaymentRows, vendorPaymentRows, salesInvoiceItemRows, purchaseInvoiceRows] = await Promise.all([
@@ -481,31 +510,138 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
     await db.update(chartOfAccountsTable).set({ currentBalance } as any).where(eq(chartOfAccountsTable.id, account.id));
     account.lines = derivedLines
       .filter((line) => m(line.debit) > 0 || m(line.credit) > 0)
-      .sort((left, right) => String(left.entryDate).localeCompare(String(right.entryDate)) || String(left.reference).localeCompare(String(right.reference)))
+      .sort((left, right) => {
+        const leftDate = String(left.metadata?.paymentDate || left.paymentDate || left.entryDate || "").slice(0, 10);
+        const rightDate = String(right.metadata?.paymentDate || right.paymentDate || right.entryDate || "").slice(0, 10);
+        const dateCompare = leftDate.localeCompare(rightDate);
+        if (dateCompare !== 0) return dateCompare;
+        if (isCreditNormal) {
+          const leftCredit = m(left.credit) > 0 ? 1 : 0;
+          const rightCredit = m(right.credit) > 0 ? 1 : 0;
+          if (leftCredit !== rightCredit) return rightCredit - leftCredit;
+        } else {
+          const leftDebit = m(left.debit) > 0 ? 1 : 0;
+          const rightDebit = m(right.debit) > 0 ? 1 : 0;
+          if (leftDebit !== rightDebit) return rightDebit - leftDebit;
+        }
+        return String(left.reference || "").localeCompare(String(right.reference || "")) || Number(left.id || 0) - Number(right.id || 0);
+      })
       .map((line, index) => {
         running = m(running + (isCreditNormal ? m(line.credit) - m(line.debit) : m(line.debit) - m(line.credit)));
-        return { id: `derived-${code}-${index}`, journalEntryId: null, runningBalance: running, ...line };
+        return { id: line.id || `derived-${code}-${index}`, journalEntryId: line.journalEntryId ?? null, ...line, runningBalance: running };
       });
   };
   const invoices = (receivableRows as any[]).filter((row) => row.entryType !== "Credit Note");
   const bills = (payableRows as any[]).filter((row) => row.entryType !== "Debit Note");
   const latestDate = (dates: any[]) => dates.map((value) => String(value || "").slice(0, 10)).filter(Boolean).sort().pop() || "";
   const paidInvoiceDate = (row: any) =>
-    latestDate((salesPaymentRows as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId)).map((payment) => payment.paymentDate)) || row.invoiceDate;
+    (row.sourceType === "Sales Invoice"
+      ? latestDate((salesPaymentRows as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId)).map((payment) => payment.paymentDate))
+      : latestDate(manualArPayments(row, entries, rows).map((payment) => payment.paymentDate))) || row.invoiceDate;
   const paidBillDate = (row: any) =>
     latestDate((vendorPaymentRows as any[]).filter((payment) => norm(payment.invoiceReference) === norm(row.billNumber)).map((payment) => payment.paymentDate)) || row.billDate;
+
+  const arAccount = (rows as any[]).find((row: any) => String(row.accountCode) === "1100");
+  const arJournalLines = arAccount?.lines ? [...arAccount.lines] : [];
+  const derivedArLines: any[] = [...arJournalLines];
+
+  for (const row of invoices) {
+    const hasDebit = arJournalLines.some((l: any) =>
+      m(l.debit) > 0 && (
+        norm(l.reference) === norm(row.invoiceNumber) ||
+        norm(l.metadata?.documentReference) === norm(row.invoiceNumber) ||
+        (l.sourceType === "Sales Invoice" && Number(l.sourceId) === Number(row.sourceId))
+      )
+    );
+    if (!hasDebit && m(row.amount) > 0) {
+      derivedArLines.push({
+        id: `ar-inv-${row.id}`,
+        journalEntryId: row.journalEntryId || null,
+        entryDate: row.invoiceDate,
+        reference: row.invoiceNumber,
+        description: row.clientName || "Customer invoice",
+        sourceType: row.sourceType === "Manual" ? "Manual AR" : row.sourceType || "Sales Invoice",
+        sourceId: row.sourceId || row.id,
+        metadata: {
+          arId: row.id,
+          clientId: row.clientId,
+          clientName: row.clientName,
+          documentReference: row.invoiceNumber,
+          notes: row.notes || "",
+        },
+        notes: row.notes || "",
+        debit: m(row.amount),
+        credit: 0,
+      });
+    }
+
+    const paymentsInJournal = arJournalLines.filter((l: any) =>
+      m(l.credit) > 0 && (
+        Number(l.metadata?.arId) === Number(row.id) ||
+        norm(l.metadata?.documentReference) === norm(row.invoiceNumber) ||
+        (l.sourceType === "Customer Payment" && Number(l.sourceId) === Number(row.id)) ||
+        (typeof l.reference === "string" && norm(l.reference).includes(norm(row.invoiceNumber)))
+      )
+    );
+    const totalPaidInJournal = paymentsInJournal.reduce((sum: number, l: any) => sum + m(l.credit), 0);
+    const missingReceipt = m(row.receivedAmount) - totalPaidInJournal;
+    if (missingReceipt > 0.009) {
+      derivedArLines.push({
+        id: `ar-hist-rcpt-${row.id}`,
+        journalEntryId: null,
+        entryDate: paidInvoiceDate(row),
+        reference: row.invoiceNumber,
+        description: `${row.clientName || "Customer"} payment received`,
+        sourceType: "Manual AR Receipt",
+        sourceId: row.id,
+        metadata: {
+          arId: row.id,
+          clientId: row.clientId,
+          clientName: row.clientName,
+          documentReference: row.invoiceNumber,
+          notes: row.notes || "",
+        },
+        notes: row.notes || "",
+        debit: 0,
+        credit: missingReceipt,
+      });
+    }
+
+    const adjsInJournal = arJournalLines.filter((l: any) =>
+      m(l.credit) > 0 && l.sourceType === "Credit Note" && (
+        Number(l.sourceId) === Number(row.id) ||
+        norm(l.reference) === norm(row.creditNoteNumber || row.invoiceNumber) ||
+        norm(l.metadata?.documentReference) === norm(row.creditNoteNumber || row.invoiceNumber)
+      )
+    );
+    const totalAdjInJournal = adjsInJournal.reduce((sum: number, l: any) => sum + m(l.credit), 0);
+    const missingAdj = m(row.adjustedAmount) - totalAdjInJournal;
+    if (missingAdj > 0.009) {
+      derivedArLines.push({
+        id: `ar-hist-adj-${row.id}`,
+        journalEntryId: null,
+        entryDate: row.invoiceDate,
+        reference: row.creditNoteNumber || row.invoiceNumber,
+        description: `${row.clientName || "Customer"} credit adjustment`,
+        sourceType: "Credit Note",
+        sourceId: row.id,
+        metadata: {
+          arId: row.id,
+          clientId: row.clientId,
+          clientName: row.clientName,
+          documentReference: row.creditNoteNumber || row.invoiceNumber,
+        },
+        notes: row.notes || "",
+        debit: 0,
+        credit: missingAdj,
+      });
+    }
+  }
+
   await resetAccount(
     "1100",
     invoices.reduce((sum, row) => sum + receivableOutstanding(row), 0),
-    invoices.map((row) => ({
-      entryDate: row.invoiceDate,
-      reference: row.invoiceNumber,
-      description: row.clientName || "Customer invoice",
-      sourceType: row.sourceType === "Manual" ? "Manual AR" : row.sourceType || "Sales Invoice",
-      sourceId: row.sourceId || row.id,
-      debit: receivableOutstanding(row),
-      credit: 0,
-    })),
+    derivedArLines,
   );
   await resetAccount(
     "4100",
@@ -520,18 +656,107 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
       credit: m(row.receivedAmount),
     })),
   );
+  const apAccount = (rows as any[]).find((row: any) => String(row.accountCode) === "2100");
+  const apJournalLines = apAccount?.lines ? [...apAccount.lines] : [];
+  const derivedApLines: any[] = [...apJournalLines];
+
+  for (const row of bills) {
+    const hasCredit = apJournalLines.some((l: any) =>
+      m(l.credit) > 0 && (
+        norm(l.reference) === norm(row.billNumber) ||
+        norm(l.metadata?.documentReference) === norm(row.billNumber) ||
+        (l.sourceType === "Purchase Invoice" && Number(l.sourceId) === Number(row.sourceId))
+      )
+    );
+    if (!hasCredit && m(row.amount) > 0) {
+      derivedApLines.push({
+        id: `ap-bill-${row.id}`,
+        journalEntryId: row.journalEntryId || null,
+        entryDate: row.billDate,
+        reference: row.billNumber,
+        description: row.vendorName || "Vendor bill",
+        sourceType: row.sourceType === "Manual" ? "Manual AP" : row.sourceType || "Purchase Invoice",
+        sourceId: row.sourceId || row.id,
+        metadata: {
+          apId: row.id,
+          vendorId: row.vendorId,
+          vendorName: row.vendorName,
+          documentReference: row.billNumber,
+          notes: row.notes || "",
+        },
+        notes: row.notes || "",
+        debit: 0,
+        credit: m(row.amount),
+      });
+    }
+
+    const paymentsInJournal = apJournalLines.filter((l: any) =>
+      m(l.debit) > 0 && (
+        Number(l.metadata?.apId) === Number(row.id) ||
+        norm(l.metadata?.documentReference) === norm(row.billNumber) ||
+        (l.sourceType === "Vendor Payment" && Number(l.sourceId) === Number(row.id)) ||
+        (typeof l.reference === "string" && norm(l.reference).includes(norm(row.billNumber)))
+      )
+    );
+    const totalPaidInJournal = paymentsInJournal.reduce((sum: number, l: any) => sum + m(l.debit), 0);
+    const missingPayment = m(row.paidAmount) - totalPaidInJournal;
+    if (missingPayment > 0.009) {
+      derivedApLines.push({
+        id: `ap-hist-pay-${row.id}`,
+        journalEntryId: null,
+        entryDate: paidBillDate(row),
+        reference: row.billNumber,
+        description: `${row.vendorName || "Vendor"} payment made`,
+        sourceType: "Manual AP Payment",
+        sourceId: row.id,
+        metadata: {
+          apId: row.id,
+          vendorId: row.vendorId,
+          vendorName: row.vendorName,
+          documentReference: row.billNumber,
+          notes: row.notes || "",
+        },
+        notes: row.notes || "",
+        debit: missingPayment,
+        credit: 0,
+      });
+    }
+
+    const adjsInJournal = apJournalLines.filter((l: any) =>
+      m(l.debit) > 0 && l.sourceType === "Debit Note" && (
+        Number(l.sourceId) === Number(row.id) ||
+        norm(l.reference) === norm(row.debitNoteNumber || row.billNumber) ||
+        norm(l.metadata?.documentReference) === norm(row.debitNoteNumber || row.billNumber)
+      )
+    );
+    const totalAdjInJournal = adjsInJournal.reduce((sum: number, l: any) => sum + m(l.debit), 0);
+    const missingAdj = m(row.adjustedAmount) - totalAdjInJournal;
+    if (missingAdj > 0.009) {
+      derivedApLines.push({
+        id: `ap-hist-adj-${row.id}`,
+        journalEntryId: null,
+        entryDate: row.billDate,
+        reference: row.debitNoteNumber || row.billNumber,
+        description: `${row.vendorName || "Vendor"} debit adjustment`,
+        sourceType: "Debit Note",
+        sourceId: row.id,
+        metadata: {
+          apId: row.id,
+          vendorId: row.vendorId,
+          vendorName: row.vendorName,
+          documentReference: row.debitNoteNumber || row.billNumber,
+        },
+        notes: row.notes || "",
+        debit: missingAdj,
+        credit: 0,
+      });
+    }
+  }
+
   await resetAccount(
     "2100",
     bills.reduce((sum, row) => sum + payableOutstanding(row), 0),
-    bills.map((row) => ({
-      entryDate: row.billDate,
-      reference: row.billNumber,
-      description: row.vendorName || "Vendor bill",
-      sourceType: row.sourceType === "Manual" ? "Manual AP" : row.sourceType || "Purchase Invoice",
-      sourceId: row.sourceId || row.id,
-      debit: 0,
-      credit: payableOutstanding(row),
-    })),
+    derivedApLines,
   );
   await resetAccount(
     "5100",
@@ -546,7 +771,7 @@ const usedCodes = new Set((rows as any[]).map((row) => String(row.accountCode)))
       credit: 0,
     })),
   );
-const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
+  const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
     const account = (rows as any[]).find((row: any) => norm(row.accountName) === norm(accountName));
     if (!account) return;
     const isCreditNormal = ["Revenue", "Liability", "Equity"].includes(String(account.accountType));
@@ -598,16 +823,20 @@ const resetGstAccount = async (accountName: string, derivedLines: any[]) => {
   decorateHistoryLines(rows as any[], receivableRows as any[], payableRows as any[], salesPaymentRows as any[], vendorPaymentRows as any[], await contactsFor("client"));
   return rows;
 }
-async function post(org: number, b: any, userId?: number) {
-  const ls = (b.lines || []).map((l: any) => ({
-      ...l,
-      debit: m(l.debit),
-      credit: m(l.credit),
-    })),
-    dr = m(ls.reduce((s: number, l: any) => s + l.debit, 0)),
-    cr = m(ls.reduce((s: number, l: any) => s + l.credit, 0));
-  if (!ls.length || dr <= 0 || Math.abs(dr - cr) > 0.009)
+function assertJournalBalanced(lines: Array<{ debit?: number; credit?: number }>) {
+  const ls = (lines || []).map((l: any) => ({
+    ...l,
+    debit: m(l.debit),
+    credit: m(l.credit),
+  }));
+  const dr = m(ls.reduce((s: number, l: any) => s + l.debit, 0));
+  const cr = m(ls.reduce((s: number, l: any) => s + l.credit, 0));
+  if (!ls.length || dr <= 0 || cr <= 0 || Math.abs(dr - cr) > 0.009)
     throw Error("Journal debit and credit must balance");
+  return { totalDebit: dr, totalCredit: cr, lines: ls };
+}
+async function post(org: number, b: any, userId?: number) {
+  const { totalDebit: dr, totalCredit: cr, lines: ls } = assertJournalBalanced(b.lines || []);
   const dup = (
     await db
       .select()
@@ -710,8 +939,8 @@ async function reverseJournal(org: number, journalEntryId: number) {
           .set({
             currentBalance: m(
               Number(account.currentBalance) -
-                Number(line.debit) +
-                Number(line.credit),
+              Number(line.debit) +
+              Number(line.credit),
             ),
           })
           .where(eq(chartOfAccountsTable.id, account.id));
@@ -875,17 +1104,17 @@ async function automate(org: number) {
     const requestedAdjustment =
       ar.sourceType === "Sales Invoice" && ar.sourceId
         ? m(
-            creditedReturns
-              .filter(
-                (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
-              )
-              .reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
-              receivableAdjustments
-                .filter(
-                  (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
-                )
-                .reduce((sum: number, row: any) => sum + m(row.amount), 0),
-          )
+          creditedReturns
+            .filter(
+              (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
+            )
+            .reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
+          receivableAdjustments
+            .filter(
+              (row: any) => Number(row.invoiceId) === Number(ar.sourceId),
+            )
+            .reduce((sum: number, row: any) => sum + m(row.amount), 0),
+        )
         : m(ar.adjustedAmount);
     const adjustedAmount = Math.min(
       Math.max(0, m(ar.amount) - m(ar.receivedAmount)),
@@ -1065,6 +1294,52 @@ async function resolveContact(type: "client" | "vendor", id: any, name?: any) {
   const matches = contacts.filter((contact: any) => norm(contact.name) === norm(name));
   return matches.length === 1 ? matches[0] : null;
 }
+function manualArPayments(row: any, journals: any[], accounts: any[]) {
+  return journals.filter((journal: any) =>
+    (journal.sourceType === "Manual AR Receipt" && Number(journal.metadata?.arId) === Number(row.id)) ||
+    (journal.sourceType === "Customer Payment" && String(journal.reference).startsWith("AUTO:AR:PAYMENT:") && Number(journal.sourceId) === Number(row.id))
+  ).map((journal: any) => {
+    const metadata = journal.metadata || {};
+    const from = accounts.find((account: any) => Number(account.id) === Number(metadata.fromAccountId));
+    const to = accounts.find((account: any) => Number(account.id) === Number(metadata.toAccountId ?? metadata.settlementAccountId));
+    return {
+      id: journal.id, journalEntryId: journal.id, paymentDate: journal.entryDate, clientName: row.clientName,
+      fromAccountId: metadata.fromAccountId ?? null, toAccountId: metadata.toAccountId ?? metadata.settlementAccountId ?? null,
+      fromAccountName: metadata.fromAccountName || from?.accountName || "", toAccountName: metadata.toAccountName || to?.accountName || "",
+      accountName: to?.accountName || metadata.toAccountName || "", paymentMethod: metadata.paymentMethod || "", mode: "Credit", amount: m(metadata.amount ?? journal.totalCredit),
+      reference: metadata.documentReference ?? row.invoiceNumber, notes: metadata.notes || "", period: metadata.period || "", bankCharges: m(metadata.bankCharges), transactionFees: m(metadata.transactionFees)
+    };
+  }).sort((a: any, b: any) => String(b.paymentDate).localeCompare(String(a.paymentDate)) || b.id - a.id);
+}
+function manualApPayments(row: any, journals: any[], accounts: any[]) {
+  return journals.filter((journal: any) =>
+    (journal.sourceType === "Manual AP Payment" && Number(journal.metadata?.apId) === Number(row.id)) ||
+    (journal.sourceType === "Vendor Payment" && (Number(journal.sourceId) === Number(row.id) || (journal.metadata?.invoiceReference && norm(journal.metadata.invoiceReference) === norm(row.billNumber))))
+  ).map((journal: any) => {
+    const metadata = journal.metadata || {};
+    const from = accounts.find((account: any) => Number(account.id) === Number(metadata.fromAccountId ?? metadata.settlementAccountId));
+    const to = accounts.find((account: any) => Number(account.id) === Number(metadata.toAccountId));
+    return {
+      id: journal.id,
+      journalEntryId: journal.id,
+      paymentDate: metadata.paymentDate || journal.entryDate,
+      vendorName: row.vendorName,
+      fromAccountId: metadata.fromAccountId ?? metadata.settlementAccountId ?? null,
+      toAccountId: metadata.toAccountId ?? null,
+      fromAccountName: metadata.fromAccountName || from?.accountName || "",
+      toAccountName: metadata.toAccountName || to?.accountName || "",
+      accountName: from?.accountName || metadata.fromAccountName || "",
+      paymentMethod: metadata.paymentMethod || "",
+      mode: "Debit",
+      amount: m(metadata.amount ?? journal.totalDebit),
+      reference: metadata.documentReference ?? row.billNumber,
+      notes: metadata.notes || "",
+      period: metadata.period || "",
+      bankCharges: m(metadata.bankCharges),
+      transactionFees: m(metadata.transactionFees),
+    };
+  }).sort((a: any, b: any) => String(b.paymentDate).localeCompare(String(a.paymentDate)) || b.id - a.id);
+}
 async function enrichReceivables(rows: any[]) {
   const maps = await contactMaps();
   return rows.map((row: any) => {
@@ -1146,7 +1421,7 @@ router.get("/receivable-documents", async (r: any, s): Promise<any> => {
     const rows = (receivables as any[])
       .filter((row) => row.entryType !== "Credit Note")
       .filter((row) => Number(row.clientId) === (clientId || Number(row.clientId)))
-      .filter((row) => m(row.receivedAmount) > 0 || ["received", "partial", "paid"].includes(String(row.status || "").toLowerCase()))
+      .filter((row) => receivableOutstanding(row) > 0 || m(row.receivedAmount) >= m(row.amount) - 0.009)
       .map((row) => {
         const received = m(row.receivedAmount);
         const total = m(row.amount);
@@ -1182,7 +1457,7 @@ router.get("/payable-documents", async (r: any, s): Promise<any> => {
     const rows = (payables as any[])
       .filter((row) => row.entryType !== "Debit Note")
       .filter((row) => Number(row.vendorId) === (vendorId || Number(row.vendorId)))
-      .filter((row) => m(row.paidAmount) > 0 || ["paid", "partial"].includes(String(row.status || "").toLowerCase()))
+      .filter((row) => payableOutstanding(row) > 0 || m(row.paidAmount) >= m(row.amount) - 0.009)
       .map((row) => {
         const paid = m(row.paidAmount);
         const total = m(row.amount);
@@ -1255,10 +1530,7 @@ function importError(errors: string[], index: number, field: string, reason: str
   errors.push(`Row ${index}: ${field} - ${reason}`);
 }
 async function insertImportJournal(tx: any, org: number, b: any, userId?: number) {
-  const ls = (b.lines || []).map((line: any) => ({ ...line, debit: m(line.debit), credit: m(line.credit) }));
-  const dr = m(ls.reduce((sum: number, line: any) => sum + line.debit, 0));
-  const cr = m(ls.reduce((sum: number, line: any) => sum + line.credit, 0));
-  if (!ls.length || dr <= 0 || Math.abs(dr - cr) > 0.009) throw Error("Journal debit and credit must balance");
+  const { totalDebit: dr, totalCredit: cr, lines: ls } = assertJournalBalanced(b.lines || []);
   const accounts = await coa(org);
   const [entry] = await tx.insert(journalEntriesTable).values({
     organizationId: org,
@@ -1341,8 +1613,29 @@ router.get("/journal-entries/export", async (r: any, s): Promise<any> => {
   try {
     const search = norm(r.query.search || "");
     let rows = (await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)).orderBy(desc(journalEntriesTable.entryDate))).filter(dateRangeFilter(r.query, "entryDate"));
-    if (search) rows = rows.filter((row: any) => [row.reference, row.description, row.voucherType, row.status, row.approvalStatus].some((value) => norm(value).includes(search)));
-    s.json({ rows: rows.map((row: any) => serializeMoneyFields(row)) });
+    if (search) {
+      rows = rows.filter((row: any) => [
+        row.reference,
+        row.description,
+        row.voucherType,
+        row.status,
+        row.approvalStatus,
+        row.metadata?.documentReference,
+        row.metadata?.invoiceReference,
+        row.metadata?.vendorName,
+        row.metadata?.clientName,
+        row.metadata?.notes,
+        row.metadata?.remarks,
+      ].some((value) => norm(value).includes(search)));
+    }
+    const enriched = rows.map((row: any) => {
+      const docRef = String(row.metadata?.documentReference || "").trim();
+      if (docRef && typeof row.reference === "string" && row.reference.startsWith("AUTO:") && !row.reference.includes(docRef)) {
+        return { ...row, reference: `${docRef} (${row.reference})` };
+      }
+      return row;
+    });
+    s.json({ rows: enriched.map((row: any) => serializeMoneyFields(row)) });
   } catch (error: any) { s.status(error?.status || 500).json({ error: error?.message || "Failed to export journal entries" }); }
 });
 router.get("/ap/export", async (r: any, s): Promise<any> => {
@@ -1439,7 +1732,9 @@ router.post("/ap/import", async (r: any, s): Promise<any> => {
   if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
   const errors: string[] = [];
   const vendors = await contactsFor("vendor");
-  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  let allAccounts = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org));
+  if (!allAccounts.some((account: any) => account.accountCode === "2100")) allAccounts = await coa(r.acc.org);
+  const accounts = allAccounts.filter((account: any) => account.isActive !== false);
   const existing = await db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org));
   const seen = new Set<string>();
   const prepared = rows.map((row: any, i: number) => {
@@ -1451,6 +1746,23 @@ router.post("/ap/import", async (r: any, s): Promise<any> => {
     const paidAmount = entryType === "Debit Note" ? amount : m(row.paidAmount);
     const adjustedAmount = entryType === "Debit Note" ? 0 : m(row.adjustedAmount);
     const account = resolveAccountOption(accounts, row.accountName);
+    const paymentColumns = row.paymentFieldsPresent === true || [row.paymentDate, row.fromAccount, row.toAccount, row.fromAccountId, row.toAccountId].some((value) => value != null && String(value).trim() !== "");
+    if (entryType === "Bill" && paymentColumns) {
+      try {
+        paymentMoney(row.amount, "Amount");
+        paymentMoney(row.paidAmount, "Paid Amount", true);
+        paymentDetails({ paymentDate: row.billDate });
+        paymentDetails({ paymentDate: row.dueDate });
+      } catch (error: any) { importError(errors, n, "Bill", error.message); }
+    }
+    let disbursement: ReturnType<typeof prepareApPayment> | undefined;
+    if (entryType === "Bill" && paymentColumns && paidAmount > 0) {
+      try {
+        const from = resolveAccountOption(accounts, row.fromAccountId ?? row.fromAccount);
+        const to = resolveAccountOption(accounts, row.toAccountId ?? row.toAccount);
+        disbursement = prepareApPayment({ amount: row.paidAmount, paymentDate: row.paymentDate, fromAccountId: from?.id ?? "", toAccountId: to?.id ?? "", notes: row.notes, reference: billNumber, paymentId: "initial-import" }, accounts, vendors, { vendorId: vendor?.id, sourceType: "Manual" });
+      } catch (error: any) { importError(errors, n, "Payment", error.message); }
+    }
     if (!["Bill", "Debit Note"].includes(entryType)) importError(errors, n, "Entry Type", "must be Bill or Debit Note");
     if (!vendor) importError(errors, n, "Vendor", "choose a valid CRM Vendor");
     if (!billNumber) importError(errors, n, "Bill Number", "is required");
@@ -1462,24 +1774,23 @@ router.post("/ap/import", async (r: any, s): Promise<any> => {
     if (entryType === "Debit Note") {
       const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && norm(entry.billNumber) === norm(row.againstBillNumber) && (!vendor || Number(entry.vendorId || vendor.id) === Number(vendor.id)));
       const billPaid = m(linkedBill?.paidAmount);
-      const linkedBillStatus = String(linkedBill?.status || "").toLowerCase();
       if (!String(row.againstBillNumber || "").trim()) importError(errors, n, "Against Bill", "is required");
       if (!linkedBill) importError(errors, n, "Against Bill", "linked vendor bill was not found");
-      else if (!billPaid && !["paid", "partial"].includes(linkedBillStatus)) importError(errors, n, "Against Bill", "only paid or partial bills can be linked");
-      else if (amount > (billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : billPaid) + 0.009) importError(errors, n, "Amount", "debit note exceeds eligible paid amount");
+      else if (amount > (billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : payableOutstanding(linkedBill)) + 0.009) importError(errors, n, "Amount", "debit note exceeds the correctable bill amount");
       if (!account) importError(errors, n, "Account Name", "choose a valid account");
     }
     const key = norm(billNumber);
     if (seen.has(key)) importError(errors, n, "Bill Number", "duplicate in this Excel file");
     if (existing.some((entry: any) => norm(entry.billNumber) === key)) importError(errors, n, "Bill Number", "already exists");
     seen.add(key);
-    return { row, entryType, billNumber, vendor, amount, paidAmount, adjustedAmount, account };
+    return { row, entryType, billNumber, vendor, amount, paidAmount, adjustedAmount, account, disbursement };
   });
   if (errors.length) return s.status(400).json({ error: errors.join("\n") });
   await db.transaction(async (tx) => {
     for (const item of prepared) {
       const covered = m(item.paidAmount + item.adjustedAmount);
-      const [created] = await tx.insert(accountsPayableTable).values({ organizationId: r.acc.org, vendorId: item.vendor.id, vendorName: item.vendor.name, billNumber: item.billNumber, againstBillNumber: item.entryType === "Debit Note" ? String(item.row.againstBillNumber || "").trim() : "", billDate: item.row.billDate, dueDate: item.row.dueDate, amount: item.amount, paidAmount: item.paidAmount, adjustedAmount: item.adjustedAmount, status: item.entryType === "Debit Note" ? "Paid" : covered >= item.amount ? "Paid" : covered > 0 ? "Partial" : "Pending", approvalStatus: "Approved", requiredApprovals: Math.max(1, Number(process.env.LEDGER_AP_REQUIRED_APPROVALS ?? 1)), entryType: item.entryType, notes: String(item.row.notes || ""), coaAccountId: item.account ? Number(item.account.id) : null, sourceType: "Manual", sourceId: null }).returning();
+      const [created] = await tx.insert(accountsPayableTable).values({ organizationId: r.acc.org, vendorId: item.vendor.id, vendorName: item.vendor.name, billNumber: item.billNumber, againstBillNumber: item.entryType === "Debit Note" ? String(item.row.againstBillNumber || "").trim() : "", billDate: item.row.billDate, dueDate: item.row.dueDate, amount: item.amount, paidAmount: item.disbursement ? 0 : item.paidAmount, adjustedAmount: item.adjustedAmount, status: item.entryType === "Debit Note" ? "Paid" : covered >= item.amount ? "Paid" : covered > 0 ? "Partial" : "Pending", approvalStatus: "Approved", requiredApprovals: Math.max(1, Number(process.env.LEDGER_AP_REQUIRED_APPROVALS ?? 1)), entryType: item.entryType, notes: String(item.row.notes || ""), coaAccountId: item.account ? Number(item.account.id) : null, sourceType: "Manual", sourceId: null }).returning();
+      if (item.disbursement) await insertApPayment(tx, r.acc.org, created.id, item.disbursement, r.acc.user.id);
       if (item.entryType === "Debit Note") {
         const payable = accounts.find((account: any) => account.accountCode === "2100");
         const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && norm(entry.billNumber) === norm(item.row.againstBillNumber) && Number(entry.vendorId || item.vendor.id) === Number(item.vendor.id));
@@ -1501,7 +1812,9 @@ router.post("/ar/import", async (r: any, s): Promise<any> => {
   if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
   const errors: string[] = [];
   const clients = await contactsFor("client");
-  const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
+  let allAccounts = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org));
+  if (!allAccounts.some((account: any) => account.accountCode === "1100")) allAccounts = await coa(r.acc.org);
+  const accounts = allAccounts.filter((account: any) => account.isActive !== false);
   const existing = await db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org));
   const seen = new Set<string>();
   const prepared = rows.map((row: any, i: number) => {
@@ -1513,6 +1826,23 @@ router.post("/ar/import", async (r: any, s): Promise<any> => {
     const receivedAmount = entryType === "Credit Note" ? amount : m(row.receivedAmount);
     const adjustedAmount = entryType === "Credit Note" ? 0 : m(row.adjustedAmount);
     const account = resolveAccountOption(accounts, row.accountName);
+    const paymentColumns = row.paymentFieldsPresent === true || [row.paymentDate, row.fromAccount, row.toAccount, row.fromAccountId, row.toAccountId].some((value) => value != null && String(value).trim() !== "");
+    if (entryType === "Invoice" && paymentColumns) {
+      try {
+        paymentMoney(row.amount, "Amount");
+        paymentMoney(row.receivedAmount, "Received Amount", true);
+        paymentDetails({ paymentDate: row.invoiceDate });
+        paymentDetails({ paymentDate: row.dueDate });
+      } catch (error: any) { importError(errors, n, "Invoice", error.message); }
+    }
+    let receipt: ReturnType<typeof prepareArReceipt> | undefined;
+    if (entryType === "Invoice" && paymentColumns && receivedAmount > 0) {
+      try {
+        const from = resolveAccountOption(accounts, row.fromAccountId ?? row.fromAccount);
+        const to = resolveAccountOption(accounts, row.toAccountId ?? row.toAccount);
+        receipt = prepareArReceipt({ amount: row.receivedAmount, paymentDate: row.paymentDate, fromAccountId: from?.id ?? "", toAccountId: to?.id ?? "", notes: row.notes, reference: invoiceNumber, receiptId: "initial-import" }, accounts, clients, { clientId: client?.id, sourceType: "Manual" });
+      } catch (error: any) { importError(errors, n, "Payment", error.message); }
+    }
     if (!["Invoice", "Credit Note"].includes(entryType)) importError(errors, n, "Entry Type", "must be Invoice or Credit Note");
     if (!client) importError(errors, n, "Customer", "choose a valid CRM Client");
     if (!invoiceNumber) importError(errors, n, "Invoice Number", "is required");
@@ -1524,24 +1854,23 @@ router.post("/ar/import", async (r: any, s): Promise<any> => {
     if (entryType === "Credit Note") {
       const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && norm(entry.invoiceNumber) === norm(row.linkedInvoiceNumber) && (!client || Number(entry.clientId || client.id) === Number(client.id)));
       const received = m(linked?.receivedAmount);
-      const linkedStatus = String(linked?.status || "").toLowerCase();
       if (!String(row.linkedInvoiceNumber || "").trim()) importError(errors, n, "Linked Invoice", "is required");
       if (!linked) importError(errors, n, "Linked Invoice", "linked customer invoice was not found");
-      else if (!received && !["received", "partial", "paid"].includes(linkedStatus)) importError(errors, n, "Linked Invoice", "only paid or partial invoices can be linked");
-      else if (amount > (received >= m(linked.amount) - 0.009 ? m(linked.amount) : received) + 0.009) importError(errors, n, "Amount", "credit note exceeds eligible received amount");
+      else if (amount > (received >= m(linked.amount) - 0.009 ? m(linked.amount) : receivableOutstanding(linked)) + 0.009) importError(errors, n, "Amount", "credit note exceeds the correctable invoice amount");
       if (!account) importError(errors, n, "Account Name", "choose a valid account");
     }
     const key = norm(invoiceNumber);
     if (seen.has(key)) importError(errors, n, "Invoice Number", "duplicate in this Excel file");
     if (existing.some((entry: any) => norm(entry.entryType === "Credit Note" ? entry.creditNoteNumber || entry.invoiceNumber : entry.invoiceNumber) === key)) importError(errors, n, "Invoice Number", "already exists");
     seen.add(key);
-    return { row, entryType, invoiceNumber, client, amount, receivedAmount, adjustedAmount, account };
+    return { row, entryType, invoiceNumber, client, amount, receivedAmount, adjustedAmount, account, receipt };
   });
   if (errors.length) return s.status(400).json({ error: errors.join("\n") });
   await db.transaction(async (tx) => {
     for (const item of prepared) {
       const covered = m(item.receivedAmount + item.adjustedAmount);
-      const [created] = await tx.insert(accountsReceivableTable).values({ organizationId: r.acc.org, clientId: item.client.id, clientName: item.client.name, invoiceNumber: item.invoiceNumber, creditNoteNumber: item.entryType === "Credit Note" ? item.invoiceNumber : "", linkedInvoiceNumber: item.entryType === "Credit Note" ? String(item.row.linkedInvoiceNumber || "").trim() : "", invoiceDate: item.row.invoiceDate, dueDate: item.row.dueDate, amount: item.amount, receivedAmount: item.receivedAmount, adjustedAmount: item.adjustedAmount, status: item.entryType === "Credit Note" ? "Received" : covered >= item.amount ? "Received" : covered > 0 ? "Partial" : "Pending", approvalStatus: "Approved", requiredApprovals: Math.max(1, Number(process.env.LEDGER_AR_REQUIRED_APPROVALS ?? 1)), entryType: item.entryType, notes: String(item.row.notes || ""), coaAccountId: item.account ? Number(item.account.id) : null, sourceType: "Manual", sourceId: null }).returning();
+      const [created] = await tx.insert(accountsReceivableTable).values({ organizationId: r.acc.org, clientId: item.client.id, clientName: item.client.name, invoiceNumber: item.invoiceNumber, creditNoteNumber: item.entryType === "Credit Note" ? item.invoiceNumber : "", linkedInvoiceNumber: item.entryType === "Credit Note" ? String(item.row.linkedInvoiceNumber || "").trim() : "", invoiceDate: item.row.invoiceDate, dueDate: item.row.dueDate, amount: item.amount, receivedAmount: item.receipt ? 0 : item.receivedAmount, adjustedAmount: item.adjustedAmount, status: item.entryType === "Credit Note" ? "Received" : covered >= item.amount ? "Received" : covered > 0 ? "Partial" : "Pending", approvalStatus: "Approved", requiredApprovals: Math.max(1, Number(process.env.LEDGER_AR_REQUIRED_APPROVALS ?? 1)), entryType: item.entryType, notes: String(item.row.notes || ""), coaAccountId: item.account ? Number(item.account.id) : null, sourceType: "Manual", sourceId: null }).returning();
+      if (item.receipt) await insertArReceipt(tx, r.acc.org, created.id, item.receipt, r.acc.user.id);
       if (item.entryType === "Credit Note") {
         const creditNote = accounts.find((account: any) => account.accountCode === "1200");
         const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && norm(entry.invoiceNumber) === norm(item.row.linkedInvoiceNumber) && Number(entry.clientId || item.client.id) === Number(item.client.id));
@@ -1571,23 +1900,32 @@ async function bankCashRows(org: number, query: any = {}) {
   const byId = (id: any) => accounts.find((account: any) => Number(account.id) === Number(id));
   return rows.map((row: any) => {
     const account = byId(row.bankCashAccountId), counter = byId(row.transferToAccountId || row.counterAccountId);
-    const client = clients.find((contact: any) => Number(contact.id) === Number(row.clientId));
-    return { ...row, paymentDate: row.transactionDate, accountName: account?.accountName || "", accountDisplay: account ? accountLabel(account) : "",
+    const creditContact = clients.find((contact: any) => Number(contact.id) === Number(row.creditContactId));
+    const debitContact = clients.find((contact: any) => Number(contact.id) === Number(row.debitContactId));
+    const client = clients.find((contact: any) => Number(contact.id) === Number(row.clientId)) || creditContact || debitContact;
+    return {
+      ...row, paymentDate: row.transactionDate, accountName: account?.accountName || "", accountDisplay: account ? accountLabel(account) : "",
       counterAccountDisplay: counter ? accountLabel(counter) : "", clientName: client?.name || "", clientDisplay: client ? contactOptionLabel(client) : "",
+      creditContactName: creditContact?.name || "", creditContactDisplay: creditContact ? contactOptionLabel(creditContact) : "",
+      debitContactName: debitContact?.name || "", debitContactDisplay: debitContact ? contactOptionLabel(debitContact) : "",
       paymentMethod: row.paymentMethod || "", period: row.period || "", bankCharges: m(row.bankCharges), transactionFees: m(row.transactionFees),
-      notes: row.remarks || "", documents: docs.get(Number(row.id)) || [] };
+      notes: row.remarks || "", documents: docs.get(Number(row.id)) || []
+    };
   }).sort((a: any, b: any) => String(b.transactionDate).localeCompare(String(a.transactionDate)) || Number(b.id) - Number(a.id));
 }
 router.get("/bank-cash-transactions/options", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const accounts = r.query.clientsOnly === "1" ? [] : (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
   const clients = await contactsFor("client");
-  s.json({ accounts: accounts.map((account: any) => ({ id: account.id, accountCode: account.accountCode, accountName: account.accountName, accountType: account.accountType, isActive: account.isActive, isBankCash: account.isBankCash })),
-    clients: clients.map((client: any) => ({ id: client.id, name: client.name, displayName: contactLabel(client) })), paymentMethods });
+  s.json({
+    accounts: accounts.map((account: any) => ({ id: account.id, accountCode: account.accountCode, accountName: account.accountName, accountType: account.accountType, isActive: account.isActive, isBankCash: account.isBankCash })),
+    clients: clients.map((client: any) => ({ id: client.id, name: client.name, displayName: contactLabel(client) })), paymentMethods
+  });
 });
 router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   try {
+    await reconcileBankCashCharges(r.acc.org);
     s.json(await bankCashRows(r.acc.org, r.query));
   } catch (error: any) {
     s.status(error?.status || 500).json({ error: error?.message || "Failed to load bank and cash transactions" });
@@ -1659,8 +1997,10 @@ async function approveBankCash(r: any, s: any) {
     if (!creditAccount || !debitAccount) return s.status(400).json({ error: "Opening balance counter account is missing" });
     lines = [{ accountId: debitAccount.id, debit: m(entry.amount) }, { accountId: creditAccount.id, credit: m(entry.amount) }];
   }
-  try { lines = addBankChargeLines(lines, entry, accounts); }
+  let chargeLines: any[] = [];
+  try { chargeLines = buildBankChargeJournalLines(entry, accounts); }
   catch (error: any) { return s.status(400).json({ error: error.message }); }
+  const clients = await contactsFor("client");
   const journal = await post(r.acc.org, {
     entryDate: entry.transactionDate,
     reference: `AUTO:BANKCASH:${r.acc.org}:${entry.id}`,
@@ -1669,16 +2009,146 @@ async function approveBankCash(r: any, s: any) {
     sourceId: entry.id,
     voucherType,
     tallyVoucherType: voucherType === "Opening Balance" ? "Journal" : voucherType,
-    metadata: { bankCashTransactionId: entry.id, mode: entry.mode, documentReference: entry.reference,
-      clientId: entry.clientId, paymentMethod: entry.paymentMethod || "", notes: entry.remarks || "",
-      period: entry.period || "", bankCharges: m(entry.bankCharges), transactionFees: m(entry.transactionFees) },
+    metadata: {
+      bankCashTransactionId: entry.id, mode: entry.mode, documentReference: entry.reference,
+      clientId: entry.clientId, creditContactId: entry.creditContactId || null, debitContactId: entry.debitContactId || null,
+      creditContactName: clients.find((client: any) => Number(client.id) === Number(entry.creditContactId))?.name || "",
+      debitContactName: clients.find((client: any) => Number(client.id) === Number(entry.debitContactId))?.name || "",
+      paymentMethod: entry.paymentMethod || "", notes: entry.remarks || "",
+      period: entry.period || "", bankCharges: m(entry.bankCharges), transactionFees: m(entry.transactionFees)
+    },
     lines,
   }, Number(r.acc.user.id));
+  if (chargeLines.length > 0) {
+    await post(r.acc.org, {
+      entryDate: entry.transactionDate,
+      reference: `AUTO:BANKCASH:CHARGES:${r.acc.org}:${entry.id}`,
+      description: `Bank Charges - ${bank.accountName}`,
+      sourceType: "Bank Cash Transaction Charges",
+      sourceId: entry.id,
+      voucherType: "Payment",
+      tallyVoucherType: "Payment",
+      metadata: {
+        bankCashTransactionId: entry.id,
+        mode: entry.mode,
+        documentReference: entry.reference,
+        clientId: entry.clientId,
+        creditContactId: entry.creditContactId || null,
+        debitContactId: entry.debitContactId || null,
+        creditContactName: clients.find((client: any) => Number(client.id) === Number(entry.creditContactId))?.name || "",
+        debitContactName: clients.find((client: any) => Number(client.id) === Number(entry.debitContactId))?.name || "",
+        paymentMethod: entry.paymentMethod || "",
+        notes: entry.remarks ? `Bank charges for ${entry.remarks}` : `Bank charges for ${entry.reference}`,
+        period: entry.period || "",
+        bankCharges: m(entry.bankCharges),
+        transactionFees: m(entry.transactionFees),
+        isBankChargeEntry: true,
+      },
+      lines: chargeLines,
+    }, Number(r.acc.user.id));
+  }
   const [updated] = await db.update(bankCashTransactionsTable).set({ status: "Approved", approvalStatus: "Approved", approvalLevel: nextLevel, approvedByUserIds: JSON.stringify(nextApprovers), approvalRemarks: String(r.body.remarks || ""), journalEntryId: journal.id, updatedAt: new Date() }).where(eq(bankCashTransactionsTable.id, entry.id)).returning();
   await db.update(accountDocumentsTable).set({ journalEntryId: journal.id }).where(and(eq(accountDocumentsTable.sourceType, "bank-cash"), eq(accountDocumentsTable.sourceId, entry.id)));
   return s.json(updated);
 }
 router.post("/bank-cash-transactions/:id/approve", approveBankCash);
+async function reconcileBankCashCharges(org: number) {
+  try {
+    const { bankCashTransactionsTable } = await accountTables();
+    const txs = await db
+      .select()
+      .from(bankCashTransactionsTable)
+      .where(and(eq(bankCashTransactionsTable.organizationId, org), eq(bankCashTransactionsTable.approvalStatus, "Approved")));
+    const chargedTxs = (txs as any[]).filter((t) => m(t.bankCharges) > 0);
+    if (chargedTxs.length === 0) return;
+
+    const allJournals = await db
+      .select()
+      .from(journalEntriesTable)
+      .where(eq(journalEntriesTable.organizationId, org));
+
+    const existingChargeJournals = new Set(
+      (allJournals as any[])
+        .filter((j) => j.sourceType === "Bank Cash Transaction Charges" || (typeof j.reference === "string" && j.reference.includes(":CHARGES:")))
+        .map((j) => Number(j.sourceId || j.metadata?.bankCashTransactionId))
+    );
+
+    const accounts = await coa(org);
+    const chargeAccount = (accounts as any[]).find((a) => a.accountCode === "5150" && a.isActive !== false);
+
+    for (const t of chargedTxs) {
+      if (existingChargeJournals.has(Number(t.id))) continue;
+      if (!chargeAccount) continue;
+
+      const bank = (accounts as any[]).find((a) => Number(a.id) === Number(t.bankCashAccountId));
+      if (!bank) continue;
+
+      const mainJournal = (allJournals as any[]).find(
+        (j) => Number(j.id) === Number(t.journalEntryId) ||
+          (j.sourceType === "Bank Cash Transaction" && Number(j.sourceId) === Number(t.id)) ||
+          j.reference === `AUTO:BANKCASH:${org}:${t.id}`
+      );
+
+      if (mainJournal) {
+        const lines = await db
+          .select()
+          .from(journalLinesTable)
+          .where(eq(journalLinesTable.journalEntryId, mainJournal.id));
+        const has5150 = (lines as any[]).some((l) => l.accountCode === "5150" || Number(l.accountId) === Number(chargeAccount.id));
+
+        if (has5150) {
+          const line5150 = (lines as any[]).find((l) => l.accountCode === "5150" || Number(l.accountId) === Number(chargeAccount.id));
+          if (line5150) {
+            await db.delete(journalLinesTable).where(eq(journalLinesTable.id, line5150.id));
+          }
+          if (String(t.mode).toLowerCase() === "credit") {
+            const bankLine = (lines as any[]).find((l) => Number(l.accountId) === Number(t.bankCashAccountId) && m(l.debit) > 0);
+            if (bankLine) {
+              await db.update(journalLinesTable).set({ debit: m(t.amount) }).where(eq(journalLinesTable.id, bankLine.id));
+            }
+          } else {
+            const bankLine = (lines as any[]).find((l) => Number(l.accountId) === Number(t.bankCashAccountId) && m(l.credit) > 0);
+            if (bankLine) {
+              await db.update(journalLinesTable).set({ credit: m(t.amount) }).where(eq(journalLinesTable.id, bankLine.id));
+            }
+          }
+        }
+      }
+
+      const bankCharges = m(t.bankCharges);
+      const chargeLines = [
+        { accountId: chargeAccount.id, debit: bankCharges, credit: 0 },
+        { accountId: bank.id, debit: 0, credit: bankCharges },
+      ];
+      await post(org, {
+        entryDate: t.transactionDate,
+        reference: `AUTO:BANKCASH:CHARGES:${org}:${t.id}`,
+        description: `Bank Charges - ${bank.accountName}`,
+        sourceType: "Bank Cash Transaction Charges",
+        sourceId: t.id,
+        voucherType: "Payment",
+        tallyVoucherType: "Payment",
+        metadata: {
+          bankCashTransactionId: t.id,
+          mode: t.mode,
+          documentReference: t.reference,
+          clientId: t.clientId,
+          creditContactId: t.creditContactId || null,
+          debitContactId: t.debitContactId || null,
+          paymentMethod: t.paymentMethod || "",
+          notes: t.remarks ? `Bank charges for ${t.remarks}` : `Bank charges for ${t.reference}`,
+          period: t.period || "",
+          bankCharges,
+          transactionFees: m(t.transactionFees),
+          isBankChargeEntry: true,
+        },
+        lines: chargeLines,
+      }, t.createdByUserId ? Number(t.createdByUserId) : 1);
+    }
+  } catch (err) {
+    console.error("Failed to reconcile bank cash charges:", err);
+  }
+}
 // DISABLED: Opening Balances approval uses Bank & Cash routes now.
 async function rejectBankCash(r: any, s: any) {
   if (!need(r, s, "accounts.bank_cash.reject")) return;
@@ -1820,6 +2290,121 @@ router.post("/coa", async (r: any, s): Promise<any> => {
     s.status(409).json({ error: e.message || "Unable to create account" });
   }
 });
+router.post("/coa/import", async (r: any, s): Promise<any> => {
+  if (!can(r, "accounts.chart_of_accounts.create") && !can(r, "accounts.chart_of_accounts.import")) {
+    return s.status(403).json({ error: "Missing permission: accounts.chart_of_accounts.create or import" });
+  }
+  const rows = Array.isArray(r.body?.rows) ? r.body.rows : Array.isArray(r.body) ? r.body : [];
+  if (!rows.length) return s.status(400).json({ error: "No import rows found" });
+  if (rows.length > 5000) return s.status(400).json({ error: "Maximum 5000 rows can be imported at once" });
+
+  const errors: string[] = [];
+  const existing = await coa(r.acc.org);
+  const seenCodes = new Set<string>();
+  const validTypes = new Set(["Asset", "Liability", "Equity", "Revenue", "Expense"]);
+
+  const prepared = rows.map((row: any, i: number) => {
+    const rowNum = Number(row.rowNumber || i + 2);
+    const accountCode = String(row.accountCode || row.code || row["Account Code"] || "").trim();
+    const accountName = String(row.accountName || row.name || row["Account Name"] || "").trim();
+    const rawType = String(row.accountType || row.type || row["Account Type"] || "").trim();
+    
+    // Normalize type to Title Case (Asset, Liability, Equity, Revenue, Expense)
+    const matchedType = Array.from(validTypes).find(t => t.toLowerCase() === rawType.toLowerCase());
+    const accountType = matchedType || rawType;
+    const openingBalance = m(row.openingBalance ?? row.balance ?? row["Opening Balance"] ?? 0);
+    const description = String(row.description ?? row.notes ?? row["Description"] ?? "").trim();
+
+    if (!accountCode) errors.push(`Row ${rowNum}: Account Code is required`);
+    if (!accountName) errors.push(`Row ${rowNum}: Account Name is required`);
+    if (!accountType || !validTypes.has(accountType)) {
+      errors.push(`Row ${rowNum}: Account Type must be Asset, Liability, Equity, Revenue, or Expense`);
+    }
+
+    const codeNorm = accountCode.toLowerCase();
+    if (seenCodes.has(codeNorm)) {
+      errors.push(`Row ${rowNum}: Duplicate Account Code "${accountCode}" in import file`);
+    } else {
+      seenCodes.add(codeNorm);
+    }
+
+    return {
+      accountCode,
+      accountName,
+      accountType,
+      openingBalance,
+      description,
+    };
+  });
+
+  if (errors.length) return s.status(400).json({ error: errors.join("\n") });
+
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  for (const item of prepared) {
+    const existingAcc = existing.find(
+      (a: any) => String(a.accountCode).trim().toLowerCase() === item.accountCode.toLowerCase()
+    );
+
+    if (existingAcc) {
+      await db
+        .update(chartOfAccountsTable)
+        .set({
+          accountName: item.accountName,
+          accountType: item.accountType as any,
+          normalizedAccountCode: norm(item.accountCode),
+          normalizedAccountName: norm(item.accountName),
+          groupName: item.accountType,
+          tallyLedgerName: item.accountName,
+          tallyGroupName: item.accountType,
+          description: item.description || existingAcc.description,
+          openingBalance: item.openingBalance,
+          currentBalance: item.openingBalance,
+          isActive: true,
+        })
+        .where(and(eq(chartOfAccountsTable.organizationId, r.acc.org), eq(chartOfAccountsTable.id, existingAcc.id)));
+      updatedCount++;
+    } else {
+      await db
+        .insert(chartOfAccountsTable)
+        .values({
+          organizationId: r.acc.org,
+          accountCode: item.accountCode,
+          accountName: item.accountName,
+          accountType: item.accountType as any,
+          normalizedAccountCode: norm(item.accountCode),
+          normalizedAccountName: norm(item.accountName),
+          groupName: item.accountType,
+          tallyLedgerName: item.accountName,
+          tallyGroupName: item.accountType,
+          description: item.description,
+          openingBalance: item.openingBalance,
+          currentBalance: item.openingBalance,
+          isActive: true,
+        });
+      createdCount++;
+    }
+  }
+
+  s.status(201).json({ created: createdCount, updated: updatedCount, total: prepared.length });
+});
+router.get("/coa/export", async (r: any, s): Promise<any> => {
+  if (!can(r, "accounts.chart_of_accounts.view") && !can(r, "accounts.chart_of_accounts.export")) {
+    return s.status(403).json({ error: "Missing permission: accounts.chart_of_accounts.view" });
+  }
+  const accounts = await coa(r.acc.org);
+  const rows = accounts.map((a: any) => ({
+    "Account Code": String(a.accountCode || ""),
+    "Account Name": String(a.accountName || ""),
+    "Account Type": String(a.accountType || ""),
+    "Opening Balance": m(a.openingBalance || 0),
+    "Current Balance": m(a.currentBalance || 0),
+    "Description": String(a.description || ""),
+    "Status": a.isActive !== false ? "Active" : "Inactive",
+  }));
+  s.json({ rows });
+});
 router.patch("/coa/:id", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.chart_of_accounts.edit")) return;
   try {
@@ -1871,12 +2456,36 @@ router.delete("/coa/:id", async (r: any, s): Promise<any> => {
 router.get("/journal-entries", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.journal_entries.view")) return;
   try {
-    const x = (await db
+    await reconcileBankCashCharges(r.acc.org);
+    const search = norm(r.query.search || "");
+    let x = (await db
       .select()
       .from(journalEntriesTable)
       .where(eq(journalEntriesTable.organizationId, r.acc.org))
       .orderBy(desc(journalEntriesTable.entryDate))).filter(dateRangeFilter(r.query, "entryDate"));
-    s.json(pg(x, r));
+    if (search) {
+      x = x.filter((row: any) => [
+        row.reference,
+        row.description,
+        row.voucherType,
+        row.status,
+        row.approvalStatus,
+        row.metadata?.documentReference,
+        row.metadata?.invoiceReference,
+        row.metadata?.vendorName,
+        row.metadata?.clientName,
+        row.metadata?.notes,
+        row.metadata?.remarks,
+      ].some((value) => norm(value).includes(search)));
+    }
+    const enriched = x.map((row: any) => {
+      const docRef = String(row.metadata?.documentReference || "").trim();
+      if (docRef && typeof row.reference === "string" && row.reference.startsWith("AUTO:") && !row.reference.includes(docRef)) {
+        return { ...row, reference: `${docRef} (${row.reference})` };
+      }
+      return row;
+    });
+    s.json(pg(enriched, r));
   } catch (error: any) {
     s.status(error?.status || 500).json({ error: error?.message || "Failed to load journal entries" });
   }
@@ -1932,6 +2541,16 @@ for (const c of [
       let rows = (await db.select().from(c.t).where(eq(c.t.organizationId, r.acc.org)).orderBy(desc(c.t.createdAt))).filter(dateRangeFilter(r.query, dateField));
       if (search) rows = rows.filter((row: any) => [row.invoiceNumber, row.creditNoteNumber, row.linkedInvoiceNumber, row.billNumber, row.againstBillNumber, row.clientName, row.vendorName, row.notes, row.status, row.sourceType].some((value) => norm(value).includes(search)));
       const enriched = c.p === "ap" ? await enrichPayables(rows as any[]) : await enrichReceivables(rows as any[]);
+      if (c.p === "ap") {
+        const [journals, accounts] = await Promise.all([
+          db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)),
+          db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org)),
+        ]);
+        for (const row of enriched as any[]) {
+          if (row.sourceType === "Purchase Invoice") continue;
+          row.paymentHistory = manualApPayments(row, journals, accounts);
+        }
+      }
       if (c.p === "ar") {
         const [journals, accounts] = await Promise.all([
           db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)),
@@ -1939,17 +2558,7 @@ for (const c of [
         ]);
         for (const row of enriched as any[]) {
           if (row.sourceType === "Sales Invoice") continue;
-          row.paymentHistory = journals.filter((journal: any) =>
-            (journal.sourceType === "Manual AR Receipt" && Number(journal.metadata?.arId) === Number(row.id)) ||
-            (journal.sourceType === "Customer Payment" && String(journal.reference).startsWith("AUTO:AR:PAYMENT:") && Number(journal.sourceId) === Number(row.id)),
-          ).map((journal: any) => {
-            const metadata = journal.metadata || {};
-            return { id: journal.id, paymentDate: journal.entryDate, clientName: row.clientName,
-              accountName: accounts.find((account: any) => Number(account.id) === Number(metadata.settlementAccountId))?.accountName || "",
-              paymentMethod: metadata.paymentMethod || "", mode: "Credit", amount: m(metadata.amount ?? journal.totalCredit),
-              reference: metadata.documentReference ?? row.invoiceNumber, notes: metadata.notes || "",
-              period: metadata.period || "", bankCharges: m(metadata.bankCharges), transactionFees: m(metadata.transactionFees) };
-          }).sort((a: any, b: any) => b.paymentDate.localeCompare(a.paymentDate) || b.id - a.id);
+          row.paymentHistory = manualArPayments(row, journals, accounts);
         }
       }
       s.json(pg(enriched.map((row: any) => serializeMoneyFields(row)), r));
@@ -1989,9 +2598,7 @@ for (const c of [
         const linkedBill = existing.find((entry: any) => entry.entryType !== "Debit Note" && String(entry.billNumber).trim().toLowerCase() === String(r.body.againstBillNumber).trim().toLowerCase() && Number(entry.vendorId || vendor.id) === Number(vendor.id));
         if (!linkedBill) return s.status(400).json({ error: "Linked vendor bill was not found" });
         const billPaid = m(linkedBill.paidAmount);
-        const linkedBillStatus = String(linkedBill.status || "").toLowerCase();
-        if (!billPaid && !["paid", "partial"].includes(linkedBillStatus)) return s.status(400).json({ error: "Only paid or partial bills can be linked" });
-        const maximumDebitNote = billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : billPaid;
+        const maximumDebitNote = billPaid >= m(linkedBill.amount) - 0.009 ? m(linkedBill.amount) : payableOutstanding(linkedBill);
         if (amount > maximumDebitNote + 0.009) return s.status(400).json({ error: `Debit note cannot exceed ${maximumDebitNote}` });
         r.body.paidAmount = amount;
         r.body.adjustedAmount = 0;
@@ -2026,9 +2633,7 @@ for (const c of [
         const linked = existing.find((entry: any) => entry.entryType !== "Credit Note" && String(entry.invoiceNumber).trim().toLowerCase() === String(r.body.linkedInvoiceNumber).trim().toLowerCase() && Number(entry.clientId || client.id) === Number(client.id));
         if (!linked) return s.status(400).json({ error: "Linked customer invoice was not found" });
         const received = m(linked.receivedAmount);
-        const linkedStatus = String(linked.status || "").toLowerCase();
-        if (!received && !["received", "partial", "paid"].includes(linkedStatus)) return s.status(400).json({ error: "Only paid or partial invoices can be linked" });
-        const eligible = received >= m(linked.amount) - 0.009 ? m(linked.amount) : received;
+        const eligible = received >= m(linked.amount) - 0.009 ? m(linked.amount) : receivableOutstanding(linked);
         if (amount > eligible + 0.009) return s.status(400).json({ error: `Credit note cannot exceed ${eligible}` });
         r.body.receivedAmount = amount;
         r.body.adjustedAmount = 0;
@@ -2038,44 +2643,51 @@ for (const c of [
       }
     }
     const covered = m(r.body[c.paid]) + m(r.body.adjustedAmount);
-    const [x] = await db.insert(c.t).values({
+    const values = {
       ...r.body,
       organizationId: r.acc.org,
       amount: m(r.body.amount),
       approvalStatus: r.body.approvalStatus || "Approved",
       requiredApprovals: Math.max(1, Number(process.env[c.p === "ap" ? "LEDGER_AP_REQUIRED_APPROVALS" : "LEDGER_AR_REQUIRED_APPROVALS"] ?? 1)),
       status: c.p === "ap" && r.body.entryType === "Debit Note" ? "Paid" : c.p === "ar" && r.body.entryType === "Credit Note" ? "Received" : covered >= m(r.body.amount) ? c.done : covered > 0 ? "Partial" : "Pending",
-    }).returning();
-    if (c.p === "ap" && x.entryType === "Debit Note") {
+    };
+    if (c.p === "ap" && r.body.entryType === "Debit Note") {
       const accounts = await coa(r.acc.org);
       const payable = accounts.find((account: any) => account.accountCode === "2100");
-      const selected = accounts.find((account: any) => Number(account.id) === Number(x.coaAccountId));
+      const selected = accounts.find((account: any) => Number(account.id) === Number(r.body.coaAccountId));
       if (!payable || !selected) return s.status(409).json({ error: "Required payable or selected COA account is not configured" });
-      const journal = await post(r.acc.org, { entryDate: x.billDate || day(), reference: x.billNumber, description: `Debit note ${x.billNumber}`, sourceType: "Debit Note", sourceId: x.id, lines: [{ accountId: payable.id, debit: m(x.amount), memo: x.billNumber }, { accountId: selected.id, credit: m(x.amount), memo: x.billNumber }] }, r.acc.user.id);
-      const [linkedBill] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.billNumber, x.againstBillNumber))).limit(1);
-      if (linkedBill) {
+      const updated = await db.transaction(async (tx) => {
+        const [x] = await tx.insert(c.t).values(values).returning();
+        const journal = await insertImportJournal(tx, r.acc.org, { entryDate: x.billDate || day(), reference: x.billNumber, description: `Debit note ${x.billNumber}`, sourceType: "Debit Note", sourceId: x.id, lines: [{ accountId: payable.id, debit: m(x.amount), memo: x.billNumber }, { accountId: selected.id, credit: m(x.amount), memo: x.billNumber }] }, r.acc.user.id);
+        const [linkedBill] = await tx.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.billNumber, x.againstBillNumber))).limit(1);
+        if (!linkedBill) throw Error("Linked vendor bill was not found");
         const adjustedAmount = m(m(linkedBill.adjustedAmount) + m(x.amount));
         const billStatus = m(linkedBill.paidAmount) + adjustedAmount >= m(linkedBill.amount) - 0.009 ? "Paid" : "Partial";
-        await db.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, linkedBill.id));
-      }
-      const [updated] = await db.update(accountsPayableTable).set({ journalEntryId: journal.id, appliedAmount: m(x.amount), availableCredit: 0 }).where(eq(accountsPayableTable.id, x.id)).returning();
+        await tx.update(accountsPayableTable).set({ adjustedAmount, status: billStatus }).where(eq(accountsPayableTable.id, linkedBill.id));
+        const [result] = await tx.update(accountsPayableTable).set({ journalEntryId: journal.id, appliedAmount: m(x.amount), availableCredit: 0 }).where(eq(accountsPayableTable.id, x.id)).returning();
+        return result;
+      });
       return s.status(201).json(updated);
     }
-    if (c.p === "ar" && x.entryType === "Credit Note") {
+    if (c.p === "ar" && r.body.entryType === "Credit Note") {
       const accounts = await coa(r.acc.org);
-      const selected = accounts.find((account: any) => Number(account.id) === Number(x.coaAccountId));
+      const selected = accounts.find((account: any) => Number(account.id) === Number(r.body.coaAccountId));
       const creditNote = accounts.find((account: any) => account.accountCode === "1200");
       if (!selected || !creditNote) return s.status(409).json({ error: "Required credit-note or selected COA account is not configured" });
-      const journal = await post(r.acc.org, { entryDate: x.invoiceDate || day(), reference: x.creditNoteNumber || x.invoiceNumber, description: `Credit note ${x.creditNoteNumber || x.invoiceNumber}`, sourceType: "Credit Note", sourceId: x.id, lines: [{ accountId: selected.id, debit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }, { accountId: creditNote.id, credit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }] }, r.acc.user.id);
-      const [linked] = await db.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.invoiceNumber, x.linkedInvoiceNumber))).limit(1);
-      if (linked) {
+      const updated = await db.transaction(async (tx) => {
+        const [x] = await tx.insert(c.t).values(values).returning();
+        const journal = await insertImportJournal(tx, r.acc.org, { entryDate: x.invoiceDate || day(), reference: x.creditNoteNumber || x.invoiceNumber, description: `Credit note ${x.creditNoteNumber || x.invoiceNumber}`, sourceType: "Credit Note", sourceId: x.id, lines: [{ accountId: selected.id, debit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }, { accountId: creditNote.id, credit: m(x.amount), memo: x.creditNoteNumber || x.invoiceNumber }] }, r.acc.user.id);
+        const [linked] = await tx.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.invoiceNumber, x.linkedInvoiceNumber))).limit(1);
+        if (!linked) throw Error("Linked customer invoice was not found");
         const adjustedAmount = m(m(linked.adjustedAmount) + m(x.amount));
         const linkedStatus = m(linked.receivedAmount) + adjustedAmount >= m(linked.amount) - 0.009 ? "Received" : "Partial";
-        await db.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
-      }
-      const [updated] = await db.update(accountsReceivableTable).set({ journalEntryId: journal.id }).where(eq(accountsReceivableTable.id, x.id)).returning();
+        await tx.update(accountsReceivableTable).set({ adjustedAmount, status: linkedStatus }).where(eq(accountsReceivableTable.id, linked.id));
+        const [result] = await tx.update(accountsReceivableTable).set({ journalEntryId: journal.id, adjustedAmount: m(x.amount) }).where(eq(accountsReceivableTable.id, x.id)).returning();
+        return result;
+      });
       return s.status(201).json(updated);
     }
+    const [x] = await db.insert(c.t).values(values).returning();
     s.status(201).json(x);
   });
   router.patch(`/${c.p}/:id`, async (r: any, s): Promise<any> => {
@@ -2107,85 +2719,193 @@ for (const c of [
     }
   });
 }
-router.post("/ar/:id/payment", async (r: any, s): Promise<any> => {
-  if (!need(r, s, "accounts.accounts_receivable.edit")) return;
-  let details: ReturnType<typeof paymentDetails>, amount: number;
-  try {
-    details = paymentDetails(r.body, day());
-    amount = paymentMoney(r.body.amount, "Amount");
-  } catch (error: any) { return s.status(400).json({ error: error.message }); }
-  const receiptId = String(r.body.receiptId || randomUUID());
-  if (!/^[a-zA-Z0-9-]{1,80}$/.test(receiptId)) return s.status(400).json({ error: "Invalid receipt identity" });
-  const [entry] = await db.select().from(accountsReceivableTable).where(and(
-    eq(accountsReceivableTable.organizationId, r.acc.org),
-    eq(accountsReceivableTable.id, Number(r.params.id)),
-  )).limit(1);
-  if (!entry) return s.status(404).json({ error: "AR entry not found" });
-  if (entry.sourceType === "Sales Invoice")
-    return s.status(400).json({ error: "Use Sales Payment for linked sales invoices" });
-  const tds = m(r.body.tdsAmount);
+function prepareArReceipt(body: any, accounts: any[], clients: any[], entry: any) {
+  if (!clients.some((client: any) => Number(client.id) === Number(entry.clientId))) throw new Error("Choose a valid CRM Client");
+  if (entry.sourceType === "Sales Invoice" || entry.entryType === "Credit Note") throw new Error("Use the existing payment workflow for this document");
+  const details = paymentDetails(body);
+  const amount = paymentMoney(body.amount, "Paid Amount");
+  if ((body.fromAccountId !== undefined || body.toAccountId !== undefined) && !body.receiptId) throw new Error("Receipt identity is required for retry protection");
+  const receiptId = String(body.receiptId || randomUUID());
+  if (!/^[a-zA-Z0-9-]{1,80}$/.test(receiptId)) throw new Error("Invalid receipt identity");
+  const tds = paymentMoney(body.tdsAmount, "TDS", true);
   const charges = details.bankCharges;
   const net = m(amount - tds - charges);
-  if (!(amount > 0)) return s.status(400).json({ error: "Payment must be greater than zero" });
+  if (!(amount > 0)) throw new Error("Payment must be greater than zero");
   if (tds < 0 || charges < 0 || net < 0)
-    return s.status(400).json({ error: "TDS and bank charges must be manually entered, non-negative, and cannot exceed the payment" });
-  const accounts = await coa(r.acc.org);
-  const settlementAccount = accounts.find((account: any) =>
-    Number(account.id) === Number(r.body.settlementAccountId) && account.isActive !== false);
-  const receivableAccount = accounts.find((account: any) => account.accountCode === "1100");
+    throw new Error("TDS and bank charges must be manually entered, non-negative, and cannot exceed the payment");
+  const { settlement: settlementAccount, receivable: receivableAccount } = receiptAccounts(body, accounts);
   const tdsAccount = accounts.find((account: any) => account.accountCode === "5160");
   const chargesAccount = accounts.find((account: any) => account.accountCode === "5150");
   if (!settlementAccount)
-    return s.status(400).json({ error: "Choose a valid active Chart of Accounts account" });
+    throw new Error("To Account: choose a valid active Chart of Accounts account");
   if (!receivableAccount || (tds > 0 && !tdsAccount) || (charges > 0 && !chargesAccount))
-    return s.status(409).json({ error: "Required receivable, TDS, or bank-charge account is not configured" });
-  const reference = `AUTO:AR:RECEIPT:${r.acc.org}:${entry.id}:${receiptId}`;
-  try {
-    // The receipt journal is its own identity; the AR relationship lives in metadata.
-    // Keep the journal and cumulative AR update atomic, including transaction retries.
-    const result = await db.transaction(async (tx) => {
-      const [current] = await tx.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.id, entry.id))).limit(1);
-      if (!current) throw new Error("AR entry not found");
-      const [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, r.acc.org), eq(journalEntriesTable.reference, reference))).limit(1);
-      const metadata = { arId: current.id, clientId: current.clientId, clientName: current.clientName,
-        documentReference: details.reference || current.invoiceNumber, paymentMethod: details.paymentMethod,
-        paymentDate: details.transactionDate, notes: details.remarks, period: details.period,
-        bankCharges: charges, transactionFees: details.transactionFees, amount, tdsAmount: tds, settlementAccountId: settlementAccount.id };
-      if (existing) {
-        const stored = existing.metadata as Record<string, unknown>;
-        if (["amount", "tdsAmount", "bankCharges", "transactionFees", "settlementAccountId", "documentReference", "paymentMethod", "paymentDate", "notes", "period"].some((key) => String(stored?.[key] ?? "") !== String((metadata as Record<string, unknown>)[key] ?? "")))
-          throw Object.assign(new Error("Receipt identity was already used with different payment details"), { status: 409 });
-        return { receivable: current, journalEntryId: existing.id, payment: existing.metadata };
-      }
-      const remaining = Math.max(0, m(current.amount) - m(current.receivedAmount) - m(current.adjustedAmount));
-      if (amount > remaining + 0.009) throw new Error("Payment cannot exceed the balance");
-      const [journal] = await tx.insert(journalEntriesTable).values({
-        organizationId: r.acc.org, entryDate: details.transactionDate, reference,
-        description: `Customer payment for ${current.invoiceNumber}`, totalDebit: amount, totalCredit: amount,
-        voucherType: "Receipt", tallyVoucherType: "Receipt", sourceType: "Manual AR Receipt", metadata, createdByUserId: r.acc.user.id,
-      }).returning();
-      await tx.update(journalEntriesTable).set({ sourceId: journal.id }).where(eq(journalEntriesTable.id, journal.id));
-      const lines = [
-        { accountId: settlementAccount.id, debit: net, credit: 0 },
-        { accountId: tdsAccount?.id, debit: tds, credit: 0 },
-        { accountId: chargesAccount?.id, debit: charges, credit: 0 },
-        { accountId: receivableAccount.id, debit: 0, credit: amount },
-      ].filter((line) => line.debit > 0 || line.credit > 0);
-      for (const line of lines) {
-        const [account] = await tx.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, r.acc.org), eq(chartOfAccountsTable.id, line.accountId!))).limit(1);
-        if (!account) throw new Error("Receipt account is missing");
-        await tx.insert(journalLinesTable).values({ organizationId: r.acc.org, journalEntryId: journal.id,
-          ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference });
-        await tx.update(chartOfAccountsTable).set({ currentBalance: m(m(account.currentBalance) + line.debit - line.credit) }).where(eq(chartOfAccountsTable.id, account.id));
-      }
-      const receivedAmount = m(m(current.receivedAmount) + amount);
-      const [updated] = await tx.update(accountsReceivableTable).set({ receivedAmount,
-        status: receivedAmount + m(current.adjustedAmount) >= m(current.amount) - 0.009 ? "Received" : "Partial",
-      }).where(eq(accountsReceivableTable.id, current.id)).returning();
-      return { receivable: updated, journalEntryId: journal.id, payment: metadata };
+    throw new Error("Required receivable, TDS, or bank-charge account is not configured");
+  return { details, amount, receiptId, tds, charges, net, settlementAccount, receivableAccount, tdsAccount, chargesAccount };
+}
+async function insertArReceipt(tx: any, org: number, entryId: number, prepared: ReturnType<typeof prepareArReceipt>, userId: number) {
+  const { details, amount, receiptId, tds, charges, net, settlementAccount, receivableAccount, tdsAccount, chargesAccount } = prepared;
+  const autoRef = `AUTO:AR:RECEIPT:${org}:${entryId}:${receiptId}`;
+  const docRef = String(details.reference || "").trim();
+  const reference = docRef
+    ? (docRef.includes(autoRef) ? docRef : `${docRef} (${autoRef})`)
+    : autoRef;
+  const [current] = await tx.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, org), eq(accountsReceivableTable.id, entryId))).limit(1);
+  if (!current) throw new Error("AR entry not found");
+  let [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, reference))).limit(1);
+  if (!existing && reference !== autoRef) {
+    [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, autoRef))).limit(1);
+  }
+  const metadata = {
+    arId: current.id, clientId: current.clientId, clientName: current.clientName,
+    documentReference: details.reference || current.invoiceNumber, paymentMethod: details.paymentMethod,
+    paymentDate: details.transactionDate, notes: details.remarks, period: details.period,
+    bankCharges: charges, transactionFees: details.transactionFees, amount, tdsAmount: tds, settlementAccountId: settlementAccount.id,
+    fromAccountId: receivableAccount.id, toAccountId: settlementAccount.id,
+    fromAccountName: receivableAccount.accountName, toAccountName: settlementAccount.accountName
+  };
+  if (existing) {
+    const stored = existing.metadata as Record<string, unknown>;
+    if (["amount", "tdsAmount", "bankCharges", "transactionFees", "settlementAccountId", "documentReference", "paymentMethod", "paymentDate", "notes", "period"].some((key) => String(stored?.[key] ?? "") !== String((metadata as Record<string, unknown>)[key] ?? "")))
+      throw Object.assign(new Error("Receipt identity was already used with different payment details"), { status: 409 });
+    return { receivable: current, journalEntryId: existing.id, payment: existing.metadata };
+  }
+  const remaining = Math.max(0, m(current.amount) - m(current.receivedAmount) - m(current.adjustedAmount));
+  if (amount > remaining + 0.009) throw new Error("Payment cannot exceed the balance");
+  const lines = [
+    { accountId: settlementAccount.id, debit: net, credit: 0 },
+    { accountId: tdsAccount?.id, debit: tds, credit: 0 },
+    { accountId: chargesAccount?.id, debit: charges, credit: 0 },
+    { accountId: receivableAccount.id, debit: 0, credit: amount },
+  ].filter((line) => line.debit > 0 || line.credit > 0);
+  const { totalDebit, totalCredit } = assertJournalBalanced(lines);
+  const [journal] = await tx.insert(journalEntriesTable).values({
+    organizationId: org, entryDate: details.transactionDate, reference,
+    description: `Customer payment for ${current.invoiceNumber}`, totalDebit, totalCredit,
+    voucherType: "Receipt", tallyVoucherType: "Receipt", sourceType: "Manual AR Receipt", metadata, createdByUserId: userId,
+  }).returning();
+  await tx.update(journalEntriesTable).set({ sourceId: journal.id }).where(eq(journalEntriesTable.id, journal.id));
+  for (const line of lines) {
+    const [account] = await tx.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, org), eq(chartOfAccountsTable.id, line.accountId!))).limit(1);
+    if (!account) throw new Error("Receipt account is missing");
+    await tx.insert(journalLinesTable).values({
+      organizationId: org, journalEntryId: journal.id,
+      ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference
     });
+    await tx.update(chartOfAccountsTable).set({ currentBalance: m(m(account.currentBalance) + line.debit - line.credit) }).where(eq(chartOfAccountsTable.id, account.id));
+  }
+  const receivedAmount = m(m(current.receivedAmount) + amount);
+  const [updated] = await tx.update(accountsReceivableTable).set({
+    receivedAmount,
+    status: receivedAmount + m(current.adjustedAmount) >= m(current.amount) - 0.009 ? "Received" : "Partial",
+  }).where(eq(accountsReceivableTable.id, current.id)).returning();
+  return { receivable: updated, journalEntryId: journal.id, payment: metadata };
+}
+router.post("/ar/:id/payment", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.edit")) return;
+  try {
+    const [entry] = await db.select().from(accountsReceivableTable).where(and(eq(accountsReceivableTable.organizationId, r.acc.org), eq(accountsReceivableTable.id, Number(r.params.id)))).limit(1);
+    if (!entry) return s.status(404).json({ error: "AR entry not found" });
+    let accounts = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org));
+    if (!accounts.some((account: any) => account.accountCode === "1100")) accounts = await coa(r.acc.org);
+    const prepared = prepareArReceipt(r.body, accounts, await contactsFor("client"), entry);
+    const result = await db.transaction((tx) => insertArReceipt(tx, r.acc.org, entry.id, prepared, r.acc.user.id));
     return s.status(201).json(result);
   } catch (error: any) { return s.status(error.status || 400).json({ error: error.message || "Unable to record receipt" }); }
+});
+
+function prepareApPayment(body: any, accounts: any[], vendors: any[], entry: any) {
+  if (!vendors.some((vendor: any) => Number(vendor.id) === Number(entry.vendorId))) throw new Error("Choose a valid CRM Vendor");
+  if (entry.sourceType === "Purchase Invoice" || entry.entryType === "Debit Note") throw new Error("Use the existing payment workflow for this document");
+  if (entry.approvalStatus && entry.approvalStatus !== "Approved") throw new Error("Bill must be approved before recording payment");
+  const details = paymentDetails(body);
+  const amount = paymentMoney(body.amount, "Paid Amount");
+  if ((body.fromAccountId !== undefined || body.toAccountId !== undefined) && !body.paymentId && !body.receiptId) throw new Error("Payment identity is required for retry protection");
+  const paymentId = String(body.paymentId || body.receiptId || randomUUID());
+  if (!/^[a-zA-Z0-9-]{1,80}$/.test(paymentId)) throw new Error("Invalid payment identity");
+  const tds = paymentMoney(body.tdsAmount, "TDS", true);
+  const charges = details.bankCharges;
+  const net = m(amount + charges - tds);
+  if (!(amount > 0)) throw new Error("Payment must be greater than zero");
+  if (tds < 0 || charges < 0 || net < 0)
+    throw new Error("TDS and bank charges must be manually entered, non-negative, and cannot exceed the payment");
+  const { settlement: settlementAccount, payable: payableAccount } = disbursementAccounts(body, accounts);
+  const tdsAccount = accounts.find((account: any) => account.accountCode === "5160");
+  const chargesAccount = accounts.find((account: any) => account.accountCode === "5150");
+  if (!settlementAccount)
+    throw new Error("From Account: choose a valid active Chart of Accounts account");
+  if (!payableAccount || (tds > 0 && !tdsAccount) || (charges > 0 && !chargesAccount))
+    throw new Error("Required payable, TDS, or bank-charge account is not configured");
+  return { details, amount, paymentId, tds, charges, net, settlementAccount, payableAccount, tdsAccount, chargesAccount };
+}
+async function insertApPayment(tx: any, org: number, entryId: number, prepared: ReturnType<typeof prepareApPayment>, userId: number) {
+  const { details, amount, paymentId, tds, charges, net, settlementAccount, payableAccount, tdsAccount, chargesAccount } = prepared;
+  const autoRef = `AUTO:AP:PAYMENT:${org}:${entryId}:${paymentId}`;
+  const docRef = String(details.reference || "").trim();
+  const reference = docRef
+    ? (docRef.includes(autoRef) ? docRef : `${docRef} (${autoRef})`)
+    : autoRef;
+  const [current] = await tx.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, org), eq(accountsPayableTable.id, entryId))).limit(1);
+  if (!current) throw new Error("AP entry not found");
+  let [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, reference))).limit(1);
+  if (!existing && reference !== autoRef) {
+    [existing] = await tx.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, autoRef))).limit(1);
+  }
+  const metadata = {
+    apId: current.id, vendorId: current.vendorId, vendorName: current.vendorName,
+    documentReference: details.reference || current.billNumber, paymentMethod: details.paymentMethod,
+    paymentDate: details.transactionDate, notes: details.remarks, period: details.period,
+    bankCharges: charges, transactionFees: details.transactionFees, amount, tdsAmount: tds, settlementAccountId: settlementAccount.id,
+    fromAccountId: settlementAccount.id, toAccountId: payableAccount.id,
+    fromAccountName: settlementAccount.accountName, toAccountName: payableAccount.accountName
+  };
+  if (existing) {
+    const stored = existing.metadata as Record<string, unknown>;
+    if (["amount", "tdsAmount", "bankCharges", "transactionFees", "settlementAccountId", "documentReference", "paymentMethod", "paymentDate", "notes", "period"].some((key) => String(stored?.[key] ?? "") !== String((metadata as Record<string, unknown>)[key] ?? "")))
+      throw Object.assign(new Error("Payment identity was already used with different payment details"), { status: 409 });
+    return { payable: current, journalEntryId: existing.id, payment: existing.metadata };
+  }
+  const remaining = Math.max(0, m(current.amount) - m(current.paidAmount) - m(current.adjustedAmount));
+  if (amount > remaining + 0.009) throw new Error("Payment cannot exceed the balance");
+  const lines = [
+    { accountId: payableAccount.id, debit: amount, credit: 0 },
+    { accountId: chargesAccount?.id, debit: charges, credit: 0 },
+    { accountId: tdsAccount?.id, debit: 0, credit: tds },
+    { accountId: settlementAccount.id, debit: 0, credit: net },
+  ].filter((line) => line.debit > 0 || line.credit > 0);
+  const { totalDebit, totalCredit } = assertJournalBalanced(lines);
+  const [journal] = await tx.insert(journalEntriesTable).values({
+    organizationId: org, entryDate: details.transactionDate, reference,
+    description: `Vendor payment for ${current.billNumber}`, totalDebit, totalCredit,
+    voucherType: "Payment", tallyVoucherType: "Payment", sourceType: "Manual AP Payment", metadata, createdByUserId: userId,
+  }).returning();
+  await tx.update(journalEntriesTable).set({ sourceId: journal.id }).where(eq(journalEntriesTable.id, journal.id));
+  for (const line of lines) {
+    const [account] = await tx.select().from(chartOfAccountsTable).where(and(eq(chartOfAccountsTable.organizationId, org), eq(chartOfAccountsTable.id, line.accountId!))).limit(1);
+    if (!account) throw new Error("Payment account is missing");
+    await tx.insert(journalLinesTable).values({
+      organizationId: org, journalEntryId: journal.id,
+      ...line, accountCode: account.accountCode, accountName: account.accountName, memo: metadata.documentReference
+    });
+    await tx.update(chartOfAccountsTable).set({ currentBalance: m(m(account.currentBalance) + line.debit - line.credit) }).where(eq(chartOfAccountsTable.id, account.id));
+  }
+  const paidAmount = m(m(current.paidAmount) + amount);
+  const [updated] = await tx.update(accountsPayableTable).set({
+    paidAmount,
+    status: paidAmount + m(current.adjustedAmount) >= m(current.amount) - 0.009 ? "Paid" : "Partial",
+  }).where(eq(accountsPayableTable.id, current.id)).returning();
+  return { payable: updated, journalEntryId: journal.id, payment: metadata };
+}
+router.post("/ap/:id/payment", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.edit")) return;
+  try {
+    const [entry] = await db.select().from(accountsPayableTable).where(and(eq(accountsPayableTable.organizationId, r.acc.org), eq(accountsPayableTable.id, Number(r.params.id)))).limit(1);
+    if (!entry) return s.status(404).json({ error: "AP entry not found" });
+    let accounts = await db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org));
+    if (!accounts.some((account: any) => account.accountCode === "2100")) accounts = await coa(r.acc.org);
+    const prepared = prepareApPayment(r.body, accounts, await contactsFor("vendor"), entry);
+    const result = await db.transaction((tx) => insertApPayment(tx, r.acc.org, entry.id, prepared, r.acc.user.id));
+    return s.status(201).json(result);
+  } catch (error: any) { return s.status(error.status || 400).json({ error: error.message || "Unable to record payment" }); }
 });
 
 router.post("/ap/:id/approve", async (r: any, s): Promise<any> => {
@@ -2394,16 +3114,15 @@ router.post("/ar/:id/approve", async (r: any, s): Promise<any> => {
       (row: any) =>
         row.entryType !== "Credit Note" &&
         String(row.invoiceNumber).trim().toLowerCase() ===
-          String(entry.linkedInvoiceNumber).trim().toLowerCase(),
+        String(entry.linkedInvoiceNumber).trim().toLowerCase(),
     );
     if (!linked)
       return s
         .status(400)
         .json({ error: "Linked customer invoice was not found" });
-    const eligible = Math.max(
-      0,
-      m(linked.amount) - m(linked.receivedAmount) - m(linked.adjustedAmount),
-    );
+    const eligible = m(linked.receivedAmount) >= m(linked.amount) - 0.009
+      ? m(linked.amount)
+      : receivableOutstanding(linked);
     if (m(entry.amount) > eligible + 0.009)
       return s
         .status(409)
@@ -2495,16 +3214,16 @@ router.post("/ar/:id/reject", async (r: any, s): Promise<any> => {
 router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.finance_dashboard.view")) return;
   const [a, ap, ar] = await Promise.all([
-      coa(r.acc.org),
-      db
-        .select()
-        .from(accountsPayableTable)
-        .where(eq(accountsPayableTable.organizationId, r.acc.org)),
-      db
-        .select()
-        .from(accountsReceivableTable)
-        .where(eq(accountsReceivableTable.organizationId, r.acc.org)),
-    ]),
+    coa(r.acc.org),
+    db
+      .select()
+      .from(accountsPayableTable)
+      .where(eq(accountsPayableTable.organizationId, r.acc.org)),
+    db
+      .select()
+      .from(accountsReceivableTable)
+      .where(eq(accountsReceivableTable.organizationId, r.acc.org)),
+  ]),
     out = (x: any, p: string) =>
       Math.max(
         0,
@@ -2551,9 +3270,9 @@ router.get("/dashboard-summary", async (r: any, s): Promise<any> => {
       a
         .filter((x: any) => x.accountType === "Revenue")
         .reduce((q: number, x: any) => q - Number(x.currentBalance), 0) -
-        a
-          .filter((x: any) => x.accountType === "Expense")
-          .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
+      a
+        .filter((x: any) => x.accountType === "Expense")
+        .reduce((q: number, x: any) => q + Number(x.currentBalance), 0),
     ),
     arAging: age(ar, "receivedAmount", ["Received", "Settled", "Cancelled"]),
     apAging: age(ap, "paidAmount", ["Paid"]),
@@ -2601,8 +3320,16 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
     };
     const periodSales = sales.filter((row: any) => inRange(row.invoiceDate));
     const periodPurchases = purchases.filter((row: any) => inRange(row.invoiceDate));
-    const totalSales = m(periodSales.reduce((sum: number, row: any) => sum + m(row.grandTotal), 0));
-    const totalPurchase = m(periodPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0));
+    const manualArSales = ar.filter((row: any) => row.entryType === "Invoice" && !row.sourceId && inRange(row.invoiceDate));
+    const manualApPurchases = ap.filter((row: any) => row.entryType === "Bill" && !row.sourceId && inRange(row.billDate));
+    const totalSales = m(
+      periodSales.reduce((sum: number, row: any) => sum + m(row.grandTotal), 0) +
+      manualArSales.reduce((sum: number, row: any) => sum + m(row.amount), 0)
+    );
+    const totalPurchase = m(
+      periodPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0) +
+      manualApPurchases.reduce((sum: number, row: any) => sum + m(row.amount), 0)
+    );
     const receivables = m(ar.filter((row: any) => row.entryType === "Invoice").reduce((sum: number, row: any) => sum + outstanding(row, "receivedAmount"), 0));
     const payables = m(ap.filter((row: any) => row.entryType === "Bill").reduce((sum: number, row: any) => sum + outstanding(row, "paidAmount"), 0));
     const inventoryValue = m(inventory.reduce((sum: number, row: any) => sum + m(row.quantityOnHand) * m(row.costBasis), 0));
@@ -2623,11 +3350,15 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
     const trend = Array.from({ length: 6 }, (_, index) => {
       const month = new Date(trendStart.getFullYear(), trendStart.getMonth() + index, 1);
       const key = `${month.getFullYear()}-${pad(month.getMonth() + 1)}`;
+      const sSales = sales.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.grandTotal), 0);
+      const arSales = ar.filter((row: any) => row.entryType === "Invoice" && !row.sourceId && String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0);
+      const pPurchases = purchases.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0);
+      const apPurchases = ap.filter((row: any) => row.entryType === "Bill" && !row.sourceId && String(row.billDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0);
       return {
         key,
         month: month.toLocaleDateString("en-IN", { month: "short" }),
-        sales: m(sales.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.grandTotal), 0)),
-        purchase: m(purchases.filter((row: any) => String(row.invoiceDate || "").startsWith(key)).reduce((sum: number, row: any) => sum + m(row.amount), 0)),
+        sales: m(sSales + arSales),
+        purchase: m(pPurchases + apPurchases),
       };
     });
     return s.json({
@@ -2748,10 +3479,12 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
   try {
     const receivableDateRange = dateRangeFilter(r.query, "invoiceDate");
     const partyDateRange = dateRangeFilter(r.query, "entryDate");
-    const [receivableRows, partyEntries, payments] = await Promise.all([
+    const [receivableRows, partyEntries, payments, journals, accounts] = await Promise.all([
       db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
       db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
       db.select().from(salesPaymentsTable),
+      db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)),
+      db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org)),
     ]);
     const receivables = await enrichReceivables((receivableRows as any[]).filter(receivableDateRange));
     const groups = new Map<string, any>();
@@ -2775,7 +3508,7 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
     const creditNotes = receivables.filter((row: any) => row.entryType === "Credit Note");
     for (const row of receivables.filter((entry: any) => entry.entryType !== "Credit Note")) {
       const group = ensureGroup(row);
-      const invoicePayments = (payments as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId));
+      const invoicePayments = row.sourceType === "Sales Invoice" ? (payments as any[]).filter((payment) => Number(payment.invoiceId) === Number(row.sourceId)) : manualArPayments(row, journals, accounts);
       const credits = creditNotes.filter((credit: any) => norm(credit.linkedInvoiceNumber) === norm(row.invoiceNumber));
       const received = m(row.receivedAmount);
       const credited = m(row.adjustedAmount || credits.reduce((sum: number, credit: any) => sum + m(credit.amount), 0));
@@ -2801,6 +3534,9 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
         payments: invoicePayments.map((payment) => ({
           id: payment.id,
           paymentDate: payment.paymentDate,
+          fromAccountId: payment.fromAccountId ?? null, toAccountId: payment.toAccountId ?? payment.settlementAccountId ?? null,
+          fromAccountName: payment.fromAccountName || "",
+          toAccountName: payment.toAccountName || accounts.find((account: any) => Number(account.id) === Number(payment.settlementAccountId))?.accountName || "",
           amount: m(payment.amount),
           reference: payment.reference || payment.paymentNumber || "",
         })),
@@ -2855,10 +3591,12 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
   try {
     const payableDateRange = dateRangeFilter(r.query, "billDate");
     const partyDateRange = dateRangeFilter(r.query, "entryDate");
-    const [payableRows, partyEntries, payments] = await Promise.all([
+    const [payableRows, partyEntries, payments, journals, accounts] = await Promise.all([
       db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
       db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
       db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, r.acc.org)),
+      db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)),
+      db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org)),
     ]);
     const payables = await enrichPayables((payableRows as any[]).filter(payableDateRange));
     const groups = new Map<string, any>();
@@ -2882,7 +3620,7 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
     const debitNotes = payables.filter((row: any) => row.entryType === "Debit Note");
     for (const row of payables.filter((entry: any) => entry.entryType !== "Debit Note")) {
       const group = ensureGroup(row);
-      const billPayments = (payments as any[]).filter((payment) => norm(payment.invoiceReference) === norm(row.billNumber));
+      const billPayments = row.sourceType === "Purchase Invoice" ? (payments as any[]).filter((payment) => norm(payment.invoiceReference) === norm(row.billNumber)) : manualApPayments(row, journals, accounts);
       const debits = debitNotes.filter((debit: any) => norm(debit.againstBillNumber) === norm(row.billNumber));
       const paid = m(row.paidAmount);
       const credited = m(row.adjustedAmount || debits.reduce((sum: number, debit: any) => sum + m(debit.amount), 0));
@@ -2908,8 +3646,12 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
         payments: billPayments.map((payment) => ({
           id: payment.id,
           paymentDate: payment.paymentDate,
+          fromAccountId: payment.fromAccountId ?? payment.settlementAccountId ?? null,
+          toAccountId: payment.toAccountId ?? null,
+          fromAccountName: payment.fromAccountName || accounts.find((account: any) => Number(account.id) === Number(payment.settlementAccountId))?.accountName || "",
+          toAccountName: payment.toAccountName || "",
           amount: m(payment.amount),
-          reference: payment.transactionReference || payment.paymentNumber || "",
+          reference: payment.reference || payment.transactionReference || payment.paymentNumber || "",
         })),
         debitNotes: debits.map((debit) => ({
           id: debit.id,
@@ -2961,7 +3703,7 @@ router.get("/business-dashboard", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view"))
     s.redirect(307, "./dashboard-summary");
 });
-export { post as postJournal, coa as ensureCanonicalAccounts, reverseJournal };
+export { post as postJournal, coa as ensureCanonicalAccounts, reverseJournal, assertJournalBalanced };
 export default router;
 
 

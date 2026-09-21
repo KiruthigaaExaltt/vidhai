@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import {
@@ -35,7 +36,7 @@ export default function Stock() {
     queryKey: ["inventory-stock-paged", stockPage, stockPageSize],
     queryFn: async () => {
       const response = await fetch(`/api/inventory?skip=${(stockPage - 1) * stockPageSize}&limit=${stockPageSize}`, { credentials: "include" });
-      if (!response.ok) throw new Error("Unable to load inventory");
+      if (!response.ok) throw await responseError(response, "Unable to load inventory");
       return response.json() as Promise<{ data: any[]; totalCount: number; totalPages: number }>;
     },
     placeholderData: keepPreviousData,

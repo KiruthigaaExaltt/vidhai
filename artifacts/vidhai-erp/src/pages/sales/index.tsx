@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+import { responseError, getErrorMessage } from "@/lib/errorMessage";
 import { useEffect, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Shell } from "@/components/layout/Shell";
@@ -327,9 +329,15 @@ export default function Sales() {
     if (activeTab === "Sales Order") {
       void loadApprovedDocuments();
       void fetch("/api/work-orders/templates", { credentials: "include" })
-        .then((response) => (response.ok ? response.json() : []))
+        .then(async (response) => {
+          if (!response.ok) throw await responseError(response, "Unable to load work order templates");
+          return response.json();
+        })
         .then(setWorkOrderTemplates)
-        .catch(() => setWorkOrderTemplates([]));
+        .catch((error) => {
+          setWorkOrderTemplates([]);
+          toast.error(getErrorMessage(error, "Unable to load work order templates"));
+        });
     }
     if (activeTab === "Delivery Challan") void loadChallans();
     if (activeTab === "Invoices") void loadInvoices();
@@ -983,11 +991,12 @@ export default function Sales() {
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={async () => {
+                  onClick={async () => { try {
                     const response = await fetch(
                       `/api/sales/${deleteTarget.documentType === "Proforma Invoice" ? "proforma-invoices" : deleteTarget.documentType === "Delivery Challan" ? "challans" : deleteTarget.documentType === "Invoices" ? "invoices" : deleteTarget.documentType === "Sales Return" ? "returns" : "quotations"}/${deleteTarget.id}`,
                       { method: "DELETE", credentials: "include" },
                     );
+                    if (!response.ok) throw await responseError(response, "Unable to delete sales document");
                     if (response.ok) {
                       setDeleteTarget(null);
                       if (deleteTarget.documentType === "Proforma Invoice")
@@ -1000,7 +1009,8 @@ export default function Sales() {
                         await loadReturns();
                       else await loadQuotations();
                     }
-                  }}
+
+ } catch (error) { toast.error(getErrorMessage(error, "Unable to delete sales document")); } }}
                 >
                   Delete
                 </Button>

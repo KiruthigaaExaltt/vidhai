@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+import { responseError, getErrorMessage } from "./errorMessage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useGetMe, User } from "@workspace/api-client-react";
 import { setAccessToken } from "./authTokens";
@@ -68,7 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch(`${base}/api/permissions/me`, {
         credentials: "include",
       });
-      const data = response.ok ? await response.json() : { permissions: [] };
+      if (!response.ok) throw await responseError(response, "Unable to load your permissions");
+      const data = await response.json();
       setPermissions(
         Array.isArray(data.permissions)
           ? data.permissions.map(normalizePermission)
@@ -80,7 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? data.enabledModuleKeys
           : ["ledger"],
       );
-    } catch {
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to load your permissions"));
       setPermissions([]);
       setIsSuperAdmin(false);
       setEnabledModuleKeys(["ledger"]);

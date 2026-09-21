@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useState, useMemo, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import { ImageLightbox } from "@/components/ImageLightbox";
@@ -167,7 +168,7 @@ export default function OotyRoomDetail() {
       const response = await fetch("/api/coimbatore/casing-inventory", {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load Casing Soil inventory");
+      if (!response.ok) throw await responseError(response, "Unable to load Casing Soil inventory");
       return response.json();
     },
   });
@@ -447,7 +448,12 @@ export default function OotyRoomDetail() {
     window.setTimeout(() => observationTempRef.current?.focus(), 350);
   };
   const observationMutation = useAddOotyObservation({
-    mutation: { onSuccess: refetch },
+    mutation: {
+      onSuccess: refetch,
+      onError: (error) => {
+        toast.error(error.message || "Failed to log reading. Please try again.");
+      },
+    },
   });
 
   const handleLogObservation = (e: React.FormEvent) => {
@@ -942,7 +948,7 @@ export default function OotyRoomDetail() {
                 {!isFullyCompleted && (
                   <form
                     onSubmit={handleLogObservation}
-                    className="flex flex-wrap items-end gap-3 border-b border-border bg-muted/20 p-4 sm:pb-9"
+                    className="flex flex-wrap items-start gap-3 border-b border-border bg-muted/20 p-4"
                   >
                     <div className="relative w-full shrink-0 space-y-1 sm:w-[280px]">
                       <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -956,7 +962,7 @@ export default function OotyRoomDetail() {
                         }
                         className="rounded-sm font-mono h-9 w-full min-w-0"
                       />
-                      <p className="text-[10px] text-muted-foreground sm:absolute sm:left-0 sm:top-full sm:mt-1">
+                      <p className="text-[10px] leading-relaxed text-muted-foreground">
                         If left blank, the current device date and time will be recorded automatically.
                       </p>
                     </div>
@@ -995,7 +1001,7 @@ export default function OotyRoomDetail() {
                         observationMutation.isPending ||
                         (!obsForm.temp && !obsForm.note)
                       }
-                      className="rounded-sm h-9"
+                      className="mt-5 rounded-sm h-9"
                     >
                       <Thermometer className="w-4 h-4 mr-1.5" />{" "}
                       {observationMutation.isPending ? "Logging..." : "Log"}

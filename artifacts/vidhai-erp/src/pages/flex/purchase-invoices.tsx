@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { FLEX_TEXT } from "./flexText";
 import {
   useFlexGoodsReceipts,
@@ -94,6 +95,7 @@ async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
     const res = await fetch(`${BASE}/api/flex/purchase-invoices`, {
       credentials: "include",
     });
+    if (!res.ok) throw await responseError(res, "Unable to load purchase records");
     if (res.ok) {
       const data = await res.json();
       return (data || []).map((inv: any) => ({
@@ -111,7 +113,7 @@ async function fetchPurchaseInvoices(): Promise<PurchaseInvoiceItem[]> {
         payment: inv.status,
       }));
     }
-  } catch {}
+  } catch (error) { throw error; }
   return [];
 }
 
@@ -153,7 +155,7 @@ async function exportPurchaseInvoices() {
   const response = await fetch(`${BASE}/api/flex/purchase-invoices/export`, {
     credentials: "include",
   });
-  if (!response.ok) throw new Error("Failed to export purchase invoices");
+  if (!response.ok) throw await responseError(response, "Failed to export purchase invoices");
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

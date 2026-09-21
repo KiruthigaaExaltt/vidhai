@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useState, useEffect, useRef } from "react";
 import { apiAssetUrl } from "@/lib/apiAssetUrl";
 import {
@@ -196,7 +197,7 @@ export default function InventoryModule() {
         `/api/inventory?skip=${(state.page - 1) * state.size}&limit=${state.size}&excludeVaultManaged=true`,
         { credentials: "include" },
       );
-      if (!response.ok) throw new Error("Unable to load inventory items");
+      if (!response.ok) throw await responseError(response, "Unable to load inventory items");
       return response.json();
     },
     placeholderData: (previous) => previous,
@@ -210,7 +211,7 @@ export default function InventoryModule() {
       const response = await fetch("/api/inventory", {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load inventory");
+      if (!response.ok) throw await responseError(response, "Unable to load inventory");
       return response.json();
     },
   });
@@ -221,7 +222,7 @@ export default function InventoryModule() {
       const response = await fetch("/api/coimbatore/casing-inventory", {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load casing-soil inventory");
+      if (!response.ok) throw await responseError(response, "Unable to load casing-soil inventory");
       return response.json();
     },
   });
@@ -240,7 +241,7 @@ export default function InventoryModule() {
       const response = await fetch(
         `/api/vault/locations?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
       );
-      if (!response.ok) throw new Error("Unable to load warehouses");
+      if (!response.ok) throw await responseError(response, "Unable to load warehouses");
       return response.json();
     },
     placeholderData: (previous) => previous,
@@ -258,7 +259,7 @@ export default function InventoryModule() {
         `/api/inventory/movements?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
         { credentials: "include" },
       );
-      if (!response.ok) throw new Error("Unable to load stock movements");
+      if (!response.ok) throw await responseError(response, "Unable to load stock movements");
       return response.json();
     },
     placeholderData: (previous) => previous,
@@ -346,6 +347,7 @@ export default function InventoryModule() {
       const res = await fetch(
         `/api/services?skip=${(state.page - 1) * state.size}&limit=${state.size}`,
       );
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
     placeholderData: (previous) => previous,
@@ -355,7 +357,11 @@ export default function InventoryModule() {
 
   const { data: allItemNames } = useQuery({
     queryKey: ["item-names-lookup"],
-    queryFn: async () => (await fetch("/api/vault/item-names")).json(),
+    queryFn: async () => {
+      const response = await fetch("/api/vault/item-names");
+      if (!response.ok) throw await responseError(response, "Unable to load item names");
+      return response.json();
+    },
   });
   const itemNamesQuery = useQuery({
     queryKey: [
@@ -382,6 +388,7 @@ export default function InventoryModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
     onSuccess: () => {
@@ -398,6 +405,7 @@ export default function InventoryModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
     onSuccess: () => {
@@ -411,7 +419,8 @@ export default function InventoryModule() {
 
   const deleteService = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`/api/services/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/services/${id}`, { method: "DELETE" });
+      if (!response.ok) throw await responseError(response, "Unable to delete inventory record");
     },
     onSuccess: () => {
       refetchServices();
@@ -423,6 +432,7 @@ export default function InventoryModule() {
     queryKey: ["categories-lookup"],
     queryFn: async () => {
       const res = await fetch("/api/categories");
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
   });
@@ -452,6 +462,7 @@ export default function InventoryModule() {
     queryKey: ["vault-locations"],
     queryFn: async () => {
       const res = await fetch("/api/vault/locations?skip=0&limit=200");
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
   });
@@ -462,7 +473,7 @@ export default function InventoryModule() {
       const res = await fetch(`/api/vault/locations/${id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(await res.json().then((e) => e.error));
+      if (!res.ok) throw await responseError(res, "Unable to delete warehouse");
       return res.json();
     },
     onSuccess: () => {
@@ -480,6 +491,7 @@ export default function InventoryModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
     onSuccess: () => {
@@ -497,6 +509,7 @@ export default function InventoryModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (!res.ok) throw await responseError(res, "Unable to complete inventory request");
       return res.json();
     },
     onSuccess: () => {
@@ -510,7 +523,8 @@ export default function InventoryModule() {
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`/api/categories/${id}`, { method: "DELETE" });
+      const response = await fetch(`/api/categories/${id}`, { method: "DELETE" });
+      if (!response.ok) throw await responseError(response, "Unable to delete inventory record");
     },
     onSuccess: () => {
       refetchCategories();
@@ -933,7 +947,10 @@ export default function InventoryModule() {
           attributeValues: productForm.attributeValues,
         }),
       })
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) throw await responseError(res, "Unable to generate item SKU");
+          return res.json();
+        })
         .then((data) => {
           if (data.sku) {
             setProductForm((current) =>
@@ -943,7 +960,7 @@ export default function InventoryModule() {
             );
           }
         })
-        .catch(console.error);
+        .catch((error) => toast.error(error.message || "Unable to generate item SKU"));
     }, 250);
 
     return () => clearTimeout(timer);

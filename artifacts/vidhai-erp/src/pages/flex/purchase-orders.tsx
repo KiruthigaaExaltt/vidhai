@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { FLEX_TEXT } from "./flexText";
 import { useFlexMasterData, useFlexPurchaseRequests } from "./flexData";
 import { useEffect, useMemo, useState } from "react";
@@ -91,7 +92,7 @@ async function fetchPurchaseOrders(skip: number, limit: number, search: string):
   const res = await fetch(`${BASE}/api/flex/purchase-orders?${params}`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error("Unable to load purchase orders");
+  if (!res.ok) throw await responseError(res, "Unable to load purchase orders");
   return res.json();
 }
 
@@ -121,7 +122,7 @@ async function updatePurchaseOrder({
     credentials: "include",
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToUpdatePo);
+  if (!res.ok) throw await responseError(res, FLEX_TEXT.failedToUpdatePo);
   return res.json();
 }
 
@@ -130,7 +131,7 @@ async function deletePurchaseOrder(id: number) {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToDeletePo);
+  if (!res.ok) throw await responseError(res, FLEX_TEXT.failedToDeletePo);
   return res.json();
 }
 

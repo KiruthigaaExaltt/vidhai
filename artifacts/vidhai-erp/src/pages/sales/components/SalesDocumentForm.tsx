@@ -1,3 +1,5 @@
+import { toast } from "sonner";
+import { getErrorMessage, responseError } from "@/lib/errorMessage";
 import { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
@@ -192,7 +194,7 @@ export function SalesDocumentForm({
           ),
         );
       })
-      .catch((err) => console.error("Error loading clients:", err));
+      .catch((err) => toast.error(getErrorMessage(err, "Error loading clients:")));
     fetch("/api/inventory", { credentials: "include" })
       .then(async (res) => {
         if (!res.ok)
@@ -203,26 +205,26 @@ export function SalesDocumentForm({
         return res.json();
       })
       .then((data) => setInventoryItems(data))
-      .catch((err) => console.error("Error loading inventory:", err));
+      .catch((err) => toast.error(getErrorMessage(err, "Error loading inventory:")));
     fetch("/api/sales/vault-sales-stock", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : []))
+      .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
       .then(setVaultStock)
-      .catch((err) => console.error("Error loading Vault stock:", err));
+      .catch((err) => toast.error(getErrorMessage(err, "Error loading Vault stock:")));
     fetch("/api/services")
-      .then((res) => res.json())
+      .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
       .then((data) => setServices(data))
-      .catch((err) => console.error("Error loading services:", err));
+      .catch((err) => toast.error(getErrorMessage(err, "Error loading services:")));
     fetch("/api/vault/locations", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : []))
+      .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
       .then(setWarehouses)
-      .catch((err) => console.error("Error loading warehouses:", err));
+      .catch((err) => toast.error(getErrorMessage(err, "Error loading warehouses:")));
     if (
       type === "Proforma Invoice" ||
       type === "Delivery Challan" ||
       type === "Invoices"
     ) {
       fetch("/api/sales/quotations", { credentials: "include" })
-        .then((res) => (res.ok ? res.json() : []))
+        .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
         .then((data) =>
           setAvailableQuotations(
             data.filter(
@@ -232,12 +234,12 @@ export function SalesDocumentForm({
           ),
         )
         .catch((err) =>
-          console.error("Error loading approved/confirmed quotations:", err),
+          toast.error(getErrorMessage(err, "Error loading approved/confirmed quotations:")),
         );
     }
     if (type === "Delivery Challan" || type === "Invoices") {
       fetch("/api/sales/proforma-invoices", { credentials: "include" })
-        .then((res) => (res.ok ? res.json() : []))
+        .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
         .then((data) =>
           setAvailableProformas(
             data.filter(
@@ -247,24 +249,24 @@ export function SalesDocumentForm({
           ),
         )
         .catch((err) =>
-          console.error("Error loading approved Proforma invoices:", err),
+          toast.error(getErrorMessage(err, "Error loading approved Proforma invoices:")),
         );
     }
     if (type === "Invoices") {
       fetch("/api/sales/challans", { credentials: "include" })
-        .then((res) => (res.ok ? res.json() : []))
+        .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
         .then((data) =>
           setAvailableChallans(
             data.filter((doc: any) => doc.status === "Dispatched"),
           ),
         )
         .catch((err) =>
-          console.error("Error loading dispatched Delivery Challans:", err),
+          toast.error(getErrorMessage(err, "Error loading dispatched Delivery Challans:")),
         );
     }
     if (type === "Sales Return") {
       fetch("/api/sales/invoices", { credentials: "include" })
-        .then((res) => (res.ok ? res.json() : []))
+        .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
         .then((data) =>
           setAvailableInvoices(
             data.filter((doc: any) =>
@@ -273,17 +275,17 @@ export function SalesDocumentForm({
           ),
         )
         .catch((err) =>
-          console.error("Error loading returnable invoices:", err),
+          toast.error(getErrorMessage(err, "Error loading returnable invoices:")),
         );
       fetch("/api/sales/challans", { credentials: "include" })
-        .then((res) => (res.ok ? res.json() : []))
+        .then(async (res) => { if (!res.ok) throw await responseError(res, "Unable to load sales options"); return res.json(); })
         .then((data) =>
           setAvailableChallans(
             data.filter((doc: any) => doc.status === "Dispatched"),
           ),
         )
         .catch((err) =>
-          console.error("Error loading returnable challans:", err),
+          toast.error(getErrorMessage(err, "Error loading returnable challans:")),
         );
     }
     fetch("/api/organization-settings", { credentials: "include" })
@@ -313,7 +315,7 @@ export function SalesDocumentForm({
         }
       })
       .catch((err) =>
-        console.error("Error loading organization details:", err),
+        toast.error(getErrorMessage(err, "Error loading organization details:")),
       );
   }, []);
 
@@ -569,7 +571,8 @@ export function SalesDocumentForm({
       `/api/sales/${documentResource}/${quotationId}/versions`,
       { credentials: "include" },
     );
-    if (response.ok) setVersions((await response.json()).data || []);
+    if (!response.ok) { toast.error((await responseError(response, "Unable to load revision history")).message); return; }
+    setVersions((await response.json()).data || []);
   };
 
   const handleCustomerResponse = async (action: "confirm" | "reject") => {
@@ -661,7 +664,7 @@ export function SalesDocumentForm({
         `/api/sales/${source === "quotation" ? "quotations" : source === "proforma" ? "proforma-invoices" : "challans"}/${sourceId}`,
         { credentials: "include" },
       );
-      if (!response.ok) throw new Error(`Unable to map ${source}`);
+      if (!response.ok) throw await responseError(response, `Unable to map ${source}`);
       const document = await response.json();
       setClientId(String(document.clientId || ""));
       setClientName(document.clientName || "");
@@ -751,7 +754,7 @@ export function SalesDocumentForm({
           const response = await fetch(`/api/sales/quotations/${id}`, {
             credentials: "include",
           });
-          if (!response.ok) throw new Error(`Unable to load quotation #${id}`);
+          if (!response.ok) throw await responseError(response, `Unable to load quotation #${id}`);
           return response.json();
         }),
       );
@@ -853,7 +856,7 @@ export function SalesDocumentForm({
           const response = await fetch(`/api/sales/${resource}/${id}`, {
             credentials: "include",
           });
-          if (!response.ok) throw new Error(`Unable to load ${source} #${id}`);
+          if (!response.ok) throw await responseError(response, `Unable to load ${source} #${id}`);
           return response.json();
         }),
       );
@@ -980,7 +983,7 @@ export function SalesDocumentForm({
         `/api/sales/${source === "invoice" ? "invoices" : "challans"}/${sourceId}`,
         { credentials: "include" },
       );
-      if (!response.ok) throw new Error(`Unable to load source ${source}`);
+      if (!response.ok) throw await responseError(response, `Unable to load source ${source}`);
       const document = await response.json();
       setClientId(String(document.clientId || ""));
       setClientName(document.clientName || "");

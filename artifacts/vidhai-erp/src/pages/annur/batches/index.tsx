@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useEffect, useState } from "react";
 import { useListLocations } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
@@ -108,7 +109,7 @@ export default function Batches() {
       const response = await fetch(`/api/batches?${params}`, {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Unable to load batches");
+      if (!response.ok) throw await responseError(response, "Unable to load batches");
       return response.json() as Promise<{
         data: any[];
         totalCount: number;

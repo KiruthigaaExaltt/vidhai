@@ -9,6 +9,7 @@ import {
   text,
   timestamp,
 } from "./dsl";
+import { contactsTable } from "./contacts";
 const org = () => ({
   organizationId: integer("organization_id").notNull().default(1),
 });
@@ -215,6 +216,8 @@ export const bankCashTransactionsTable = mongoTable("bank_cash_transactions", {
   transferToAccountId: integer("transfer_to_account_id"),
   counterAccountId: integer("counter_account_id"),
   clientId: integer("client_id"),
+  creditContactId: integer("credit_contact_id").references(() => contactsTable.id),
+  debitContactId: integer("debit_contact_id").references(() => contactsTable.id),
   paymentMethod: text("payment_method").default(""),
   period: text("period").default(""),
   bankCharges: numeric("bank_charges").default("0"),

@@ -1,3 +1,5 @@
+import { toast as notificationToast } from "sonner";
+import { getErrorMessage } from "@/lib/errorMessage";
 import { useRef, useState } from "react";
 import {
   useListOotyRooms,
@@ -190,7 +192,7 @@ export default function OotyRooms() {
         setEditRoom(null);
         toast({ title: "Room updated" });
       },
-      onError: () => toast({ title: "Update failed", variant: "destructive" }),
+      onError: (error) => notificationToast.error(getErrorMessage(error, "Update failed")),
     },
   });
 
@@ -226,12 +228,7 @@ export default function OotyRooms() {
         toast({ title: "Room deleted" });
       },
       onError: (err: any) => {
-        const msg = err?.response?.data?.error ?? "Cannot delete room";
-        toast({
-          title: "Delete failed",
-          description: msg,
-          variant: "destructive",
-        });
+        notificationToast.error(getErrorMessage(err, "Cannot delete room"));
         setDeleteTarget(null);
       },
     },
@@ -249,8 +246,7 @@ export default function OotyRooms() {
         refetch();
         toast({ title: "Room status updated" });
       },
-      onError: () =>
-        toast({ title: "Status update failed", variant: "destructive" }),
+      onError: (error) => notificationToast.error(getErrorMessage(error, "Status update failed")),
     },
   });
 
@@ -333,6 +329,8 @@ export default function OotyRooms() {
         startDate: "",
         notes: "",
       });
+    } catch (error) {
+      notificationToast.error(getErrorMessage(error, "Unable to start growing batch"));
     } finally {
       setAssignPending(false);
     }

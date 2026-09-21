@@ -6,6 +6,8 @@ const aliases: Record<string, string> = {
   reference: "reference", "reference id": "reference", "invoice number": "reference",
   "document reference": "reference", "reference id / invoice number": "reference",
   remarks: "remarks", notes: "remarks", "client name": "clientName", client: "clientName",
+  "credit name": "creditName", "credit contact": "creditName",
+  "debit name": "debitName", "debit contact": "debitName",
   "payment method": "paymentMethod", "payment mode": "paymentMethod", period: "period",
   "bank charges": "bankCharges", "transaction fees": "transactionFees",
 };

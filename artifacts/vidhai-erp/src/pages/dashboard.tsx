@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { useGetDashboardSummary, useListBatches, useListCoimbatoreBatches, useListLabBatches, useListOotyGrowingBatches } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +27,7 @@ async function fetchBusinessMetrics(): Promise<BusinessMetrics> {
   const response = await fetch(`${base}/api/dashboard/business-metrics`, {
     credentials: "include",
   });
-  if (!response.ok) throw new Error("Unable to load business metrics");
+  if (!response.ok) throw await responseError(response, "Unable to load business metrics");
   return response.json();
 }
 

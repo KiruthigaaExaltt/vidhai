@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
@@ -34,7 +35,7 @@ export function installAuthenticatedFetch(configuredBase: string) {
         headers: { Accept: "application/json" },
       })
         .then(async (response) => {
-          if (!response.ok) throw new Error("Session expired");
+          if (!response.ok) throw await responseError(response, "Session expired");
           const data = (await response.json()) as { accessToken: string };
           setAccessToken(data.accessToken);
           return data.accessToken;

@@ -6,7 +6,7 @@ const validId = (value: unknown) => (typeof value === "string" || typeof value =
 export function paymentMoney(value: unknown, label: string, optional = false) {
   if (!supplied(value) && optional) return 0;
   if ((typeof value !== "string" && typeof value !== "number") ||
-      !/^\d*(?:\.\d+)?$/.test(String(value).trim()) || !supplied(value))
+    !/^\d*(?:\.\d+)?$/.test(String(value).trim()) || !supplied(value))
     throw new Error(`${label} must be a valid non-negative number`);
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount < 0 || !Number.isSafeInteger(Math.round(amount * 100)))
@@ -82,19 +82,63 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
     : resolveField(body.counterAccountId, body.counterAccount, "Transfer destination", true);
   const counterAccountId = mode === "Transfer" ? null : resolveField(body.counterAccountId, body.counterAccount, "Counter Account");
   if (transferToAccountId === bankCashAccountId) throw new Error("Transfer accounts must be different");
+
   const hasClientId = supplied(body.clientId);
-  const clientValue = hasClientId ? body.clientId : body.clientName || body.client;
-  let clientId: number | null = null;
-  if (supplied(clientValue)) {
-    if (hasClientId && !validId(body.clientId)) throw new Error("Client Name: choose a valid existing client ID");
-    const matches = clients.filter((client) => norm(client.type || "client") === "client" &&
-      (hasClientId ? Number(client.id) === Number(body.clientId) :
-        [client.name, client.contactCode ? `${client.name} - ${client.contactCode}` : client.name].some((option) => norm(option) === norm(clientValue))));
-    if (matches.length !== 1) throw new Error("Client Name: choose a valid, unambiguous existing client");
-    clientId = Number(matches[0].id);
+  if (hasClientId) {
+    if (!validId(body.clientId)) throw new Error("Client Name: choose a valid existing client ID");
+    const activeClients = clients.filter((client) => norm(client.type || "client") === "client");
+    if (!activeClients.some((c) => Number(c.id) === Number(body.clientId))) {
+      throw new Error("Client Name: choose a valid existing client ID");
+    }
   }
+
+  const resolveContact = (value: unknown, label: string, required = false) => {
+    if (!supplied(value) && !required) return null;
+    if (!supplied(value)) throw new Error(`${label}: choose a valid existing client`);
+
+    const normVal = norm(value);
+    const activeClients = clients.filter((client) => norm(client.type || "client") === "client");
+
+    if (validId(value)) {
+      const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
+      if (idMatches.length === 1) return Number(idMatches[0].id);
+    }
+
+    const matches = activeClients.filter((client) => {
+      const options = [
+        client.name,
+        client.contactCode ? `${client.name} - ${client.contactCode}` : client.name,
+        client.contactCode ? `${client.contactCode} - ${client.name}` : client.name,
+        client.contactCode,
+      ].filter(Boolean);
+      return options.some((opt) => norm(opt) === normVal);
+    });
+
+    if (matches.length === 1) return Number(matches[0].id);
+    if (validId(value)) {
+      const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
+      if (idMatches.length === 1) return Number(idMatches[0].id);
+    }
+
+    throw new Error(`${label}: choose a valid, unambiguous existing client`);
+  };
+
+  const hasCreditName = supplied(body.creditContactId) || supplied(body.creditContactName) || supplied(body.creditName);
+  const creditVal = (mode === "Credit" || mode === "Transfer")
+    ? (hasCreditName ? (body.creditContactId || body.creditContactName || body.creditName) : (mode === "Credit" && hasClientId ? body.clientId : body.clientName || body.client))
+    : (supplied(body.creditContactId) ? body.creditContactId : "");
+
+  const hasDebitName = supplied(body.debitContactId) || supplied(body.debitContactName) || supplied(body.debitName);
+  const debitVal = (mode === "Debit" || mode === "Transfer")
+    ? (hasDebitName ? (body.debitContactId || body.debitContactName || body.debitName) : (mode === "Debit" && hasClientId ? body.clientId : body.clientName || body.client))
+    : (supplied(body.debitContactId) ? body.debitContactId : "");
+
+  const creditContactId = resolveContact(creditVal, "Credit Name", mode === "Credit");
+  const debitContactId = resolveContact(debitVal, "Debit Name", mode === "Debit");
+  const clientId = creditContactId || debitContactId || (hasClientId ? Number(body.clientId) : null);
+
   if (mode === "Credit" && details.bankCharges > amount) throw new Error("Bank Charges cannot exceed the receipt amount");
-  return { ...details, amount, mode, bankCashAccountId, transferToAccountId, counterAccountId, clientId };
+  return { ...details, amount, mode, bankCashAccountId, transferToAccountId, counterAccountId, clientId, creditContactId, debitContactId };
 }
 export function addBankChargeLines(lines: any[], entry: any, accounts: any[]) {
   const charges = paymentMoney(String(entry.bankCharges ?? 0), "Bank Charges", true);
@@ -126,13 +170,31 @@ export function addBankChargeLines(lines: any[], entry: any, accounts: any[]) {
   }
   return [...combined.values()].filter((line) => line.debit > 0 || line.credit > 0);
 }
+export function buildBankChargeJournalLines(entry: any, accounts: any[]) {
+  const charges = paymentMoney(String(entry.bankCharges ?? 0), "Bank Charges", true);
+  if (!charges) return [];
+  if (entry.transactionTypeName === "Opening Balance") throw new Error("Bank Charges cannot be applied to an opening balance");
+  const chargeAccount = accounts.find((account) => account.accountCode === "5150" && account.isActive !== false);
+  if (!chargeAccount) throw new Error("The existing bank-charge COA account is not configured or active");
+  return [
+    { accountId: chargeAccount.id, debit: charges, credit: 0 },
+    { accountId: Number(entry.bankCashAccountId), debit: 0, credit: charges },
+  ];
+}
 export function bankCashExportRow(row: any) {
   return {
-    "Type *": row.mode, "Account Name *": row.accountDisplay || "",
-    "Counter Account": row.counterAccountDisplay || "", "Amount *": Number(row.amount),
-    "Payment Date *": row.transactionDate, "Reference ID / Invoice Number": row.reference || "",
-    Notes: row.remarks || "", "Client Name": row.clientDisplay || row.clientName || "",
-    "Payment Method": row.paymentMethod || "", Period: row.period || "",
-    "Bank Charges": Number(row.bankCharges || 0), "Transaction Fees": Number(row.transactionFees || 0),
+    "Type *": row.mode,
+    "Account Name": row.accountDisplay || "",
+    "Counter Account": row.counterAccountDisplay || "",
+    "Amount *": Number(row.amount),
+    "Payment Date *": row.transactionDate,
+    "Reference": row.reference || "",
+    "Notes": row.remarks || "",
+    "Credit Name": row.creditContactDisplay || row.creditContactName || (row.mode === "Credit" ? row.clientDisplay || row.clientName : "") || "",
+    "Debit Name": row.debitContactDisplay || row.debitContactName || (row.mode === "Debit" ? row.clientDisplay || row.clientName : "") || "",
+    "Payment Method": row.paymentMethod || "",
+    "Period": row.period || "",
+    "Bank Charges": Number(row.bankCharges || 0),
+    "Transaction Fees": Number(row.transactionFees || 0),
   };
 }

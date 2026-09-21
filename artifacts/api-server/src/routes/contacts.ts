@@ -208,6 +208,72 @@ router.post("/", async (req, res) => {
   }
 });
 
+router.post("/import", async (req, res) => {
+  await ensureContactsReady();
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  if (!rows.length) {
+    return res.status(400).json({ error: "No rows provided for import" });
+  }
+
+  const existingVendors = await db
+    .select()
+    .from(contactsTable)
+    .where(eq(contactsTable.type, "vendor"));
+  const vendorNameSet = new Set(
+    existingVendors.map((v) => v.name.trim().toLowerCase()),
+  );
+
+  let createdCount = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const name = String(row.name || "").trim();
+    if (!name) {
+      errors.push(`Row ${i + 1}: Name is required`);
+      continue;
+    }
+    const rawType = String(row.type || "client").trim().toLowerCase();
+    const normalizedType = rawType === "customer" ? "client" : rawType;
+    if (!validTypes.has(normalizedType)) {
+      errors.push(`Row ${i + 1}: Invalid type "${row.type}". Must be Client, Vendor, or Other.`);
+      continue;
+    }
+
+    if (normalizedType === "vendor" && vendorNameSet.has(name.toLowerCase())) {
+      errors.push(`Row ${i + 1}: Vendor "${name}" already exists`);
+      continue;
+    }
+
+    try {
+      await insertContactWithCode(normalizedType, {
+        name,
+        company: String(row.company || "").trim(),
+        phone: String(row.phone || "").trim(),
+        whatsappNumber: String(row.whatsappNumber || "").trim(),
+        gstin: String(row.gstin || "").trim().toUpperCase(),
+        stateCode: String(row.stateCode || row.gstin?.slice?.(0, 2) || "").trim(),
+        email: String(row.email || "").trim(),
+        address: String(row.address || "").trim(),
+        notes: String(row.notes || "").trim(),
+      });
+      if (normalizedType === "vendor") {
+        vendorNameSet.add(name.toLowerCase());
+      }
+      createdCount++;
+    } catch (err: any) {
+      errors.push(`Row ${i + 1}: ${err.message}`);
+    }
+  }
+
+  return res.json({
+    success: true,
+    created: createdCount,
+    total: rows.length,
+    errors: errors.length ? errors : undefined,
+  });
+});
+
 router.patch("/:id", async (req, res) => {
   await ensureContactsReady();
   const {

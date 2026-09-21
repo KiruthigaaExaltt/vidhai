@@ -1,3 +1,4 @@
+import { responseError } from "@/lib/errorMessage";
 import { FLEX_TEXT } from "./flexText";
 import {
   useFlexGoodsReceipts,
@@ -76,7 +77,7 @@ async function fetchPurchaseReturns(): Promise<PurchaseReturnItem[]> {
   const res = await fetch(`${BASE}/api/flex/purchase-returns`, {
     credentials: "include",
   });
-  if (!res.ok) throw new Error(FLEX_TEXT.failedToInitiateReturn);
+  if (!res.ok) throw await responseError(res, FLEX_TEXT.failedToInitiateReturn);
   const data = await res.json();
   if (!data || !Array.isArray(data)) return [];
   return data.map((r: any) => ({
