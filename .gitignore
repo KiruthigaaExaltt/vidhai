@@ -60,3 +60,4 @@ uploads/
 
 # pnpm local package store
 .pnpm-store/
+docs/
