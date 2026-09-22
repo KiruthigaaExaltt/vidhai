@@ -9,8 +9,11 @@ const accounts = [
   { id: 3, accountCode: "5150", accountName: "Existing charge ledger", isActive: true },
   { id: 4, accountCode: "1004", accountName: "Inactive", isActive: false },
 ];
-const clients = [{ id: 7, name: "Client A", contactCode: "C007", type: "client" }];
-const base = { mode: "Credit", bankCashAccountId: 1, creditName: "Client A", amount: "100", transactionDate: "2026-09-07" };
+const clients = [
+  { id: 7, name: "AK-MUSHROOMS", contactCode: "C007", type: "client" },
+  { id: 8, name: "A M Orgo Tech", contactCode: "V008", type: "vendor" },
+];
+const base = { mode: "Credit", bankCashAccountId: 1, creditName: "AK-MUSHROOMS", amount: "100", transactionDate: "2026-09-07" };
 
 test("explicit account IDs are not confused with another account's code", () => {
   const colliding = [...accounts, { id: 99, accountCode: "1", accountName: "Different account", isActive: true }];
@@ -22,38 +25,50 @@ test("explicit invalid client IDs cannot silently become an unassigned payment",
     assert.throws(() => prepareBankCash({ mode: "Credit", bankCashAccountId: 1, amount: "100", transactionDate: "2026-09-07", clientId }, accounts, clients), /Client|Credit Name/i);
 });
 
-test("Credit mode requires valid CRM Credit Name; Debit Name not required", () => {
-  const row = prepareBankCash({ mode: "Credit", bankCashAccountId: 1, creditName: "Client A", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
-  assert.equal(row.mode, "Credit");
-  assert.equal(row.creditContactId, 7);
-  assert.equal(row.debitContactId, null);
-  assert.equal(row.clientId, 7);
+test("Credit mode requires valid CRM Credit Name (accepts Customer or Vendor); Debit Name not required", () => {
+  const rowClient = prepareBankCash({ mode: "Credit", bankCashAccountId: 1, creditName: "AK-MUSHROOMS", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
+  assert.equal(rowClient.mode, "Credit");
+  assert.equal(rowClient.creditContactId, 7);
+  assert.equal(rowClient.debitContactId, null);
+  assert.equal(rowClient.clientId, 7);
+
+  const rowVendor = prepareBankCash({ mode: "Credit", bankCashAccountId: 1, creditName: "A M Orgo Tech", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
+  assert.equal(rowVendor.mode, "Credit");
+  assert.equal(rowVendor.creditContactId, 8);
+  assert.equal(rowVendor.debitContactId, null);
+  assert.equal(rowVendor.clientId, 8);
 
   assert.throws(() => prepareBankCash({ mode: "Credit", bankCashAccountId: 1, amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /Credit Name/);
-  assert.throws(() => prepareBankCash({ mode: "Credit", bankCashAccountId: 1, creditName: "Invalid Client", amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /Credit Name/);
+  assert.throws(() => prepareBankCash({ mode: "Credit", bankCashAccountId: 1, creditName: "Invalid Contact", amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /Credit Name/);
 });
 
-test("Debit mode requires valid CRM Debit Name; Credit Name not required", () => {
-  const row = prepareBankCash({ mode: "Debit", bankCashAccountId: 1, debitName: "Client A", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
-  assert.equal(row.mode, "Debit");
-  assert.equal(row.debitContactId, 7);
-  assert.equal(row.creditContactId, null);
-  assert.equal(row.clientId, 7);
+test("Debit mode requires valid CRM Debit Name (accepts Customer or Vendor); Credit Name not required", () => {
+  const rowClient = prepareBankCash({ mode: "Debit", bankCashAccountId: 1, debitName: "AK-MUSHROOMS", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
+  assert.equal(rowClient.mode, "Debit");
+  assert.equal(rowClient.debitContactId, 7);
+  assert.equal(rowClient.creditContactId, null);
+  assert.equal(rowClient.clientId, 7);
+
+  const rowVendor = prepareBankCash({ mode: "Debit", bankCashAccountId: 1, debitName: "A M Orgo Tech", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
+  assert.equal(rowVendor.mode, "Debit");
+  assert.equal(rowVendor.debitContactId, 8);
+  assert.equal(rowVendor.creditContactId, null);
+  assert.equal(rowVendor.clientId, 8);
 
   assert.throws(() => prepareBankCash({ mode: "Debit", bankCashAccountId: 1, amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /Debit Name/);
   assert.throws(() => prepareBankCash({ mode: "Debit", bankCashAccountId: 1, debitName: "Nonexistent", amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /Debit Name/);
 });
 
-test("Transfer requires From and To accounts, accepts empty names or valid CRM names", () => {
+test("Transfer requires From and To accounts, accepts empty names or valid CRM names (customer or vendor)", () => {
   const emptyNamesRow = prepareBankCash({ mode: "Transfer", bankCashAccountId: 1, counterAccount: "1002 - Other Bank", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
   assert.equal(emptyNamesRow.mode, "Transfer");
   assert.equal(emptyNamesRow.transferToAccountId, 2);
   assert.equal(emptyNamesRow.creditContactId, null);
   assert.equal(emptyNamesRow.debitContactId, null);
 
-  const validNamesRow = prepareBankCash({ mode: "Transfer", bankCashAccountId: 1, counterAccount: "1002 - Other Bank", creditName: "Client A", debitName: "Client A", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
+  const validNamesRow = prepareBankCash({ mode: "Transfer", bankCashAccountId: 1, counterAccount: "1002 - Other Bank", creditName: "AK-MUSHROOMS", debitName: "A M Orgo Tech", amount: "100", transactionDate: "2026-09-07" }, accounts, clients);
   assert.equal(validNamesRow.creditContactId, 7);
-  assert.equal(validNamesRow.debitContactId, 7);
+  assert.equal(validNamesRow.debitContactId, 8);
 
   assert.throws(() => prepareBankCash({ mode: "Transfer", bankCashAccountId: 1, transferToAccountId: 1, amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /different/);
   assert.throws(() => prepareBankCash({ mode: "Transfer", bankCashAccountId: 1, transferToAccountId: 2, creditName: "Bad Client", amount: "100", transactionDate: "2026-09-07" }, accounts, clients), /Credit Name/);

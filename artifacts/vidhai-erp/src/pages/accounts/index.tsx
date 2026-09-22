@@ -149,6 +149,8 @@ const emptyPartyEntry = (kind: ManualPartyEntryKind, date: string) => ({
   settledAmount: "",
   adjustedAmount: "",
   accountId: "",
+  fromAccountId: "",
+  toAccountId: "",
   notes: "",
 });
 const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", creditContactId: "", debitContactId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
@@ -411,6 +413,14 @@ export default function Accounts() {
     [settlementAmount, setSettlementAmount] = useState(""),
     [manualType, setManualType] = useState<"account" | "journal" | null>(null),
     [manual, setManual] = useState<any>({});
+  const bankCashContacts = useMemo(() => {
+    const map = new Map<string | number, any>();
+    (crmClients || []).forEach((c) => { if (c && c.id) map.set(c.id, c); });
+    (crmVendors || []).forEach((v) => { if (v && v.id) map.set(v.id, { ...v, type: v.type || "vendor" }); });
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.displayName || a.name).localeCompare(String(b.displayName || b.name))
+    );
+  }, [crmClients, crmVendors]);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [accountImport, setAccountImport] = useState<AccountImportKind | null>(null);
   const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
@@ -563,9 +573,24 @@ export default function Accounts() {
       setPartyEntryCandidates(await api(`/payable-documents?mode=debit-note&vendorId=${partyId}`));
     }
   };
-  const openPartyEntry = (kind: ManualPartyEntryKind) => {
+  const openPartyEntry = (kind: ManualPartyEntryKind, existing?: any) => {
     setError("");
-    setPartyEntry(emptyPartyEntry(kind, today));
+    const arAcc = String(coa.find((a: any) => a.accountCode === "1100" && a.isActive !== false)?.id || "");
+    const apAcc = String(coa.find((a: any) => a.accountCode === "2100" && a.isActive !== false)?.id || "");
+    const bankAcc = String(coa.find((a: any) => a.accountCode !== "1100" && a.accountCode !== "2100" && a.isActive !== false)?.id || "");
+    const isAr = kind.startsWith("ar");
+    const baseEntry = existing ? {
+      ...existing,
+      kind,
+      settledAmount: String(existing.receivedAmount ?? existing.paidAmount ?? existing.settledAmount ?? ""),
+      fromAccountId: existing.fromAccountId ? String(existing.fromAccountId) : (isAr ? arAcc : bankAcc),
+      toAccountId: existing.toAccountId ? String(existing.toAccountId) : (isAr ? bankAcc : apAcc),
+    } : {
+      ...emptyPartyEntry(kind, today),
+      fromAccountId: isAr ? arAcc : bankAcc,
+      toAccountId: isAr ? bankAcc : apAcc,
+    };
+    setPartyEntry(baseEntry);
     setPartyEntryCandidates([]);
   };
   const submitPartyEntry = async () => {
@@ -587,6 +612,12 @@ export default function Accounts() {
       setError(`${isAr ? "Linked Invoice" : "Against Bill"} and Account Name are required.`);
       return;
     }
+    if (!isNote && settledAmount > 0) {
+      if (!partyEntry.fromAccountId || !partyEntry.toAccountId) {
+        setError(`From Account and To Account are required when a ${isAr ? "Received" : "Paid"} Amount is specified.`);
+        return;
+      }
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -602,6 +633,9 @@ export default function Accounts() {
           receivedAmount: isNote ? amount : settledAmount,
           adjustedAmount: isNote ? 0 : adjustedAmount,
           coaAccountId: isNote ? Number(partyEntry.accountId) : null,
+          fromAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.fromAccountId) : undefined,
+          toAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.toAccountId) : undefined,
+          settlementAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.toAccountId) : undefined,
           entryType: isNote ? "Credit Note" : "Invoice",
           notes: partyEntry.notes || "",
           sourceType: "Manual",
@@ -616,6 +650,9 @@ export default function Accounts() {
           paidAmount: isNote ? amount : settledAmount,
           adjustedAmount: isNote ? 0 : adjustedAmount,
           coaAccountId: isNote ? Number(partyEntry.accountId) : null,
+          fromAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.fromAccountId) : undefined,
+          toAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.toAccountId) : undefined,
+          settlementAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.fromAccountId) : undefined,
           entryType: isNote ? "Debit Note" : "Bill",
           notes: partyEntry.notes || "",
           sourceType: "Manual",
@@ -755,7 +792,7 @@ export default function Accounts() {
       // DISABLED: Masters module is not required for this phase
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
       ...(can("accounts.accounts_receivable.view") && !bankOptions ? [["clients", "/party-options?type=client&context=ar"]] : []),
-      ...(bankOptions || (can("accounts.bank_cash.view") && !can("accounts.accounts_receivable.view"))
+      ...(can("accounts.bank_cash.view")
         ? [["bankOptions", `/bank-cash-transactions/options${fullCoa ? "?clientsOnly=1" : ""}`]] : []),
       ...(can("accounts.accounts_payable.view") ? [["vendorsOpt", "/party-options?type=vendor&context=ap"]] : []),
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
@@ -2697,19 +2734,22 @@ export default function Accounts() {
                           onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client (optional)" />
+                            <SelectValue placeholder="Select CRM contact (optional)" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
                             <SelectItem value="__none__">
                               <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
                             </SelectItem>
-                            {crmClients.map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2723,19 +2763,22 @@ export default function Accounts() {
                           onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client (optional)" />
+                            <SelectValue placeholder="Select CRM contact (optional)" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
                             <SelectItem value="__none__">
                               <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
                             </SelectItem>
-                            {crmClients.map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2775,16 +2818,19 @@ export default function Accounts() {
                           onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client *" />
+                            <SelectValue placeholder="Select CRM contact *" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                            {crmClients.map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2824,16 +2870,19 @@ export default function Accounts() {
                           onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client *" />
+                            <SelectValue placeholder="Select CRM contact *" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                            {crmClients.map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -3581,6 +3630,60 @@ export default function Accounts() {
                       <Label>Adjusted Amount</Label>
                       <Input type="number" min="0" step="0.01" value={partyEntry.adjustedAmount} onChange={(event) => setPartyEntryField("adjustedAmount", event.target.value)} />
                     </div>}
+                    {!isNote && numberValue(partyEntry.settledAmount) > 0 && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>From Account *</Label>
+                          <Select
+                            value={partyEntry.fromAccountId ? String(partyEntry.fromAccountId) : undefined}
+                            onValueChange={(value) => setPartyEntryField("fromAccountId", value)}
+                          >
+                            <SelectTrigger aria-label="From Account">
+                              <SelectValue placeholder={isAr ? "Select AR account" : "Select disbursement account"} />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {coa
+                                .filter((account: any) => account.isActive !== false && (isAr ? account.accountCode === "1100" : account.accountCode !== "2100"))
+                                .map((account: any) => (
+                                  <SelectItem key={account.id} value={String(account.id)}>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                        {account.accountCode}
+                                      </span>
+                                      <span className="truncate">{account.accountName}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>To Account *</Label>
+                          <Select
+                            value={partyEntry.toAccountId ? String(partyEntry.toAccountId) : undefined}
+                            onValueChange={(value) => setPartyEntryField("toAccountId", value)}
+                          >
+                            <SelectTrigger aria-label="To Account">
+                              <SelectValue placeholder={isAr ? "Select settlement account" : "Select AP account"} />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {coa
+                                .filter((account: any) => account.isActive !== false && (isAr ? account.accountCode !== "1100" : account.accountCode === "2100"))
+                                .map((account: any) => (
+                                  <SelectItem key={account.id} value={String(account.id)}>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                        {account.accountCode}
+                                      </span>
+                                      <span className="truncate">{account.accountName}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
                     {isNote && <div className="space-y-2">
                       <Label>Account Name *</Label>
                       <Select value={partyEntry.accountId} onValueChange={(value) => setPartyEntryField("accountId", value)}>
@@ -3767,29 +3870,109 @@ export default function Accounts() {
                         }
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ap-account-name">Account Name *</Label>
-                      <Select
-                        value={apSettlementAccountId || undefined}
-                        onValueChange={(val) => setApSettlementAccountId(val)}
-                      >
-                        <SelectTrigger id="ap-account-name" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false).map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {numberValue(settlementAmount) > 0 && (
+                      <div className="space-y-3">
+                        {settlement.kind === "ap" ? (
+                          <>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ap-from-account">From Account *</Label>
+                              <Select
+                                value={apSettlementAccountId || undefined}
+                                onValueChange={(val) => setApSettlementAccountId(val)}
+                              >
+                                <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="Select disbursement account" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ap-to-account">To Account *</Label>
+                              <Select
+                                value={String(coa.find((a) => a.accountCode === "2100" && a.isActive !== false)?.id || "")}
+                                disabled
+                              >
+                                <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="2100 - Accounts Payable" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ar-from-account">From Account *</Label>
+                              <Select
+                                value={String(coa.find((a) => a.accountCode === "1100" && a.isActive !== false)?.id || "")}
+                                disabled
+                              >
+                                <SelectTrigger id="ar-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="1100 - Accounts Receivable" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.accountCode === "1100" && account.isActive !== false).map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ar-to-account">To Account *</Label>
+                              <Select
+                                value={apSettlementAccountId || undefined}
+                                onValueChange={(val) => setApSettlementAccountId(val)}
+                              >
+                                <SelectTrigger id="ar-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="Select settlement account" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 <DialogFooter>
@@ -3870,60 +4053,62 @@ export default function Accounts() {
                         onChange={(event) => setPaymentAmount(event.target.value)}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="from-account">From Account *</Label>
-                      <Select
-                        value={arPayment.fromAccountId || undefined}
-                        onValueChange={(val) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            fromAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
-                      <Select
-                        value={arPayment.settlementAccountId || undefined}
-                        onValueChange={(val) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            settlementAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select settlement account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {numberValue(paymentAmount) > 0 && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="from-account">From Account *</Label>
+                        <Select
+                          value={arPayment.fromAccountId || undefined}
+                          onValueChange={(val) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              fromAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
+                        <Select
+                          value={arPayment.settlementAccountId || undefined}
+                          onValueChange={(val) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              settlementAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select settlement account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1.5 text-sm">
                         <Label>Payment Date *</Label>
@@ -4107,61 +4292,63 @@ export default function Accounts() {
                         onChange={(event) => setPaymentApAmount(event.target.value)}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ap-from-account">From Account *</Label>
-                      <Select
-                        value={apPaymentForm.fromAccountId || undefined}
-                        onValueChange={(val) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            fromAccountId: val,
-                            settlementAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select disbursement account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
-                      <Select
-                        value={apPaymentForm.toAccountId || undefined}
-                        onValueChange={(val) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            toAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select payable account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {numberValue(paymentApAmount) > 0 && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ap-from-account">From Account *</Label>
+                        <Select
+                          value={apPaymentForm.fromAccountId || undefined}
+                          onValueChange={(val) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              fromAccountId: val,
+                              settlementAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select disbursement account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
+                        <Select
+                          value={apPaymentForm.toAccountId || undefined}
+                          onValueChange={(val) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              toAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select payable account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1.5 text-sm">
                         <Label>Payment Date *</Label>

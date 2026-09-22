@@ -86,7 +86,7 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
   const hasClientId = supplied(body.clientId);
   if (hasClientId) {
     if (!validId(body.clientId)) throw new Error("Client Name: choose a valid existing client ID");
-    const activeClients = clients.filter((client) => norm(client.type || "client") === "client");
+    const activeClients = clients.filter((client) => Boolean(client));
     if (!activeClients.some((c) => Number(c.id) === Number(body.clientId))) {
       throw new Error("Client Name: choose a valid existing client ID");
     }
@@ -97,7 +97,7 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
     if (!supplied(value)) throw new Error(`${label}: choose a valid existing client`);
 
     const normVal = norm(value);
-    const activeClients = clients.filter((client) => norm(client.type || "client") === "client");
+    const activeClients = clients.filter((client) => Boolean(client));
 
     if (validId(value)) {
       const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
@@ -110,6 +110,7 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
         client.contactCode ? `${client.name} - ${client.contactCode}` : client.name,
         client.contactCode ? `${client.contactCode} - ${client.name}` : client.name,
         client.contactCode,
+        client.displayName,
       ].filter(Boolean);
       return options.some((opt) => norm(opt) === normVal);
     });

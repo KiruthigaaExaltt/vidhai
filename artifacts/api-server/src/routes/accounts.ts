@@ -1670,7 +1670,7 @@ router.post("/bank-cash-transactions/import", async (r: any, s): Promise<any> =>
   const errors: string[] = [];
   const accounts = (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
   const { bankCashTransactionsTable } = await accountTables();
-  const clients = await contactsFor("client");
+  const clients = await contactsFor();
   const prepared = rows.map((row: any, i: number) => {
     try {
       if (!String(row.mode || row.type || "").trim()) throw new Error("Type is required");
@@ -1895,7 +1895,7 @@ async function bankCashRows(org: number, query: any = {}) {
   const rows = (await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, org))).filter(dateRangeFilter(query, "transactionDate"));
   const docs = await documentsFor("bank-cash", rows.map((row: any) => Number(row.id)));
   const [accounts, clients] = await Promise.all([
-    db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org)), contactsFor("client"),
+    db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org)), contactsFor(),
   ]);
   const byId = (id: any) => accounts.find((account: any) => Number(account.id) === Number(id));
   return rows.map((row: any) => {
@@ -1916,10 +1916,10 @@ async function bankCashRows(org: number, query: any = {}) {
 router.get("/bank-cash-transactions/options", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const accounts = r.query.clientsOnly === "1" ? [] : (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
-  const clients = await contactsFor("client");
+  const clients = await contactsFor();
   s.json({
     accounts: accounts.map((account: any) => ({ id: account.id, accountCode: account.accountCode, accountName: account.accountName, accountType: account.accountType, isActive: account.isActive, isBankCash: account.isBankCash })),
-    clients: clients.map((client: any) => ({ id: client.id, name: client.name, displayName: contactLabel(client) })), paymentMethods
+    clients: clients.map((client: any) => ({ id: client.id, name: client.name, type: client.type || "client", contactCode: client.contactCode || "", displayName: contactOptionLabel(client) })), paymentMethods
   });
 });
 router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
@@ -1934,7 +1934,7 @@ router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
 async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-balance") {
   const accounts = await coa(r.acc.org);
   let input: ReturnType<typeof prepareBankCash>;
-  try { input = prepareBankCash(r.body, accounts, await contactsFor("client"), day()); }
+  try { input = prepareBankCash(r.body, accounts, await contactsFor(), day()); }
   catch (error: any) { return s.status(400).json({ error: error.message }); }
   const isOpening = source === "opening-balance";
   const { bankCashTransactionsTable } = await accountTables();
@@ -2000,7 +2000,7 @@ async function approveBankCash(r: any, s: any) {
   let chargeLines: any[] = [];
   try { chargeLines = buildBankChargeJournalLines(entry, accounts); }
   catch (error: any) { return s.status(400).json({ error: error.message }); }
-  const clients = await contactsFor("client");
+  const clients = await contactsFor();
   const journal = await post(r.acc.org, {
     entryDate: entry.transactionDate,
     reference: `AUTO:BANKCASH:${r.acc.org}:${entry.id}`,
