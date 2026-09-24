@@ -12,6 +12,12 @@ const common = () => ({
 
 export const attendanceTemplatesTable = mongoTable("attendance_templates", {
   ...common(), flexibleHours: boolean("flexible_hours").notNull().default(false),
+  // Retained only for old records; buffer minutes are now always applied.
+  bufferTime: boolean("buffer_time").notNull().default(true),
+  bufferMinutes: integer("buffer_minutes").notNull().default(15),
+  totalWorkingHours: text("total_working_hours").notNull().default("8"),
+  breakHours: text("break_hours").notNull().default("0"),
+  workHours: text("work_hours").notNull().default("8"),
   lateThresholdMinutes: integer("late_threshold_minutes").notNull().default(15),
   workStartTime: text("work_start_time").notNull().default("09:00"),
   workEndTime: text("work_end_time").notNull().default("17:00"),
@@ -40,5 +46,7 @@ export const leaveTemplatesTable = mongoTable("leave_templates", {
   maxSickLeavesPerMonth: integer("max_sick_leaves_per_month").notNull().default(0),
   maxCasualLeavesPerMonth: integer("max_casual_leaves_per_month").notNull().default(0),
   maxEarnedLeavesPerMonth: integer("max_earned_leaves_per_month").notNull().default(0),
+  totalPermissionHours: integer("total_permission_hours").notNull().default(0),
+  maxPermissionHoursPerMonth: integer("max_permission_hours_per_month").notNull().default(0),
   carryForwardEnabled: boolean("carry_forward_enabled").notNull().default(true),
 });

@@ -7,6 +7,39 @@ export const setAccessToken = (token: string | null) => {
   accessToken = token;
 };
 
+/**
+ * Restores the short-lived access token after a full page load. The refresh
+ * credential is an httpOnly cookie, so it deliberately never reaches browser
+ * storage. Calling this before protected queries prevents a refresh from being
+ * mistaken for a logout.
+ */
+export type SessionRestoreResult = {
+  token: string | null;
+  /** The API could not be reached yet; this is not evidence of a logout. */
+  unavailable: boolean;
+};
+
+export async function restoreAccessToken(
+  configuredBase: string,
+): Promise<SessionRestoreResult> {
+  try {
+    const response = await fetch(`${configuredBase}/api/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    // A 401 means the refresh session has genuinely ended. A startup/network
+    // error must not immediately throw the user back to Login.
+    if (!response.ok) return { token: null, unavailable: response.status >= 500 };
+    const data = (await response.json()) as { accessToken?: string };
+    const token = typeof data.accessToken === "string" ? data.accessToken : null;
+    setAccessToken(token);
+    return { token, unavailable: false };
+  } catch {
+    return { token: null, unavailable: true };
+  }
+}
+
 export function installAuthenticatedFetch(configuredBase: string) {
   const nativeFetch = window.fetch.bind(window);
   const apiOrigin = configuredBase

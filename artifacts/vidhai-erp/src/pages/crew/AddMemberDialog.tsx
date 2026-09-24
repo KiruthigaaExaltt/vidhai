@@ -179,31 +179,11 @@ export function AddMemberDialog({
         setOptions(data);
         const source = editingEmployee || initialEmployee || {};
         const defaults = {
-          attendanceRulesTemplate: String(
-            data.attendance.find((t: any) => t.isDefault)?.id ||
-              data.attendance[0]?.id ||
-              "",
-          ),
-          workPatternTemplate: String(
-            data.workPatterns.find((t: any) => t.isDefault)?.id ||
-              data.workPatterns[0]?.id ||
-              "",
-          ),
-          holidayTemplate: String(
-            data.holidays.find((t: any) => t.isDefault)?.id ||
-              data.holidays[0]?.id ||
-              "",
-          ),
-          leaveTemplate: String(
-            data.leave.find((t: any) => t.isDefault)?.id ||
-              data.leave[0]?.id ||
-              "",
-          ),
-          salaryTemplateId: String(
-            data.salary.find((t: any) => t.isDefault)?.id ||
-              data.salary[0]?.id ||
-              "",
-          ),
+          attendanceRulesTemplate: "",
+          workPatternTemplate: "",
+          holidayTemplate: "",
+          leaveTemplate: "",
+          salaryTemplateId: "",
         };
         setF((x) => ({
           ...x,
@@ -497,9 +477,7 @@ export function AddMemberDialog({
       setUserDialog(false);
       toast({
         title: "User created and linked",
-        description: u.temporaryPassword
-          ? `Temporary password: ${u.temporaryPassword}`
-          : undefined,
+        description: "Default password: vidhaii123",
       });
     } catch (e: any) {
       toast({
@@ -515,7 +493,7 @@ export function AddMemberDialog({
         <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
           <DialogContent onInteractOutside={(e) => e.preventDefault()} className="flex h-[min(94vh,900px)] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:rounded-2xl">
             <DialogHeader className="shrink-0 border-b px-4 py-4 sm:px-6 sm:py-5">
-              <DialogTitle>{"Add Member"}</DialogTitle>
+              <DialogTitle>{editingEmployee ? "Edit Member" : "Add Member"}</DialogTitle>
             </DialogHeader>
             <div className="flex-1 space-y-7 overflow-y-auto px-6 py-6">
               <Section title="Profile">
@@ -614,11 +592,26 @@ export function AddMemberDialog({
                         <div className="mb-2 text-sm font-medium">
                           Profile Photo
                         </div>
-                        <Input
-                          type="file"
-                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                          onChange={(e) => photo(e.target.files?.[0])}
-                        />
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Input
+                            id="employee-profile-photo"
+                            type="file"
+                            className="sr-only"
+                            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                            onChange={(e) => photo(e.target.files?.[0])}
+                          />
+                          <label
+                            htmlFor="employee-profile-photo"
+                            className="inline-flex h-9 shrink-0 cursor-pointer items-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-accent"
+                          >
+                            {f.employeePhotoFile?.name || "Choose file"}
+                          </label>
+                          <span className="truncate text-sm text-muted-foreground">
+                            {f.employeePhotoFile
+                              ? "Photo selected"
+                              : "No file selected"}
+                          </span>
+                        </div>
                         <small className="text-muted-foreground">
                           JPG, JPEG, PNG, or WEBP. Maximum 5 MB.
                         </small>
@@ -902,7 +895,13 @@ export function AddMemberDialog({
                 Cancel
               </Button>
               <Button disabled={saving} onClick={submit}>
-                {saving ? "Adding Member..." : "Add Member"}
+                {saving
+                  ? editingEmployee
+                    ? "Saving Changes..."
+                    : "Adding Member..."
+                  : editingEmployee
+                    ? "Save Changes"
+                    : "Add Member"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -987,13 +986,24 @@ function Text({
   [x: string]: any;
 }) {
   const { f, errors, refs, field } = useMemberForm();
+  const isPhone = /phone/i.test(String(k));
   return (
     <F label={label} required={required} error={errors[k]} name={k} refs={refs}>
       <Input
         className={errors[k] ? "border-destructive" : ""}
         value={String(f[k] ?? "")}
-        onChange={(e) => field(k, e.target.value)}
         {...props}
+        type={isPhone ? "tel" : props.type}
+        inputMode={isPhone ? "numeric" : props.inputMode}
+        maxLength={isPhone ? 10 : props.maxLength}
+        onChange={(e) =>
+          field(
+            k,
+            isPhone
+              ? e.target.value.replace(/\D/g, "").slice(0, 10)
+              : e.target.value,
+          )
+        }
       />
     </F>
   );
@@ -1059,7 +1069,7 @@ function Template({
         return {
           value: String(item.id),
           disabled: wrongYear,
-          label: `${item.templateName}${holiday && item.effectiveYear ? ` (${item.effectiveYear})` : ""}${item.isDefault ? " (Default)" : ""}${wrongYear ? " � Not applicable to joining year" : ""}`,
+          label: `${item.templateName}${holiday && item.effectiveYear ? ` (${item.effectiveYear})` : ""}${wrongYear ? " - Not applicable to joining year" : ""}`,
         };
       })}
     />

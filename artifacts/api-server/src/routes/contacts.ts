@@ -15,6 +15,12 @@ import { paginateQuery, paginatedResponse } from "../lib/pagination";
 
 const router = Router();
 const validTypes = new Set(["client", "vendor", "other"]);
+const normalizePhone = (value: unknown, label: string) => {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (digits && digits.length !== 10)
+    throw new Error(`${label} must contain exactly 10 digits`);
+  return digits;
+};
 const prefixes: Record<string, string> = {
   client: "CLI-",
   vendor: "VEN-",
@@ -192,8 +198,8 @@ router.post("/", async (req, res) => {
     const contact = await insertContactWithCode(normalizedType, {
       name: name.trim(),
       company: company?.trim() ?? "",
-      phone: phone?.trim() ?? "",
-      whatsappNumber: whatsappNumber?.trim() ?? "",
+      phone: normalizePhone(phone, "Phone number"),
+      whatsappNumber: normalizePhone(whatsappNumber, "WhatsApp number"),
       gstin: gstin?.trim().toUpperCase() ?? "",
       stateCode: stateCode?.trim() || gstin?.trim().slice(0, 2) || "",
       email: email?.trim() ?? "",
@@ -249,8 +255,8 @@ router.post("/import", async (req, res) => {
       await insertContactWithCode(normalizedType, {
         name,
         company: String(row.company || "").trim(),
-        phone: String(row.phone || "").trim(),
-        whatsappNumber: String(row.whatsappNumber || "").trim(),
+        phone: normalizePhone(row.phone, "Phone number"),
+        whatsappNumber: normalizePhone(row.whatsappNumber, "WhatsApp number"),
         gstin: String(row.gstin || "").trim().toUpperCase(),
         stateCode: String(row.stateCode || row.gstin?.slice?.(0, 2) || "").trim(),
         email: String(row.email || "").trim(),
@@ -293,13 +299,21 @@ router.patch("/:id", async (req, res) => {
   const normalizedType = type === undefined ? undefined : normalizeType(type);
   if (normalizedType !== undefined && !validTypes.has(normalizedType))
     return res.status(400).json({ error: "Invalid contact type" });
+  try {
+    if (phone !== undefined) normalizePhone(phone, "Phone number");
+    if (whatsappNumber !== undefined)
+      normalizePhone(whatsappNumber, "WhatsApp number");
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
 
   const updates: Record<string, string> = {};
   if (normalizedType !== undefined) updates.type = normalizedType;
   if (name !== undefined) updates.name = name.trim();
   if (company !== undefined) updates.company = company.trim();
-  if (phone !== undefined) updates.phone = phone.trim();
-  if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber.trim();
+  if (phone !== undefined) updates.phone = normalizePhone(phone, "Phone number");
+  if (whatsappNumber !== undefined)
+    updates.whatsappNumber = normalizePhone(whatsappNumber, "WhatsApp number");
   if (gstin !== undefined) updates.gstin = gstin.trim().toUpperCase();
   if (stateCode !== undefined) updates.stateCode = stateCode.trim();
   if (email !== undefined) updates.email = email.trim();

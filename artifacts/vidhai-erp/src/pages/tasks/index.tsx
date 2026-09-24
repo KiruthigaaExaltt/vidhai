@@ -158,7 +158,7 @@ const formatDateTime = (value?: string | null) =>
         dateStyle: "medium",
         timeStyle: "medium",
       }).format(new Date(value))
-    : "�";
+    : "—";
 const formatTimesheetTime = (value?: string | null) => {
   if (!value) return "—";
   const date = new Date(value);
@@ -610,7 +610,7 @@ export default function Tasks() {
               <CardContent className="p-0">
                 {false ? (
                   <div className="py-20 text-center text-sm text-muted-foreground">
-                    Loading tasks�
+                    Loading tasks—
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -657,7 +657,7 @@ export default function Tasks() {
                               </td>
                               <td className="px-4 py-3.5">
                                 <span className="rounded-md border bg-muted px-2 py-0.5 font-mono text-xs">
-                                  {task.batchRef || "�"}
+                                  {task.batchRef || "—"}
                                 </span>
                               </td>
                               <td className="px-4 py-3.5">
@@ -869,8 +869,8 @@ export default function Tasks() {
                       <div className="font-medium">{member.name}</div>
                       <div className="text-xs text-muted-foreground">
                         {member.employeeCode}
-                        {member.designation ? ` � ${member.designation}` : ""}
-                        {!member.userId ? " � No app login" : ""}
+                        {member.designation ? ` — ${member.designation}` : ""}
+                        {!member.userId ? " — No app login" : ""}
                       </div>
                     </div>
                   </label>
@@ -1069,7 +1069,7 @@ function TimesheetPanel({ data, onEdit, onDelete }: { data?: Timesheet; onEdit: 
                     <td className="px-4 py-3 pl-12 text-xs text-muted-foreground">{entry.source === "manual" ? "Manual entry" : "Task timer"}</td>
                     <td className="px-4 py-3 font-medium">{entry.taskTitle}</td>
                     <td className="px-4 py-3 font-mono text-xs">
-                      {entry.workOrder || "�"}
+                      {entry.workOrder || "—"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-xs">
                       {formatTimesheetTime(entry.startTime)}
@@ -1092,7 +1092,7 @@ function TimesheetPanel({ data, onEdit, onDelete }: { data?: Timesheet; onEdit: 
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {entry.notes || "�"}
+                      {entry.notes || "—"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right">
                       <Button size="sm" variant="ghost" disabled={entry.status === "active"} onClick={() => onEdit(entry)}><Pencil className="h-4 w-4" /></Button>

@@ -1651,7 +1651,7 @@ export default function InventoryModule() {
                             <td className="px-4 py-3">
                               {row.stockDate
                                 ? new Date(row.stockDate).toLocaleDateString()
-                                : "�"}
+                                : "—"}
                             </td>
                             <td className="px-4 py-3 text-right tabular-nums">
                               {Number(row.originalQuantityKg).toFixed(2)} kg
@@ -2547,7 +2547,7 @@ export default function InventoryModule() {
                         <td className="px-4 py-3">
                           {row.stockDate
                             ? new Date(row.stockDate).toLocaleDateString()
-                            : "�"}
+                            : "—"}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           {Number(row.originalQuantityKg || 0).toFixed(2)}

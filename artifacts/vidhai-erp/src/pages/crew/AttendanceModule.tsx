@@ -3,9 +3,9 @@ import Webcam from "react-webcam";
 import * as blazeface from "@tensorflow-models/blazeface";
 import "@tensorflow/tfjs";
 import {
+  ArrowLeft,
   Camera,
   CheckCircle2,
-  Clock3,
   Eye,
   LocateFixed,
   Pencil,
@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
 import { useToast } from "@/hooks/use-toast";
+import { formatTimeTo12h } from "@/lib/utils";
 
 const base = String(
   import.meta.env.VITE_API_BASE || import.meta.env.BASE_URL || "",
@@ -56,6 +57,7 @@ const statusCode: Record<string, string> = {
   Holiday: "H",
   Remote: "R",
   WFH: "WFH",
+  Future: "—",
 };
 const statusTone: Record<string, string> = {
   Present: "border-emerald-300 bg-emerald-50 text-emerald-700",
@@ -65,6 +67,7 @@ const statusTone: Record<string, string> = {
   "On Leave": "border-violet-300 bg-violet-50 text-violet-700",
   "Week Off": "border-teal-300 bg-teal-50 text-teal-700",
   Holiday: "border-indigo-300 bg-indigo-50 text-indigo-700",
+  Future: "border-muted bg-muted/20 text-muted-foreground",
 };
 type FaceState =
   | "loading-model"
@@ -118,8 +121,7 @@ export function AttendanceModule({
     : todayRecord?.checkOutTime
       ? "completed"
       : "punchOut";
-  const [now, setNow] = useState(new Date()),
-    [dialog, setDialog] = useState(false),
+  const [dialog, setDialog] = useState(false),
     [photo, setPhoto] = useState(""),
     [location, setLocation] = useState<any>(null),
     [locationError, setLocationError] = useState(""),
@@ -134,13 +136,10 @@ export function AttendanceModule({
     [month, setMonth] = useState(today.slice(0, 7)),
     [register, setRegister] = useState<any>(null),
     [registerLoading, setRegisterLoading] = useState(false),
-    [details, setDetails] = useState<any>(null);
+    [details, setDetails] = useState<any>(null),
+    [selectedRegisterEmployee, setSelectedRegisterEmployee] = useState<any>(null);
   const webcamRef = useRef<Webcam>(null),
     modelRef = useRef<blazeface.BlazeFaceModel | null>(null);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
   useEffect(() => {
     setRegisterLoading(true);
     request(`attendance/register?month=${month}`)
@@ -274,15 +273,9 @@ export function AttendanceModule({
       });
       return;
     }
-    const evidencePhoto = photo || capture();
-    if (!evidencePhoto) {
-      toast({
-        title: "Live photo required",
-        description: "Keep exactly one face inside the oval and try again.",
-        variant: "destructive",
-      });
-      return;
-    }
+    // Camera evidence is optional during QA. Keep any captured image, but do
+    // not block a punch when a camera is unavailable or intentionally skipped.
+    const evidencePhoto = photo || undefined;
     setBusy(true);
     try {
       if (mode === "punchOut")
@@ -322,6 +315,19 @@ export function AttendanceModule({
       setBusy(false);
     }
   };
+  const approveAttendance = async (record: any) => {
+    try {
+      await request(`attendance/${record.id}/approval`, {
+        method: "PATCH",
+        body: JSON.stringify({ decision: "Approved" }),
+      });
+      toast({ title: "Attendance approved" });
+      setDetails(null);
+      await refresh();
+    } catch (error: any) {
+      toast({ title: "Unable to approve attendance", description: error.message, variant: "destructive" });
+    }
+  };
   const filtered = useMemo(
     () =>
       logs.filter(
@@ -347,9 +353,6 @@ export function AttendanceModule({
         <div className="mb-5 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold">Attendance</h2>
-            <p className="text-sm text-muted-foreground">
-              Server time: {now.toLocaleTimeString("en-IN")}
-            </p>
           </div>
           <span className="text-sm text-muted-foreground">
             {logs.length} records
@@ -365,27 +368,20 @@ export function AttendanceModule({
             </b>
           </p>
           <div className="mt-4 flex gap-2">
-            <Button
-              disabled={
-                !own || mode === "completed" || !can("crew.attendance.create")
-              }
-              onClick={() => void openPunch()}
-            >
-              {mode === "punchOut"
-                ? "Punch Out"
-                : mode === "completed"
-                  ? "Attendance Completed"
-                  : "Punch In"}
-            </Button>
-            <Button variant="outline" onClick={() => setNow(new Date())}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh Time
-            </Button>
+            {mode === "completed" ? (
+              <div className="flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
+                Attendance completed today
+              </div>
+            ) : (
+              <Button disabled={!own} onClick={() => void openPunch()}>
+                {mode === "punchOut" ? "Punch Out" : "Punch In"}
+              </Button>
+            )}
           </div>
           {todayRecord && (
             <p className="mt-3 text-xs text-muted-foreground">
-              Punch in: {todayRecord.checkInTime || "—"} · Punch out:{" "}
-              {todayRecord.checkOutTime || "—"} · Status: {todayRecord.status}
+              Punch in: {formatTimeTo12h(todayRecord.checkInTime) || "—"} · Punch out:{" "}
+              {formatTimeTo12h(todayRecord.checkOutTime) || "—"} · Status: {todayRecord.status}
             </p>
           )}
         </div>
@@ -446,9 +442,9 @@ export function AttendanceModule({
                       {log.employeeName}
                     </td>
                     <td className="px-4 py-3">{log.attendanceDate}</td>
-                    <td className="px-4 py-3">{log.status}</td>
-                    <td className="px-4 py-3">{log.checkInTime || "—"}</td>
-                    <td className="px-4 py-3">{log.checkOutTime || "—"}</td>
+                    <td className="px-4 py-3">{log.status}{log.approvalStatus === "Pending" ? " (Pending approval)" : ""}</td>
+                    <td className="px-4 py-3">{formatTimeTo12h(log.checkInTime) || "—"}</td>
+                    <td className="px-4 py-3">{formatTimeTo12h(log.checkOutTime) || "—"}</td>
                     <td className="px-4 py-3">
                       {log.locked ? "Locked" : "Open"}
                     </td>
@@ -466,6 +462,9 @@ export function AttendanceModule({
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {can("crew.attendance.approve") && log.locked && log.approvalStatus !== "Approved" && !log.derived && (
+                          <Button size="sm" variant="outline" onClick={() => void approveAttendance(log)}>Approve</Button>
+                        )}
                         {can("crew.attendance.update") &&
                           ((!log.locked && !log.derived) ||
                             can("crew.attendance.change_time")) && (
@@ -504,6 +503,84 @@ export function AttendanceModule({
           onPageSizeChange={logPagination.setPageSize}
         />
       </section>
+      {selectedRegisterEmployee ? (
+        <section className="rounded-xl border bg-card shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b p-5">
+            <div className="flex items-start gap-3">
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={() => setSelectedRegisterEmployee(null)}
+                aria-label="Back to monthly attendance register"
+                title="Back to monthly attendance register"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[.2em] text-muted-foreground">
+                  Individual attendance
+                </p>
+                <h2 className="text-xl font-semibold">
+                  {selectedRegisterEmployee.employeeName}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {selectedRegisterEmployee.employeeCode} · {selectedRegisterEmployee.department}
+                </p>
+              </div>
+            </div>
+            <Input
+              type="month"
+              className="w-full sm:w-44"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+            />
+          </div>
+          <div className="overflow-x-auto p-5">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="p-3">Date</th>
+                  <th className="p-3">Day</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Punch in</th>
+                  <th className="p-3">Punch out</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedRegisterEmployee.days.map((cell: any) => {
+                  const date = new Date(`${cell.date}T00:00:00`);
+                  return (
+                    <tr
+                      key={cell.date}
+                      className={cell.future ? "border-t text-muted-foreground" : "cursor-pointer border-t hover:bg-muted/30"}
+                      onClick={() => {
+                        if (cell.future) return;
+                        setDetails({
+                          ...cell,
+                          id: cell.attendanceId,
+                          employeeId: selectedRegisterEmployee.employeeId,
+                          employeeName: selectedRegisterEmployee.employeeName,
+                          attendanceDate: cell.date,
+                        });
+                      }}
+                    >
+                      <td className="p-3 font-medium">{date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                      <td className="p-3">{date.toLocaleDateString("en-IN", { weekday: "long" })}</td>
+                      <td className="p-3">
+                        <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${statusTone[cell.status] || "border-muted bg-muted/20"}`}>
+                          {cell.future ? "—" : cell.status}
+                        </span>
+                      </td>
+                      <td className="p-3">{formatTimeTo12h(cell.checkInTime) || "—"}</td>
+                      <td className="p-3">{formatTimeTo12h(cell.checkOutTime) || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
       <section className="rounded-xl border bg-card p-5 shadow-sm">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -570,27 +647,43 @@ export function AttendanceModule({
                   registerPagination.paginatedRows.map((row: any) => (
                     <tr key={row.employeeId}>
                       <td className="sticky left-0 z-10 rounded-md border bg-card p-3">
-                        <b>{row.employeeName}</b>
-                        <small className="block text-muted-foreground">
-                          {row.employeeCode} · {row.department}
-                        </small>
+                        <button
+                          type="button"
+                          className="text-left hover:text-primary"
+                          onClick={() => setSelectedRegisterEmployee(row)}
+                          title={`View ${row.employeeName}'s individual attendance`}
+                        >
+                          <b>{row.employeeName}</b>
+                          <small className="block text-muted-foreground">
+                            {row.employeeCode} · {row.department}
+                          </small>
+                        </button>
                       </td>
                       {row.days.map((cell: any) => (
                         <td key={cell.date} className="p-0.5">
-                          <button
-                            type="button"
-                            onClick={() => setDetails({
-                              ...cell,
-                              id: cell.attendanceId,
-                              employeeId: row.employeeId,
-                              employeeName: row.employeeName,
-                              attendanceDate: cell.date,
-                            })}
-                            title={`${cell.date}: ${cell.status}`}
-                            className={`flex h-10 w-10 cursor-pointer items-center justify-center rounded-md border font-semibold hover:ring-2 hover:ring-primary/30 ${statusTone[cell.status] || "border-muted bg-muted/20"}`}
-                          >
-                            {statusCode[cell.status] || cell.status.slice(0, 2)}
-                          </button>
+                          {cell.future ? (
+                            <span
+                              title={`${cell.date}: Future date`}
+                              className={`flex h-10 w-10 cursor-not-allowed items-center justify-center rounded-md border font-semibold ${statusTone.Future}`}
+                            >
+                              —
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDetails({
+                                ...cell,
+                                id: cell.attendanceId,
+                                employeeId: row.employeeId,
+                                employeeName: row.employeeName,
+                                attendanceDate: cell.date,
+                              })}
+                              title={`${cell.date}: ${cell.status}`}
+                              className={`flex h-10 w-10 cursor-pointer items-center justify-center rounded-md border font-semibold hover:ring-2 hover:ring-primary/30 ${statusTone[cell.status] || "border-muted bg-muted/20"}`}
+                            >
+                              {statusCode[cell.status] || cell.status.slice(0, 2)}
+                            </button>
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -618,6 +711,7 @@ export function AttendanceModule({
           />
         </div>
       </section>
+      )}
       <Dialog open={!!details} onOpenChange={(open) => !open && setDetails(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -629,12 +723,11 @@ export function AttendanceModule({
                 <p><span className="text-muted-foreground">Employee:</span> {details.employeeName}</p>
                 <p><span className="text-muted-foreground">Date:</span> {details.attendanceDate}</p>
                 <p><span className="text-muted-foreground">Status:</span> {details.status}</p>
+                <p><span className="text-muted-foreground">Approval:</span> {details.approvalStatus || "Pending"}</p>
                 <p><span className="text-muted-foreground">Record:</span> {details.locked ? "Locked" : "Open"}</p>
-                <p><span className="text-muted-foreground">Punch in:</span> {details.checkInTime || "—"}</p>
-                <p><span className="text-muted-foreground">Punch out:</span> {details.checkOutTime || "—"}</p>
-                <p><span className="text-muted-foreground">Punch-in coordinates:</span> {formatCoordinates(details.checkInLocation)}</p>
+                <p><span className="text-muted-foreground">Punch in:</span> {formatTimeTo12h(details.checkInTime) || "—"}</p>
+                <p><span className="text-muted-foreground">Punch out:</span> {formatTimeTo12h(details.checkOutTime) || "—"}</p>
                 <p><span className="text-muted-foreground">Punch-in address:</span> {details.checkInAddress || "Address unavailable"}</p>
-                <p><span className="text-muted-foreground">Punch-out coordinates:</span> {formatCoordinates(details.checkOutLocation)}</p>
                 <p><span className="text-muted-foreground">Punch-out address:</span> {details.checkOutAddress || "Address unavailable"}</p>
                 <p className="sm:col-span-2"><span className="text-muted-foreground">Notes:</span> {details.notes || "—"}</p>
               </div>
@@ -652,6 +745,9 @@ export function AttendanceModule({
               <Button variant="outline" onClick={() => { const row = details; setDetails(null); edit(row); }}>
                 <Pencil className="mr-2 h-4 w-4" /> Edit / Override
               </Button>
+            )}
+            {details && can("crew.attendance.approve") && details.locked && details.approvalStatus !== "Approved" && !details.derived && (
+              <Button variant="outline" onClick={() => void approveAttendance(details)}>Approve</Button>
             )}
             <Button onClick={() => setDetails(null)}>Close</Button>
           </DialogFooter>
@@ -758,8 +854,8 @@ export function AttendanceModule({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              By continuing, you consent to collection of this attendance photo
-              and current location.
+              Camera photo is optional for testing. Current location is still
+              required for attendance.
             </p>
           </div>
           <DialogFooter>
@@ -767,7 +863,7 @@ export function AttendanceModule({
               Cancel
             </Button>
             <Button
-              disabled={busy || resolvingAddress || !location || (!photo && faceState !== "ok")}
+              disabled={busy || resolvingAddress || !location}
               onClick={() => void confirm()}
             >
               {busy ? (
@@ -775,7 +871,7 @@ export function AttendanceModule({
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {photo ? "Confirm" : "Capture & Confirm"}{" "}
+                  {photo ? "Confirm" : "Confirm without photo"}{" "}
                   {mode === "punchOut" ? "Punch Out" : "Punch In"}
                 </>
               )}
@@ -806,23 +902,3 @@ function EvidencePhoto({ label, src }: { label: string; src?: string | null }) {
   );
 }
 
-function formatLocation(value: unknown) {
-  if (!value) return "—";
-  try {
-    const location = typeof value === "string" ? JSON.parse(value) : value as any;
-    if (location.address) return location.address;
-    if (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude)))
-      return `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
-  } catch {}
-  return String(value);
-}
-
-function formatCoordinates(value: unknown) {
-  if (!value) return "—";
-  try {
-    const location = typeof value === "string" ? JSON.parse(value) : value as any;
-    if (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude)))
-      return `${Number(location.latitude).toFixed(6)}, ${Number(location.longitude).toFixed(6)}`;
-  } catch {}
-  return "—";
-}

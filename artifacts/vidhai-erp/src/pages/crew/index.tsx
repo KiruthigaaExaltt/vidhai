@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Shell } from "@/components/layout/Shell";
 import { useAuth } from "@/lib/auth";
+import { formatTimeTo12h } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +26,7 @@ import {
   Clock3,
   Gift,
   HandCoins,
+  IndianRupee,
   MinusCircle,
   MoreVertical,
   Pencil,
@@ -472,7 +474,7 @@ export default function Crew() {
               <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
                 {loading ? (
                   <div className="p-14 text-center text-muted-foreground">
-                    Loading Crew recordsâ€¦
+                    Loading Crew records…
                   </div>
                 ) : !visible.length ? (
                   <div className="p-20 text-center text-muted-foreground">
@@ -483,8 +485,12 @@ export default function Crew() {
                     rows={employees}
                     edit={begin}
                     remove={remove}
+                    reload={load}
                     canEdit={can("crew.employees.update")}
                     canDelete={can("crew.employees.delete")}
+                    canSalaryStructure={
+                      can("crew.employees.update") && can("settings.templates.view")
+                    }
                   />
                 ) : (
                   <RecordTable
@@ -539,7 +545,7 @@ export default function Crew() {
                 Cancel
               </Button>
               <Button disabled={busy} onClick={save}>
-                {busy ? "Savingâ€¦" : "Save"}
+                {busy ? "Saving…" : "Save"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -564,8 +570,17 @@ function Metric({ icon: Icon, label, value, tone = "text-primary" }: any) {
     </div>
   );
 }
-function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
+function EmployeeTable({
+  rows,
+  edit,
+  remove,
+  reload,
+  canEdit,
+  canDelete,
+  canSalaryStructure,
+}: any) {
   const [employeeToDelete, setEmployeeToDelete] = useState<any>(null);
+  const [salaryEmployee, setSalaryEmployee] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDeleteConfirm = async () => {
@@ -578,7 +593,7 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
     }
   };
   const formatDate = (value: any) => {
-    if (!value) return "â€”";
+    if (!value) return "—";
     const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
     return Number.isNaN(date.getTime())
       ? String(value)
@@ -610,6 +625,7 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
             <th className="px-4 py-3">Employee code</th>
             <th className="px-4 py-3">Name</th>
             <th className="px-4 py-3">Department</th>
+            <th className="px-4 py-3">Monthly CTC</th>
             <th className="px-4 py-3">Status</th>
             <th className="px-4 py-3">Joining date</th>
             <th className="px-4 py-3 text-center">Actions</th>
@@ -642,11 +658,17 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
               <td className="px-4 py-3">
                 <div className="font-semibold">{employee.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {employee.designation || "â€”"}
+                  {employee.designation || "—"}
                 </div>
               </td>
               <td className="px-4 py-3 text-muted-foreground">
-                {employee.department || "â€”"}
+                {employee.department || "—"}
+              </td>
+              <td className="px-4 py-3 font-medium tabular-nums">
+                ₹
+                {Number(
+                  employee.baseSalary || Number(employee.annualCtc || 0) / 12,
+                ).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
               </td>
               <td className="px-4 py-3">
                 <span
@@ -659,7 +681,18 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
                 {formatDate(employee.joinDate)}
               </td>
               <td className="px-4 py-3">
-                <div className="flex justify-center">
+                <div className="flex justify-center gap-1">
+                  {canSalaryStructure && (
+                    <Button
+                      variant="ghost"
+                      className="h-8 w-8 p-0"
+                      aria-label={`Salary structure for ${employee.name}`}
+                      title="Salary structure"
+                      onClick={() => setSalaryEmployee(employee)}
+                    >
+                      <IndianRupee className="h-4 w-4" />
+                    </Button>
+                  )}
                   {(canEdit || (canDelete && !employee.isSystemGenerated)) && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -724,7 +757,165 @@ function EmployeeTable({ rows, edit, remove, canEdit, canDelete }: any) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SalaryStructureDialog
+        employee={salaryEmployee}
+        onClose={() => setSalaryEmployee(null)}
+        onSaved={async () => {
+          setSalaryEmployee(null);
+          await reload();
+        }}
+      />
     </div>
+  );
+}
+
+function SalaryStructureDialog({ employee, onClose, onSaved }: any) {
+  const { toast } = useToast();
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [fixedValues, setFixedValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!employee) return;
+    let active = true;
+    setLoading(true);
+    setTemplates([]);
+    setTemplateId(employee.salaryTemplateId ? String(employee.salaryTemplateId) : "");
+    try {
+      setFixedValues(
+        typeof employee.fixedComponentValues === "string"
+          ? JSON.parse(employee.fixedComponentValues || "{}")
+          : employee.fixedComponentValues || {},
+      );
+    } catch {
+      setFixedValues({});
+    }
+    fetch(`${base}/api/salary-templates/admin`, { credentials: "include" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "Unable to load salary templates");
+        return body;
+      })
+      .then((rows) => active && setTemplates(Array.isArray(rows) ? rows : []))
+      .catch((error) =>
+        active &&
+          toast({
+            title: "Unable to load salary templates",
+            description: error.message,
+            variant: "destructive",
+          }),
+      )
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [employee, toast]);
+
+  const selectedTemplate = templates.find((item) => String(item.id) === templateId);
+  const components = useMemo(() => {
+    const raw = selectedTemplate?.components;
+    if (Array.isArray(raw)) return raw;
+    try {
+      return JSON.parse(raw || "[]");
+    } catch {
+      return [];
+    }
+  }, [selectedTemplate]);
+  const fixedComponents = components.filter((component: any) => component.calculationType === "fixed");
+  const monthlyCtc = Number(employee?.baseSalary || Number(employee?.annualCtc || 0) / 12);
+  const amounts = useMemo(() => {
+    const computed: Record<string, number> = {};
+    const sorted = [...components].sort((a: any, b: any) => Number(a.order) - Number(b.order));
+    for (const component of sorted) {
+      const key = String(component.id || component.name);
+      const entered = Number(fixedValues[key] ?? component.value ?? 0);
+      let amount = 0;
+      if (component.calculationType === "fixed") amount = entered;
+      else if (component.calculationType === "percentage_of_ctc") amount = (monthlyCtc * Number(component.value || 0)) / 100;
+      else if (component.calculationType === "percentage_of_component") amount = (computed[String(component.referenceComponentId)] || 0) * Number(component.value || 0) / 100;
+      else if (component.calculationType === "residual") amount = Math.max(0, monthlyCtc - Object.values(computed).reduce((sum, value) => sum + value, 0));
+      computed[key] = Number.isFinite(amount) ? amount : 0;
+    }
+    return computed;
+  }, [components, fixedValues, monthlyCtc]);
+  const total = Object.values(amounts).reduce((sum, value) => sum + value, 0);
+  const money = (amount: number) =>
+    `₹${Number(amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+
+  const save = async () => {
+    if (!templateId) {
+      toast({ title: "Select a salary template", variant: "destructive" });
+      return;
+    }
+    const invalid = fixedComponents.find((component: any) => {
+      const key = String(component.id || component.name);
+      return !Number.isFinite(Number(fixedValues[key] ?? component.value));
+    });
+    if (invalid) {
+      toast({ title: `Enter a valid amount for ${invalid.name}`, variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`${base}/api/crew/employees/${employee.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          salaryTemplateId: Number(templateId),
+          fixedComponentValues: fixedValues,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to save salary structure");
+      toast({ title: "Salary structure updated" });
+      await onSaved();
+    } catch (error: any) {
+      toast({ title: "Unable to save salary structure", description: error.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!employee} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Salary Structure — {employee?.name}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5 py-2">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <div className="mb-1.5 text-sm font-medium">Monthly CTC</div>
+              <div className="rounded-md border bg-muted/40 px-3 py-2 font-semibold">{money(monthlyCtc)}</div>
+            </div>
+            <label className="grid gap-1.5 text-sm font-medium">
+              Salary Template
+              <select className="h-10 rounded-md border bg-background px-3 font-normal" value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={loading}>
+                <option value="">Select template</option>
+                {templates.map((template) => <option key={template.id} value={template.id}>{template.templateName}</option>)}
+              </select>
+            </label>
+          </div>
+          {loading ? <div className="py-8 text-center text-sm text-muted-foreground">Loading salary templates…</div> : selectedTemplate ? (
+            <>
+              {fixedComponents.length > 0 && <div className="grid gap-3 sm:grid-cols-2">
+                {fixedComponents.map((component: any) => {
+                  const key = String(component.id || component.name);
+                  return <label key={key} className="grid gap-1.5 text-sm font-medium">{component.name} (monthly fixed amount)<Input type="number" min="0" step="0.01" value={fixedValues[key] ?? component.value ?? ""} onChange={(event) => setFixedValues((current) => ({ ...current, [key]: event.target.value }))} /></label>;
+                })}
+              </div>}
+              <div className="overflow-hidden rounded-lg border">
+                <table className="w-full text-sm"><thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground"><tr><th className="p-3">Component</th><th className="p-3 text-right">Monthly</th><th className="p-3 text-right">Annual</th></tr></thead><tbody>{components.map((component: any) => { const amount = amounts[String(component.id || component.name)] || 0; return <tr key={component.id} className="border-t"><td className="p-3">{component.name}</td><td className="p-3 text-right tabular-nums">{money(amount)}</td><td className="p-3 text-right tabular-nums">{money(amount * 12)}</td></tr>; })}<tr className="border-t bg-muted/30 font-semibold"><td className="p-3">Template total</td><td className="p-3 text-right tabular-nums">{money(total)}</td><td className="p-3 text-right tabular-nums">{money(total * 12)}</td></tr></tbody></table>
+              </div>
+            </>
+          ) : <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">Select a salary template to view its component split.</div>}
+        </div>
+        <DialogFooter><Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button><Button onClick={save} disabled={saving || loading}>{saving ? "Saving…" : "Save structure"}</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 function RecordTable({ tab, rows, canApprove, canReject, decide }: any) {
@@ -746,10 +937,10 @@ function RecordTable({ tab, rows, canApprove, canReject, decide }: any) {
               <td className="p-3 font-medium">{r.employeeName}</td>
               <td className="p-3">
                 {tab === "attendance"
-                  ? `${r.checkInTime || "â€”"} â€“ ${r.checkOutTime || "â€”"}`
+                  ? `${formatTimeTo12h(r.checkInTime) || "—"} – ${formatTimeTo12h(r.checkOutTime) || "—"}`
                   : tab === "leave"
                     ? `${r.leaveType}: ${r.reason}`
-                    : `${r.title || r.notes || label(tab)}${r.amount ? ` Â· â‚¹${Number(r.amount).toLocaleString("en-IN")}` : ""}`}
+                    : `${r.title || r.notes || label(tab)}${r.amount ? ` · ₹${Number(r.amount).toLocaleString("en-IN")}` : ""}`}
               </td>
               <td className="p-3 text-muted-foreground">
                 {r.attendanceDate ||
@@ -1078,7 +1269,7 @@ function Select({ value, change, items }: any) {
       value={value || ""}
       onChange={(e) => change(e.target.value)}
     >
-      <option value="">Selectâ€¦</option>
+      <option value="">Select…</option>
       {items.map((x: any) => (
         <option
           key={typeof x === "string" ? x : x.value}

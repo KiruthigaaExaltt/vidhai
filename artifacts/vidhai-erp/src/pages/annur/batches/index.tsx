@@ -373,7 +373,7 @@ export default function Batches() {
                           {b.targetBags ?? "—"}
                         </td>
                         <td className="px-4 font-mono text-right">
-                          {b.actualBags ?? "�"}
+                          {b.actualBags ?? "—"}
                         </td>
                         <td className="px-4 font-mono text-xs text-muted-foreground">
                           {b.startedAt

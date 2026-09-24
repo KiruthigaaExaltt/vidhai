@@ -12,7 +12,7 @@ import { notificationEventMiddleware } from "./lib/notificationEvents";
 const app: Express = express();
 const production = process.env.NODE_ENV === "production";
 const sessionCookieMaxAgeMs = Number(
-  process.env.SESSION_COOKIE_MAX_AGE_MS ?? "604800000",
+  process.env.SESSION_COOKIE_MAX_AGE_MS ?? "259200000",
 );
 if (
   !Number.isSafeInteger(sessionCookieMaxAgeMs) ||

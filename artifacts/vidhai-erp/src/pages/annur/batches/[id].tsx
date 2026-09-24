@@ -1454,11 +1454,11 @@ export default function BatchDetail() {
                     <SelectContent>
                       {internalSpawnEntries.map((entry: any) => (
                         <SelectItem key={entry.id} value={String(entry.id)}>
-                          {entry.sourceType ?? "LEGACY"} �{" "}
+                          {entry.sourceType ?? "LEGACY"} —{" "}
                           {entry.sourceReference ||
                             entry.supplierLot ||
                             entry.strainName}{" "}
-                          � {Number(entry.quantityKg)} kg
+                          — {Number(entry.quantityKg)} kg
                         </SelectItem>
                       ))}
                       {internalSpawnEntries.length === 0 && (

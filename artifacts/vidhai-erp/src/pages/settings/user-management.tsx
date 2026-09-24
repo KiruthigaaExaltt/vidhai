@@ -210,9 +210,7 @@ export default function UserManagement() {
       await load();
       toast({
         title: editing ? "User updated" : "User created",
-        description: result?.temporaryPassword
-          ? `One-time password: ${result.temporaryPassword}`
-          : undefined,
+        description: editing ? undefined : "Default password: vidhaii123",
       });
     } catch (e: any) {
       toast({
@@ -262,11 +260,10 @@ export default function UserManagement() {
       }),
     });
     setCrewUser(created);
-    if (created.temporaryPassword)
-      toast({
-        title: "User created",
-        description: `One-time password: ${created.temporaryPassword}`,
-      });
+    toast({
+      title: "User created",
+      description: "Default password: vidhaii123",
+    });
     return created;
   };
   const reset = async () => {

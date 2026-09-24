@@ -94,9 +94,9 @@ export default function Settings() {
     ...(companyProfileAccess ? [["general", "General"]] : []),
     ...(userAccess ? [["users", "User Management"]] : []),
     ...(masterAccess ? [["crew-codes", "Master Settings - Crew Code"]] : []),
-    ...(masterAccess ? [["departments", "Master Settings � Departments"]] : []),
+    ...(masterAccess ? [["departments", "Master Settings — Departments"]] : []),
     ...(templateAccess
-      ? templates.map(([key, label]) => [key, `Templates � ${label}`])
+      ? templates.map(([key, label]) => [key, `Templates — ${label}`])
       : []),
     ...(alertAccess ? [["alerts", "Alert Colors"]] : []),
     ...(locationAccess ? [["locations", "Locations"]] : []),

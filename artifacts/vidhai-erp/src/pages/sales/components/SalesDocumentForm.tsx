@@ -1745,7 +1745,7 @@ export function SalesDocumentForm({
                             GSTIN
                           </span>
                           <span className="font-medium">
-                            {clientDetails.gstin || "â€”"}
+                            {clientDetails.gstin || "—"}
                           </span>
                         </div>
                         <div>
@@ -1821,13 +1821,13 @@ export function SalesDocumentForm({
                     <div className="flex justify-between items-center text-xs text-muted-foreground">
                       <span>SALES EXECUTIVE</span>
                       <span className="font-medium text-foreground">
-                        {organizationBranding.salesExecutive || "ï¿½"}
+                        {organizationBranding.salesExecutive || "—"}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-xs text-muted-foreground mt-1">
                       <span>SALES CONTACT</span>
                       <span className="font-medium text-foreground">
-                        {billingDetails.contactNumber || "â€”"}
+                        {billingDetails.contactNumber || "—"}
                       </span>
                     </div>
                   </div>
@@ -1853,8 +1853,8 @@ export function SalesDocumentForm({
                   />
                   <p className="text-[10px] text-muted-foreground">
                     {isInterState
-                      ? "Inter-state â€” IGST applies"
-                      : "Intra-state â€” CGST + SGST applies"}
+                      ? "Inter-state — IGST applies"
+                      : "Intra-state — CGST + SGST applies"}
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -1923,7 +1923,7 @@ export function SalesDocumentForm({
               <CardContent className="p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
                   {isInvoice
-                    ? "Map Sales Document (Optional â€” choose one source type)"
+                    ? "Map Sales Document (Optional — choose one source type)"
                     : isChallan
                       ? "Map Confirmed Sales Document (Optional)"
                       : "Map Approved/Confirmed Quotation"}
@@ -2161,7 +2161,7 @@ export function SalesDocumentForm({
             <Card className="shadow-sm border-border">
               <CardContent className="p-4 sm:p-6">
                 <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Map Return Source (Required â€” choose one)
+                  Map Return Source (Required — choose one)
                 </Label>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <Select

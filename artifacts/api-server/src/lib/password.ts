@@ -1,5 +1,4 @@
 import bcrypt from "bcryptjs";
-import { randomBytes } from "node:crypto";
 
 const PASSWORD_SALT_ROUNDS = 10;
 
@@ -15,5 +14,5 @@ export function verifyPassword(
 }
 
 export function temporaryPassword(): string {
-  return `${randomBytes(6).toString("base64url")}aA1!`;
+  return "vidhaii123";
 }

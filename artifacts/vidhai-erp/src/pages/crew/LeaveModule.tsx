@@ -43,6 +43,8 @@ const empty = (employeeId = "") => ({
   endDate: today(),
   leaveType: "Sick",
   session: "full",
+  permissionStartTime: "09:00",
+  permissionEndTime: "10:00",
   reason: "",
 });
 const statusTone: Record<string, string> = {
@@ -129,6 +131,7 @@ export function LeaveModule({
       });
       return;
     }
+    const isPermission = form.leaveType === "Permission";
     const sessions =
       form.session === "first"
         ? [1, 1]
@@ -141,8 +144,9 @@ export function LeaveModule({
         method: "POST",
         body: JSON.stringify({
           ...form,
-          fromSession: String(sessions[0]),
-          toSession: String(sessions[1]),
+          endDate: isPermission ? form.startDate : form.endDate,
+          fromSession: isPermission ? null : String(sessions[0]),
+          toSession: isPermission ? null : String(sessions[1]),
         }),
       });
       toast({ title: "Leave request submitted" });
@@ -208,7 +212,7 @@ export function LeaveModule({
   }) => (
     <div className={`rounded-xl border p-5 text-center ${tone}`}>
       <p className="text-sm font-medium">{title}</p>
-      <p className="my-1 text-3xl font-bold">{data?.remaining ?? "�"}</p>
+      <p className="my-1 text-3xl font-bold">{data?.remaining ?? "—"}</p>
       <p className="text-xs text-muted-foreground">
         {data?.used ?? 0} used / {data?.total ?? 0} total
       </p>
@@ -260,7 +264,7 @@ export function LeaveModule({
               }}
             />
           </div>
-          <div className="space-y-1.5">
+          {form.leaveType !== "Permission" && <div className="space-y-1.5">
             <Label>To *</Label>
             <Input
               type="date"
@@ -268,8 +272,8 @@ export function LeaveModule({
               value={form.endDate}
               onChange={(event) => field("endDate", event.target.value)}
             />
-          </div>
-          <div className="space-y-1.5">
+          </div>}
+          {form.leaveType !== "Permission" && <div className="space-y-1.5">
             <Label>Session</Label>
             <select
               className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -280,7 +284,7 @@ export function LeaveModule({
               <option value="first">First session (half day)</option>
               <option value="second">Second session (half day)</option>
             </select>
-          </div>
+          </div>}
           <div className="space-y-1.5">
             <Label>Leave type *</Label>
             <select
@@ -290,14 +294,18 @@ export function LeaveModule({
             >
               <option>Sick</option>
               <option>Casual</option>
+              <option>Permission</option>
               <option>Other</option>
             </select>
           </div>
-          <div className="flex items-end">
+          {form.leaveType === "Permission" ? <>
+            <div className="space-y-1.5"><Label>Permission from *</Label><Input type="time" value={form.permissionStartTime} onChange={(event) => field("permissionStartTime", event.target.value)} /></div>
+            <div className="space-y-1.5"><Label>Permission to *</Label><Input type="time" value={form.permissionEndTime} onChange={(event) => field("permissionEndTime", event.target.value)} /></div>
+          </> : <div className="flex items-end">
             <div className="w-full rounded-md border bg-muted/30 px-3 py-2 text-sm">
-              Chargeable days: <b>{workingDays ?? "�"}</b>
+              Chargeable days: <b>{workingDays ?? "—"}</b>
             </div>
-          </div>
+          </div>}
         </div>
         <div className="mt-4 space-y-1.5">
           <Label>Reason</Label>
@@ -317,6 +325,11 @@ export function LeaveModule({
             title="Sick Leaves"
             data={balance?.sick}
             tone="border-amber-200 bg-amber-50/60 text-amber-700"
+          />
+          <BalanceCard
+            title="Permission Hours"
+            data={balance?.permission}
+            tone="border-emerald-200 bg-emerald-50/60 text-emerald-700"
           />
         </div>
         <div className="mt-5 flex justify-end">
@@ -373,7 +386,7 @@ export function LeaveModule({
                     <td className="px-4 py-3">
                       {row.startDate} ? {row.endDate}
                     </td>
-                    <td className="px-4 py-3">{row.requestedDays ?? "�"}</td>
+                    <td className="px-4 py-3">{row.requestedDays ?? "—"}</td>
                     <td className="px-4 py-3">{row.leaveType}</td>
                     <td className="px-4 py-3">
                       <span
@@ -468,7 +481,7 @@ export function LeaveModule({
               <p>
                 <span className="text-muted-foreground">Type / days</span>
                 <b className="block">
-                  {selected.leaveType} � {selected.requestedDays ?? "�"}
+                  {selected.leaveType} — {selected.requestedDays ?? "—"}
                 </b>
               </p>
               <p className="sm:col-span-2">

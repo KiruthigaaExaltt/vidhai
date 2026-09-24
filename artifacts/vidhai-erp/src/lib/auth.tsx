@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { responseError, getErrorMessage } from "./errorMessage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useGetMe, User } from "@workspace/api-client-react";
-import { setAccessToken } from "./authTokens";
+import { restoreAccessToken, setAccessToken } from "./authTokens";
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
@@ -45,11 +45,39 @@ const buildScopedPermissionKey = (
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
+    [sessionRestored, setSessionRestored] = useState(false),
     [permissions, setPermissions] = useState<string[]>([]),
     [enabledModuleKeys, setEnabledModuleKeys] = useState<string[]>(["ledger"]),
     [isSuperAdmin, setIsSuperAdmin] = useState(false),
     [permissionsLoading, setPermissionsLoading] = useState(false);
-  const { data: meData, isLoading: meLoading, isError } = useGetMe();
+  const { data: meData, isLoading: meLoading, isError } = useGetMe({
+    query: { queryKey: ["/api/auth/me"], enabled: sessionRestored },
+  });
+  useEffect(() => {
+    const base = String(import.meta.env.VITE_API_BASE || "")
+      .replace(/\/+$/, "")
+      .replace(/\/api$/, "");
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    let attempts = 0;
+    const restore = async () => {
+      const result = await restoreAccessToken(base);
+      // When the browser opens while the local/server API is still booting,
+      // keep the existing httpOnly refresh session and retry briefly. This
+      // avoids treating a connection failure as a user-initiated logout.
+      if (result.unavailable && attempts < 5 && !cancelled) {
+        attempts += 1;
+        retryTimer = window.setTimeout(restore, 1000);
+        return;
+      }
+      if (!cancelled) setSessionRestored(true);
+    };
+    void restore();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, []);
   useEffect(() => {
     if (meData && !isError) setUser(meData);
     else if (isError) setUser(null);
@@ -109,6 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setEnabledModuleKeys(["ledger"]);
   };
   const isLoading =
+    !sessionRestored ||
     meLoading ||
     permissionsLoading ||
     (!loggedOut && !!meData && !isError && user === null);

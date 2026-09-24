@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { formatTimeTo12h } from "@/lib/utils";
 
 const root = String(
   import.meta.env.VITE_API_BASE || import.meta.env.BASE_URL || "",
@@ -298,8 +299,8 @@ export function OvertimeModule({
               label="OT minutes"
               value={calculation.totalOvertimeMinutes}
             />
-            <Detail label="Punch in" value={calculation.checkInTime} />
-            <Detail label="Punch out" value={calculation.checkOutTime} />
+            <Detail label="Punch in" value={formatTimeTo12h(calculation.checkInTime)} />
+            <Detail label="Punch out" value={formatTimeTo12h(calculation.checkOutTime)} />
             <Detail
               label="Shift"
               value={`${calculation.workStartTime}–${calculation.workEndTime}`}

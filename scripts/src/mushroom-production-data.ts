@@ -109,7 +109,10 @@ const MATERIAL_KEYS = [
 const BATCH_CODES = ["MF-COMP-001", "MF-COMP-002"];
 const legacyCodes = (values: string[]) =>
   values.map((value) => value.replace(/^MF-/, "DEMO-"));
-const VOLUME = 150;
+// Use a smaller value for local/manual QA where a complete, coherent dataset
+// is more useful than a long-running bulk import. Production/demo exports keep
+// the existing 150-record default unless VIDHAI_SEED_VOLUME is supplied.
+const VOLUME = Math.max(1, Number(process.env.VIDHAI_SEED_VOLUME || 150));
 const MASTER_VOLUME = 12;
 const FLEET_VOLUME = 10;
 const SEEDED_USER_COUNT = 12;
@@ -961,38 +964,42 @@ async function seedProductionDataset() {
     sellingPrice: "2500",
     gstPercent: "18",
   });
-  await insertOne(attendanceTemplatesTable, {
+  // Templates are deliberately explicit rather than defaults. Every demo employee
+  // below is assigned these records, matching the current Vidhai setup flow.
+  const attendanceTemplate = await insertOne(attendanceTemplatesTable, {
     templateName: TEMPLATE_NAMES.attendance,
-    isDefault: true,
     flexibleHours: false,
-    lateThresholdMinutes: 15,
+    bufferTime: true,
+    bufferMinutes: 15,
+    totalWorkingHours: "8",
+    breakHours: "1",
+    workHours: "7",
+    lateThresholdMinutes: 15, // legacy field retained for existing installations
     workStartTime: "08:30",
     workEndTime: "17:30",
     fineType: "fixed_per_hour",
     finePerHour: "75",
   });
-  await insertOne(workPatternTemplatesTable, {
+  const workPatternTemplate = await insertOne(workPatternTemplatesTable, {
     templateName: TEMPLATE_NAMES.workPattern,
-    isDefault: true,
     week1OffDays: "[0]",
     week2OffDays: "[0]",
     week3OffDays: "[0]",
     week4OffDays: "[0]",
     week5OffDays: "[0]",
   });
-  await insertOne(salaryTemplatesTable, {
+  const salaryTemplate = await insertOne(salaryTemplatesTable, {
     templateName: TEMPLATE_NAMES.salary,
-    isDefault: true,
     description: "Monthly salary structure for farm and packhouse staff",
     components: JSON.stringify([
-      { name: "Basic", type: "earning", percentage: 60 },
-      { name: "House Rent Allowance", type: "earning", percentage: 20 },
-      { name: "Provident Fund", type: "deduction", percentage: 12 },
+      { id: "basic", name: "Basic", calculationType: "percentage_of_ctc", value: 50, referenceComponentId: null, order: 1, includeInPfWage: true, includeInEsiWage: true },
+      { id: "hra", name: "House Rent Allowance", calculationType: "percentage_of_ctc", value: 20, referenceComponentId: null, order: 2, includeInPfWage: false, includeInEsiWage: true },
+      { id: "special_allowance", name: "Special Allowance", calculationType: "residual", value: null, referenceComponentId: null, order: 3, includeInPfWage: false, includeInEsiWage: true },
+      { id: "pf", name: "Provident Fund", calculationType: "percentage_of_component", value: 12, referenceComponentId: "basic", order: 4, includeInPfWage: false, includeInEsiWage: false },
     ]),
   });
-  await insertOne(holidayTemplatesTable, {
+  const holidayTemplate = await insertOne(holidayTemplatesTable, {
     templateName: TEMPLATE_NAMES.holiday,
-    isDefault: true,
     effectiveYear: CURRENT_YEAR,
     effectiveFrom: `${CURRENT_YEAR}-01-01`,
     holidays: JSON.stringify([
@@ -1001,15 +1008,16 @@ async function seedProductionDataset() {
       { date: `${CURRENT_YEAR}-10-02`, name: "Gandhi Jayanti" },
     ]),
   });
-  await insertOne(leaveTemplatesTable, {
+  const leaveTemplate = await insertOne(leaveTemplatesTable, {
     templateName: TEMPLATE_NAMES.leave,
-    isDefault: true,
     totalSickLeaves: 6,
     totalCasualLeaves: 6,
     earnedLeave: 12,
     maxSickLeavesPerMonth: 2,
     maxCasualLeavesPerMonth: 2,
     maxEarnedLeavesPerMonth: 3,
+    totalPermissionHours: 12,
+    maxPermissionHoursPerMonth: 2,
     carryForwardEnabled: true,
   });
   for (const alert of [
@@ -1125,6 +1133,8 @@ async function seedProductionDataset() {
 
   await db.insert(contactsTable).values({
     type: "vendor",
+    contactCode: "MF-CONTACT-VENDOR-001",
+    normalizedContactCode: "mf-contact-vendor-001",
     name: "Agro Straw Supplier",
     company: "Agro Inputs",
     phone: "9000000010",
@@ -1135,6 +1145,8 @@ async function seedProductionDataset() {
   });
   await db.insert(contactsTable).values({
     type: "client",
+    contactCode: "MF-CONTACT-CLIENT-001",
+    normalizedContactCode: "mf-contact-client-001",
     name: "Fresh Produce Buyer",
     company: "Fresh Market",
     phone: "9000000011",
@@ -1523,6 +1535,8 @@ async function seedProductionDataset() {
     });
     await insertOne(contactsTable, {
       type: index % 2 ? "client" : "vendor",
+      contactCode: `MF-CONTACT-${String(index + 1).padStart(4, "0")}`,
+      normalizedContactCode: `mf-contact-${String(index + 1).padStart(4, "0")}`,
       name: `${firstNames[index % firstNames.length]} ${lastNames[index % lastNames.length]}`,
       company:
         index % 2
@@ -1555,6 +1569,11 @@ async function seedProductionDataset() {
       phone: `9000${String(100000 + n)}`,
       location: ["Annur", "Ooty", "Coimbatore", "Lab"][index % 4],
       joinDate: isoDate(-300 - index),
+      attendanceRulesTemplate: attendanceTemplate.id,
+      workPatternTemplate: workPatternTemplate.id,
+      holidayTemplate: holidayTemplate.id,
+      leaveTemplate: leaveTemplate.id,
+      salaryTemplateId: salaryTemplate.id,
       isSystemGenerated: true,
     });
     employees.push(employee);
@@ -1599,7 +1618,9 @@ async function seedProductionDataset() {
       employeeCode: employee.employeeCode,
       department: employee.department,
       designation: employee.designation,
-      attendanceDate: isoDate(-(index % 30)),
+      // Keep generated attendance in the past so a seeded employee can still
+      // perform a live punch on the current day during QA.
+      attendanceDate: isoDate(-1 - (index % 30)),
       status: index % 10 === 0 ? "Absent" : "Present",
       checkInTime: "08:55",
       checkOutTime: "17:35",

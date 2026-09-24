@@ -350,7 +350,7 @@ export function ClaimsModule({
             </span>
             <b>Click to upload or drag and drop</b>
             <small className="text-muted-foreground">
-              PDF, PNG, JPG, WebP, DOC/DOCX, XLS/XLSX � Maximum 25 MB each � Up
+              PDF, PNG, JPG, WebP, DOC/DOCX, XLS/XLSX — Maximum 25 MB each — Up
               to 10 files
             </small>
           </button>
@@ -520,8 +520,8 @@ export function ClaimsModule({
                 <p>
                   <span className="text-muted-foreground">Date / hours</span>
                   <b className="block">
-                    {selected.attendanceDate || "�"} �{" "}
-                    {selected.requestedHours || "�"}
+                    {selected.attendanceDate || "—"} —{" "}
+                    {selected.requestedHours || "—"}
                   </b>
                 </p>
                 <p className="sm:col-span-2">

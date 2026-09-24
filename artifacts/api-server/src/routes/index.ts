@@ -79,6 +79,21 @@ const crewScope = (req: any) =>
     employees: "crew.employees",
     files: "crew.claims",
   })[segment(req.path)] ?? "crew.employees";
+// Punching is a self-service crew action, not an attendance-management
+// action. Let the crew router authenticate the request and verify ownership;
+// all other crew endpoints continue through the normal RBAC middleware.
+const requireCrewPermissionExceptSelfPunch = (req: any, res: any, next: any) => {
+  const isPunchIn =
+    req.method === "POST" &&
+    req.path === "/attendance" &&
+    req.body?.punchAction === "punchIn";
+  const isPunchOut =
+    req.method === "PATCH" &&
+    /^\/attendance\/\d+$/.test(req.path) &&
+    req.body?.punchAction === "punchOut";
+  if (isPunchIn || isPunchOut) return next();
+  return requireModulePermission(crewScope)(req, res, next);
+};
 const crewPayScope = (req: any) =>
   segment(req.path).startsWith("payroll")
     ? "crewpay.payroll"
@@ -219,7 +234,7 @@ router.use(
   requireModulePermission(flexScope),
   vendorAvailabilityRouter,
 );
-router.use("/crew", requireModulePermission(crewScope), crewRouter);
+router.use("/crew", requireCrewPermissionExceptSelfPunch, crewRouter);
 router.use("/crewpay", requireModulePermission(crewPayScope), crewPayRouter);
 router.use(
   "/services",

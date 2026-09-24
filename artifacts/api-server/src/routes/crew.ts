@@ -54,6 +54,17 @@ const json = (v: any, f: any = []) => {
     return f;
   }
 };
+const attendanceLocation = (value: any) => {
+  let parsed = value;
+  for (let attempt = 0; attempt < 2 && typeof parsed === "string"; attempt++) {
+    try { parsed = JSON.parse(parsed); } catch { return null; }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const latitude = Number((parsed as any).latitude ?? (parsed as any).lat);
+  const longitude = Number((parsed as any).longitude ?? (parsed as any).lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { ...(parsed as any), latitude, longitude };
+};
 const iso = (v: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
 const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
@@ -205,7 +216,7 @@ async function ownEmployee(req: any) {
   );
   return matches.length === 1 ? matches[0] : null;
 }
-async function scopedEmployee(req: any, res: any, id: number, sub: string) {
+async function scopedEmployee(req: any, res: any, id: number, sub: string, allowOwnWithoutPermission = false) {
   const [e] = await db
     .select()
     .from(employeesTable)
@@ -222,7 +233,7 @@ async function scopedEmployee(req: any, res: any, id: number, sub: string) {
   const scope = resolveScopeFromPermissions(req.crew.permissions, "crew", sub);
   if (scope.canForOthers) return e;
   const own = await ownEmployee(req);
-  if (scope.canForOwn && own?.id === e.id) return e;
+  if ((scope.canForOwn || allowOwnWithoutPermission) && own?.id === e.id) return e;
   res.status(403).json({ error: "Employee is outside your permitted scope" });
   return null;
 }
@@ -332,6 +343,14 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
   ).filter((x: any) => !x.isDeleted);
 
   rows = await scopedRows(req, rows, requestedScope);
+  // A linked crew member must always receive their own employee record on the
+  // attendance screen. Punching is intentionally allowed without an explicit
+  // for-own/update permission, so the UI cannot depend on scoped list access.
+  if (requestedScope === "attendance") {
+    const own = await ownEmployee(req);
+    if (own && !rows.some((row: any) => Number(row.id) === Number(own.id)))
+      rows = [own, ...rows];
+  }
 
   const counts = {
     total: rows.length,
@@ -920,12 +939,21 @@ router.delete("/employees/:id", async (req: any, res: any): Promise<any> => {
 
 router.get("/attendance", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.attendance.view")) return;
-  let rows = await db
+  const allRows = await db
     .select()
     .from(attendanceLogsTable)
     .where(eq(attendanceLogsTable.organizationId, req.crew.org))
     .orderBy(desc(attendanceLogsTable.attendanceDate));
-  rows = await scopedRows(req, rows, "attendance");
+  let rows = await scopedRows(req, allRows, "attendance");
+  const own = await ownEmployee(req);
+  if (own) {
+    const ownLogs = allRows.filter(
+      (row: any) => Number(row.employeeId) === Number(own.id),
+    );
+    for (const log of ownLogs)
+      if (!rows.some((row: any) => Number(row.id) === Number(log.id)))
+        rows.push(log);
+  }
   if (req.query.startDate)
     rows = rows.filter(
       (x: any) => x.attendanceDate >= String(req.query.startDate),
@@ -942,6 +970,8 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
       .where(eq(employeesTable.organizationId, req.crew.org))
   ).filter((employee: any) => !employee.isDeleted && employee.status !== "Offboarded");
   visibleEmployees = await scopedRows(req, visibleEmployees, "attendance");
+  if (own && !visibleEmployees.some((row: any) => Number(row.id) === Number(own.id)))
+    visibleEmployees.push(own);
   for (const employee of visibleEmployees)
     if (
       !rows.some(
@@ -967,7 +997,7 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
   rows.sort((a: any, b: any) =>
     String(b.attendanceDate).localeCompare(String(a.attendanceDate)),
   );
-  res.json(rows.map((x: any) => ({ ...x, auditLogs: json(x.auditLogs) })));
+  res.json(rows.map((x: any) => ({ ...x, checkInLocation: attendanceLocation(x.checkInLocation), checkOutLocation: attendanceLocation(x.checkOutLocation), auditLogs: json(x.auditLogs) })));
 });
 router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.attendance.view")) return;
@@ -975,7 +1005,8 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
   if (!/^\d{4}-\d{2}$/.test(month))
     return res.status(400).json({ error: "Valid month is required" });
   const [year, monthNumber] = month.split("-").map(Number),
-    daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate(),
+    currentDate = today();
   let employees = (
     await db
       .select()
@@ -1029,11 +1060,15 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
           checkOutTime: actual.checkOutTime,
           checkInPhoto: actual.checkInPhoto,
           checkOutPhoto: actual.checkOutPhoto,
-          checkInLocation: actual.checkInLocation,
-          checkOutLocation: actual.checkOutLocation,
+          checkInLocation: attendanceLocation(actual.checkInLocation),
+          checkOutLocation: attendanceLocation(actual.checkOutLocation),
           notes: actual.notes,
           locked: actual.locked,
         };
+      // Attendance has no meaning until the day arrives. Do not derive an
+      // absence (or any other status) for future calendar dates.
+      if (date > currentDate)
+        return { date, status: "Future", future: true, derived: true };
       const leave = leaves.find(
         (item: any) =>
           Number(item.employeeId) === Number(employee.id) &&
@@ -1070,7 +1105,8 @@ router.post("/attendance/reverse-geocode", async (req: any, res: any): Promise<a
 });
 
 router.post("/attendance", async (req: any, res: any): Promise<any> => {
-  if (!need(req, res, "crew.attendance.create")) return;
+  const isPunchIn = req.body.punchAction === "punchIn";
+  if (!isPunchIn && !need(req, res, "crew.attendance.create")) return;
   if (
     req.body.checkInTime &&
     !can(req, "crew.attendance.changeTime") &&
@@ -1084,9 +1120,15 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
     res,
     Number(req.body.employeeId),
     "attendance",
+    isPunchIn,
   );
   if (!employee) return;
-  const isPunchIn = req.body.punchAction === "punchIn";
+  const own = await ownEmployee(req);
+  if (
+    !can(req, "crew.attendance.create") &&
+    (!own || Number(own.id) !== Number(employee.id))
+  )
+    return res.status(403).json({ error: "You can only punch in for your own crew record" });
   const date = isPunchIn ? today() : req.body.attendanceDate || today();
   const existing = (
     await db
@@ -1115,8 +1157,6 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
       req.body.photoDataUrl,
       "attendance-punch-in",
     );
-    if (isPunchIn && !photo)
-      return res.status(400).json({ error: "Punch-in photograph is required" });
     const now = new Date(),
       time = isPunchIn
         ? now.toLocaleTimeString("en-GB", {
@@ -1143,7 +1183,7 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
       template &&
       time > template.workStartTime &&
       minutes(time) - minutes(template.workStartTime) >
-        Number(template.lateThresholdMinutes || 0)
+        attendanceBufferMinutes(template)
     )
       status = "Late";
     const checkInAddress = isPunchIn
@@ -1161,6 +1201,7 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         designation: employee.designation,
         attendanceDate: date,
         status,
+        approvalStatus: "Pending",
         checkInTime: time,
         checkInAtUtc: now,
         timezone: req.body.timezone || "Asia/Kolkata",
@@ -1264,15 +1305,7 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
 });
 router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
   const isPunchOut = req.body.punchAction === "punchOut";
-  if (isPunchOut) {
-    if (
-      !can(req, "crew.attendance.update") &&
-      !can(req, "crew.attendance.create")
-    )
-      return res
-        .status(403)
-        .json({ error: "Missing attendance punch permission" });
-  } else if (!need(req, res, "crew.attendance.update")) return;
+  if (!isPunchOut && !need(req, res, "crew.attendance.update")) return;
   const [old] = await db
     .select()
     .from(attendanceLogsTable)
@@ -1283,7 +1316,19 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
       ),
     );
   if (!old) return res.status(404).json({ error: "Attendance not found" });
-  if (!(await scopedEmployee(req, res, old.employeeId, "attendance"))) return;
+  const own = await ownEmployee(req);
+  // A linked crew member may always complete their own daily punch. This is
+  // intentionally independent of attendance create/update/view permissions.
+  // Those permissions remain required for every non-punch-out edit and for
+  // punching out another employee's record.
+  if (isPunchOut) {
+    if (!own || Number(own.id) !== Number(old.employeeId))
+      return res
+        .status(403)
+        .json({ error: "You can only punch out for your own crew record" });
+  } else if (!(await scopedEmployee(req, res, old.employeeId, "attendance"))) {
+    return;
+  }
   if (old.locked && !isPunchOut) {
     if (!can(req, "crew.attendance.change_time"))
       return res.status(403).json({
@@ -1327,10 +1372,6 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
         b.photoDataUrl,
         "attendance-punch-out",
       );
-      if (!photo)
-        return res
-          .status(400)
-          .json({ error: "Punch-out photograph is required" });
       const now = new Date();
       b.checkOutTime = now.toLocaleTimeString("en-GB", {
         hour: "2-digit",
@@ -1390,13 +1431,13 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
                 : 0),
             late =
               start >
-              minutes(template.workStartTime) +
-                Number(template.lateThresholdMinutes || 0),
+              minutes(template.workStartTime) + attendanceBufferMinutes(template),
             early = end < shiftEnd;
           b.status = late || early ? "Late" : "Present";
         }
       }
       b.locked = true;
+      b.approvalStatus = "Pending";
     }
     delete b.photoDataUrl;
     delete b.location;
@@ -1422,6 +1463,37 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
   }
 });
 
+router.patch("/attendance/:id/approval", async (req: any, res: any): Promise<any> => {
+  const decision = String(req.body?.decision || "");
+  const permission = decision === "Approved" ? "crew.attendance.approve" : "crew.attendance.reject";
+  if (!need(req, res, permission)) return;
+  if (decision !== "Approved" && decision !== "Rejected")
+    return res.status(400).json({ error: "Approval decision must be Approved or Rejected" });
+  const [old] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
+  if (!old) return res.status(404).json({ error: "Attendance not found" });
+  if (!old.checkInTime || !old.checkOutTime)
+    return res.status(400).json({ error: "Punch-in and punch-out must both be completed before approval" });
+  if (old.approvalStatus === "Approved")
+    return res.status(409).json({ error: "Attendance is already approved" });
+  const remarks = String(req.body?.remarks || "").trim();
+  if (decision === "Rejected" && remarks.length < 3)
+    return res.status(400).json({ error: "Rejection remarks are required" });
+  const now = new Date();
+  const values: any = {
+    approvalStatus: decision,
+    approvedBy: decision === "Approved" ? req.crew.user.id : null,
+    approvedAt: decision === "Approved" ? now : null,
+    rejectedBy: decision === "Rejected" ? req.crew.user.id : null,
+    rejectedAt: decision === "Rejected" ? now : null,
+    rejectionRemarks: decision === "Rejected" ? remarks : null,
+    auditLogs: JSON.stringify([...json(old.auditLogs), { action: `attendance-${decision.toLowerCase()}`, actor: req.crew.user.displayName, at: now, remarks: remarks || null }]),
+    updatedAt: now,
+  };
+  const [row] = await db.update(attendanceLogsTable).set(values).where(eq(attendanceLogsTable.id, old.id)).returning();
+  void audit(req, "attendance", row.id, row.employeeName, decision.toLowerCase(), old, row);
+  return res.json(row);
+});
+
 async function leaveContext(org: number, employee: any, year: number) {
   const [leaveTemplates, patterns, holidayTemplates] = await Promise.all([
     db
@@ -1442,12 +1514,12 @@ async function leaveContext(org: number, employee: any, year: number) {
     leaveTemplates.find(
       (row: any) =>
         Number(row.id) === Number(employee.leaveTemplate) && active(row),
-    ) || leaveTemplates.find((row: any) => row.isDefault && active(row));
+    );
   const workPattern =
     patterns.find(
       (row: any) =>
         Number(row.id) === Number(employee.workPatternTemplate) && active(row),
-    ) || patterns.find((row: any) => row.isDefault && active(row));
+    );
   const assignedHoliday = holidayTemplates.find(
     (row: any) =>
       Number(row.id) === Number(employee.holidayTemplate) && active(row),
@@ -1455,17 +1527,7 @@ async function leaveContext(org: number, employee: any, year: number) {
   const holidayTemplate =
     assignedHoliday && Number(assignedHoliday.effectiveYear) === year
       ? assignedHoliday
-      : holidayTemplates.find(
-          (row: any) =>
-            active(row) &&
-            Number(row.effectiveYear) === year &&
-            assignedHoliday &&
-            row.templateName === assignedHoliday.templateName,
-        ) ||
-        holidayTemplates.find(
-          (row: any) =>
-            active(row) && row.isDefault && Number(row.effectiveYear) === year,
-        );
+      : undefined;
   return {
     leaveTemplate,
     workPattern,
@@ -1528,6 +1590,37 @@ async function employeeLeaveBalance(
         ),
       )
   ).filter((row: any) => row.status === "Approved");
+  const permission = () => {
+    const total = Math.max(0, Number(template.totalPermissionHours || 0));
+    const monthlyMax = Math.max(
+      0,
+      Number(template.maxPermissionHoursPerMonth || 0),
+    );
+    const selectedMonth = `${year}-${String(month).padStart(2, "0")}`;
+    const used = requests
+      .filter(
+        (row: any) =>
+          row.leaveType === "Permission" &&
+          row.startDate >= `${year}-01-01` &&
+          row.startDate <= `${year}-12-31`,
+      )
+      .reduce((sum: number, row: any) => sum + Math.max(0, Number(row.permissionHours || 0)), 0);
+    const monthlyUsed = requests
+      .filter(
+        (row: any) =>
+          row.leaveType === "Permission" &&
+          String(row.startDate).startsWith(selectedMonth),
+      )
+      .reduce((sum: number, row: any) => sum + Math.max(0, Number(row.permissionHours || 0)), 0);
+    return {
+      total,
+      used,
+      remaining: Math.max(0, total - used),
+      monthlyMax,
+      monthlyUsed,
+      monthlyRemaining: Math.max(0, monthlyMax - monthlyUsed),
+    };
+  };
   const calculate = (type: string) => {
     let used = 0,
       monthlyUsed = 0;
@@ -1579,6 +1672,7 @@ async function employeeLeaveBalance(
   return {
     sick: calculate("Sick"),
     casual: calculate("Casual"),
+    permission: permission(),
     templateName: template.templateName,
     carryForwardEnabled: Boolean(template.carryForwardEnabled),
   };
@@ -1661,13 +1755,13 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
     return res
       .status(400)
       .json({ error: "Valid leave date range is required" });
-  if (!["Sick", "Casual", "Other"].includes(b.leaveType))
+  if (!["Sick", "Casual", "Permission", "Other"].includes(b.leaveType))
     return res
       .status(400)
-      .json({ error: "Leave type must be Sick, Casual or Other" });
-  if (
+      .json({ error: "Leave type must be Sick, Casual, Permission or Other" });
+  if (b.leaveType !== "Permission" &&
     !["1", "2"].includes(String(b.fromSession)) ||
-    !["1", "2"].includes(String(b.toSession))
+    b.leaveType !== "Permission" && !["1", "2"].includes(String(b.toSession))
   )
     return res.status(400).json({ error: "Valid leave sessions are required" });
   const rows = await db
@@ -1679,26 +1773,56 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
         eq(leaveRequestsTable.employeeId, employee.id),
       ),
     );
-  if (
-    rows.some(
-      (row: any) =>
-        ["Pending", "Approved"].includes(row.status) &&
-        row.startDate <= b.endDate &&
-        row.endDate >= b.startDate,
-    )
-  )
-    return res
-      .status(409)
-      .json({ error: "A leave request already exists for overlapping dates" });
   const year = Number(b.startDate.slice(0, 4)),
     context = await leaveContext(req.crew.org, employee, year),
-    requestedDays = chargeableDays(
-      b.startDate,
-      b.endDate,
-      b.fromSession,
-      b.toSession,
-      context,
-    );
+    requestedDays = b.leaveType === "Permission" ? 0 : chargeableDays(b.startDate, b.endDate, b.fromSession, b.toSession, context);
+  if (b.leaveType === "Permission") {
+    const startTime = String(b.permissionStartTime || ""),
+      endTime = String(b.permissionEndTime || ""),
+      validTime = (value: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value),
+      permissionStart = minutes(startTime),
+      permissionEnd = minutes(endTime);
+    if (b.startDate !== b.endDate)
+      return res.status(400).json({ error: "Permission requests must be for a single date" });
+    if (!validTime(startTime) || !validTime(endTime) || permissionEnd <= permissionStart)
+      return res.status(400).json({ error: "Permission start time must be before end time" });
+    const [attendanceTemplate] = employee.attendanceRulesTemplate
+      ? await db.select().from(attendanceTemplatesTable).where(eq(attendanceTemplatesTable.id, employee.attendanceRulesTemplate))
+      : [];
+    const shiftStart = minutes(attendanceTemplate?.workStartTime || "09:00"),
+      shiftEnd = minutes(attendanceTemplate?.workEndTime || "17:00");
+    if (!attendanceTemplate || attendanceTemplate.isActive === false)
+      return res.status(400).json({ error: "No active attendance template is assigned" });
+    if (permissionStart < shiftStart || permissionEnd > shiftEnd)
+      return res.status(400).json({ error: "Permission timing must be within the employee attendance timing" });
+    const permissionHours = Math.round(((permissionEnd - permissionStart) / 60) * 100) / 100,
+      total = Math.max(0, Number(context.leaveTemplate?.totalPermissionHours || 0)),
+      monthlyMax = Math.max(0, Number(context.leaveTemplate?.maxPermissionHoursPerMonth || 0));
+    if (!context.leaveTemplate || total <= 0 || monthlyMax <= 0)
+      return res.status(400).json({ error: "Permission hours are not allowed by this leave template" });
+    const applied = rows.filter((row: any) => ["Pending", "Approved"].includes(row.status));
+    for (const row of applied.filter((row: any) => row.startDate === b.startDate)) {
+      if (row.leaveType !== "Permission")
+        return res.status(409).json({ error: "A leave request already exists for this date" });
+      if (permissionStart < minutes(row.permissionEndTime) && permissionEnd > minutes(row.permissionStartTime))
+        return res.status(409).json({ error: "Permission already applied for an overlapping time on this date" });
+    }
+    const approvedYearly = applied.filter((row: any) => row.status === "Approved" && row.leaveType === "Permission" && String(row.startDate).startsWith(`${year}-`))
+      .reduce((sum: number, row: any) => sum + Math.max(0, Number(row.permissionHours || 0)), 0);
+    if (approvedYearly + permissionHours > total)
+      return res.status(400).json({ error: `Permission yearly balance exceeded. Available: ${Math.max(0, total - approvedYearly)} hours` });
+    const monthKey = String(b.startDate).slice(0, 7),
+      monthlyReserved = applied.filter((row: any) => row.leaveType === "Permission" && String(row.startDate).startsWith(monthKey))
+        .reduce((sum: number, row: any) => sum + Math.max(0, Number(row.permissionHours || 0)), 0);
+    if (monthlyReserved + permissionHours > monthlyMax)
+      return res.status(400).json({ error: `Permission monthly limit exceeded. Available: ${Math.max(0, monthlyMax - monthlyReserved)} hours` });
+    b.fromSession = null;
+    b.toSession = null;
+    b.permissionStartTime = startTime;
+    b.permissionEndTime = endTime;
+    b.permissionHours = permissionHours;
+  } else if (rows.some((row: any) => ["Pending", "Approved"].includes(row.status) && row.startDate <= b.endDate && row.endDate >= b.startDate))
+    return res.status(409).json({ error: "A leave request already exists for overlapping dates" });
   if (b.leaveType !== "Other" && requestedDays <= 0)
     return res.status(400).json({
       error:
@@ -1796,8 +1920,11 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
         startDate: b.startDate,
         endDate: b.endDate,
         leaveType: b.leaveType,
-        fromSession: Number(b.fromSession),
-        toSession: Number(b.toSession),
+        fromSession: b.leaveType === "Permission" ? null : Number(b.fromSession),
+        toSession: b.leaveType === "Permission" ? null : Number(b.toSession),
+        permissionStartTime: b.leaveType === "Permission" ? b.permissionStartTime : null,
+        permissionEndTime: b.leaveType === "Permission" ? b.permissionEndTime : null,
+        permissionHours: String(b.leaveType === "Permission" ? b.permissionHours : 0),
         reason: String(b.reason || "").trim() || null,
         requestedDays: String(requestedDays),
         requestedBy: req.crew.user.id,
@@ -1964,7 +2091,9 @@ async function overtimeCalculation(org: number, employee: any, date: string) {
       (row: any) =>
         Number(row.id) === Number(employee.attendanceRulesTemplate) &&
         active(row),
-    ) || templates.find((row: any) => row.isDefault && active(row));
+    );
+  if (!template)
+    throw new Error("Assign an active attendance template to this employee before calculating overtime.");
   const workStartTime = String(template?.workStartTime || "09:00"),
     workEndTime = String(template?.workEndTime || "17:00"),
     checkInTime = String(attendance.checkInTime),
@@ -1975,8 +2104,22 @@ async function overtimeCalculation(org: number, employee: any, date: string) {
     punchIn = minutes(checkInTime),
     punchOut =
       minutes(checkOutTime) + (minutes(checkOutTime) < punchIn ? 1440 : 0);
-  const earlyOvertimeMinutes = Math.max(0, shiftStart - punchIn),
-    lateOvertimeMinutes = Math.max(0, punchOut - shiftEnd),
+  const actualWorkedMinutes = Math.max(0, punchOut - punchIn),
+    configuredWorkHours = Number(template.workHours),
+    requiredWorkMinutes = Math.round(
+      Math.max(
+        1,
+        Number.isFinite(configuredWorkHours) && configuredWorkHours > 0
+          ? configuredWorkHours
+          : (shiftEnd - shiftStart) / 60,
+      ) * 60,
+    ),
+    earlyOvertimeMinutes = template.flexibleHours
+      ? 0
+      : Math.max(0, shiftStart - punchIn),
+    lateOvertimeMinutes = template.flexibleHours
+      ? Math.max(0, actualWorkedMinutes - requiredWorkMinutes)
+      : Math.max(0, punchOut - shiftEnd),
     totalOvertimeMinutes = earlyOvertimeMinutes + lateOvertimeMinutes,
     overtimeHours = Math.round((totalOvertimeMinutes / 60) * 100) / 100;
   if (totalOvertimeMinutes <= 0)
@@ -1995,11 +2138,13 @@ async function overtimeCalculation(org: number, employee: any, date: string) {
       employee.exitDate && employee.exitDate < monthEnd
         ? employee.exitDate
         : monthEnd,
-    payableDays = Math.max(
+    payableDays = Math.max(1, datesBetween(employmentStart, employmentEnd).length),
+    workingHoursPerDay = Math.max(
       1,
-      datesBetween(employmentStart, employmentEnd).length,
+      Number.isFinite(configuredWorkHours) && configuredWorkHours > 0
+        ? configuredWorkHours
+        : (shiftEnd - shiftStart) / 60,
     ),
-    workingHoursPerDay = Math.max(1, (shiftEnd - shiftStart) / 60),
     monthlySalary = Math.max(
       0,
       Number(
@@ -2010,9 +2155,10 @@ async function overtimeCalculation(org: number, employee: any, date: string) {
           0,
       ),
     ),
-    hourlySalary =
-      Math.round((monthlySalary / (payableDays * workingHoursPerDay)) * 100) /
-      100,
+    calendarMonthDays = new Date(
+      Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0),
+    ).getUTCDate(),
+    hourlySalary = Math.round((monthlySalary / (calendarMonthDays * workingHoursPerDay)) * 100) / 100,
     amount = Math.round(hourlySalary * overtimeHours * 100) / 100;
   if (amount <= 0)
     throw new Error(
@@ -2118,6 +2264,7 @@ router.post("/overtime", async (req: any, res: any): Promise<any> => {
       title: String(req.body.title).trim(),
       notes: String(req.body.notes || "").trim() || null,
       attendanceDate: calculation.attendanceDate,
+      payrollMonth: calculation.attendanceDate.slice(0, 7),
       requestedHours: String(calculation.overtimeHours),
       status: "Pending",
       submittedBy: req.crew.user.id,
@@ -2519,7 +2666,7 @@ for (const type of ["claims"]) {
   );
 }
 
-async function syncAttendanceDeductions(
+export async function syncAttendanceDeductions(
   org: number,
   month: number,
   year: number,
@@ -2530,7 +2677,11 @@ async function syncAttendanceDeductions(
         .select()
         .from(attendanceLogsTable)
         .where(eq(attendanceLogsTable.organizationId, org))
-    ).filter((row: any) => String(row.attendanceDate).startsWith(prefix)),
+    ).filter(
+      (row: any) =>
+        String(row.attendanceDate).startsWith(prefix) &&
+        (!row.approvalStatus || row.approvalStatus === "Approved"),
+    ),
     employees = (
       await db
         .select()
@@ -2541,6 +2692,18 @@ async function syncAttendanceDeductions(
       .select()
       .from(attendanceTemplatesTable)
       .where(eq(attendanceTemplatesTable.organizationId, org)),
+    approvedOtherLeaves = (
+      await db
+        .select()
+        .from(leaveRequestsTable)
+        .where(eq(leaveRequestsTable.organizationId, org))
+    ).filter(
+      (row: any) =>
+        row.status === "Approved" &&
+        row.leaveType === "Other" &&
+        row.startDate <= `${prefix}-31` &&
+        row.endDate >= `${prefix}-01`,
+    ),
     oldRows = (
       await db
         .select()
@@ -2552,18 +2715,61 @@ async function syncAttendanceDeductions(
         row.year === year &&
         String(row.source).toLowerCase() !== "manual",
     );
-  for (const log of logs) {
+  // Approved Other leave is an LOP leave. Represent each chargeable leave day
+  // as a synthetic attendance item so it participates in the same stable,
+  // idempotent deduction flow as an absent day.
+  const lopLeaveLogs: any[] = [];
+  for (const leave of approvedOtherLeaves) {
+    const employee = employees.find(
+      (row: any) => Number(row.id) === Number(leave.employeeId),
+    );
+    if (!employee) continue;
+    const context = await leaveContext(org, employee, year);
+    for (const date of datesBetween(
+      leave.startDate < `${prefix}-01` ? `${prefix}-01` : leave.startDate,
+      leave.endDate > `${prefix}-31` ? `${prefix}-31` : leave.endDate,
+    )) {
+      if (chargeableDays(date, date, "1", "2", context) <= 0) continue;
+      if (
+        logs.some(
+          (log: any) =>
+            Number(log.employeeId) === Number(employee.id) &&
+            log.attendanceDate === date,
+        )
+      )
+        continue;
+      lopLeaveLogs.push({
+        id: -(Number(leave.id) * 100 + Number(date.slice(-2))),
+        employeeId: employee.id,
+        employeeName: employee.name,
+        attendanceDate: date,
+        status: "Other LOP",
+        isOtherLeaveLop: true,
+      });
+    }
+  }
+  const deductionLogs = [...logs, ...lopLeaveLogs];
+  // An attendance deduction is derived data. If its attendance is no longer
+  // approved (or was moved out of this payroll month), remove the stale row
+  // before recalculating the remaining approved records.
+  const eligibleAttendanceIds = new Set(
+    deductionLogs.map((row: any) => Number(row.id)),
+  );
+  for (const old of oldRows)
+    if (!eligibleAttendanceIds.has(Number(old.attendanceId)))
+      await db
+        .delete(crewDeductionsTable)
+        .where(eq(crewDeductionsTable.id, old.id));
+  for (const log of deductionLogs) {
     const employee = employees.find(
       (row: any) => Number(row.id) === Number(log.employeeId),
     );
     if (!employee) continue;
-    const template =
-        templates.find(
-          (row: any) =>
-            Number(row.id) === Number(employee.attendanceRulesTemplate) &&
-            row.isActive !== false,
-        ) ||
-        templates.find((row: any) => row.isDefault && row.isActive !== false),
+    const template = templates.find(
+        (row: any) =>
+          Number(row.id) === Number(employee.attendanceRulesTemplate) &&
+          row.isActive !== false,
+      ),
       salary = Number(employee.baseSalary || 0),
       days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(),
       daily = salary / days;
@@ -2574,11 +2780,14 @@ async function syncAttendanceDeductions(
       reason = "",
       source = "attendance_auto_deduction",
       notes = "";
-    if (log.status === "Absent") {
+    if (!template) continue;
+    if (log.status === "Absent" || log.isOtherLeaveLop) {
       amount = daily;
-      reason = "Absent and LOP";
+      reason = log.isOtherLeaveLop ? "Other leave and LOP" : "Absent and LOP";
       source = "Auto";
-      notes = `Absent and LOP - ${salary.toFixed(2)} / ${days} days`;
+      notes = log.isOtherLeaveLop
+        ? `Approved Other leave (LOP) - ${salary.toFixed(2)} / ${days} days`
+        : `Absent and LOP - ${salary.toFixed(2)} / ${days} days`;
     } else if (log.status === "Half Day") {
       amount = daily / 2;
       reason = "Half day absent and LOP";
@@ -2593,14 +2802,26 @@ async function syncAttendanceDeductions(
         shiftEnd =
           minutes(template?.workEndTime || "17:00") +
           (minutes(template?.workEndTime || "17:00") <= shiftStart ? 1440 : 0),
-        required = shiftEnd - shiftStart;
+        scheduledMinutes = shiftEnd - shiftStart,
+        required = template?.flexibleHours
+          ? Math.round(
+              Math.max(
+                0,
+                Number(template?.totalWorkingHours || 0) -
+                  Number(template?.breakHours || 0),
+              ) * 60,
+            )
+          : Math.max(
+              0,
+              scheduledMinutes - Math.round(Number(template?.breakHours || 0) * 60),
+            );
       if (template?.flexibleHours) {
         total = Math.max(0, required - (punchOut - punchIn));
         reason = total > required / 2 ? "half_day" : "flexible_hours_shortage";
       } else {
         late = Math.max(
           0,
-          punchIn - shiftStart - Number(template?.lateThresholdMinutes || 0),
+          punchIn - shiftStart - attendanceBufferMinutes(template),
         );
         early = Math.max(0, shiftEnd - punchOut);
         total = late + early;
@@ -2610,14 +2831,24 @@ async function syncAttendanceDeductions(
       if (total) {
         const hours = total / 60,
           rate = salary / (days * Math.max(1, required / 60)),
-          fine = Number(template?.finePerHour || 0);
+          fine = Math.max(0, Number(template?.finePerHour || 0));
+        let fineType = String(template?.fineType || "fixed_per_hour");
+        // Yugam treats a zero fixed fine as salary-based deduction, so an
+        // employee's hourly rate is never silently ignored.
+        if (fineType === "fixed_per_hour" && fine <= 0)
+          fineType = "based_on_salary";
         amount =
-          template?.fineType === "percent_hourly_basis"
+          fineType === "percent_hourly_basis"
             ? ((rate * fine) / 100) * hours
-            : template?.fineType === "based_on_salary"
+            : fineType === "based_on_salary"
               ? rate * hours
               : fine * hours;
-        notes = `${reason.replaceAll("_", " ")} - ${total} minutes`;
+        notes =
+          fineType === "based_on_salary"
+            ? `${hours.toFixed(2)} hrs × hourly salary rate = INR ${amount.toFixed(2)}`
+            : fineType === "percent_hourly_basis"
+              ? `${hours.toFixed(2)} hrs × ${fine}% hourly rate = INR ${amount.toFixed(2)}`
+              : `${hours.toFixed(2)} hrs × INR ${fine.toFixed(2)}/hr = INR ${amount.toFixed(2)}`;
       }
     }
     amount = Math.round(amount * 100) / 100;
@@ -2870,5 +3101,10 @@ function minutes(v: string) {
     .split(":")
     .map(Number);
   return h * 60 + m;
+}
+function attendanceBufferMinutes(template: any) {
+  if (template?.bufferTime === false) return 0;
+  const value = Number(template?.bufferMinutes);
+  return Number.isFinite(value) && value > 0 ? value : 15;
 }
 export default router;

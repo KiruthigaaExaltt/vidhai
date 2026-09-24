@@ -155,7 +155,7 @@ export const FLEX_TEXT = {
     "No line items yet. Map PO/GR or add items manually.",
   noOutstandingBillsFound: "No outstanding bills found.",
   noVendorsFound: "No vendors found.",
-  notAvailable: "�",
+  notAvailable: "—",
   removeVendorFromRequest: "Remove vendor from this purchase request",
   noPoLinked: "No PO Linked",
   noPurchaseInvoicesFound: "No purchase invoices found.",

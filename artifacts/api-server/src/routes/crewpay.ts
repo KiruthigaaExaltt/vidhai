@@ -17,6 +17,7 @@ import {
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
+import { syncAttendanceDeductions } from "./crew";
 const router = Router(),
   round = (n: number) => Math.round(n * 100) / 100,
   json = (v: any, f: any = {}) => {
@@ -111,6 +112,7 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
         : periodEnd;
   if (start > end)
     throw new Error("Employee is outside the selected payroll period");
+  await syncAttendanceDeductions(req.pay.org, month, year);
   const [
       templates,
       patterns,
@@ -174,22 +176,18 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       templates.find(
         (r: any) =>
           Number(r.id) === Number(employee.salaryTemplateId) && active(r),
-      ) || templates.find((r: any) => r.isDefault && active(r)),
+      ),
     pattern =
       patterns.find(
         (r: any) =>
           Number(r.id) === Number(employee.workPatternTemplate) && active(r),
-      ) || patterns.find((r: any) => r.isDefault && active(r)),
+      ),
     holidayTemplate =
       holidays.find(
         (r: any) =>
           Number(r.id) === Number(employee.holidayTemplate) &&
           active(r) &&
           Number(r.effectiveYear) === year,
-      ) ||
-      holidays.find(
-        (r: any) =>
-          r.isDefault && active(r) && Number(r.effectiveYear) === year,
       ),
     holidayDates = new Set<string>(
       (json(holidayTemplate?.holidays, []) as any[]).map((h) => h.date),
@@ -197,13 +195,25 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
     attendanceByDate = new Map(
       attendance
         .filter(
-          (r: any) => r.attendanceDate >= start && r.attendanceDate <= end,
+          (r: any) =>
+            r.attendanceDate >= start &&
+            r.attendanceDate <= end &&
+            (!r.approvalStatus || r.approvalStatus === "Approved"),
         )
         .map((r: any) => [r.attendanceDate, r]),
     ),
     approvedLeaves = leaves.filter(
       (r: any) =>
         r.status === "Approved" && r.startDate <= end && r.endDate >= start,
+    );
+  if (!salaryTemplate)
+    throw new Error(
+      `Assign an active salary template to ${employee.name} before generating payroll.`,
+    );
+  const configured = json(salaryTemplate.components, []);
+  if (!Array.isArray(configured) || configured.length === 0)
+    throw new Error(
+      `The salary template assigned to ${employee.name} has no components.`,
     );
   let presentDays = 0,
     lateDays = 0,
@@ -264,41 +274,9 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       0,
       Number(employee.baseSalary || 0) || Number(employee.annualCtc || 0) / 12,
     ),
-    configured = json(salaryTemplate?.components, []),
-    input = configured.length
-      ? configured
-      : [
-          {
-            id: "basic",
-            name: "Basic",
-            calculationType: "percentage_of_ctc",
-            value: 50,
-            order: 1,
-          },
-          {
-            id: "hra",
-            name: "HRA",
-            calculationType: "percentage_of_ctc",
-            value: 20,
-            order: 2,
-          },
-          {
-            id: "special_allowance",
-            name: "Special Allowance",
-            calculationType: "residual",
-            order: 3,
-          },
-        ],
+    input = configured,
     amounts: Record<string, number> = {},
-    earningIds = new Set([
-      "basic",
-      "hra",
-      "special_allowance",
-      "conveyance",
-      "medical",
-      "bonus",
-      "incentive",
-    ]),
+    deductionIds = new Set(["pf", "esi", "pt", "tds"]),
     ratio = Math.max(0, Math.min(1, payableDays / calendarMonthDays));
   let used = 0;
   const components = input.map((c: any, index: number) => {
@@ -319,11 +297,12 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
     else if (c.calculationType === "residual")
       monthly = Math.max(0, monthlyCtc - used);
     amounts[c.id] = monthly;
-    if (earningIds.has(c.id)) used += monthly;
+    const isDeduction = deductionIds.has(String(c.id).toLowerCase());
+    if (!isDeduction) used += monthly;
     return {
       componentId: c.id,
       componentName: c.name,
-      componentType: earningIds.has(c.id) ? "Earning" : "Deduction",
+      componentType: isDeduction ? "Deduction" : "Earning",
       calculationType: c.calculationType,
       configuredValue: c.value ?? null,
       monthlyAmount: round(monthly),

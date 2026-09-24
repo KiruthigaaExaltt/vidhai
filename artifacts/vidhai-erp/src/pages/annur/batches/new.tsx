@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 
-// Flexible name resolver: exact â†’ contains â†’ first-word match.
+// Flexible name resolver: exact → contains → first-word match.
 // Prevents silent material drops when DB names differ slightly (e.g. "Chicken Manure (Dry)" vs "Chicken Manure").
 function resolveMaterial(
   list: Array<{ id: number; name: string }>,
@@ -364,7 +364,7 @@ export default function NewBatch() {
                   Material Formulation
                 </CardTitle>
                 <CardDescription className="mt-1">
-                  Adjust quantities. Target N% is 1.5â€“1.8%.
+                  Adjust quantities. Target N% is 1.5–1.8%.
                 </CardDescription>
               </div>
               <div className="flex items-center gap-3 bg-background border px-4 py-2 rounded-md shadow-sm">
@@ -405,7 +405,7 @@ export default function NewBatch() {
                         Wet Weight (kg)
                       </th>
                       <th className="text-right px-4 py-3 font-medium text-xs uppercase tracking-wider text-muted-foreground w-28 bg-blue-50/40">
-                        Hâ‚‚O %
+                        H₂O %
                       </th>
                       <th className="text-right px-4 py-3 font-medium text-xs uppercase tracking-wider text-primary/70 w-36 bg-primary/5">
                         Dry Weight (kg)
@@ -414,7 +414,7 @@ export default function NewBatch() {
                         N %
                       </th>
                       <th className="text-right px-4 py-3 font-medium text-xs uppercase tracking-wider text-primary/70 w-32 bg-primary/5">
-                        Nâ‚‚ (kg)
+                        N₂ (kg)
                       </th>
                       <th className="px-4 py-3 w-12"></th>
                     </tr>
@@ -473,7 +473,7 @@ export default function NewBatch() {
                               <span>{row.name}</span>
                             )}
                           </td>
-                          {/* Wet Weight â€” editable */}
+                          {/* Wet Weight — editable */}
                           <td className="px-2 bg-blue-50/10">
                             <Input
                               type="number"
@@ -490,7 +490,7 @@ export default function NewBatch() {
                               }
                             />
                           </td>
-                          {/* Hâ‚‚O% â€” editable */}
+                          {/* H₂O% — editable */}
                           <td className="px-2 bg-blue-50/10">
                             <Input
                               type="number"
@@ -508,11 +508,11 @@ export default function NewBatch() {
                               }
                             />
                           </td>
-                          {/* Dry Weight â€” computed, read-only */}
+                          {/* Dry Weight — computed, read-only */}
                           <td className="px-4 text-right font-mono font-bold text-primary bg-primary/5">
                             {dryWt.toFixed(3)}
                           </td>
-                          {/* N% â€” editable */}
+                          {/* N% — editable */}
                           <td className="px-2 bg-emerald-50/10">
                             <Input
                               type="number"
@@ -530,7 +530,7 @@ export default function NewBatch() {
                               }
                             />
                           </td>
-                          {/* Nâ‚‚ â€” computed, read-only */}
+                          {/* N₂ — computed, read-only */}
                           <td className="px-4 text-right font-mono font-bold text-primary bg-primary/5">
                             {n2Kg.toFixed(4)}
                           </td>

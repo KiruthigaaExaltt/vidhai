@@ -1018,7 +1018,7 @@ export default function GoodsReceipts() {
           </CardContent>
         </Card>
 
-        {/* â”€â”€ LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) â”€â”€ */}
+        {/* ── LOG GOODS RECEIPT MODAL DIALOG (EXACT SCREENSHOT SPECIFICATION) ── */}
         <Dialog
           open={isAddOpen}
           onOpenChange={(open) => {
@@ -1145,7 +1145,7 @@ export default function GoodsReceipts() {
                               onClick={() => togglePurchaseOrder(String(po.id))}
                               className="text-muted-foreground hover:text-foreground"
                             >
-                              ï¿½
+                              —
                             </button>
                           </div>
                         ))}
@@ -1443,7 +1443,7 @@ export default function GoodsReceipts() {
                                     ? `${"\u20B9"} ${lineTotal.toLocaleString("en-IN", {
                                         minimumFractionDigits: 2,
                                       })}`
-                                    : "â€”"}
+                                    : "—"}
                                 </td>
                               </tr>
                             );

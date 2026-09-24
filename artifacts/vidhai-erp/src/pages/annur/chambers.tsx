@@ -350,7 +350,7 @@ export default function Chambers() {
                           )}
                           {isBulk && <Thermometer className="w-3 h-3" />}
                           {c.chamberType === "turn"
-                            ? "Turn � Legacy"
+                            ? "Turn — Legacy"
                             : c.chamberType.replaceAll("_", " ")}
                         </div>
                       </div>

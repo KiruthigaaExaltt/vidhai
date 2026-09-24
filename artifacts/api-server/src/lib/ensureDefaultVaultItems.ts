@@ -282,12 +282,31 @@ export async function ensureDefaultVaultItems() {
       material,
     ]),
   );
+  const byIdentifier = new Map(
+    existingMaterials
+      .filter((material) => Boolean(material.itemIdentifier))
+      .map((material) => [
+        String(material.itemIdentifier).trim().toLowerCase(),
+        material,
+      ]),
+  );
   let createdItems = 0;
   let createdStockRows = 0;
 
   for (const item of DEFAULT_VAULT_ITEMS as readonly any[]) {
     const acceptedNames = [item.name, ...(DEFAULT_ITEM_ALIASES[item.name] || [])].map((name) => name.toLowerCase());
     let material =
+      // itemIdentifier is globally unique. Prefer it to a name match because
+      // normal production materials may legitimately share a default name
+      // (for example Gypsum) while the existing protected vault item already
+      // owns this identifier.
+      byIdentifier.get(item.sku.toLowerCase()) ??
+      existingMaterials.find(
+        (candidate) =>
+          String(candidate.sku ?? "")
+            .trim()
+            .toLowerCase() === item.sku.toLowerCase(),
+      ) ??
       acceptedNames.map((name) => byName.get(name)).find(Boolean) ??
       existingMaterials.find(
         (candidate) =>
@@ -337,7 +356,11 @@ export async function ensureDefaultVaultItems() {
     const duplicateMaterials = existingMaterials.filter(
       (candidate) =>
         candidate.id !== material.id &&
-        acceptedNames.includes(candidate.name.trim().toLowerCase()),
+        acceptedNames.includes(candidate.name.trim().toLowerCase()) &&
+        // Never merge ordinary production materials merely because they share
+        // a display name with a protected vault default.
+        (!candidate.itemIdentifier ||
+          String(candidate.itemIdentifier).toUpperCase().startsWith("VLT-")),
     );
     for (const duplicate of duplicateMaterials) {
       const canonicalStocks = await db

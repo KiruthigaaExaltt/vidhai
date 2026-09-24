@@ -1918,22 +1918,22 @@ export default function CoimbatoreBatchDetail() {
                                 </td>
                                 <td className="px-4 text-xs font-semibold">
                                   {logged?.chamberNameSnapshot ??
-                                    "Legacy � not recorded"}
+                                    "Legacy — not recorded"}
                                 </td>
                                 <td className="px-4 text-xs text-muted-foreground">
                                   {logged?.stagedByName || b.createdByName || "—"}
                                 </td>
                                 <td className="px-4 font-mono text-xs">
-                                  {logged?.temperatureCelsius ?? "�"}
+                                  {logged?.temperatureCelsius ?? "—"}
                                 </td>
                                 <td className="px-4 font-mono text-xs">
-                                  {logged?.nh3Ppm ?? "�"}
+                                  {logged?.nh3Ppm ?? "—"}
                                 </td>
                                 <td className="px-4 font-mono text-xs">
-                                  {logged?.co2Percent ?? "�"}
+                                  {logged?.co2Percent ?? "—"}
                                 </td>
                                 <td className="px-4 font-mono text-xs">
-                                  {logged?.moisturePercent ?? "�"}
+                                  {logged?.moisturePercent ?? "—"}
                                 </td>
                                 <td className="px-4">
                                   {logged &&

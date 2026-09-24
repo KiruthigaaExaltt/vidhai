@@ -653,10 +653,10 @@ export default function CRMPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
-                          {c.whatsappNumber || "�"}
+                          {c.whatsappNumber || "—"}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
-                          {c.gstin || "�"}
+                          {c.gstin || "—"}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">
                           {c.email ? (
@@ -802,8 +802,10 @@ export default function CRMPage() {
                 <Input
                   type="tel"
                   value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                  placeholder="+91 XXXXX XXXXX"
+                  inputMode="numeric"
+                  maxLength={10}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                  placeholder="10-digit phone number"
                   className="rounded-sm h-10 font-mono"
                 />
               </div>
@@ -826,10 +828,12 @@ export default function CRMPage() {
                 <Input
                   type="tel"
                   value={form.whatsappNumber}
+                  inputMode="numeric"
+                  maxLength={10}
                   onChange={(e) =>
-                    setForm({ ...form, whatsappNumber: e.target.value })
+                    setForm({ ...form, whatsappNumber: e.target.value.replace(/\D/g, "").slice(0, 10) })
                   }
-                  placeholder="+91 XXXXX XXXXX"
+                  placeholder="10-digit WhatsApp number"
                   className="rounded-sm h-10 font-mono"
                 />
               </div>

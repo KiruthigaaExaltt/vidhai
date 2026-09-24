@@ -361,7 +361,7 @@ export default function CoimbatoreChambers() {
                           )}
                           {isBulk && <Thermometer className="w-3 h-3" />}
                           {c.chamberType === "turn"
-                            ? "Turn � Legacy"
+                            ? "Turn — Legacy"
                             : c.chamberType.replaceAll("_", " ")}
                         </div>
                       </div>
@@ -393,7 +393,7 @@ export default function CoimbatoreChambers() {
                                 " ",
                               )}
                               {c.currentTurnNumber
-                                ? ` � Turn ${c.currentTurnNumber}`
+                                ? ` — Turn ${c.currentTurnNumber}`
                                 : ""}
                             </div>
                             {c.currentBatchStartedAt && (
@@ -701,10 +701,10 @@ export default function CoimbatoreChambers() {
                           selectedChamber.currentBatchStage || "Active",
                         ).replace(/_/g, " ")}
                         {selectedChamber.currentTurnNumber
-                          ? ` � Turn ${selectedChamber.currentTurnNumber}`
+                          ? ` — Turn ${selectedChamber.currentTurnNumber}`
                           : ""}
                         {selectedChamber.currentBatchStartedAt
-                          ? ` � Started ${new Date(selectedChamber.currentBatchStartedAt).toLocaleDateString()}`
+                          ? ` — Started ${new Date(selectedChamber.currentBatchStartedAt).toLocaleDateString()}`
                           : ""}
                       </div>
                     </div>
@@ -779,12 +779,12 @@ export default function CoimbatoreChambers() {
                                 })}
                               </td>
                               <td className="px-4 font-mono text-xs">
-                                {(r as any).batchCode ?? "�"}
+                                {(r as any).batchCode ?? "—"}
                               </td>
                               <td className="px-4 font-mono text-xs">
                                 {(r as any).turnNumber
                                   ? `T${(r as any).turnNumber}`
-                                  : "�"}
+                                  : "—"}
                               </td>
                               <td className="px-4 font-mono text-right">
                                 {r.temperatureCelsius ?? "-"}
