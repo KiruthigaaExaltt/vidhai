@@ -808,7 +808,10 @@ export default function PurchaseReturns() {
                     <Label>Vendor Phone *</Label>
                     <Input
                       value={vendorPhone}
-                      onChange={(e) => setVendorPhone(e.target.value)}
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      onChange={(e) => setVendorPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                     />
                   </div>
                 </div>

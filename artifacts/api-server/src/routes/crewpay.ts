@@ -1,3 +1,5 @@
+import { calculateStatutorySalary } from "@workspace/db/payroll/salary";
+import { buildNonWorkingPaidDateSet, calculatePayableWorkingDays, calculateLeaveWorkingDays, calculateAbsentWorkingDays, calculatePendingApprovalWorkingDays, countScheduledWorkingDaysInRange, calculateLopAmountFromPayableDays, isFinalizedAttendanceLog } from "@workspace/db/payroll/calendar";
 import { Router } from "express";
 import {
   and,
@@ -14,6 +16,7 @@ import {
   holidayTemplatesTable,
   salarySlipsTable,
   payrollTable,
+  organizationDetailsTable,
 } from "@workspace/db";
 import { effectivePermissions, getAuthUser } from "../lib/access";
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
@@ -112,6 +115,10 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
         : periodEnd;
   if (start > end)
     throw new Error("Employee is outside the selected payroll period");
+  const [previousSlip] = await db.select().from(salarySlipsTable).where(and(eq(salarySlipsTable.organizationId, req.pay.org), eq(salarySlipsTable.employeeId, employee.id), eq(salarySlipsTable.payrollMonth, payrollMonth)));
+  const [previousPayroll] = await db.select().from(payrollTable).where(and(eq(payrollTable.organizationId, req.pay.org), eq(payrollTable.employeeId, employee.id), eq(payrollTable.payPeriod, payrollMonth)));
+  if (previousPayroll?.status === "Paid") throw new Error("Paid payroll is locked and cannot be regenerated");
+  const [organization] = await db.select().from(organizationDetailsTable).where(eq(organizationDetailsTable.organizationId, req.pay.org));
   await syncAttendanceDeductions(req.pay.org, month, year);
   const [
       templates,
@@ -210,131 +217,47 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
     throw new Error(
       `Assign an active salary template to ${employee.name} before generating payroll.`,
     );
-  const configured = json(salaryTemplate.components, []);
+  const snapshot = Number(previousSlip?.salaryTemplateId) === Number(salaryTemplate.id) ? json(previousSlip?.templateSnapshot, {}) : {};
+  const configured = snapshot.components || json(salaryTemplate.components, []);
   if (!Array.isArray(configured) || configured.length === 0)
     throw new Error(
       `The salary template assigned to ${employee.name} has no components.`,
     );
-  let presentDays = 0,
-    lateDays = 0,
-    absentDays = 0,
-    halfDays = 0,
-    paidLeaveDays = 0,
-    weekOffDays = 0,
-    holidayDays = 0,
-    payableDays = 0,
-    hoursWorked = 0;
-  for (const date of daysBetween(start, end)) {
-    const d = new Date(`${date}T00:00:00Z`),
-      week = Math.min(5, Math.floor((d.getUTCDate() - 1) / 7) + 1),
-      off = (json(pattern?.[`week${week}OffDays`], []) as any[])
-        .map(Number)
-        .includes(d.getUTCDay()),
-      holiday = holidayDates.has(date),
-      att: any = attendanceByDate.get(date),
-      leave = approvedLeaves.find(
-        (r: any) => r.startDate <= date && r.endDate >= date,
-      );
-    let payable = 0;
-    if (holiday) {
-      holidayDays++;
-      payable = 1;
-    } else if (off) {
-      weekOffDays++;
-      payable = 1;
-    } else if (
-      att &&
-      ["Present", "Late", "Remote", "Work From Home", "WFH"].includes(
-        att.status,
-      )
-    ) {
-      presentDays++;
-      if (att.status === "Late") lateDays++;
-      payable = 1;
-    } else if (att?.status === "Half Day") {
-      halfDays++;
-      payable = 0.5;
-    } else if (leave) {
-      const half =
-        leave.startDate === leave.endDate &&
-        String(leave.fromSession) === String(leave.toSession);
-      paidLeaveDays += half ? 0.5 : 1;
-      payable = half ? 0.5 : 1;
-    } else absentDays++;
-    payableDays += payable;
-    if (att?.checkInTime && att?.checkOutTime) {
-      const a = clock(att.checkInTime),
-        b = clock(att.checkOutTime) + (clock(att.checkOutTime) < a ? 1440 : 0);
-      hoursWorked += (b - a) / 60;
-    }
-  }
-  payableDays = Math.min(payableDays, daysBetween(start, end).length);
-  const fixedComponentValues = json(employee.fixedComponentValues, {}),
-    monthlyCtc = Math.max(
-      0,
-      Number(employee.baseSalary || 0) || Number(employee.annualCtc || 0) / 12,
-    ),
-    input = configured,
-    amounts: Record<string, number> = {},
-    deductionIds = new Set(["pf", "esi", "pt", "tds"]),
-    ratio = Math.max(0, Math.min(1, payableDays / calendarMonthDays));
-  let used = 0;
-  const components = input.map((c: any, index: number) => {
-    let monthly = 0;
-    if (c.calculationType === "fixed") {
-      const employeeValue = Number(
-        fixedComponentValues[c.id] ?? fixedComponentValues[c.name],
-      );
-      monthly = Number.isFinite(employeeValue)
-        ? employeeValue
-        : Number(c.value || 0);
-    } else if (c.calculationType === "percentage_of_ctc")
-      monthly = (monthlyCtc * Number(c.value || 0)) / 100;
-    else if (c.calculationType === "percentage_of_component")
-      monthly =
-        (Number(amounts[c.referenceComponentId] || 0) * Number(c.value || 0)) /
-        100;
-    else if (c.calculationType === "residual")
-      monthly = Math.max(0, monthlyCtc - used);
-    amounts[c.id] = monthly;
-    const isDeduction = deductionIds.has(String(c.id).toLowerCase());
-    if (!isDeduction) used += monthly;
-    return {
-      componentId: c.id,
-      componentName: c.name,
-      componentType: isDeduction ? "Deduction" : "Earning",
-      calculationType: c.calculationType,
-      configuredValue: c.value ?? null,
-      monthlyAmount: round(monthly),
-      yearlyAmount: round(monthly * 12),
-      earnedAmount: round(monthly * ratio),
-      displayOrder: c.order || index + 1,
-    };
-  });
-  if (used > monthlyCtc + 0.01)
-    throw new Error("Salary template earnings exceed monthly salary");
-  if (
-    used < monthlyCtc - 0.01 &&
-    !components.some((c: any) => c.componentType === "Deduction")
-  ) {
-    components.push({
-      componentId: "balance_allowance",
-      componentName: "Balance Allowance",
-      componentType: "Earning",
-      calculationType: "residual",
-      configuredValue: null,
-      monthlyAmount: round(monthlyCtc - used),
-      yearlyAmount: round((monthlyCtc - used) * 12),
-      earnedAmount: round((monthlyCtc - used) * ratio),
-      displayOrder: components.length + 1,
-    });
-  }
+  if (!pattern || !holidayTemplate) throw new Error('Assign available work pattern and holiday templates to ' + employee.name);
+  const workPattern = Object.fromEntries([1, 2, 3, 4, 5].map(week => ['week' + week + 'OffDays', json(pattern['week' + week + 'OffDays'], [])]));
+  const nonWorkingPaidDates = buildNonWorkingPaidDateSet({ monthStartIso: monthStart, monthEndIso: calendarEnd, workPattern, holidayDates });
+  const scheduledWorkingDays = calendarMonthDays - nonWorkingPaidDates.size;
+  const finalized = [...attendanceByDate.values()].filter(isFinalizedAttendanceLog).map((log: any) => ({ ...log, status: log.status === "Work From Home" ? "WFH" : log.status }));
+  const paidLeaves = approvedLeaves.filter((leave: any) => !["other", "permission"].includes(String(leave.leaveType).toLowerCase())).map((leave: any) => ({ ...leave, fromSession: String(leave.fromSession), toSession: String(leave.toSession) }));
+  const pendingAttendanceDates = new Set<string>(attendance.filter((log: any) => log.approvalStatus === "Pending" || (!isFinalizedAttendanceLog(log) && log.approvalStatus !== "Rejected")).map((log: any) => log.attendanceDate));
+  const calendarInput = { employmentStartIso: start, employmentEndIso: end, nonWorkingPaidDates, approvedLeaves: paidLeaves, attendanceLogs: finalized, pendingAttendanceDates };
+  const payableDays = calculatePayableWorkingDays(calendarInput);
+  const paidLeaveDays = calculateLeaveWorkingDays(calendarInput);
+  const absentDays = calculateAbsentWorkingDays(calendarInput);
+  const pendingApprovalDays = calculatePendingApprovalWorkingDays(calendarInput);
+  const presentDays = finalized.filter((log: any) => log.status === "Present").length;
+  const lateDays = finalized.filter((log: any) => log.status === "Late").length;
+  const halfDays = finalized.filter((log: any) => log.status === "Half Day").length * 0.5;
+  const workedDays = finalized.reduce((sum: number, log: any) => sum + (["Present", "Late", "Remote", "WFH"].includes(log.status) ? 1 : 0), 0);
+  const employmentEnd = employee.exitDate && employee.exitDate < calendarEnd ? employee.exitDate : calendarEnd;
+  const holidayDays = daysBetween(start, employmentEnd).filter(date => holidayDates.has(date)).length;
+  const weekOffDays = daysBetween(start, employmentEnd).filter(date => nonWorkingPaidDates.has(date) && !holidayDates.has(date)).length;
+  const hoursWorked = finalized.reduce((sum: number, log: any) => sum + (log.checkInTime && log.checkOutTime ? Math.max(0, clock(log.checkOutTime) - clock(log.checkInTime)) / 60 : 0), 0);
+  const elapsedScheduledWorkingDays = countScheduledWorkingDaysInRange({ rangeStartIso: start, rangeEndIso: end, nonWorkingPaidDates });
+  const fixedComponentValues = json(employee.fixedComponentValues, {});
+  const monthlyCtc = Math.max(0, Number(employee.baseSalary || 0) || Number(employee.annualCtc || 0) / 12);
+  const ratio = scheduledWorkingDays <= 0 ? 1 : Math.max(0, Math.min(1, payableDays / scheduledWorkingDays));
+  const history = json(employee.statutoryContributionHistory, []).filter((entry: any) => entry.effectiveFromMonth <= payrollMonth).sort((a: any, b: any) => a.effectiveFromMonth.localeCompare(b.effectiveFromMonth));
+  const statutoryConfig = history.length ? history[history.length - 1].settings : json(employee.statutoryContributions, {});
+  const statutoryResult = calculateStatutorySalary({ templateComponents: configured, baseSalary: monthlyCtc, fixedComponentValues, earnedRatio: ratio, payableDays, year, month: monthNumber, employee: { ...employee, esiEligibilityPeriods: json(employee.esiEligibilityPeriods, {}) }, statutoryConfig, rates: json(organization?.statutoryPayroll, {}) });
+  const statutoryContributions = statutoryResult.statutoryContributions;
+  if (statutoryConfig.esiEnabled) await db.update(employeesTable).set({ esiEligibilityPeriods: JSON.stringify({ ...json(employee.esiEligibilityPeriods, {}), [statutoryContributions.esiContributionPeriod]: statutoryContributions.esiEligibleForPeriod }) }).where(and(eq(employeesTable.id, employee.id), eq(employeesTable.organizationId, req.pay.org)));
+  const components = statutoryResult.components.map((component, index) => ({ ...component, componentName: component.name, componentType: ["pf", "esi", "pt", "tds"].includes(component.componentId.toLowerCase()) ? "Deduction" : "Earning", displayOrder: index + 1 }));
   const monthClaims = claims.filter(
       (r: any) =>
         r.status === "Approved" &&
-        String(
-          r.payrollMonth || r.attendanceDate || r.approvedAt || r.createdAt,
-        ).slice(0, 7) === payrollMonth,
+        String(r.attendanceDate || (r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : "")) >= monthStart &&
+        String(r.attendanceDate || (r.createdAt ? new Date(r.createdAt).toISOString().slice(0, 10) : "")) <= periodEnd,
     ),
     sumClaims = (types: string[]) =>
       round(
@@ -344,26 +267,32 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       ),
     overtimeAmount = sumClaims(["overtime"]),
     claimsAmount = sumClaims(["reimbursement", "allowance"]),
-    bonusAmount = sumClaims(["bonus"]),
+    bonusAmount = 0,
     monthDeductions = deductions.filter(
       (r: any) =>
         r.status === "Approved" && r.year === year && r.month === month,
     ),
     lopRows = monthDeductions.filter(
       (r: any) =>
-        String(r.autoReason || "")
+        String(r.source || "").toLowerCase() !== "manual" && (String(r.autoReason || "")
           .toLowerCase()
           .includes("absent") ||
         String(r.autoReason || "")
           .toLowerCase()
-          .includes("half day"),
+          .includes("half day") ||
+        String(r.autoReason || "")
+          .toLowerCase()
+          .includes("other leave")),
     ),
-    lopAmount = round(
-      lopRows.reduce((n: number, r: any) => n + Number(r.amount || 0), 0),
-    ),
+    // LOP is already reflected by prorating earnings. Derive the displayed
+    // amount from that same calculation, including absences without a log.
+    lopAmount = calculateLopAmountFromPayableDays(monthlyCtc, scheduledWorkingDays, elapsedScheduledWorkingDays, payableDays),
+    lateRows = monthDeductions.filter((r: any) => !lopRows.includes(r) && (r.source === "attendance_auto_deduction" || r.source === "Auto")),
+    lateFines = round(lateRows.reduce((n: number, r: any) => n + Number(r.amount || 0), 0)),
+    otherDeductionItems = monthDeductions.filter((r: any) => !lopRows.includes(r) && !lateRows.includes(r)).map((r: any) => ({ deductionId: r.id, name: r.deductionName || r.notes || "Other Deduction", amount: Number(r.amount), isRecurring: Boolean(r.isRecurring), installmentNumber: r.installmentNumber || null, numberOfInstallments: r.numberOfInstallments || null })),
     otherDeductionsAmount = round(
       monthDeductions
-        .filter((r: any) => !lopRows.includes(r))
+        .filter((r: any) => !lopRows.includes(r) && !lateRows.includes(r))
         .reduce((n: number, r: any) => n + Number(r.amount || 0), 0),
     ),
     salaryTemplateDeductions = round(
@@ -379,14 +308,16 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
     grossPay = round(
       earnedBaseSalary + overtimeAmount + claimsAmount + bonusAmount,
     ),
-    totalDeductions = round(salaryTemplateDeductions + otherDeductionsAmount),
-    netPay = round(Math.max(0, grossPay - totalDeductions)),
+    totalDeductions = round(salaryTemplateDeductions + statutoryContributions.employeeContributionTotal + otherDeductionsAmount + lateFines),
+    netPay = round(grossPay - totalDeductions),
     attendanceSummary = {
       presentDays,
       lateDays,
       absentDays,
       halfDays,
-      workedDays: presentDays,
+      workedDays,
+      scheduledWorkingDays,
+      pendingApprovalDays,
       payableDays,
       paidLeaveDays,
       weekOffDays,
@@ -397,6 +328,8 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       lopAmount,
       otherDeductionsAmount,
       salaryTemplateDeductions,
+      lateFines,
+      statutoryContributions,
       totalDeductions,
     };
   const values = {
@@ -409,7 +342,11 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       workLocation: employee.location,
       location: employee.location,
       salaryTemplateId: salaryTemplate?.id || null,
-      salaryTemplateName: salaryTemplate?.templateName || "System fallback",
+      salaryTemplateName: snapshot.templateName || salaryTemplate.templateName,
+      templateSnapshot: JSON.stringify({ templateName: snapshot.templateName || salaryTemplate.templateName, components: configured }),
+      statutoryContributions: JSON.stringify({ ...statutoryContributions, totalEmployerCost: round(statutoryContributions.totalEmployerCost + overtimeAmount + claimsAmount) }),
+      lateFines: String(lateFines),
+      otherDeductionItems: JSON.stringify(otherDeductionItems),
       salaryComponents: JSON.stringify(components),
       salaryTemplateComponents: JSON.stringify(
         components.map((component: any) => ({
@@ -439,17 +376,17 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       accountNumber: employee.accountNumber,
       joinDate: employee.joinDate,
       employmentWindowStart: start,
-      employmentWindowEnd: end,
+      employmentWindowEnd: employmentEnd,
       calendarMonthDays,
       monthDays: calendarMonthDays,
       employmentDays: daysBetween(start, end).length,
       presentDays: String(presentDays),
       lateDays: String(lateDays),
-      lateDaysDeductionApplied: "0",
-      lateDaysDeductionRejected: "0",
+      lateDaysDeductionApplied: String(monthDeductions.filter((r: any) => r.source === "attendance_auto_deduction" && !lopRows.includes(r)).length),
+      lateDaysDeductionRejected: String(deductions.filter((r: any) => r.status === "Rejected" && r.year === year && r.month === month && r.source === "attendance_auto_deduction").length),
       absentDays: String(absentDays),
       halfDays: String(halfDays),
-      workedDays: String(presentDays),
+      workedDays: String(workedDays),
       payableDays: String(payableDays),
       leaveDays: String(paidLeaveDays),
       weekOffDays: String(weekOffDays),
@@ -513,13 +450,29 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
       .returning();
   return row;
 }
+export async function refreshAttendancePayroll(org: number, employeeId: number, month: string, user: any) {
+  const [employee] = await db.select().from(employeesTable).where(and(eq(employeesTable.id, employeeId), eq(employeesTable.organizationId, org)));
+  if (!employee) throw new Error("Employee not found");
+  const slip = await buildSlip({ pay: { org, user } }, employee, month);
+  const [payroll] = await db.select().from(payrollTable).where(and(eq(payrollTable.organizationId, org), eq(payrollTable.employeeId, employeeId), eq(payrollTable.payPeriod, month)));
+  const values = { employeeId, employeeName: employee.name, payPeriod: month, salarySlipId: slip.id, grossPay: slip.grossPay, deductions: slip.totalDeductions, netPay: slip.netPay, updatedAt: new Date() };
+  if (payroll && payroll.status !== "Paid") await db.update(payrollTable).set(values).where(and(eq(payrollTable.id, payroll.id), eq(payrollTable.status, payroll.status)));
+  else if (!payroll) await db.insert(payrollTable).values({ ...values, organizationId: org, status: "Processing" });
+}
 const decode = (r: any) => ({
   ...r,
+  statutoryContributions: json(r.statutoryContributions, {}),
+  otherDeductionItems: json(r.otherDeductionItems, []),
   salaryComponents: json(r.salaryComponents, []),
   salaryTemplateComponents: json(r.salaryTemplateComponents, []),
   employeeDetails: json(r.employeeDetails, {}),
   attendanceSummary: json(r.attendanceSummary, {}),
   deductionSummary: json(r.deductionSummary, {}),
+});
+router.get("/organization", async (req: any, res: any) => {
+  if (!need(req, res, "crewpay.salary_slip.view")) return;
+  const [org] = await db.select().from(organizationDetailsTable).where(eq(organizationDetailsTable.organizationId, req.pay.org));
+  return res.json({ companyName: org?.companyName || "VIDHAI SYSTEMS", address: org?.companyAddress || "", logoUrl: org?.logoUrl || "", gstin: org?.gstin || "" });
 });
 router.get("/salary-slips", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crewpay.salary_slip.view")) return;
@@ -596,7 +549,7 @@ router.post(
         Number(req.body.employeeId || 0) || undefined,
       ),
       results: any[] = [];
-    for (const employee of employees) {
+    for (const employee of employees.filter((e: any) => !e.isSystemGenerated && !e.systemKey && ["Active", "On Leave"].includes(e.status))) {
       try {
         results.push({
           employeeId: employee.id,
@@ -613,7 +566,7 @@ router.post(
         });
       }
     }
-    if (!employees.length)
+    if (!results.length)
       return res.json({
         results: [],
         message: "No eligible Crew employees are available for this period",

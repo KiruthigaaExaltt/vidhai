@@ -1075,7 +1075,10 @@ export default function PurchaseOrdersPage() {
                   <Input
                     placeholder={FLEX_TEXT.vendorPhone2}
                     value={vendorPhone}
-                    onChange={(e) => setVendorPhone(e.target.value)}
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    onChange={(e) => setVendorPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                     className="h-9 text-xs bg-background"
                   />
                 </div>
@@ -1485,9 +1488,12 @@ export default function PurchaseOrdersPage() {
                         </Label>
                         <Input
                           value={sendMobileNumber}
+                          type="tel"
+                          inputMode="numeric"
+                          maxLength={10}
                           onChange={(event) =>
                             setSendMobileNumber(
-                              event.target.value.replace(/\D/g, ""),
+                              event.target.value.replace(/\D/g, "").slice(0, 10),
                             )
                           }
                           className="mt-1 h-9 text-xs"

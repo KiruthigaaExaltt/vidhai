@@ -155,7 +155,7 @@ const response = (row: any = {}) => ({
 router.get("/files/:folder/:file", async (req: any, res: any): Promise<any> => {
   const auth = await context(req, res);
   if (!auth) return;
-  if (!canRead(auth.permissions))
+  if (!canRead(auth.permissions) && !(req.params.folder === "logo" && canAny(auth.permissions, ["crewpay.salary_slip.view"])))
     return res
       .status(403)
       .json({ error: "Company Profile file access denied" });
@@ -239,7 +239,16 @@ router.put("/", async (req: any, res: any) => {
     );
     if (bankQr.newPath) newPaths.push(bankQr.newPath);
 
+    const statutoryPayroll = req.body?.statutoryPayroll ?? existing?.statutoryPayroll ?? {};
+    if (!statutoryPayroll || typeof statutoryPayroll !== "object" || Array.isArray(statutoryPayroll) || Object.values(statutoryPayroll).some(value => !Number.isFinite(Number(value)) || Number(value) < 0)) return res.status(400).json({ error: "Statutory rates must be non-negative numbers" });
+    const attendanceApprovalLevels = Number(req.body.attendanceApprovalLevels ?? existing?.attendanceApprovalLevels ?? 1);
+    if (!Number.isInteger(attendanceApprovalLevels) || attendanceApprovalLevels < 1 || attendanceApprovalLevels > 5) throw new Error("Attendance approval levels must be between 1 and 5");
+    new Intl.DateTimeFormat("en", { timeZone: String(req.body.timezone || "Asia/Kolkata") }).format();
     const data = {
+      attendanceApprovalLevels,
+      attendanceApprovalEnabled: req.body.attendanceApprovalEnabled ?? existing?.attendanceApprovalEnabled ?? true,
+      allowApprovalOverride: req.body.allowApprovalOverride ?? existing?.allowApprovalOverride ?? true,
+      statutoryPayroll,
       organizationId: auth.organizationId,
       logoUrl: logo.url,
       watermarkUrl: watermark.url,

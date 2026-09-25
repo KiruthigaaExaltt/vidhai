@@ -46,7 +46,7 @@ const request = async (path: string, options?: RequestInit) => {
   }
   return response.status === 204 ? null : response.json();
 };
-const isoToday = () => new Date().toLocaleDateString("en-CA");
+const isoToday = (timezone = "Asia/Kolkata") => new Date().toLocaleDateString("en-CA", { timeZone: timezone });
 const statusCode: Record<string, string> = {
   Present: "P",
   Late: "L",
@@ -58,6 +58,9 @@ const statusCode: Record<string, string> = {
   Remote: "R",
   WFH: "WFH",
   Future: "—",
+  "Not Employed": "—",
+  "Pending Approval": "PA",
+  "Punch Out Pending": "POP",
 };
 const statusTone: Record<string, string> = {
   Present: "border-emerald-300 bg-emerald-50 text-emerald-700",
@@ -102,25 +105,37 @@ export function AttendanceModule({
   refresh: () => Promise<void>;
   edit: (row: any) => void;
 }) {
+  const [timezone, setTimezone] = useState("Asia/Kolkata");
+  useEffect(() => { request("attendance/settings").then(data => setTimezone(data.timezone)).catch(() => {}); }, []);
   const { toast } = useToast(),
     own = employees.find(
       (employee) =>
         Number(employee.id) === Number(user?.employeeId) ||
+        Number(employee.userId) === Number(user?.id) ||
         (user?.email &&
           String(employee.email || "").trim().toLowerCase() ===
             String(user.email).trim().toLowerCase()),
     ),
-    today = isoToday(),
+    today = isoToday(timezone),
     todayRecord = logs.find(
       (log) =>
         Number(log.employeeId) === Number(own?.id) &&
         log.attendanceDate === today,
     );
-  const mode = !todayRecord?.checkInTime
+  const mode = todayRecord?.approvalStatus === "Rejected" || !todayRecord?.checkInTime
     ? "punchIn"
     : todayRecord?.checkOutTime
       ? "completed"
       : "punchOut";
+  const [review, setReview] = useState<any>(null);
+  const [reviewDecision, setReviewDecision] = useState<"Approved" | "Rejected">("Approved");
+  const [reviewRemarks, setReviewRemarks] = useState("");
+  const [reviewIn, setReviewIn] = useState("");
+  const [reviewOut, setReviewOut] = useState("");
+  const [reviewFine, setReviewFine] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [correcting, setCorrecting] = useState<any>(null);
+  const [correctionTime, setCorrectionTime] = useState("");
   const [dialog, setDialog] = useState(false),
     [photo, setPhoto] = useState(""),
     [location, setLocation] = useState<any>(null),
@@ -273,9 +288,11 @@ export function AttendanceModule({
       });
       return;
     }
-    // Camera evidence is optional during QA. Keep any captured image, but do
-    // not block a punch when a camera is unavailable or intentionally skipped.
-    const evidencePhoto = photo || undefined;
+    if (!photo) {
+      toast({ title: "Camera photo required", description: "Capture your photo before confirming attendance.", variant: "destructive" });
+      return;
+    }
+    const evidencePhoto = photo;
     setBusy(true);
     try {
       if (mode === "punchOut")
@@ -303,7 +320,7 @@ export function AttendanceModule({
       await refresh();
       toast({
         title:
-          mode === "punchOut" ? "Punch out completed" : "Punch in completed",
+          mode === "punchOut" ? "Punch out submitted for approval" : "Punch in recorded",
       });
     } catch (error: any) {
       toast({
@@ -315,18 +332,32 @@ export function AttendanceModule({
       setBusy(false);
     }
   };
-  const approveAttendance = async (record: any) => {
+  const approveAttendance = (record: any, decision: "Approved" | "Rejected" = "Approved") => {
+    setReview(record); setReviewDecision(decision); setReviewRemarks("");
+    setReviewIn(record.checkInTime || ""); setReviewOut(record.checkOutTime || ""); setReviewFine("");
+  };
+  const submitReview = async () => {
+    setReviewBusy(true);
     try {
-      await request(`attendance/${record.id}/approval`, {
-        method: "PATCH",
-        body: JSON.stringify({ decision: "Approved" }),
-      });
-      toast({ title: "Attendance approved" });
-      setDetails(null);
-      await refresh();
-    } catch (error: any) {
-      toast({ title: "Unable to approve attendance", description: error.message, variant: "destructive" });
-    }
+      const overrides: any = {};
+      if (reviewDecision === "Approved") {
+        if (reviewIn !== review.checkInTime) overrides.checkInTime = reviewIn;
+        if (reviewOut !== review.checkOutTime) overrides.checkOutTime = reviewOut;
+        if (reviewFine !== "") overrides.lateFineAmount = Number(reviewFine);
+      }
+      const result = await request("attendance/" + review.id + "/approval", { method: "PATCH", body: JSON.stringify({ decision: reviewDecision, remarks: reviewRemarks, overrides }) });
+      toast({ title: result.approvalStatus === "Pending" ? "Approved; awaiting L" + result.currentLevel : "Attendance " + result.approvalStatus.toLowerCase(), description: result.payrollRefreshWarning ? "Attendance saved. Payroll refresh failed: " + result.payrollRefreshWarning : undefined });
+      setReview(null); setDetails(null); await refresh();
+    } catch (error: any) { toast({ title: "Unable to review attendance", description: error.message, variant: "destructive" }); }
+    finally { setReviewBusy(false); }
+  };
+  const submitCorrection = async () => {
+    setReviewBusy(true);
+    try {
+      await request("attendance/" + correcting.id + "/punch-out-edit", { method: "PATCH", body: JSON.stringify({ checkOutTime: correctionTime }) });
+      setCorrecting(null); setDetails(null); await refresh(); toast({ title: "Punch-out corrected" });
+    } catch (error: any) { toast({ title: "Unable to correct punch-out", description: error.message, variant: "destructive" }); }
+    finally { setReviewBusy(false); }
   };
   const filtered = useMemo(
     () =>
@@ -370,10 +401,10 @@ export function AttendanceModule({
           <div className="mt-4 flex gap-2">
             {mode === "completed" ? (
               <div className="flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700">
-                Attendance completed today
+                {todayRecord?.approvalStatus === "Pending" ? "Attendance submitted for approval" : "Attendance completed today"}
               </div>
             ) : (
-              <Button disabled={!own} onClick={() => void openPunch()}>
+              <Button disabled={!own || ["Holiday", "Week Off", "Not Employed"].includes(todayRecord?.status)} onClick={() => void openPunch()}>
                 {mode === "punchOut" ? "Punch Out" : "Punch In"}
               </Button>
             )}
@@ -442,7 +473,7 @@ export function AttendanceModule({
                       {log.employeeName}
                     </td>
                     <td className="px-4 py-3">{log.attendanceDate}</td>
-                    <td className="px-4 py-3">{log.status}{log.approvalStatus === "Pending" ? " (Pending approval)" : ""}</td>
+                    <td className="px-4 py-3">{log.status}{log.approvalStatus === "Pending" ? ` (L${log.currentLevel || 1})` : ""}</td>
                     <td className="px-4 py-3">{formatTimeTo12h(log.checkInTime) || "—"}</td>
                     <td className="px-4 py-3">{formatTimeTo12h(log.checkOutTime) || "—"}</td>
                     <td className="px-4 py-3">
@@ -462,9 +493,11 @@ export function AttendanceModule({
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {can("crew.attendance.approve") && log.locked && log.approvalStatus !== "Approved" && !log.derived && (
+                        {log.canApprove && (
                           <Button size="sm" variant="outline" onClick={() => void approveAttendance(log)}>Approve</Button>
                         )}
+                        {log.canReject && <Button size="sm" variant="outline" onClick={() => approveAttendance(log, "Rejected")}>Reject</Button>}
+                        {log.canEditPunchOut && <Button size="sm" variant="outline" onClick={() => { setCorrecting(log); setCorrectionTime(log.checkOutTime); }}>Correct punch-out</Button>}
                         {can("crew.attendance.update") &&
                           ((!log.locked && !log.derived) ||
                             can("crew.attendance.change_time")) && (
@@ -723,7 +756,11 @@ export function AttendanceModule({
                 <p><span className="text-muted-foreground">Employee:</span> {details.employeeName}</p>
                 <p><span className="text-muted-foreground">Date:</span> {details.attendanceDate}</p>
                 <p><span className="text-muted-foreground">Status:</span> {details.status}</p>
-                <p><span className="text-muted-foreground">Approval:</span> {details.approvalStatus || "Pending"}</p>
+                <p><span className="text-muted-foreground">Approval:</span> {details.approvalStatus || "Pending"}{details.approvalStatus === "Pending" ? " · L" + (details.currentLevel || 1) : ""}</p>
+                {details.rejectionRemarks && <p className="text-destructive">Rejection reason: {details.rejectionRemarks}</p>}
+                {Array.isArray(details.approvalChain) && details.approvalChain.length > 0 && <p className="md:col-span-2">Approvers: {details.approvalChain.map((l: any) => "L" + l.level + ": " + l.employeeName).join(" → ")}</p>}
+                {details.approvalHistory?.map?.((entry: any, index: number) => <p className="md:col-span-2 text-sm" key={index}>L{entry.level} · {entry.action} · {entry.actorName} · {new Date(entry.at).toLocaleString()} {entry.remarks && "— " + entry.remarks}</p>)}
+                {details.lateFinePreview && <p>Calculated fine: INR {Number(details.lateFinePreview.amount).toFixed(2)} ({details.lateFinePreview.totalDeductionMinutes} minutes)</p>}
                 <p><span className="text-muted-foreground">Record:</span> {details.locked ? "Locked" : "Open"}</p>
                 <p><span className="text-muted-foreground">Punch in:</span> {formatTimeTo12h(details.checkInTime) || "—"}</p>
                 <p><span className="text-muted-foreground">Punch out:</span> {formatTimeTo12h(details.checkOutTime) || "—"}</p>
@@ -746,12 +783,30 @@ export function AttendanceModule({
                 <Pencil className="mr-2 h-4 w-4" /> Edit / Override
               </Button>
             )}
-            {details && can("crew.attendance.approve") && details.locked && details.approvalStatus !== "Approved" && !details.derived && (
+            {details?.canApprove && (
               <Button variant="outline" onClick={() => void approveAttendance(details)}>Approve</Button>
             )}
+            {details?.canReject && <Button variant="outline" onClick={() => approveAttendance(details, "Rejected")}>Reject</Button>}
             <Button onClick={() => setDetails(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(review)} onOpenChange={open => { if (!open && !reviewBusy) setReview(null); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader><DialogTitle>{reviewDecision === "Approved" ? "Approve" : "Reject"} attendance · L{review?.currentLevel || 1}</DialogTitle></DialogHeader>
+          <p>{review?.employeeName} · {review?.attendanceDate}</p>
+          {reviewDecision === "Approved" && <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Both punches are reviewed together. Time and fine corrections take effect on final approval.</p>
+            <div className="grid grid-cols-2 gap-3"><label className="text-sm">Punch in<Input type="time" value={reviewIn} onChange={e => setReviewIn(e.target.value)} /></label><label className="text-sm">Punch out<Input type="time" value={reviewOut} onChange={e => setReviewOut(e.target.value)} /></label></div>
+            <p className="text-sm">Calculated fine: INR {Number(review?.lateFinePreview?.amount || 0).toFixed(2)} · {review?.lateFinePreview?.totalDeductionMinutes || 0} minutes</p>
+            <label className="block text-sm">Fine override (optional)<Input type="number" min="0" step="0.01" placeholder="Use calculated fine" value={reviewFine} onChange={e => setReviewFine(e.target.value)} /></label>
+          </div>}
+          <label className="text-sm">{reviewDecision === "Rejected" ? "Rejection reason (required)" : "Remarks"}<Input value={reviewRemarks} onChange={e => setReviewRemarks(e.target.value)} /></label>
+          <DialogFooter><Button variant="outline" disabled={reviewBusy} onClick={() => setReview(null)}>Cancel</Button><Button disabled={reviewBusy || reviewDecision === "Rejected" && !reviewRemarks.trim()} onClick={() => void submitReview()}>{reviewBusy ? "Saving…" : reviewDecision === "Approved" ? "Approve" : "Reject"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(correcting)} onOpenChange={open => { if (!open && !reviewBusy) setCorrecting(null); }}>
+        <DialogContent><DialogHeader><DialogTitle>Correct punch-out</DialogTitle></DialogHeader><p className="text-sm">Available until the first approver acts. The original captured evidence stays in the audit history.</p><Input aria-label="Corrected punch-out time" type="time" value={correctionTime} onChange={e => setCorrectionTime(e.target.value)} /><DialogFooter><Button disabled={reviewBusy || !correctionTime} onClick={() => void submitCorrection()}>Save correction</Button></DialogFooter></DialogContent>
       </Dialog>
       <Dialog
         open={dialog}
@@ -854,8 +909,8 @@ export function AttendanceModule({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Camera photo is optional for testing. Current location is still
-              required for attendance.
+              Capture your camera photo and allow current location access to
+              confirm attendance. Both are required.
             </p>
           </div>
           <DialogFooter>
@@ -863,7 +918,7 @@ export function AttendanceModule({
               Cancel
             </Button>
             <Button
-              disabled={busy || resolvingAddress || !location}
+              disabled={busy || resolvingAddress || !location || !photo}
               onClick={() => void confirm()}
             >
               {busy ? (
@@ -871,7 +926,7 @@ export function AttendanceModule({
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  {photo ? "Confirm" : "Confirm without photo"}{" "}
+                  Confirm{" "}
                   {mode === "punchOut" ? "Punch Out" : "Punch In"}
                 </>
               )}
@@ -901,4 +956,3 @@ function EvidencePhoto({ label, src }: { label: string; src?: string | null }) {
     </div>
   );
 }
-

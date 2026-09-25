@@ -609,8 +609,11 @@ export default function Profile() {
                 <Label htmlFor="phoneNumber">Phone Number</Label>
                 <Input
                   id="phoneNumber"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
                   placeholder="+91 XXXXX XXXXX"
                   className="rounded-md font-mono"
                 />

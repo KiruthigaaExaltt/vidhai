@@ -72,6 +72,11 @@ const FLEX_API_MESSAGES = {
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId || !req.authUser)
     return res.status(401).json({ error: "Authentication required" });
+  if (req.body?.vendorPhone !== undefined && req.body.vendorPhone !== "") {
+    const digits = String(req.body.vendorPhone).replace(/\D/g, "");
+    if (digits.length !== 10) return res.status(400).json({ error: "Vendor phone must contain exactly 10 digits" });
+    req.body.vendorPhone = digits;
+  }
   return next();
 }
 

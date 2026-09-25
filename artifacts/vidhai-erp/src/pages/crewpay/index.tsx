@@ -1,3 +1,6 @@
+import { pdf } from "@react-pdf/renderer";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import SalarySlipPdf from "./SalarySlipPdf";
 import { useEffect, useMemo, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import {
@@ -49,6 +52,7 @@ export default function CrewPay() {
     { can } = useAuth(),
     { toast } = useToast(),
     [period, setPeriod] = useState(now.toISOString().slice(0, 7)),
+    [tab, setTab] = useState(can("crewpay.salary_slip.view") ? "slips" : "payroll"),
     [slips, setSlips] = useState<any[]>([]),
     [payroll, setPayroll] = useState<any[]>([]),
     [loading, setLoading] = useState(true),
@@ -62,7 +66,10 @@ export default function CrewPay() {
     [serverTotals, setServerTotals] = useState({ gross: 0, deductions: 0, net: 0 }),
     [departmentOptions, setDepartmentOptions] = useState<string[]>([]),
     [selected, setSelected] = useState<any>(null);
+  const [pdfPreview, setPdfPreview] = useState<{ url: string; name: string } | null>(null);
+  useEffect(() => () => { if (pdfPreview) URL.revokeObjectURL(pdfPreview.url); }, [pdfPreview]);
   const load = async () => {
+    if (tab !== "slips" || !can("crewpay.salary_slip.view")) return;
     setLoading(true);
     try {
       const params = new URLSearchParams({ payrollMonth: period, search, department, status, skip: String((currentPage - 1) * pageSize), limit: String(pageSize) });
@@ -84,7 +91,7 @@ export default function CrewPay() {
   };
   useEffect(() => {
     void load();
-  }, [period, search, department, status, currentPage, pageSize]);
+  }, [tab, period, search, department, status, currentPage, pageSize]);
   const generate = async (employeeId?: number) => {
     setBusy(true);
     try {
@@ -103,10 +110,14 @@ export default function CrewPay() {
         description:
           result.message ||
           (failed.length
-            ? String(failed.length) + " employee(s) could not be generated."
+            ? failed.map((item: any) => `${item.employeeName}: ${item.error}`).join("; ")
             : monthName(period)),
       });
       await load();
+      if (employeeId) {
+        const regenerated = result.results?.find((item: any) => item.success && Number(item.employeeId) === Number(employeeId));
+        if (regenerated?.slip) setSelected(regenerated.slip);
+      }
     } catch (error: any) {
       toast({
         title: "Unable to generate salary slips",
@@ -117,6 +128,15 @@ export default function CrewPay() {
       setBusy(false);
     }
   };
+  const showPdf = async (download = true) => {
+                try {
+                  const org = await api("organization");
+                  const blob = await pdf(<SalarySlipPdf slip={selected} organization={org} />).toBlob();
+                  const url = URL.createObjectURL(blob);
+                  if (!download) { setPdfPreview({ url, name: `${String(selected.employeeName).replace(/[^a-z0-9]/gi, "-")}-${selected.payrollMonth}.pdf` }); return; }
+                  const link = document.createElement("a"); link.href = url; link.download = `${String(selected.employeeName).replace(/[^a-z0-9]/gi, "-")}-${selected.payrollMonth}.pdf`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } catch (error: any) { toast({ title: "Unable to download PDF", description: error.message, variant: "destructive" }); }
+  };
   const payrollByEmployee = new Map(
       payroll.map((row) => [Number(row.employeeId), row]),
     ),
@@ -124,22 +144,23 @@ export default function CrewPay() {
     totals = serverTotals;
   return (
     <Shell>
+      <Dialog open={!!pdfPreview} onOpenChange={open => { if (!open) setPdfPreview(null); }}><DialogContent className="max-w-5xl"><DialogHeader><DialogTitle>Salary slip preview</DialogTitle></DialogHeader>{pdfPreview && <><iframe title="Salary slip PDF" src={pdfPreview.url} className="h-[70vh] w-full" /><a href={pdfPreview.url} download={pdfPreview.name} className="text-primary underline">Download PDF</a></>}</DialogContent></Dialog>
       <div className="min-w-0 flex-1 bg-muted/20">
         <div className="border-b bg-background px-4 sm:px-6">
           <nav className="flex gap-2 overflow-x-auto py-2">
-            <Tab active onClick={() => setSelected(null)} icon={FileText}>
-              Salary Slips
-            </Tab>
+            {can("crewpay.salary_slip.view") && <Tab active={tab === "slips"} onClick={() => { setSelected(null); setTab("slips"); }} icon={FileText}>Salary Slips</Tab>}
+            {can("crewpay.payroll.view") && <Tab active={tab === "payroll"} onClick={() => { setSelected(null); setTab("payroll"); }} icon={Banknote}>Payroll</Tab>}
           </nav>
         </div>
         <main className="space-y-6 p-4 sm:p-6">
-          {selected ? (
+          {tab === "payroll" ? <PayrollPanel period={period} setPeriod={setPeriod} /> : selected ? (
             <SalaryDetail
               slip={selected}
               busy={busy}
               back={() => setSelected(null)}
               regenerate={() => void generate(selected.employeeId)}
-              print={() => window.print()}
+              print={() => void showPdf()}
+              preview={() => void showPdf(false)}
             />
           ) : (
             <>
@@ -152,7 +173,7 @@ export default function CrewPay() {
                     className="w-full bg-card sm:w-40"
                     type="month"
                     value={period}
-                    onChange={(e) => setPeriod(e.target.value)}
+                    onChange={(e) => { setPeriod(e.target.value); setCurrentPage(1); }}
                   />
                   {can("crewpay.salary_slip.create") && (
                     <Button disabled={busy} onClick={() => void generate()}>
@@ -184,7 +205,7 @@ export default function CrewPay() {
                   icon={ShieldCheck}
                   label="Access"
                   value={
-                    can("crewpay.salary_slip.forOthers")
+                    can("crewpay.salary_slip.for_others")
                       ? "Generate and review"
                       : "My salary"
                   }
@@ -372,7 +393,8 @@ function Badge({ value }: any) {
     </span>
   );
 }
-function SalaryDetail({ slip, busy, back, regenerate, print }: any) {
+function SalaryDetail({ slip, busy, back, regenerate, print, preview }: any) {
+  const { can } = useAuth();
   const a = slip.attendanceSummary || {},
     d = slip.deductionSummary || {},
     earnings = [
@@ -381,13 +403,17 @@ function SalaryDetail({ slip, busy, back, regenerate, print }: any) {
         .map((c: any) => [c.componentName, c.earnedAmount]),
       ["Overtime", slip.overtimeAmount],
       ["Claims / Reimbursement", slip.claimsAmount],
-      ["Bonus", slip.bonusAmount],
+
     ],
     deductions = [
       ...(slip.salaryComponents || [])
         .filter((c: any) => c.componentType === "Deduction")
         .map((c: any) => [c.componentName, c.earnedAmount]),
-      ["Other Deductions", d.otherDeductionsAmount],
+      ["Employee PF", slip.statutoryContributions?.employeePf],
+      ["Employee VPF", slip.statutoryContributions?.employeeVpf],
+      ["Employee ESI", slip.statutoryContributions?.employeeEsi],
+      ["Late fines", slip.lateFines],
+      ...(slip.otherDeductionItems?.length ? slip.otherDeductionItems.map((item: any) => [item.name, item.amount]) : [["Other Deductions", d.otherDeductionsAmount]]),
     ];
   return (
     <div className="space-y-6">
@@ -407,9 +433,10 @@ function SalaryDetail({ slip, busy, back, regenerate, print }: any) {
           {monthName(slip.payrollMonth)}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" disabled={busy} onClick={regenerate}>
+          {can("crewpay.salary_slip.create") && <Button variant="outline" disabled={busy || slip.payrollStatus === "Paid"} onClick={regenerate}>
             Regenerate Slip
-          </Button>
+          </Button>}
+          <Button variant="outline" onClick={preview}><Eye className="mr-2 h-4 w-4" />Preview</Button>
           <Button onClick={print}>
             <Download className="mr-2 h-4 w-4" />
             Download PDF
@@ -420,12 +447,17 @@ function SalaryDetail({ slip, busy, back, regenerate, print }: any) {
         <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-5">
           <Info
             label="Payable Days"
-            value={`${a.payableDays || 0} / ${slip.calendarMonthDays}`}
+            value={`${a.payableDays || 0} / ${a.scheduledWorkingDays ?? slip.calendarMonthDays}`}
           />
           <Info label="Present" value={a.presentDays || 0} />
           <Info label="Absent and LOP" value={a.absentDays || 0} />
           <Info label="Late Days" value={a.lateDays || 0} />
           <Info label="Leaves" value={a.paidLeaveDays || 0} />
+          <Info label="Pending approval" value={a.pendingApprovalDays || 0} />
+          <Info label="Half days" value={a.halfDays || 0} />
+          <Info label="Week offs" value={a.weekOffDays || 0} />
+          <Info label="Holidays" value={a.holidayDays || 0} />
+          <Info label="Hours worked" value={a.hoursWorked || 0} />
         </div>
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <div className="overflow-hidden rounded-xl border">
@@ -478,6 +510,7 @@ function SalaryDetail({ slip, busy, back, regenerate, print }: any) {
             </div>
           </div>
         </div>
+        {Number(slip.statutoryContributions?.employerContributionTotal || 0) > 0 && <div className="mt-6 rounded-lg border p-4"><h3 className="mb-3 font-semibold">Employer contributions (included in CTC)</h3><div className="grid gap-3 sm:grid-cols-4"><Info label="Employer PF" value={money(slip.statutoryContributions.employerPf)} /><Info label="Employer VPF" value={money(slip.statutoryContributions.employerVpf)} /><Info label="Employer ESI" value={money(slip.statutoryContributions.employerEsi)} /><Info label="Total employer cost" value={money(slip.statutoryContributions.totalEmployerCost)} /></div></div>}
         <div className="mt-6 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 p-6">
           <div>
             <p className="font-medium text-primary">Net Pay</p>
@@ -491,61 +524,6 @@ function SalaryDetail({ slip, busy, back, regenerate, print }: any) {
           </p>
         </div>
       </section>
-    </div>
-  );
-}
-function SalaryPreview({ slip }: any) {
-  const a = slip.attendanceSummary || {},
-    d = slip.deductionSummary || {};
-  return (
-    <div className="space-y-5 print:p-8">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold">VIDHAI SYSTEMS</h2>
-        <p>Salary Slip — {monthName(slip.payrollMonth)}</p>
-      </div>
-      <div className="grid gap-3 rounded-lg border p-4 text-sm sm:grid-cols-3">
-        <Info label="Employee" value={slip.employeeName} />
-        <Info label="Employee code" value={slip.employeeCode} />
-        <Info label="Department" value={slip.department} />
-        <Info label="Designation" value={slip.designation} />
-        <Info
-          label="Payable days"
-          value={`${a.payableDays}/${slip.calendarMonthDays}`}
-        />
-        <Info label="Hours worked" value={a.hoursWorked} />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Breakdown
-          title="Earnings"
-          rows={[
-            ...(slip.salaryComponents || [])
-              .filter((c: any) => c.componentType === "Earning")
-              .map((c: any) => [c.componentName, c.earnedAmount]),
-            ["Overtime", slip.overtimeAmount],
-            ["Claims / reimbursement", slip.claimsAmount],
-            ["Bonus", slip.bonusAmount],
-            ["Gross Pay", slip.grossPay],
-          ]}
-        />
-        <Breakdown
-          title="Deductions"
-          rows={[
-            ...(slip.salaryComponents || [])
-              .filter((c: any) => c.componentType === "Deduction")
-              .map((c: any) => [c.componentName, c.earnedAmount]),
-            ["Other deductions", d.otherDeductionsAmount],
-            ["LOP (information only)", d.lopAmount],
-            ["Total Deductions", slip.totalDeductions],
-          ]}
-        />
-      </div>
-      <div className="rounded-lg bg-primary/5 p-5 text-right">
-        <p className="text-sm text-muted-foreground">Net Pay</p>
-        <p className="text-3xl font-bold text-primary">{money(slip.netPay)}</p>
-      </div>
-      <p className="text-center text-xs text-muted-foreground">
-        Computer-generated salary slip
-      </p>
     </div>
   );
 }
@@ -572,4 +550,20 @@ function Breakdown({ title, rows }: any) {
       ))}
     </div>
   );
+}
+
+function PayrollPanel({ period, setPeriod }: { period: string; setPeriod: (value: string) => void }) {
+  const { can } = useAuth();
+  const { toast } = useToast();
+  const [rows, setRows] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const load = async () => { try { setRows(await api('payroll?payrollMonth=' + period)); } catch (error: any) { toast({ title: 'Unable to load payroll', description: error.message, variant: 'destructive' }); } };
+  useEffect(() => { void load(); }, [period]);
+  const advance = async (targetStatus: string, employeeId?: number) => {
+    setBusy(true);
+    try { await api('payroll/sync-to-ledger', { method: 'POST', body: JSON.stringify({ payrollMonth: period, targetStatus, employeeId }) }); await load(); toast({ title: 'Payroll updated' }); }
+    catch (error: any) { toast({ title: 'Unable to update payroll', description: error.message, variant: 'destructive' }); }
+    finally { setBusy(false); }
+  };
+  return <div className="space-y-5"><div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">Payroll</h1><div className="flex gap-2"><Input type="month" value={period} onChange={e => setPeriod(e.target.value)} />{can('crewpay.payroll.create') && <Button disabled={busy} onClick={() => void advance('Processing')}>Sync salary slips</Button>}</div></div><div className="overflow-x-auto rounded-xl border bg-card"><table className="w-full text-sm"><thead><tr>{['Employee', 'Gross pay', 'Deductions', 'Net pay', 'Status', 'Action'].map(label => <th key={label} className="p-3 text-left">{label}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id} className="border-t"><td className="p-3">{row.employeeName}</td><td className="p-3">{money(row.grossPay)}</td><td className="p-3">{money(row.deductions)}</td><td className="p-3">{money(row.netPay)}</td><td className="p-3"><Badge value={row.status} /></td><td className="p-3">{row.status !== 'Paid' && can('crewpay.payroll.update') && <Button size="sm" disabled={busy} onClick={() => void advance(row.status === 'Processing' ? 'Processed' : 'Paid', row.employeeId)}>{row.status === 'Processing' ? 'Mark processed' : 'Mark paid'}</Button>}</td></tr>)}{!rows.length && <tr><td colSpan={6} className="p-10 text-center text-muted-foreground">Generate salary slips, then sync them to payroll.</td></tr>}</tbody></table></div></div>;
 }

@@ -124,8 +124,8 @@ export function BonusModule({
         }),
       });
       toast({
-        title: "Bonus added to salary",
-        description: `Included in ${months[month - 1]} ${year} salary.`,
+        title: "Bonus recorded",
+        description: `Recorded for ${months[month - 1]} ${year}.`,
       });
       setAmount("");
       setNotes("");
@@ -270,8 +270,7 @@ export function BonusModule({
           </div>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          The bonus is added directly to the employee salary for the selected
-          month.
+          Bonuses are recorded separately for the selected month and excluded from salary-slip gross and net pay.
         </p>
       </section>
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
@@ -302,8 +301,7 @@ export function BonusModule({
                           (item) =>
                             Number(item.employeeId) === Number(employee.id),
                         )?.grossSalary ??
-                          Number(employee.baseSalary || 0) +
-                            (totals.get(Number(employee.id)) || 0),
+                          Number(employee.baseSalary || 0),
                       )}
                     </td>
                   </tr>
@@ -376,7 +374,7 @@ export function BonusModule({
                     </td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                        Added to Salary
+                        Recorded separately
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -429,7 +427,7 @@ export function BonusModule({
               <Detail label="Employee" value={selected.employeeName} />
               <Detail label="Amount" value={currency(selected.amount)} />
               <Detail label="Payroll month" value={selected.payrollMonth} />
-              <Detail label="Salary status" value="Added to Salary" />
+              <Detail label="Salary status" value="Recorded separately" />
               <div className="sm:col-span-2">
                 <Detail label="Notes" value={selected.notes || "No notes"} />
               </div>

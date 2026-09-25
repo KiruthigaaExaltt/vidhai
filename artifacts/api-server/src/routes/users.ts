@@ -187,6 +187,8 @@ router.patch("/me/profile", async (req, res) => {
       if (req.body[key] !== undefined)
         updates[key] = String(req.body[key]).trim() || null;
     }
+    if (updates.phoneNumber && !/^\d{10}$/.test(String(updates.phoneNumber)))
+      return res.status(400).json({ error: "Phone number must contain exactly 10 digits" });
     if (req.body.dob !== undefined) {
       const dob = String(req.body.dob).trim();
       const parsedDob = dob ? new Date(`${dob}T00:00:00.000Z`) : null;

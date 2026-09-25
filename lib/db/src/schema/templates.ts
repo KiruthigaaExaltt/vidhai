@@ -12,7 +12,7 @@ const common = () => ({
 
 export const attendanceTemplatesTable = mongoTable("attendance_templates", {
   ...common(), flexibleHours: boolean("flexible_hours").notNull().default(false),
-  // Retained only for old records; buffer minutes are now always applied.
+  // Matches Yugam: the grace window applies only when bufferTime is enabled.
   bufferTime: boolean("buffer_time").notNull().default(true),
   bufferMinutes: integer("buffer_minutes").notNull().default(15),
   totalWorkingHours: text("total_working_hours").notNull().default("8"),

@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { responseError, getErrorMessage } from "./errorMessage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useGetMe, User } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { restoreAccessToken, setAccessToken } from "./authTokens";
 interface AuthContextType {
   user: User | null;
@@ -43,6 +44,7 @@ const buildScopedPermissionKey = (
     [moduleKey, submoduleKey, action].filter(Boolean).join("."),
   );
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null),
     [loggedOut, setLoggedOut] = useState(false),
     [sessionRestored, setSessionRestored] = useState(false),
@@ -50,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [enabledModuleKeys, setEnabledModuleKeys] = useState<string[]>(["ledger"]),
     [isSuperAdmin, setIsSuperAdmin] = useState(false),
     [permissionsLoading, setPermissionsLoading] = useState(false);
-  const { data: meData, isLoading: meLoading, isError } = useGetMe({
+  const { data: meData, isLoading: meLoading, isError, error: meError } = useGetMe({
     query: { queryKey: ["/api/auth/me"], enabled: sessionRestored },
   });
   useEffect(() => {
@@ -80,8 +82,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
   useEffect(() => {
     if (meData && !isError) setUser(meData);
-    else if (isError) setUser(null);
-  }, [meData, isError]);
+    else if (isError && (meError as any)?.status === 401) setUser(null);
+  }, [meData, isError, meError]);
   useEffect(() => {
     const expired = () => logout();
     window.addEventListener("auth:expired", expired);
@@ -126,10 +128,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = (newUser: User, token?: string) => {
     if (token) setAccessToken(token);
     setLoggedOut(false);
+    queryClient.setQueryData(["/api/auth/me"], newUser);
     setUser(newUser);
   };
   const logout = () => {
     setAccessToken(null);
+    queryClient.setQueryData(["/api/auth/me"], null);
     setLoggedOut(true);
     setUser(null);
     setPermissions([]);
@@ -142,6 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     permissionsLoading ||
     (!loggedOut && !!meData && !isError && user === null);
   const can = (permission: string) =>
+    (permission === "crew.attendance.view" && Boolean((user as any)?.employeeId)) ||
     permissions.includes("*") ||
     permissions.includes(normalizePermission(permission));
   const isModuleEnabled = (moduleKey: string) =>

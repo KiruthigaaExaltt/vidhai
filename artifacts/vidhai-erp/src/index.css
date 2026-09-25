@@ -368,6 +368,63 @@ button:not(:disabled),
   background: hsl(173 72% 30%);
 }
 
+#salary-slip-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  /* The payslip is a direct body child, outside the scrolling app shell. */
+  body:has(> #salary-slip-print) > :not(#salary-slip-print) {
+    display: none !important;
+  }
+
+  html:has(#salary-slip-print),
+  body:has(> #salary-slip-print) {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  #salary-slip-print {
+    display: block !important;
+    width: 100%;
+    color: #111827;
+    background: white;
+    font-size: 10pt;
+    color-scheme: light;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  #salary-slip-print .text-muted-foreground {
+    color: #4b5563 !important;
+  }
+
+  #salary-slip-print .text-primary {
+    color: #0f766e !important;
+  }
+
+  #salary-slip-print .flex,
+  #salary-slip-print h2,
+  #salary-slip-print h3 {
+    break-inside: avoid;
+  }
+
+  #salary-slip-print b {
+    overflow-wrap: anywhere;
+  }
+
+  #salary-slip-print .flex b {
+    white-space: nowrap;
+    margin-left: 8px;
+  }
+}
+
 /* Custom clean autofill fix to prevent browser default blue tint */
 input:-webkit-autofill,
 input:-webkit-autofill:hover, 

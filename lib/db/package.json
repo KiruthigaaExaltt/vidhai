@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./payroll/salary": "./src/payroll/salary.ts",
+    "./payroll/calendar": "./src/payroll/calendar.ts"
   },
   "scripts": {
     "sync-indexes": "tsx ./src/sync-indexes.ts"

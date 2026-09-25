@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:crew": "node --require ./tsx-windows.cjs --import tsx ./test/crew-regressions.ts",
     "hello": "tsx ./src/hello.ts",
     "demo:data:seed": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.demo --import tsx ./src/mushroom-production-data.ts seed --confirm-production",
     "demo:data:clear": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env.demo --import tsx ./src/mushroom-production-data.ts clear --confirm-production",

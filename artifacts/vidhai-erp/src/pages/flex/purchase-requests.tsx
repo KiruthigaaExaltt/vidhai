@@ -2015,7 +2015,10 @@ export default function PurchaseRequestsPage() {
                     <Input
                       placeholder={FLEX_TEXT.phoneNumber}
                       value={vPhone}
-                      onChange={(e) => setVPhone(e.target.value)}
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      onChange={(e) => setVPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                       className="h-9 text-xs"
                       required
                     />

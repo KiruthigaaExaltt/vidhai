@@ -1129,7 +1129,10 @@ export default function PurchaseInvoices() {
                     <Input
                       placeholder=""
                       value={vendorPhone}
-                      onChange={(e) => setVendorPhone(e.target.value)}
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
+                      onChange={(e) => setVendorPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                       className="h-10 text-xs border-slate-200 rounded-lg"
                     />
                   </div>

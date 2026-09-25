@@ -1,3 +1,6 @@
+import { attendanceDisplayStatus, timeMinutes } from "../lib/attendanceRules";
+import { activeAttendanceChain, attendanceActor, attendanceCalendar, attendanceFinePreview, attendanceSettings, attendanceVersion, assertAttendanceMonthOpen, buildAttendanceChain, dateInZone, notifyAttendance, reviewAttendance, validateEmployeeApprovers } from "../lib/attendanceWorkflow";
+import { calculateSalaryTemplateComponents } from "@workspace/db/payroll/salary";
 import { Router } from "express";
 import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +34,7 @@ import {
   crewClaimsTable,
   crewDeductionsTable,
   crewAuditLogsTable,
+  payrollTable,
 } from "@workspace/db";
 import {
   effectivePermissions,
@@ -62,7 +66,7 @@ const attendanceLocation = (value: any) => {
   if (!parsed || typeof parsed !== "object") return null;
   const latitude = Number((parsed as any).latitude ?? (parsed as any).lat);
   const longitude = Number((parsed as any).longitude ?? (parsed as any).lng);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
   return { ...(parsed as any), latitude, longitude };
 };
 const iso = (v: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
@@ -113,6 +117,7 @@ async function context(req: any, res: any, next: any) {
     permissions: await effectivePermissions(user),
     org: Number(user.organizationId ?? 1),
   };
+  req.crew.attendanceSettings = await attendanceSettings(req.crew.org);
   next();
 }
 router.use(context);
@@ -329,6 +334,7 @@ router.get("/employees", async (req: any, res: any): Promise<any> => {
   if (!allowedScopes.has(requestedScope))
     return res.status(400).json({ error: "Invalid Crew employee scope" });
   if (
+    requestedScope !== "attendance" &&
     !can(req, `crew.${requestedScope}.view`) &&
     !can(req, `crew.${requestedScope}.create`) &&
     !can(req, `crew.${requestedScope}.update`)
@@ -636,6 +642,8 @@ router.post(
         .select()
         .from(employeesTable)
         .where(eq(employeesTable.organizationId, org));
+      v.approvalChain = JSON.stringify(await validateEmployeeApprovers(b.approvalChain || [], 0, org));
+      v.canApproveOwnAttendance = b.canApproveOwnAttendance === true;
       const rows = allRows.filter((x: any) => !x.isDeleted);
       if (
         rows.some(
@@ -832,6 +840,50 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
       .json({ error: "Protected employee cannot be edited" });
   try {
     const b = { ...req.body };
+    if (b.approvalChain !== undefined) b.approvalChain = JSON.stringify(await validateEmployeeApprovers(b.approvalChain, Number(old.id), req.crew.org));
+    if (b.canApproveOwnAttendance !== undefined) b.canApproveOwnAttendance = b.canApproveOwnAttendance === true;
+    for (const key of ["phone", "alternatePhone", "emergencyContactPhone"])
+      if (b[key] !== undefined && b[key] !== null && b[key] !== "") {
+        const normalized = phone(b[key]);
+        if (normalized.length !== 10) return res.status(400).json({ error: "Phone numbers must contain exactly 10 digits" });
+        b[key] = normalized;
+      }
+    if (b.email !== undefined && b.email && !emailPattern.test(String(b.email)))
+      return res.status(400).json({ error: "A valid email is required" });
+    for (const key of ["annualCtc", "baseSalary"])
+      if (b[key] !== undefined && (!Number.isFinite(Number(b[key])) || Number(b[key]) < 0))
+        return res.status(400).json({ error: `${key} must be a non-negative number` });
+    if (b.salaryTemplateId !== undefined) {
+      const [template] = await db.select().from(salaryTemplatesTable).where(and(eq(salaryTemplatesTable.id, Number(b.salaryTemplateId)), eq(salaryTemplatesTable.organizationId, req.crew.org)));
+      if (!template || template.isActive === false) return res.status(400).json({ error: "Select an active salary template" });
+    }
+    if (b.fixedComponentValues !== undefined &&
+        (!b.fixedComponentValues || typeof b.fixedComponentValues !== "object" || Array.isArray(b.fixedComponentValues) ||
+          Object.values(b.fixedComponentValues).some((value) => value === "" || value == null || !Number.isFinite(Number(value)) || Number(value) < 0)))
+      return res.status(400).json({ error: "Fixed salary amounts must be non-negative numbers" });
+    if (b.salaryTemplateId !== undefined || b.fixedComponentValues !== undefined || b.baseSalary !== undefined || b.annualCtc !== undefined) {
+      const [salaryTemplate] = await db.select().from(salaryTemplatesTable).where(and(eq(salaryTemplatesTable.id, Number(b.salaryTemplateId ?? old.salaryTemplateId)), eq(salaryTemplatesTable.organizationId, req.crew.org)));
+      if (!salaryTemplate || salaryTemplate.isActive === false) return res.status(400).json({ error: "Select an active salary template" });
+      const monthlyCtc = Number(b.baseSalary ?? old.baseSalary) || Number(b.annualCtc ?? old.annualCtc) / 12;
+      const fixed = b.fixedComponentValues ?? json(old.fixedComponentValues, {});
+      try {
+        calculateSalaryTemplateComponents({ templateComponents: json(salaryTemplate.components, []), monthlyCtc, fixedComponentValues: fixed, earnedRatio: 1 });
+      } catch (error: any) { return res.status(400).json({ error: error.message }); }
+    }
+    if (b.statutoryContributions !== undefined) {
+      const settings = b.statutoryContributions;
+      if (!settings || typeof settings !== "object" || Array.isArray(settings)) return res.status(400).json({ error: "Invalid statutory settings" });
+      for (const key of ["manualEmployeePf", "manualEmployerPf", "manualEmployeeEsi", "manualEmployerEsi", "employeeVpf", "employerVpf"]) {
+        if (settings[key] != null && (!Number.isFinite(Number(settings[key])) || Number(settings[key]) < 0)) return res.status(400).json({ error: key + " must be a non-negative amount" });
+      }
+      const effectiveFromMonth = String(b.statutoryEffectiveFromMonth || new Date().toISOString().slice(0, 7));
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(effectiveFromMonth)) return res.status(400).json({ error: "Invalid statutory effective month" });
+      const history = json(old.statutoryContributionHistory, []);
+      if (!history.length && effectiveFromMonth > "1900-01") history.push({ effectiveFromMonth: "1900-01", settings: json(old.statutoryContributions, {}) });
+      b.statutoryContributionHistory = JSON.stringify([...history.filter((entry: any) => entry.effectiveFromMonth !== effectiveFromMonth), { effectiveFromMonth, settings }]);
+      b.statutoryContributions = JSON.stringify(settings);
+    }
+    delete b.statutoryEffectiveFromMonth;
     if (b.userId !== undefined) b.userId = b.userId ? Number(b.userId) : null;
     if (b.photoDataUrl)
       b.photoUrl = await saveDataUrl(b.photoDataUrl, "employees");
@@ -937,8 +989,12 @@ router.delete("/employees/:id", async (req: any, res: any): Promise<any> => {
   res.status(204).send();
 });
 
+router.get("/attendance/settings", async (req: any, res: any): Promise<any> => {
+  return res.json(req.crew.attendanceSettings);
+});
 router.get("/attendance", async (req: any, res: any): Promise<any> => {
-  if (!need(req, res, "crew.attendance.view")) return;
+  if (!can(req, "crew.attendance.view") && !can(req, "crew.attendance.approve") && !can(req, "crew.attendance.reject") && !(await ownEmployee(req)))
+    return res.status(403).json({ error: "Crew membership or attendance view permission is required" });
   const allRows = await db
     .select()
     .from(attendanceLogsTable)
@@ -946,6 +1002,14 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
     .orderBy(desc(attendanceLogsTable.attendanceDate));
   let rows = await scopedRows(req, allRows, "attendance");
   const own = await ownEmployee(req);
+  if (can(req, "crew.attendance.approve") || can(req, "crew.attendance.reject")) {
+    const actor = await attendanceActor(req, own);
+    for (const record of allRows) {
+      const chain = await activeAttendanceChain(record, req.crew.org);
+      const assigned = chain.some((l: any) => Number(l.employeeId) === Number(own?.id) && Number(l.level) === Number(record.currentLevel || 1));
+      if ((assigned || req.crew.attendanceSettings.allowOverride && (actor.isSuperAdmin || actor.isAdminRole)) && !rows.some((r: any) => r.id === record.id)) rows.push(record);
+    }
+  }
   if (own) {
     const ownLogs = allRows.filter(
       (row: any) => Number(row.employeeId) === Number(own.id),
@@ -962,7 +1026,7 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
     rows = rows.filter(
       (x: any) => x.attendanceDate <= String(req.query.endDate),
     );
-  const currentDate = today();
+  const currentDate = dateInZone(req.crew.attendanceSettings.timezone);
   let visibleEmployees = (
     await db
       .select()
@@ -987,7 +1051,7 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
         employeeCode: employee.employeeCode,
         department: employee.department,
         attendanceDate: currentDate,
-        status: "Absent",
+        status: await attendanceCalendar(employee, currentDate, req.crew.org),
         checkInTime: null,
         checkOutTime: null,
         locked: false,
@@ -997,16 +1061,36 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
   rows.sort((a: any, b: any) =>
     String(b.attendanceDate).localeCompare(String(a.attendanceDate)),
   );
-  res.json(rows.map((x: any) => ({ ...x, checkInLocation: attendanceLocation(x.checkInLocation), checkOutLocation: attendanceLocation(x.checkOutLocation), auditLogs: json(x.auditLogs) })));
+  const actor = await attendanceActor(req, own);
+  const settings = req.crew.attendanceSettings;
+  const enriched = await Promise.all(rows.map(async (row: any) => {
+    const chain = row.derived ? [] : await activeAttendanceChain(row, req.crew.org);
+    const expected = chain.find((l: any) => Number(l.level) === Number(row.currentLevel || 1));
+    const assigned = !chain.length || Number(expected?.employeeId) === Number(actor.employeeId);
+    const override = settings.allowOverride && (actor.isSuperAdmin || actor.isAdminRole);
+    const self = chain.length > 0 && chain.every((l: any) => l.selfApproval && Number(l.employeeId) === Number(actor.employeeId));
+    const pending = row.approvalStatus === "Pending" && !row.derived;
+    let lateFinePreview = null;
+    if (pending && row.checkInTime && row.checkOutTime) {
+      try { lateFinePreview = await attendanceFinePreview(row, req.crew.org); } catch { /* Approval returns a template configuration error if unresolved. */ }
+    }
+    return { ...row, status: attendanceDisplayStatus(row), approvalChain: chain, approvalHistory: json(row.approvalHistory), lateFinePreview,
+      canApprove: pending && Boolean(row.checkInTime && row.checkOutTime) && (can(req, "crew.attendance.approve") || self) && (assigned || override || self),
+      canReject: pending && can(req, "crew.attendance.reject") && (assigned || override),
+      canEditPunchOut: pending && Number(row.employeeId) === Number(own?.id) && Boolean(row.checkOutTime) && !json(row.approvalHistory).length };
+  }));
+  res.json(enriched.filter((row: any) => (!req.query.startDate || row.attendanceDate >= req.query.startDate) && (!req.query.endDate || row.attendanceDate <= req.query.endDate)).map((x: any) => ({ ...x, checkInLocation: attendanceLocation(x.checkInLocation), checkOutLocation: attendanceLocation(x.checkOutLocation), auditLogs: json(x.auditLogs) })));
 });
 router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
-  if (!need(req, res, "crew.attendance.view")) return;
+  const own = await ownEmployee(req);
+  if (!can(req, "crew.attendance.view") && !own)
+    return res.status(403).json({ error: "Crew membership or attendance view permission is required" });
   const month = String(req.query.month || today().slice(0, 7));
-  if (!/^\d{4}-\d{2}$/.test(month))
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
     return res.status(400).json({ error: "Valid month is required" });
   const [year, monthNumber] = month.split("-").map(Number),
     daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate(),
-    currentDate = today();
+    currentDate = dateInZone(req.crew.attendanceSettings.timezone);
   let employees = (
     await db
       .select()
@@ -1014,6 +1098,7 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
       .where(eq(employeesTable.organizationId, req.crew.org))
   ).filter((e: any) => !e.isDeleted && e.status !== "Offboarded");
   employees = await scopedRows(req, employees, "attendance");
+  if (own && !employees.some((row: any) => Number(row.id) === Number(own.id))) employees.push(own);
   const [logs, leaves, holidayTemplates, patterns] = await Promise.all([
     db
       .select()
@@ -1050,10 +1135,12 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
             Number(log.employeeId) === Number(employee.id) &&
             log.attendanceDate === date,
         );
+      if (date > currentDate)
+        return { date, status: "Future", future: true, derived: true };
       if (actual)
         return {
           date,
-          status: actual.status,
+          status: attendanceDisplayStatus(actual),
           derived: false,
           attendanceId: actual.id,
           checkInTime: actual.checkInTime,
@@ -1062,13 +1149,14 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
           checkOutPhoto: actual.checkOutPhoto,
           checkInLocation: attendanceLocation(actual.checkInLocation),
           checkOutLocation: attendanceLocation(actual.checkOutLocation),
+          checkInAddress: actual.checkInAddress,
+          checkOutAddress: actual.checkOutAddress,
+          approvalStatus: actual.approvalStatus,
           notes: actual.notes,
           locked: actual.locked,
         };
       // Attendance has no meaning until the day arrives. Do not derive an
       // absence (or any other status) for future calendar dates.
-      if (date > currentDate)
-        return { date, status: "Future", future: true, derived: true };
       const leave = leaves.find(
         (item: any) =>
           Number(item.employeeId) === Number(employee.id) &&
@@ -1076,7 +1164,8 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
           item.startDate <= date &&
           item.endDate >= date,
       );
-      if (leave) return { date, status: "On Leave", derived: true };
+      if (employee.joinDate && date < employee.joinDate || employee.exitDate && date > employee.exitDate) return { date, status: "Not Employed", derived: true };
+      if (leave && leave.leaveType !== "Permission") return { date, status: "On Leave", derived: true };
       if (holidayDates.has(date))
         return { date, status: "Holiday", derived: true };
       const week = Math.min(5, Math.floor((day - 1) / 7) + 1),
@@ -1097,6 +1186,8 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
   return res.json({ month, daysInMonth, rows });
 });
 router.post("/attendance/reverse-geocode", async (req: any, res: any): Promise<any> => {
+  if (!(await ownEmployee(req)) && !can(req, "crew.attendance.view"))
+    return res.status(403).json({ error: "Crew membership is required" });
   const latitude = Number(req.body?.latitude), longitude = Number(req.body?.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
     return res.status(400).json({ error: "Valid latitude and longitude are required" });
@@ -1124,12 +1215,15 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
   );
   if (!employee) return;
   const own = await ownEmployee(req);
+  if (isPunchIn && (!own || Number(own.id) !== Number(employee.id)))
+    return res.status(403).json({ error: "You can only punch in for your own crew record" });
   if (
     !can(req, "crew.attendance.create") &&
     (!own || Number(own.id) !== Number(employee.id))
   )
     return res.status(403).json({ error: "You can only punch in for your own crew record" });
-  const date = isPunchIn ? today() : req.body.attendanceDate || today();
+  const date = isPunchIn ? dateInZone(req.crew.attendanceSettings.timezone) : req.body.attendanceDate || dateInZone(req.crew.attendanceSettings.timezone);
+  if (!iso(date) || date > dateInZone(req.crew.attendanceSettings.timezone)) return res.status(400).json({ error: "A valid attendance date on or before today is required" });
   const existing = (
     await db
       .select()
@@ -1141,14 +1235,21 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         ),
       )
   ).find((x: any) => x.attendanceDate === date);
-  if (existing)
-    return res
-      .status(409)
-      .json({ error: "Attendance already exists for this employee and date" });
+  if (existing && existing.approvalStatus !== "Rejected")
+    return res.status(409).json({ error: "Attendance already exists for this employee and date" });
   try {
+    await assertAttendanceMonthOpen(req.crew.org, employee.id, date);
+    const calendar = await attendanceCalendar(employee, date, req.crew.org);
+    if (isPunchIn && ["Holiday", "Week Off", "Not Employed"].includes(calendar)) return res.status(403).json({ error: "Punch is disabled on " + calendar.toLowerCase() + " days" });
+    const chain = isPunchIn ? await buildAttendanceChain(employee, req.crew.org) : [];
+    if (isPunchIn && (typeof req.body.photoDataUrl !== "string" || !/^data:image\/(jpeg|jpg|png|webp);base64,/.test(req.body.photoDataUrl)))
+      return res.status(400).json({ error: "A captured punch-in photograph is required" });
     if (
       isPunchIn &&
       (!req.body.location ||
+        req.body.location.latitude == null || req.body.location.longitude == null ||
+        req.body.location.latitude === "" || req.body.location.longitude === "" ||
+        Math.abs(Number(req.body.location.latitude)) > 90 || Math.abs(Number(req.body.location.longitude)) > 180 ||
         !Number.isFinite(Number(req.body.location.latitude)) ||
         !Number.isFinite(Number(req.body.location.longitude)))
     )
@@ -1162,13 +1263,13 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         ? now.toLocaleTimeString("en-GB", {
             hour: "2-digit",
             minute: "2-digit",
-            timeZone: "Asia/Kolkata",
+            timeZone: req.crew.attendanceSettings.timezone,
           })
         : req.body.checkInTime ||
           now.toLocaleTimeString("en-GB", {
             hour: "2-digit",
             minute: "2-digit",
-            timeZone: "Asia/Kolkata",
+            timeZone: req.crew.attendanceSettings.timezone,
           });
     let status = req.body.status || "Present";
     const [template] = employee.attendanceRulesTemplate
@@ -1189,9 +1290,7 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
     const checkInAddress = isPunchIn
       ? (String(req.body.location?.address || "").trim().slice(0, 1000) || await reverseGeocode(Number(req.body.location.latitude), Number(req.body.location.longitude)))
       : null;
-    const [row] = await db
-      .insert(attendanceLogsTable)
-      .values({
+    const payload = {
         organizationId: req.crew.org,
         userId: employee.userId || null,
         employeeId: employee.id,
@@ -1200,25 +1299,42 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
         department: employee.department,
         designation: employee.designation,
         attendanceDate: date,
-        status,
-        approvalStatus: "Pending",
+        status: isPunchIn ? "Punch Out Pending" : status,
+        approvalStatus: isPunchIn ? "Pending" : "Approved",
+        currentLevel: isPunchIn ? 1 : null,
+        approvalChain: JSON.stringify(chain),
+        approvalHistory: "[]",
+        revision: Number(existing?.revision || 0) + 1,
+        checkOutTime: null, checkOutPhoto: null, checkOutLocation: null, checkOutAtUtc: null, checkOutAddress: null,
+        locked: false, approvedBy: null, approvedAt: null, rejectedBy: null, rejectedAt: null, rejectionRemarks: null, lateFineAmount: null, originalPunchValues: null,
         checkInTime: time,
         checkInAtUtc: now,
-        timezone: req.body.timezone || "Asia/Kolkata",
+        timezone: req.crew.attendanceSettings.timezone,
         checkInPhoto: photo,
         checkInLocation: JSON.stringify(req.body.location || null),
         checkInAddress,
         notes: req.body.notes,
         auditLogs: JSON.stringify([
+          ...json(existing?.auditLogs),
+          ...(existing ? [{ action: "RejectedAttemptResubmitted", actor: req.crew.user.displayName, at: now, previousAttempt: { checkInTime: existing.checkInTime, checkOutTime: existing.checkOutTime, checkInPhoto: existing.checkInPhoto, checkOutPhoto: existing.checkOutPhoto, checkInLocation: existing.checkInLocation, checkOutLocation: existing.checkOutLocation, approvalHistory: json(existing.approvalHistory), rejectionRemarks: existing.rejectionRemarks } }] : []),
           { action: "check-in", actor: req.crew.user.displayName, at: now },
         ]),
         updatedAt: now,
-      })
-      .returning();
+      };
+    const [row] = existing
+      ? await db.update(attendanceLogsTable).set(payload).where(and(attendanceVersion(existing), eq(attendanceLogsTable.approvalStatus, "Rejected"))).returning()
+      : await db.transaction(async tx => {
+          // Serialize daily creation on the employee to prevent duplicate punches without destructive index migration.
+          await tx.update(employeesTable).set({ updatedAt: new Date() }).where(eq(employeesTable.id, employee.id));
+          const [duplicate] = await tx.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.organizationId, req.crew.org), eq(attendanceLogsTable.employeeId, employee.id), eq(attendanceLogsTable.attendanceDate, date)));
+          if (duplicate) throw Object.assign(new Error("Punch In already exists for this day"), { status: 409 });
+          return tx.insert(attendanceLogsTable).values(payload).returning();
+        });
+    if (!row) return res.status(409).json({ error: "Attendance changed. Refresh and try again." });
     void audit(req, "attendance", row.id, employee.name, "create", null, row);
     res.status(201).json(row);
   } catch (e: any) {
-    res.status(400).json({ error: e.message });
+    res.status(e.status || (e.code === 11000 ? 409 : 400)).json({ error: e.message });
   }
 });
 router.post("/attendance/override", async (req: any, res: any): Promise<any> => {
@@ -1229,7 +1345,7 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
     return res.status(400).json({
       error: "Attendance override reason must contain at least 10 characters",
     });
-  if (!iso(req.body.attendanceDate))
+  if (!iso(req.body.attendanceDate) || req.body.attendanceDate > dateInZone(req.crew.attendanceSettings.timezone))
     return res.status(400).json({ error: "Valid attendance date is required" });
   const employee = await scopedEmployee(
     req,
@@ -1244,6 +1360,11 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
   ]);
   if (!allowedStatuses.has(String(req.body.status)))
     return res.status(400).json({ error: "Invalid attendance status" });
+  for (const key of ["checkInTime", "checkOutTime"])
+    if (req.body[key] && timeMinutes(req.body[key]) === null)
+      return res.status(400).json({ error: "Attendance times must use HH:mm format" });
+  if (["Present", "Late", "Half Day", "Remote", "WFH"].includes(req.body.status) && (!req.body.checkInTime || !req.body.checkOutTime))
+    return res.status(400).json({ error: "Worked attendance requires both punch times" });
   const existing = (
     await db
       .select()
@@ -1255,7 +1376,12 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
         ),
       )
   ).find((row: any) => row.attendanceDate === req.body.attendanceDate);
+  try { await assertAttendanceMonthOpen(req.crew.org, employee.id, req.body.attendanceDate); } catch (error: any) { return res.status(error.status || 400).json({ error: error.message }); }
   const values: any = {
+    approvalStatus: "Approved", currentLevel: null, approvedBy: req.crew.user.id, approvedAt: new Date(), revision: Number(existing?.revision || 0) + 1,
+    rejectionRemarks: null, rejectedBy: null, rejectedAt: null, lateFineAmount: null,
+    originalPunchValues: existing?.originalPunchValues || (existing ? JSON.stringify({ checkInTime: existing.checkInTime, checkOutTime: existing.checkOutTime }) : null),
+    approvalHistory: JSON.stringify([...json(existing?.approvalHistory), { level: existing?.currentLevel || 1, action: "OverrideApproved", actorUserId: req.crew.user.id, actorName: req.crew.user.displayName, remarks: reason, isOverride: true, at: new Date() }]),
     status: req.body.status,
     checkInTime: req.body.checkInTime || null,
     checkOutTime: req.body.checkOutTime || null,
@@ -1276,7 +1402,7 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
     ? await db
         .update(attendanceLogsTable)
         .set(values)
-        .where(eq(attendanceLogsTable.id, existing.id))
+        .where(attendanceVersion(existing))
         .returning()
     : await db
         .insert(attendanceLogsTable)
@@ -1292,6 +1418,7 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
           attendanceDate: req.body.attendanceDate,
         })
         .returning();
+  if (!row) return res.status(409).json({ error: "Attendance changed. Refresh and try again." });
   void audit(
     req,
     "attendance",
@@ -1340,7 +1467,18 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
       });
   }
   try {
+    await assertAttendanceMonthOpen(req.crew.org, old.employeeId, old.attendanceDate);
+    if (isPunchOut && old.approvalStatus !== "Pending") return res.status(409).json({ error: "Only a pending punch can be completed" });
     const b: any = { ...req.body, updatedAt: new Date() };
+    if (!isPunchOut) {
+      for (const key of Object.keys(b)) if (!["status", "checkInTime", "checkOutTime", "notes", "overrideReason", "updatedAt"].includes(key)) delete b[key];
+      if (old.approvalStatus === "Pending") return res.status(400).json({ error: "Use attendance approval or an explicit manual override for a pending request" });
+    }
+    if (isPunchOut) {
+      // Self-service cannot modify identity, approval, or previous evidence.
+      for (const key of Object.keys(b))
+        if (!["punchAction", "photoDataUrl", "location", "updatedAt"].includes(key)) delete b[key];
+    }
     const overrideReason = String(b.overrideReason || "").trim() || null;
     delete b.employeeId;
     delete b.attendanceDate;
@@ -1354,6 +1492,8 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
         error: "Manual time changes require crew.attendance.changeTime",
       });
     if (isPunchOut) {
+      if (typeof b.photoDataUrl !== "string" || !/^data:image\/(jpeg|jpg|png|webp);base64,/.test(b.photoDataUrl))
+        return res.status(400).json({ error: "A captured punch-out photograph is required" });
       if (old.checkOutTime)
         return res
           .status(409)
@@ -1362,6 +1502,9 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
         return res.status(400).json({ error: "Punch-in is required first" });
       if (
         !b.location ||
+        b.location.latitude == null || b.location.longitude == null ||
+        b.location.latitude === "" || b.location.longitude === "" ||
+        Math.abs(Number(b.location.latitude)) > 90 || Math.abs(Number(b.location.longitude)) > 180 ||
         !Number.isFinite(Number(b.location.latitude)) ||
         !Number.isFinite(Number(b.location.longitude))
       )
@@ -1376,12 +1519,12 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
       b.checkOutTime = now.toLocaleTimeString("en-GB", {
         hour: "2-digit",
         minute: "2-digit",
-        timeZone: "Asia/Kolkata",
+        timeZone: req.crew.attendanceSettings.timezone,
       });
-      if (minutes(b.checkOutTime) < minutes(old.checkInTime))
+      if (old.attendanceDate !== dateInZone(req.crew.attendanceSettings.timezone))
         return res
           .status(400)
-          .json({ error: "Punch-out cannot be earlier than punch-in" });
+          .json({ error: "This attendance day has closed; request a manual override for a missed punch-out" });
       b.checkOutAtUtc = now;
       b.checkOutPhoto = photo;
       b.checkOutLocation = JSON.stringify(b.location);
@@ -1405,43 +1548,16 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
               )
           )[0]
         : null;
-      if (template) {
-        const start = minutes(old.checkInTime),
-          end =
-            minutes(b.checkOutTime) +
-            (minutes(b.checkOutTime) < start ? 1440 : 0),
-          required =
-            (minutes(template.workEndTime) -
-              minutes(template.workStartTime) +
-              1440) %
-              1440 || 1440,
-          worked = end - start;
-        if (template.flexibleHours)
-          b.status =
-            worked < required / 2
-              ? "Half Day"
-              : worked < required
-                ? "Late"
-                : "Present";
-        else {
-          const shiftEnd =
-              minutes(template.workEndTime) +
-              (minutes(template.workEndTime) < minutes(template.workStartTime)
-                ? 1440
-                : 0),
-            late =
-              start >
-              minutes(template.workStartTime) + attendanceBufferMinutes(template),
-            early = end < shiftEnd;
-          b.status = late || early ? "Late" : "Present";
-        }
-      }
+      if (!template || template.isActive === false) return res.status(400).json({ error: "Assign an active attendance template before completing attendance" });
+      b.status = "Pending Approval";
+      b.approvalChain = JSON.stringify(await activeAttendanceChain(old, req.crew.org));
       b.locked = true;
       b.approvalStatus = "Pending";
     }
     delete b.photoDataUrl;
     delete b.location;
     delete b.punchAction;
+    b.revision = Number(old.revision || 0) + 1;
     b.auditLogs = JSON.stringify([
       ...json(old.auditLogs),
       {
@@ -1454,8 +1570,10 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
     const [row] = await db
       .update(attendanceLogsTable)
       .set(b)
-      .where(eq(attendanceLogsTable.id, old.id))
+      .where(attendanceVersion(old))
       .returning();
+    if (!row) return res.status(409).json({ error: "Attendance changed. Refresh and try again." });
+    if (isPunchOut) await notifyAttendance(row, req.crew.user.id);
     void audit(req, "attendance", row.id, row.employeeName, "update", old, row);
     res.json(row);
   } catch (e: any) {
@@ -1464,34 +1582,35 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
 });
 
 router.patch("/attendance/:id/approval", async (req: any, res: any): Promise<any> => {
-  const decision = String(req.body?.decision || "");
-  const permission = decision === "Approved" ? "crew.attendance.approve" : "crew.attendance.reject";
-  if (!need(req, res, permission)) return;
-  if (decision !== "Approved" && decision !== "Rejected")
-    return res.status(400).json({ error: "Approval decision must be Approved or Rejected" });
-  const [old] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
-  if (!old) return res.status(404).json({ error: "Attendance not found" });
-  if (!old.checkInTime || !old.checkOutTime)
-    return res.status(400).json({ error: "Punch-in and punch-out must both be completed before approval" });
-  if (old.approvalStatus === "Approved")
-    return res.status(409).json({ error: "Attendance is already approved" });
-  const remarks = String(req.body?.remarks || "").trim();
-  if (decision === "Rejected" && remarks.length < 3)
-    return res.status(400).json({ error: "Rejection remarks are required" });
-  const now = new Date();
-  const values: any = {
-    approvalStatus: decision,
-    approvedBy: decision === "Approved" ? req.crew.user.id : null,
-    approvedAt: decision === "Approved" ? now : null,
-    rejectedBy: decision === "Rejected" ? req.crew.user.id : null,
-    rejectedAt: decision === "Rejected" ? now : null,
-    rejectionRemarks: decision === "Rejected" ? remarks : null,
-    auditLogs: JSON.stringify([...json(old.auditLogs), { action: `attendance-${decision.toLowerCase()}`, actor: req.crew.user.displayName, at: now, remarks: remarks || null }]),
-    updatedAt: now,
-  };
-  const [row] = await db.update(attendanceLogsTable).set(values).where(eq(attendanceLogsTable.id, old.id)).returning();
-  void audit(req, "attendance", row.id, row.employeeName, decision.toLowerCase(), old, row);
-  return res.json(row);
+  try {
+    const decision = req.body?.decision;
+    if (decision !== "Approved" && decision !== "Rejected") return res.status(400).json({ error: "Approval decision must be Approved or Rejected" });
+    const [old] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
+    if (!old) return res.status(404).json({ error: "Attendance not found" });
+    const actor = await attendanceActor(req, await ownEmployee(req));
+    const row = await reviewAttendance(old, decision, String(req.body.remarks || "").trim(), req.body.overrides, actor, can(req, decision === "Approved" ? "crew.attendance.approve" : "crew.attendance.reject"));
+    void audit(req, "attendance", row.id, row.employeeName, decision.toLowerCase(), old, row);
+    if (row.approvalStatus === "Approved") {
+      const { refreshAttendancePayroll } = await import("./crewpay");
+      try { await refreshAttendancePayroll(req.crew.org, row.employeeId, row.attendanceDate.slice(0, 7), req.crew.user); }
+      catch (error: any) { return res.json({ ...row, payrollRefreshWarning: error.message }); }
+    }
+    return res.json(row);
+  } catch (error: any) { return res.status(error.status || 400).json({ error: error.message }); }
+});
+
+router.patch("/attendance/:id/punch-out-edit", async (req: any, res: any): Promise<any> => {
+  try {
+    const own = await ownEmployee(req);
+    const [old] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
+    if (!old || Number(old.employeeId) !== Number(own?.id)) return res.status(403).json({ error: "Only the employee can correct their punch-out" });
+    if (old.approvalStatus !== "Pending" || !old.checkOutTime || json(old.approvalHistory).length) return res.status(409).json({ error: "Punch-out can only be corrected before the first approval" });
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(req.body.checkOutTime || ""))) return res.status(400).json({ error: "A valid punch-out time is required" });
+    await assertAttendanceMonthOpen(req.crew.org, old.employeeId, old.attendanceDate);
+    const [row] = await db.update(attendanceLogsTable).set({ checkOutTime: req.body.checkOutTime, revision: Number(old.revision || 0) + 1, originalPunchValues: old.originalPunchValues || JSON.stringify({ checkInTime: old.checkInTime, checkOutTime: old.checkOutTime }), updatedAt: new Date(), auditLogs: JSON.stringify([...json(old.auditLogs), { action: "PunchOutEdited", actor: req.crew.user.displayName, at: new Date(), before: old.checkOutTime, after: req.body.checkOutTime }]) }).where(attendanceVersion(old)).returning();
+    if (!row) return res.status(409).json({ error: "Attendance changed. Refresh and try again." });
+    return res.json(row);
+  } catch (error: any) { return res.status(error.status || 400).json({ error: error.message }); }
 });
 
 async function leaveContext(org: number, employee: any, year: number) {
@@ -1823,12 +1942,12 @@ router.post("/leaves", async (req: any, res: any): Promise<any> => {
     b.permissionHours = permissionHours;
   } else if (rows.some((row: any) => ["Pending", "Approved"].includes(row.status) && row.startDate <= b.endDate && row.endDate >= b.startDate))
     return res.status(409).json({ error: "A leave request already exists for overlapping dates" });
-  if (b.leaveType !== "Other" && requestedDays <= 0)
+  if (b.leaveType !== "Other" && b.leaveType !== "Permission" && requestedDays <= 0)
     return res.status(400).json({
       error:
         "Selected dates fall on week-offs/holidays only. Choose working days.",
     });
-  if (b.leaveType !== "Other") {
+  if (b.leaveType !== "Other" && b.leaveType !== "Permission") {
     if (!context.leaveTemplate)
       return res
         .status(400)
@@ -2409,7 +2528,7 @@ router.get(
         bonusAmount,
         overtimeAmount,
         claimsAmount,
-        grossSalary: baseSalary + bonusAmount + overtimeAmount + claimsAmount,
+        grossSalary: baseSalary + overtimeAmount + claimsAmount,
       };
     });
     return res.json({
@@ -2431,7 +2550,7 @@ router.get(
 router.patch("/bonus/:id/status", (_req: any, res: any) =>
   res.status(400).json({
     error:
-      "Bonus entries are added directly to salary and do not support approve/reject actions.",
+      "Bonus entries are recorded separately and do not support approve/reject actions.",
   }),
 );
 router.post("/bonus", async (req: any, res: any): Promise<any> => {
@@ -2498,7 +2617,7 @@ router.post("/bonus", async (req: any, res: any): Promise<any> => {
         targetModule: "crew",
         submodule: "bonus",
         title: "Bonus added",
-        message: `A bonus of INR${amount.toLocaleString("en-IN")} was added to your salary for ${payrollMonth}.`,
+        message: `A bonus of INR${amount.toLocaleString("en-IN")} was recorded separately for ${payrollMonth}.`,
         sourceEntityType: "crew_bonus",
         sourceEntityId: row.id,
         sourceReference: employee.employeeCode,
@@ -2671,6 +2790,8 @@ export async function syncAttendanceDeductions(
   month: number,
   year: number,
 ) {
+  const paidRows = await db.select().from(payrollTable).where(and(eq(payrollTable.organizationId, org), eq(payrollTable.payPeriod, `${year}-${String(month + 1).padStart(2, "0")}`), eq(payrollTable.status, "Paid")));
+  const paidEmployees = new Set(paidRows.map(row => Number(row.employeeId)));
   const prefix = `${year}-${String(month + 1).padStart(2, "0")}`,
     logs = (
       await db
@@ -2680,14 +2801,15 @@ export async function syncAttendanceDeductions(
     ).filter(
       (row: any) =>
         String(row.attendanceDate).startsWith(prefix) &&
-        (!row.approvalStatus || row.approvalStatus === "Approved"),
+        !paidEmployees.has(Number(row.employeeId)) &&
+        (!row.approvalStatus || row.approvalStatus === "Approved" || row.approvalStatus === "Rejected" && row.status === "Absent"),
     ),
     employees = (
       await db
         .select()
         .from(employeesTable)
         .where(eq(employeesTable.organizationId, org))
-    ).filter((row: any) => !row.isDeleted),
+    ).filter((row: any) => !row.isDeleted && !paidEmployees.has(Number(row.id))),
     templates = await db
       .select()
       .from(attendanceTemplatesTable)
@@ -2713,6 +2835,7 @@ export async function syncAttendanceDeductions(
       (row: any) =>
         row.month === month &&
         row.year === year &&
+        !paidEmployees.has(Number(row.employeeId)) &&
         String(row.source).toLowerCase() !== "manual",
     );
   // Approved Other leave is an LOP leave. Represent each chargeable leave day
@@ -2745,6 +2868,7 @@ export async function syncAttendanceDeductions(
         attendanceDate: date,
         status: "Other LOP",
         isOtherLeaveLop: true,
+        leaveFraction: leave.startDate === leave.endDate && String(leave.fromSession) === String(leave.toSession) ? 0.5 : 1,
       });
     }
   }
@@ -2771,8 +2895,8 @@ export async function syncAttendanceDeductions(
           row.isActive !== false,
       ),
       salary = Number(employee.baseSalary || 0),
-      days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(),
-      daily = salary / days;
+      days = chargeableDays(`${prefix}-01`, `${prefix}-${new Date(Date.UTC(year, month + 1, 0)).getUTCDate()}`, "1", "2", await leaveContext(org, employee, year)),
+      daily = days > 0 ? salary / days : 0;
     let amount = 0,
       late = 0,
       early = 0,
@@ -2782,7 +2906,7 @@ export async function syncAttendanceDeductions(
       notes = "";
     if (!template) continue;
     if (log.status === "Absent" || log.isOtherLeaveLop) {
-      amount = daily;
+      amount = daily * (log.isOtherLeaveLop ? log.leaveFraction : 1);
       reason = log.isOtherLeaveLop ? "Other leave and LOP" : "Absent and LOP";
       source = "Auto";
       notes = log.isOtherLeaveLop
@@ -2794,61 +2918,10 @@ export async function syncAttendanceDeductions(
       source = "Auto";
       notes = "Half-day absence and LOP";
     } else if (log.checkInTime && log.checkOutTime) {
-      const punchIn = minutes(log.checkInTime),
-        punchOut =
-          minutes(log.checkOutTime) +
-          (minutes(log.checkOutTime) < punchIn ? 1440 : 0),
-        shiftStart = minutes(template?.workStartTime || "09:00"),
-        shiftEnd =
-          minutes(template?.workEndTime || "17:00") +
-          (minutes(template?.workEndTime || "17:00") <= shiftStart ? 1440 : 0),
-        scheduledMinutes = shiftEnd - shiftStart,
-        required = template?.flexibleHours
-          ? Math.round(
-              Math.max(
-                0,
-                Number(template?.totalWorkingHours || 0) -
-                  Number(template?.breakHours || 0),
-              ) * 60,
-            )
-          : Math.max(
-              0,
-              scheduledMinutes - Math.round(Number(template?.breakHours || 0) * 60),
-            );
-      if (template?.flexibleHours) {
-        total = Math.max(0, required - (punchOut - punchIn));
-        reason = total > required / 2 ? "half_day" : "flexible_hours_shortage";
-      } else {
-        late = Math.max(
-          0,
-          punchIn - shiftStart - attendanceBufferMinutes(template),
-        );
-        early = Math.max(0, shiftEnd - punchOut);
-        total = late + early;
-        reason =
-          late && early ? "both" : late ? "late_punch_in" : "early_punch_out";
-      }
-      if (total) {
-        const hours = total / 60,
-          rate = salary / (days * Math.max(1, required / 60)),
-          fine = Math.max(0, Number(template?.finePerHour || 0));
-        let fineType = String(template?.fineType || "fixed_per_hour");
-        // Yugam treats a zero fixed fine as salary-based deduction, so an
-        // employee's hourly rate is never silently ignored.
-        if (fineType === "fixed_per_hour" && fine <= 0)
-          fineType = "based_on_salary";
-        amount =
-          fineType === "percent_hourly_basis"
-            ? ((rate * fine) / 100) * hours
-            : fineType === "based_on_salary"
-              ? rate * hours
-              : fine * hours;
-        notes =
-          fineType === "based_on_salary"
-            ? `${hours.toFixed(2)} hrs × hourly salary rate = INR ${amount.toFixed(2)}`
-            : fineType === "percent_hourly_basis"
-              ? `${hours.toFixed(2)} hrs × ${fine}% hourly rate = INR ${amount.toFixed(2)}`
-              : `${hours.toFixed(2)} hrs × INR ${fine.toFixed(2)}/hr = INR ${amount.toFixed(2)}`;
+      const preview = await attendanceFinePreview(log, org);
+      if (preview) {
+        amount = preview.amount; late = preview.lateMinutes; early = preview.earlyExitMinutes; total = preview.totalDeductionMinutes; reason = preview.autoReason;
+        notes = "Approved attendance deduction";
       }
     }
     amount = Math.round(amount * 100) / 100;
@@ -2865,7 +2938,7 @@ export async function syncAttendanceDeductions(
     const values = {
       employeeId: employee.id,
       employeeName: employee.name,
-      amount: String(amount),
+      amount: log.lateFineAmount != null && total > 0 ? String(log.lateFineAmount) : String(amount),
       calculatedAmount: String(amount),
       notes,
       date: log.attendanceDate,

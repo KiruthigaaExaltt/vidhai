@@ -92,6 +92,12 @@ const requireCrewPermissionExceptSelfPunch = (req: any, res: any, next: any) => 
     /^\/attendance\/\d+$/.test(req.path) &&
     req.body?.punchAction === "punchOut";
   if (isPunchIn || isPunchOut) return next();
+  // These handlers enforce crew membership and return only scoped records.
+  if (req.method === "GET" && (req.path === "/attendance" || req.path === "/attendance/register" ||
+      (req.path === "/employees" && req.query.scope === "attendance"))) return next();
+  if (req.method === "POST" && req.path === "/attendance/reverse-geocode") return next();
+  // Approval has its own permission; it must not also require update.
+  if (req.method === "PATCH" && /^\/attendance\/\d+\/approval$/.test(req.path)) return next();
   return requireModulePermission(crewScope)(req, res, next);
 };
 const crewPayScope = (req: any) =>

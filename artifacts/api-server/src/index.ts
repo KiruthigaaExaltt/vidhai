@@ -4,6 +4,7 @@ import app, { sessionMiddleware } from "./app";
 import { initializeNotificationGateway } from "./lib/notificationGateway";
 import { startChamberReminderScheduler } from "./lib/chamberReminderScheduler";
 import { startFleetServiceReminderScheduler } from "./lib/fleetServiceReminderScheduler";
+import { startAttendanceClosureScheduler } from "./lib/attendanceClosureScheduler";
 import {
   startNotificationWorker,
   stopNotificationWorker,
@@ -260,6 +261,7 @@ initializeNotificationGateway(server, sessionMiddleware);
 startNotificationWorker();
 startChamberReminderScheduler();
 startFleetServiceReminderScheduler();
+startAttendanceClosureScheduler();
 server.listen(port, () => {
   logger.info({ port }, "Server listening");
 });

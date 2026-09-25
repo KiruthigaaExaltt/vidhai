@@ -49,6 +49,8 @@ const initial = () => ({
   status: "Active",
   workMode: "On-site",
   reportingManager: "",
+  approvalChain: [] as { level: number; employeeId: number; employeeName?: string }[],
+  canApproveOwnAttendance: false,
   location: "",
   joinDate: today(),
   attendanceRulesTemplate: "",
@@ -195,6 +197,8 @@ export function AddMemberDialog({
             : String(data.crewCode?.prefixes?.[0]?.id || ""),
           crewCodeSuffixId: "",
           userId: source.userId ? String(source.userId) : "",
+          approvalChain: typeof source.approvalChain === "string" ? JSON.parse(source.approvalChain || "[]") : source.approvalChain || [],
+          canApproveOwnAttendance: source.canApproveOwnAttendance === true,
           reportingManager: source.reportingManager
             ? String(source.reportingManager)
             : "",
@@ -393,6 +397,8 @@ export function AddMemberDialog({
       const normalized: any = {
         ...f,
         userId: f.userId ? Number(f.userId) : null,
+        approvalChain: f.approvalChain,
+        canApproveOwnAttendance: f.canApproveOwnAttendance,
         reportingManager: f.reportingManager
           ? Number(f.reportingManager)
           : null,
@@ -787,6 +793,22 @@ export function AddMemberDialog({
                       label: `${e.name} (${e.employeeCode})`,
                     }))}
                   />
+                  <div className="space-y-3 md:col-span-2 rounded-lg border p-4">
+                    <p className="font-medium">Attendance approvers</p>
+                    <p className="text-sm text-muted-foreground">Approval follows L1 to L5. With no explicit levels, the reporting manager is L1. Company settings control how many levels are required.</p>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.canApproveOwnAttendance} onChange={e => field("canApproveOwnAttendance", e.target.checked)} /> Allow this employee to approve their own attendance</label>
+                    {f.approvalChain.map((level, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <label htmlFor={"approver-" + index}>L{index + 1}</label>
+                        <select id={"approver-" + index} className="h-10 flex-1 rounded-md border bg-background px-3" value={level.employeeId || ""} onChange={e => field("approvalChain", f.approvalChain.map((entry, i) => i === index ? { level: i + 1, employeeId: Number(e.target.value) } : entry))}>
+                          <option value="">Select approver</option>
+                          {availableManagers.filter(e => !f.approvalChain.some((entry, i) => i !== index && Number(entry.employeeId) === Number(e.id))).map(e => <option key={e.id} value={e.id}>{e.name} ({e.employeeCode})</option>)}
+                        </select>
+                        <Button type="button" variant="outline" onClick={() => field("approvalChain", f.approvalChain.filter((_, i) => i !== index).map((entry, i) => ({ ...entry, level: i + 1 })))}>Remove</Button>
+                      </div>
+                    ))}
+                    {f.approvalChain.length < 5 && <Button type="button" variant="outline" onClick={() => field("approvalChain", [...f.approvalChain, { level: f.approvalChain.length + 1, employeeId: 0 }])}>Add approval level</Button>}
+                  </div>
                   <Template
                     k="attendanceRulesTemplate"
                     label="Attendance Rules Template"

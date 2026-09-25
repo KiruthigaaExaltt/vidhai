@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:attendance": "node --test test/attendanceWorkflow.test.mjs",
+    "test:crew:frontend": "node --test test/crewFrontend.test.mjs test/uiErrors.test.mjs",
     "dev": "pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --env-file=.env --enable-source-maps ./dist/index.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:payroll": "node --test test/payroll.test.mjs test/payrollRoute.test.mjs test/payrollPdf.test.mjs"
   },
   "dependencies": {
     "@types/express-session": "^1.19.0",

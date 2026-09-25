@@ -569,6 +569,7 @@ export type SalesReturn = typeof salesReturnsTable.$inferSelect;
 export type SalesReturnItem = typeof salesReturnItemsTable.$inferSelect;
 
 export const organizationDetailsTable = mongoTable("organization_details", {
+  statutoryPayroll: json("statutory_payroll").default({}),
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id").notNull().default(1),
   logoUrl: text("logo_url"),
@@ -591,6 +592,9 @@ export const organizationDetailsTable = mongoTable("organization_details", {
   salesDocBody: text("sales_doc_body").default(""),
   flexDocBody: text("flex_doc_body").default(""),
   defaultCurrency: text("default_currency").default("INR"),
+  attendanceApprovalEnabled: boolean("attendance_approval_enabled").default(true),
+  attendanceApprovalLevels: integer("attendance_approval_levels").default(1),
+  allowApprovalOverride: boolean("allow_approval_override").default(true),
   timezone: text("timezone").default("Asia/Kolkata"),
 });
 
