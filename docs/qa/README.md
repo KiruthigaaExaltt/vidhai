@@ -1,5 +1,7 @@
 # Crew and payroll verification
 
+For the populated application database, logins, scenarios and ERP module coverage, see [Local manual testing](local-manual-testing.md). Its seed command is `pnpm.cmd local:data:seed`.
+
 Run commands from the repository root. On Windows PowerShell use `pnpm.cmd` if execution policy blocks `pnpm.ps1`.
 
 ```powershell

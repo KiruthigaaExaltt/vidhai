@@ -297,6 +297,8 @@ test("flexible shifts use net work hours and handle half-day shortage and midnig
   );
 });
 test("all fine types and zero-fixed-fine salary fallback match Yugam", () => {
+  // Yugam rounds the final amount with toFixed; Math.round differs here.
+  assert.equal(rules.attendanceFine({ fineType: "based_on_salary" }, 83.33, 0.5), 41.66);
   assert.equal(
     rules.attendanceFine(
       { fineType: "fixed_per_hour", finePerHour: 100 },

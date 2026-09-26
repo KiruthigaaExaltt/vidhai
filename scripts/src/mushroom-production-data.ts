@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import {
   batchesTable,
   chamberReadingsTable,
@@ -634,8 +635,8 @@ async function removeProductionDataset() {
   };
 }
 
-async function seedProductionDataset() {
-  await removeProductionDataset();
+export async function seedProductionDataset(options: { preserveExisting?: boolean } = {}) {
+  if (!options.preserveExisting) await removeProductionDataset();
 
   const organizationDetails = await db.select().from(organizationDetailsTable);
   if (organizationDetails.length === 0)
@@ -1352,12 +1353,12 @@ async function seedProductionDataset() {
       roleKey: role.slug.toUpperCase(),
       updatedAt: new Date(),
     };
-    if (existingRole)
+    if (existingRole && !options.preserveExisting)
       await db
         .update(rolesTable)
         .set(values)
         .where(eq(rolesTable.id, existingRole.id));
-    else await insertOne(rolesTable, values);
+    else if (!existingRole) await insertOne(rolesTable, values);
   }
   // Seeded staff accounts are intentionally non-login-capable until an
   // administrator sets an individual password through User Management.
@@ -2548,7 +2549,7 @@ async function main() {
   else throw new Error("Use either 'seed' or 'clear'.");
 }
 
-main().then(
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().then(
   () => process.exit(0),
   (error) => {
     console.error(

@@ -83,7 +83,7 @@ export function attendanceFine(
       : type === "percent_hourly_basis"
         ? (hourlySalary * fine) / 100
         : fine;
-  return Math.round(rate * Math.max(0, deductionHours) * 100) / 100;
+  return Number((rate * Math.max(0, deductionHours)).toFixed(2));
 }
 export function calendarStatus(
   employee: any,

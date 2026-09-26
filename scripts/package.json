@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "local:data:seed": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env --import tsx ./src/seed-local-manual.ts",
+    "test:yugam-parity": "node --require ./tsx-windows.cjs --import tsx ./test/yugam-parity.ts",
+    "test:local-data": "node --require ./tsx-windows.cjs --env-file=../artifacts/api-server/.env --import tsx ./test/local-manual-data.ts",
     "test:crew": "node --require ./tsx-windows.cjs --import tsx ./test/crew-regressions.ts",
     "test:crew:browser": "node --require ./tsx-windows.cjs --import tsx ./test/crew-browser-runner.mjs",
     "hello": "tsx ./src/hello.ts",

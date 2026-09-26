@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "local:data:seed": "pnpm --filter @workspace/scripts run local:data:seed",
     "preinstall": "node ./scripts/ensure-pnpm.mjs",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "build:demo": "node ./scripts/build-environment.mjs demo",
