@@ -1597,6 +1597,14 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
     if (!row) return res.status(409).json({ error: "Attendance changed. Refresh and try again." });
     if (isPunchOut) await notifyAttendance(row, req.crew.user.id);
     void audit(req, "attendance", row.id, row.employeeName, "update", old, row);
+    if (!isPunchOut && row.approvalStatus === "Approved") {
+      const { refreshAttendancePayroll } = await import("./crewpay");
+      try {
+        await refreshAttendancePayroll(req.crew.org, row.employeeId, row.attendanceDate.slice(0, 7), req.crew.user);
+      } catch (error: any) {
+        return res.json({ ...row, payrollRefreshWarning: error.message });
+      }
+    }
     res.json(row);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
