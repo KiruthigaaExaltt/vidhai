@@ -1,5 +1,0 @@
-{
-  "comparisons": 4931,
-  "passed": true,
-  "scope": "Differential execution of calendar, paid days, LOP, punch metrics, fines, salary components, PF/VPF/ESI and contribution periods. L1-L5 excluded. Not full application equivalence."
-}
