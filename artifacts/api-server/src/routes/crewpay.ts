@@ -217,7 +217,10 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
     throw new Error(
       `Assign an active salary template to ${employee.name} before generating payroll.`,
     );
-  const snapshot = Number(previousSlip?.salaryTemplateId) === Number(salaryTemplate.id) ? json(previousSlip?.templateSnapshot, {}) : {};
+  const immediateSnapshot = json(employee.salaryStructureSnapshots, {})[payrollMonth];
+  const snapshot = Number(immediateSnapshot?.salaryTemplateId) === Number(salaryTemplate.id)
+    ? immediateSnapshot
+    : Number(previousSlip?.salaryTemplateId) === Number(salaryTemplate.id) ? json(previousSlip?.templateSnapshot, {}) : {};
   const configured = snapshot.components || json(salaryTemplate.components, []);
   if (!Array.isArray(configured) || configured.length === 0)
     throw new Error(
@@ -228,7 +231,8 @@ async function buildSlip(req: any, employee: any, payrollMonth: string) {
   const nonWorkingPaidDates = buildNonWorkingPaidDateSet({ monthStartIso: monthStart, monthEndIso: calendarEnd, workPattern, holidayDates });
   const scheduledWorkingDays = calendarMonthDays - nonWorkingPaidDates.size;
   const finalized = [...attendanceByDate.values()].filter(isFinalizedAttendanceLog).map((log: any) => ({ ...log, status: log.status === "Work From Home" ? "WFH" : log.status }));
-  const paidLeaves = approvedLeaves.filter((leave: any) => !["other", "permission"].includes(String(leave.leaveType).toLowerCase())).map((leave: any) => ({ ...leave, fromSession: String(leave.fromSession), toSession: String(leave.toSession) }));
+  // Yugam passes every approved leave type to its working-day calculator.
+  const paidLeaves = approvedLeaves.map((leave: any) => ({ ...leave, fromSession: String(leave.fromSession), toSession: String(leave.toSession) }));
   const pendingAttendanceDates = new Set<string>(attendance.filter((log: any) => log.approvalStatus === "Pending" || (!isFinalizedAttendanceLog(log) && log.approvalStatus !== "Rejected")).map((log: any) => log.attendanceDate));
   const calendarInput = { employmentStartIso: start, employmentEndIso: end, nonWorkingPaidDates, approvedLeaves: paidLeaves, attendanceLogs: finalized, pendingAttendanceDates };
   const payableDays = calculatePayableWorkingDays(calendarInput);

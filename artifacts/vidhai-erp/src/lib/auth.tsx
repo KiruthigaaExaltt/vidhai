@@ -49,6 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loggedOut, setLoggedOut] = useState(false),
     [sessionRestored, setSessionRestored] = useState(false),
     [permissions, setPermissions] = useState<string[]>([]),
+    [permissionsUserId, setPermissionsUserId] = useState<number | null>(null),
     [enabledModuleKeys, setEnabledModuleKeys] = useState<string[]>(["ledger"]),
     [isSuperAdmin, setIsSuperAdmin] = useState(false),
     [permissionsLoading, setPermissionsLoading] = useState(false);
@@ -119,6 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsSuperAdmin(false);
       setEnabledModuleKeys(["ledger"]);
     } finally {
+      setPermissionsUserId(Number(user.id));
       setPermissionsLoading(false);
     }
   };
@@ -137,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoggedOut(true);
     setUser(null);
     setPermissions([]);
+    setPermissionsUserId(null);
     setIsSuperAdmin(false);
     setEnabledModuleKeys(["ledger"]);
   };
@@ -144,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     !sessionRestored ||
     meLoading ||
     permissionsLoading ||
+    (!!user && permissionsUserId !== Number(user.id)) ||
     (!loggedOut && !!meData && !isError && user === null);
   const can = (permission: string) =>
     (permission === "crew.attendance.view" && Boolean((user as any)?.employeeId)) ||

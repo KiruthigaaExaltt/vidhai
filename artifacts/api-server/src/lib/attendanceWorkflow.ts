@@ -15,10 +15,7 @@ import {
   organizationDetailsTable,
   rolesTable,
 } from "@workspace/db";
-import {
-  applyApprovalDecision,
-  normalizeApprovalChainInput,
-} from "./crewApprovalEngine";
+import { applyApprovalDecision } from "./crewApprovalEngine";
 import {
   attendanceMetrics,
   attendanceFine,
@@ -38,99 +35,18 @@ export async function attendanceSettings(org: number) {
     .from(organizationDetailsTable)
     .where(eq(organizationDetailsTable.organizationId, org));
   return {
-    enabled: settings?.attendanceApprovalEnabled !== false,
-    requiredLevels: Math.min(
-      5,
-      Math.max(1, Number(settings?.attendanceApprovalLevels) || 1),
-    ),
-    allowOverride: settings?.allowApprovalOverride !== false,
     timezone: settings?.timezone || "Asia/Kolkata",
   };
 }
 export function dateInZone(timezone: string, instant = new Date()) {
   return instant.toLocaleDateString("en-CA", { timeZone: timezone });
 }
-export async function validateEmployeeApprovers(
-  raw: any,
-  employeeId: number,
-  org: number,
-) {
-  const input = readJson(raw);
-  if (!Array.isArray(input) || input.length > 5)
-    throw fail(400, "Configure up to five approval levels");
-  const chain = normalizeApprovalChainInput(
-    input.map((x: any, i: number) => ({
-      ...x,
-      level: i + 1,
-      selfApproval: false,
-    })),
-  );
-  if (chain.length !== input.length)
-    throw fail(400, "Approvers must be distinct valid employees");
-  const employees = await db
-    .select()
-    .from(employeesTable)
-    .where(eq(employeesTable.organizationId, org));
-  return chain.map((level) => {
-    const approver = employees.find(
-      (e) =>
-        Number(e.id) === level.employeeId &&
-        !e.isDeleted &&
-        e.status === "Active",
-    );
-    if (!approver || level.employeeId === employeeId)
-      throw fail(
-        400,
-        "Select active approvers other than the employee; use self-approval for own attendance",
-      );
-    return { ...level, employeeName: approver.name };
-  });
-}
 export async function buildAttendanceChain(employee: any, org: number) {
-  const settings = await attendanceSettings(org);
-  if (!settings.enabled) return [];
-  if (employee.canApproveOwnAttendance)
-    return Array.from({ length: settings.requiredLevels }, (_, i) => ({
-      level: i + 1,
-      employeeId: Number(employee.id),
-      employeeName: employee.name,
-      selfApproval: true,
-    }));
-  let chain = readJson(employee.approvalChain);
-  if (!chain.length && employee.reportingManager)
-    chain = [{ level: 1, employeeId: Number(employee.reportingManager) }];
-  chain = await validateEmployeeApprovers(chain, Number(employee.id), org);
-  if (chain.length < settings.requiredLevels)
-    throw fail(
-      400,
-      `Configure L1–L${settings.requiredLevels} approvers on the employee profile before submitting. Currently ${chain.length} of ${settings.requiredLevels} levels are set.`,
-    );
-  return chain.slice(0, settings.requiredLevels);
+  // Legacy chains no longer govern attendance approval.
+  return [];
 }
 export async function activeAttendanceChain(row: any, org: number) {
-  if (
-    row.approvalStatus === "Pending" &&
-    Number(row.currentLevel || 1) === 1 &&
-    !readJson(row.approvalHistory).length
-  ) {
-    const [employee] = await db
-      .select()
-      .from(employeesTable)
-      .where(
-        and(
-          eq(employeesTable.id, row.employeeId),
-          eq(employeesTable.organizationId, org),
-        ),
-      );
-    if (employee) {
-      try {
-        return await buildAttendanceChain(employee, org);
-      } catch {
-        /* Preserve an existing request's snapshot until configuration is repaired. */
-      }
-    }
-  }
-  return readJson(row.approvalChain);
+  return [];
 }
 export async function attendanceActor(req: any, own: any) {
   const roles = await db
@@ -271,18 +187,7 @@ export async function notifyAttendance(
   actorId: number,
   database = db,
 ) {
-  const chain = readJson(row.approvalChain);
-  const targetIds =
-    row.approvalStatus === "Pending"
-      ? [
-          chain.find(
-            (l: any) => Number(l.level) === Number(row.currentLevel || 1),
-          )?.employeeId,
-        ]
-      : [row.employeeId];
-  const history = readJson(row.approvalHistory);
-  if (history.at(-1)?.isOverride)
-    targetIds.push(...chain.map((l: any) => l.employeeId));
+  const targetIds = row.approvalStatus === "Pending" ? [] : [row.employeeId];
   const employees = await database
     .select()
     .from(employeesTable)
@@ -295,7 +200,7 @@ export async function notifyAttendance(
       organizationId: row.organizationId,
       actorId: actorId || undefined,
       permissionKey: "crew.attendance.approve",
-      recipientUserIds: [],
+      recipientUserIds: row.approvalStatus === "Pending" ? undefined : [],
       directRecipientUserIds: recipients,
       eventType: "ATTENDANCE_APPROVAL",
       eventKey: `attendance:${row.id}:${row.revision || 0}:${row.approvalStatus}`,
@@ -303,15 +208,14 @@ export async function notifyAttendance(
       submodule: "attendance",
       title:
         row.approvalStatus === "Pending"
-          ? `Attendance needs L${row.currentLevel || 1} approval`
+          ? "Attendance needs approval"
           : `Attendance ${row.approvalStatus}`,
       message: `${row.employeeName}: ${row.attendanceDate}. ${row.rejectionRemarks || ""}`,
       sourceEntityType: "attendance",
       sourceEntityId: row.id,
-      navigationUrl: "/crew",
+      navigationUrl: "/crew?tab=attendance",
       metadata: {
         attendanceId: row.id,
-        currentLevel: row.currentLevel,
         status: row.approvalStatus,
       },
     },
@@ -326,6 +230,8 @@ export async function reviewAttendance(
   actor: any,
   hasPermission: boolean,
 ) {
+  if (!hasPermission)
+    throw fail(403, "Forbidden: attendance approval permission required");
   if (row.approvalStatus !== "Pending")
     throw fail(409, "Only pending requests can be approved or rejected");
   if (decision === "Approved" && (!row.checkInTime || !row.checkOutTime))
@@ -333,18 +239,17 @@ export async function reviewAttendance(
       400,
       "Cannot approve: Punch Out has not been submitted yet. The attendance record is incomplete.",
     );
-  const settings = await attendanceSettings(row.organizationId);
   const chain = await activeAttendanceChain(row, row.organizationId);
   const result = applyApprovalDecision({
     status: row.approvalStatus,
-    currentLevel: row.currentLevel,
+    currentLevel: 1,
     approvalChain: chain,
     approvalHistory: readJson(row.approvalHistory),
     decision,
     remarks,
     actor,
     hasActionPermission: hasPermission,
-    allowApprovalOverride: settings.allowOverride,
+    allowApprovalOverride: false,
     isAdminRole: actor.isAdminRole,
   });
   const now = new Date();
@@ -370,10 +275,7 @@ export async function reviewAttendance(
       auditLogs: JSON.stringify([
         ...readJson(row.auditLogs),
         {
-          action:
-            result.status === "Pending"
-              ? `L${row.currentLevel || 1}_Approved`
-              : decision,
+          action: decision,
           actor: actor.name,
           at: now,
           remarks,

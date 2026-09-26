@@ -60,3 +60,8 @@ uploads/
 
 # pnpm local package store
 .pnpm-store/
+
+# Optional local reference checkout and generated validation logs
+/yugam-source-code/
+/docs/qa/*.log
+/docs/qa/browser/failure-*

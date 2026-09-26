@@ -14,6 +14,7 @@ export const ACTIONS = [
   "upload",
   "download",
   "change_time",
+  "salary_structure",
   "for_own",
   "for_others",
 ] as const;
@@ -73,7 +74,7 @@ export const permissionCatalog: PermissionCatalogRow[] = [
     key: "production.spawn_batches",
     actions: crud,
   },
-  { module: "Crew — Employees", key: "crew.employees", actions: scoped },
+  { module: "Crew — Employees", key: "crew.employees", actions: [...scoped, "salary_structure"] },
   {
     module: "Crew — Attendance",
     key: "crew.attendance",

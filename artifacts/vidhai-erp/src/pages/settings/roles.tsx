@@ -142,6 +142,7 @@ const RolesPage = forwardRef<
     "for_own",
     "for_others",
     "change_time",
+    "salary_structure",
   ];
   const displayActions = actionOrder.filter(
     (action) =>

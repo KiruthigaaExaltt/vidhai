@@ -178,6 +178,8 @@ export function Sidebar({
   const hasOperationsAccess = hasAny([
     "crew.employees.view",
     "crew.attendance.view",
+    "crew.attendance.approve",
+    "crew.attendance.reject",
     "crew.leave.view",
     "crew.claims.view",
     "crew.overtime.view",
@@ -513,7 +515,7 @@ export function Sidebar({
           {/* ── Cross-site operations ── */}
           {hasOperationsAccess && <SectionTitle>OPERATIONS</SectionTitle>}
           {(can("crew.employees.view") ||
-            can("crew.attendance.view") ||
+            can("crew.attendance.view") || can("crew.attendance.approve") || can("crew.attendance.reject") ||
             can("crew.leave.view") ||
             can("crew.claims.view") ||
             can("crew.overtime.view") ||

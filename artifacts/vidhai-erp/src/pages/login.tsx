@@ -20,7 +20,7 @@ export default function Login() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (!isLoading && user) setLocation("/dashboard");
+    if (!isLoading && user) setLocation("/");
   }, [isLoading, user, setLocation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,7 +35,7 @@ export default function Login() {
         },
       });
       login(res.user, res.accessToken);
-      setLocation("/dashboard");
+      setLocation("/");
     } catch (err: any) {
       toast({
         title: "Login Failed",

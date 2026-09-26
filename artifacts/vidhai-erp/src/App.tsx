@@ -136,6 +136,8 @@ const landingRoutes = [
     permissions: [
       "crew.employees.view",
       "crew.attendance.view",
+      "crew.attendance.approve",
+      "crew.attendance.reject",
       "crew.leave.view",
       "crew.claims.view",
       "crew.overtime.view",
@@ -461,6 +463,8 @@ function Router() {
           permission={[
             "crew.employees.view",
             "crew.attendance.view",
+            "crew.attendance.approve",
+            "crew.attendance.reject",
             "crew.leave.view",
             "crew.claims.view",
             "crew.overtime.view",

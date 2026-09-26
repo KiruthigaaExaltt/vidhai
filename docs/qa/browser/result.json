@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-09-26T03:19:20.762Z",
+  "browser": "155.0.8059.12",
+  "simulated": [
+    "camera stream",
+    "GPS",
+    "face detector",
+    "geocoder outage"
+  ],
+  "pageErrors": []
+}

@@ -322,41 +322,27 @@ test("all fine types and zero-fixed-fine salary fallback match Yugam", () => {
     31.25,
   );
 });
-test("strict L1 to L2 sequence and next approver notification; no financial posting until final approval", async () => {
-  fixture();
-  await assert.rejects(
-    workflow.reviewAttendance(row(), "Approved", "", null, actor(3), true),
-    /Only the L1/,
-  );
-  const first = await workflow.reviewAttendance(
-    row(),
-    "Approved",
-    "Checked",
-    null,
-    actor(2),
-    true,
-  );
-  assert.equal(first.approvalStatus, "Pending");
-  assert.equal(first.currentLevel, 2);
-  assert.equal(records.crewDeductionsTable.length, 0);
-  assert.deepEqual(events.at(-1).directRecipientUserIds, [13]);
-  const final = await workflow.reviewAttendance(
-    row(),
-    "Approved",
-    "",
-    null,
-    actor(3),
-    true,
-  );
-  assert.equal(final.approvalStatus, "Approved");
-  assert.equal(final.status, "Late");
-  assert.equal(records.crewDeductionsTable[0].amount, "125");
-  assert.equal(JSON.parse(final.approvalHistory).length, 2);
-  assert.deepEqual(events.at(-1).directRecipientUserIds, [11]);
+test("one permission-based approval finalizes a legacy chain at any level", async () => {
+  for (const level of [1, 2, 5]) {
+    fixture();
+    records.attendanceLogsTable[0].currentLevel = level;
+    const final = await workflow.reviewAttendance(row(), "Approved", "Checked", null, actor(8), true);
+    assert.equal(final.approvalStatus, "Approved");
+    assert.equal(final.currentLevel, null);
+    assert.equal(final.status, "Late");
+    assert.equal(records.crewDeductionsTable[0].amount, "125");
+    assert.deepEqual(events.at(-1).directRecipientUserIds, [11]);
+  }
 });
 test("approval requires both punches; incomplete rejection is terminal and requires remarks", async () => {
   fixture();
   records.attendanceLogsTable[0].checkOutTime = null;
+  for (const decision of ["Approved", "Rejected"]) {
+    await assert.rejects(
+      workflow.reviewAttendance(row(), decision, "", null, actor(2), false),
+      (error) => error.status === 403,
+    );
+  }
   await assert.rejects(
     workflow.reviewAttendance(row(), "Approved", "", null, actor(2), true),
     /incomplete/,
@@ -380,64 +366,28 @@ test("approval requires both punches; incomplete rejection is terminal and requi
     /Only pending/,
   );
 });
-test("admin override is audited and disabling overrides enforces sequence", async () => {
+test("legacy override settings cannot block permission-based approval", async () => {
   fixture();
-  const admin = { ...actor(9), isAdminRole: true };
   records.organizationDetailsTable[0].allowApprovalOverride = false;
-  await assert.rejects(
-    workflow.reviewAttendance(row(), "Approved", "", null, admin, true),
-    /Only the L1/,
-  );
-  records.organizationDetailsTable[0].allowApprovalOverride = true;
-  const final = await workflow.reviewAttendance(
-    row(),
-    "Approved",
-    "Override",
-    null,
-    admin,
-    true,
-  );
+  const final = await workflow.reviewAttendance(row(), "Approved", "", null, { ...actor(9), isAdminRole: true }, true);
   assert.equal(final.approvalStatus, "Approved");
-  assert.equal(JSON.parse(final.approvalHistory)[0].action, "OverrideApproved");
-  assert.deepEqual(events.at(-1).directRecipientUserIds, [11, 12, 13]);
+  assert.equal(JSON.parse(final.approvalHistory)[0].action, "Approved");
 });
-test("configured self-approval can approve own completed attendance without a general action grant", async () => {
+test("legacy self-approval and assigned approvers still require action permission", async () => {
   fixture();
   records.employeesTable[0].canApproveOwnAttendance = true;
-  const final = await workflow.reviewAttendance(
-    row(),
-    "Approved",
-    "",
-    null,
-    actor(1),
-    false,
-  );
-  assert.equal(final.approvalStatus, "Approved");
-  fixture();
-  await assert.rejects(
-    workflow.reviewAttendance(row(), "Approved", "", null, actor(2), false),
-    /permission/,
-  );
+  for (const id of [1, 2, 8]) {
+    for (const decision of ["Approved", "Rejected"]) {
+      await assert.rejects(workflow.reviewAttendance(row(), decision, "Checked", null, actor(id), false), /permission/);
+    }
+  }
 });
-test("missing levels and cross-organization, duplicate, inactive or self approvers are rejected", async () => {
+test("punches need no approval chain or reporting manager", async () => {
   fixture();
   records.employeesTable[0].approvalChain = "[]";
-  records.employeesTable[0].reportingManager = 2;
-  await assert.rejects(
-    workflow.buildAttendanceChain(records.employeesTable[0], 1),
-    /1 of 2/,
-  );
-  for (const input of [
-    [{ employeeId: 99 }],
-    [{ employeeId: 1 }],
-    [{ employeeId: 2 }, { employeeId: 2 }],
-  ])
-    await assert.rejects(workflow.validateEmployeeApprovers(input, 1, 1));
-  records.employeesTable[1].organizationId = 2;
-  await assert.rejects(
-    workflow.validateEmployeeApprovers([{ employeeId: 2 }], 1, 1),
-    /active approvers/,
-  );
+  records.employeesTable[0].reportingManager = null;
+  records.organizationDetailsTable[0].attendanceApprovalLevels = 5;
+  assert.deepEqual(await workflow.buildAttendanceChain(records.employeesTable[0], 1), []);
 });
 test("disabled policy is permission-based one-step approval, not automatic approval", async () => {
   fixture();
@@ -636,7 +586,7 @@ const attendanceRoutes = routeSource
     routeSource.indexOf('router.get("/attendance/settings"'),
     routeSource.indexOf("async function leaveContext"),
   )
-  .replace(
+  .replaceAll(
     'await import("./crewpay")',
     "({ refreshAttendancePayroll: async () => {} })",
   );
@@ -655,7 +605,7 @@ const routesBuild = await build({
 const {db,eq,and,or,isNull,${tables.join(",")}} = globalThis.__attendanceTest;
 const {workflow,rules,own} = globalThis.__attendanceRouteTest;
 const {activeAttendanceChain,attendanceActor,attendanceCalendar,attendanceFinePreview,attendanceSettings,attendanceVersion,assertAttendanceMonthOpen,buildAttendanceChain,dateInZone,notifyAttendance,reviewAttendance,validateEmployeeApprovers} = workflow;
-const {attendanceDisplayStatus,timeMinutes} = rules;
+const {attendanceDisplayStatus,calendarStatus,timeMinutes} = rules;
 const json=rules.readJson, today=()=>dateInZone('Asia/Kolkata'), iso=v=>/^\\d{4}-\\d{2}-\\d{2}$/.test(v), desc=v=>v;
 const ownEmployee=async req=>own(req), can=(req,key)=>req.crew.permissions.includes('*')||req.crew.permissions.includes(key), need=(req,res,key)=>{if(can(req,key))return true;res.status(403).json({error:'Missing permission'});return false;};
 const scopedRows=async(req,rows)=>req.crew.permissions.includes('*')?rows:rows.filter(r=>r.employeeId===own(req)?.id||r.id===own(req)?.id);
@@ -825,10 +775,10 @@ test("employee punch-out correction is allowed only before the first review and 
     409,
   );
 });
-test("attendance list exposes pending state and only grants actions to the current approver", async () => {
+test("attendance list grants actions to permission holders regardless of legacy assignment", async () => {
   fixture();
   const result = await callRoute("get", "/attendance", {
-    userId: 12,
+    userId: 13,
     permissions: ["crew.attendance.approve", "crew.attendance.reject"],
   });
   const pending = result.body.find((r) => r.id === 1);
@@ -838,6 +788,89 @@ test("attendance list exposes pending state and only grants actions to the curre
   assert.equal(pending.lateFinePreview.amount, 125);
   const employee = await callRoute("get", "/attendance", { userId: 11 });
   assert.equal(employee.body.find((r) => r.id === 1).canApprove, false);
+});
+
+test("browser revision prevents approving or correcting punches changed since opening", async () => {
+  fixture();
+  const corrected = await callRoute("patch", "/attendance/:id/punch-out-edit", { id: 1, body: { checkOutTime: "17:00", revision: 0 } });
+  assert.equal(corrected.status, 200);
+  const stale = await callRoute("patch", "/attendance/:id/approval", { id: 1, userId: 12, permissions: ["crew.attendance.approve"], body: { decision: "Approved", revision: 0 } });
+  assert.equal(stale.status, 409);
+  assert.equal(row().approvalStatus, "Pending");
+  assert.equal((await callRoute("patch", "/attendance/:id/punch-out-edit", { id: 1, body: { checkOutTime: "18:00", revision: 0 } })).status, 409);
+  assert.equal(row().checkOutTime, "17:00");
+  assert.equal((await callRoute("patch", "/attendance/:id/approval", { id: 1, userId: 12, permissions: ["crew.attendance.approve"], body: { decision: "Approved", revision: 1 } })).status, 200);
+});
+
+test("review preview recalculates edited times without changing attendance or deductions", async () => {
+  fixture();
+  const input = { id: 1, userId: 12, permissions: ["crew.attendance.approve"], body: { checkInTime: "09:00", checkOutTime: "17:00" } };
+  assert.equal((await callRoute("post", "/attendance/:id/preview", input)).body.lateFinePreview, null);
+  assert.equal(row().checkInTime, "09:45");
+  assert.equal(records.crewDeductionsTable.length, 0);
+  assert.equal((await callRoute("post", "/attendance/:id/preview", { ...input, permissions: [] })).status, 403);
+  assert.equal((await callRoute("post", "/attendance/:id/preview", { ...input, body: { checkInTime: "25:00" } })).status, 400);
+});
+
+test("register grants reviewers actions and history and uses the punch calendar rules", async () => {
+  fixture();
+  records.attendanceLogsTable[0].approvalHistory = JSON.stringify([{ action: "Reviewed", actorName: "HR" }]);
+  records.holidayTemplatesTable[0].holidays = JSON.stringify([{ date: "2026-09-02" }]);
+  records.holidayTemplatesTable[0].isActive = false;
+  records.leaveRequestsTable = [{ employeeId: 1, organizationId: 1, status: "Approved", leaveType: "Sick", startDate: "2026-09-03", endDate: "2026-09-03", fromSession: 1, toSession: 1 }];
+  const result = await callRoute("get", "/attendance/register", { userId: 999, permissions: ["crew.attendance.approve"], query: { month: "2026-09" } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.rows.length, 3);
+  const days = result.body.rows.find(r => r.employeeId === 1).days;
+  assert.equal(days[0].canApprove, true);
+  assert.equal(days[0].canReject, false);
+  assert.equal(days[0].revision, 0);
+  assert.equal(days[0].approvalHistory[0].actorName, "HR");
+  assert.equal(days[1].status, "Absent");
+  assert.equal(days[2].status, "Half Day");
+  const self = await callRoute("get", "/attendance/register", { query: { month: "2026-09" } });
+  assert.equal(self.body.rows.length, 1);
+  assert.equal(self.body.rows[0].days[0].canApprove, false);
+});
+
+test("dashboard self attendance is scoped to the signed-in employee", async () => {
+  fixture();
+  records.attendanceLogsTable[0].attendanceDate = workflow.dateInZone("Asia/Kolkata");
+  const self = await callRoute("get", "/attendance/self");
+  assert.equal(self.body.employee.id, 1);
+  assert.equal(self.body.logs[0].canEditPunchOut, true);
+  assert.equal(self.body.employee.baseSalary, undefined);
+  const other = await callRoute("get", "/attendance/self", { userId: 12 });
+  assert.equal(other.body.employee.id, 2);
+  assert.equal(other.body.logs[0].derived, true);
+  assert.equal((await callRoute("get", "/attendance/self", { userId: 999 })).body.employee, null);
+});
+
+test("punching for others requires both create and for-others permissions", async () => {
+  fixture();
+  records.attendanceLogsTable = [];
+  records.workPatternTemplatesTable = [];
+  const body = { employeeId: 1, punchAction: "punchIn", location: { latitude: 11, longitude: 77 }, photoDataUrl: "data:image/jpeg;base64,YQ==" };
+  for (const permissions of [["crew.attendance.create"], ["crew.attendance.for_others"]]) {
+    assert.equal((await callRoute("post", "/attendance", { userId: 12, permissions, body })).status, 403);
+  }
+  const permissions = ["crew.attendance.create", "crew.attendance.for_others"];
+  const punch = await callRoute("post", "/attendance", { userId: 12, permissions, body });
+  assert.equal(punch.status, 201);
+  assert.equal(punch.body.employeeId, 1);
+  const out = await callRoute("patch", "/attendance/:id", { id: punch.body.id, userId: 12, permissions, body: { ...body, punchAction: "punchOut" } });
+  assert.equal(out.status, 200);
+  assert.equal(out.body.approvalStatus, "Pending");
+});
+
+test("manual nonworking overrides clear punches and preserve the previous evidence", async () => {
+  fixture();
+  const result = await callRoute("post", "/attendance/override", { permissions: ["*"], body: { employeeId: 1, attendanceDate: "2026-09-01", status: "Sick Leave", checkInTime: "09:00", checkOutTime: "17:00", overrideReason: "Correct approved sick leave", revision: 0 } });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.checkInTime, null);
+  assert.equal(result.body.checkOutTime, null);
+  assert.equal(JSON.parse(result.body.originalPunchValues).checkInTime, "09:45");
+  assert.equal(result.body.approvalStatus, "Approved");
 });
 
 const syncSource = routeSource.slice(

@@ -1,5 +1,5 @@
-import { attendanceDisplayStatus, timeMinutes } from "../lib/attendanceRules";
-import { activeAttendanceChain, attendanceActor, attendanceCalendar, attendanceFinePreview, attendanceSettings, attendanceVersion, assertAttendanceMonthOpen, buildAttendanceChain, dateInZone, notifyAttendance, reviewAttendance, validateEmployeeApprovers } from "../lib/attendanceWorkflow";
+import { attendanceDisplayStatus, calendarStatus, timeMinutes } from "../lib/attendanceRules";
+import { activeAttendanceChain, attendanceActor, attendanceCalendar, attendanceFinePreview, attendanceSettings, attendanceVersion, assertAttendanceMonthOpen, buildAttendanceChain, dateInZone, notifyAttendance, reviewAttendance } from "../lib/attendanceWorkflow";
 import { calculateSalaryTemplateComponents } from "@workspace/db/payroll/salary";
 import { Router } from "express";
 import { access, mkdir, unlink, writeFile } from "node:fs/promises";
@@ -642,8 +642,8 @@ router.post(
         .select()
         .from(employeesTable)
         .where(eq(employeesTable.organizationId, org));
-      v.approvalChain = JSON.stringify(await validateEmployeeApprovers(b.approvalChain || [], 0, org));
-      v.canApproveOwnAttendance = b.canApproveOwnAttendance === true;
+      v.approvalChain = "[]";
+      v.canApproveOwnAttendance = false;
       const rows = allRows.filter((x: any) => !x.isDeleted);
       if (
         rows.some(
@@ -825,6 +825,21 @@ router.post(
     }
   },
 );
+// Salary access is scoped independently of Settings template administration.
+router.get("/employees/:id/salary-structure", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.employees.salary_structure")) return;
+  const employee = await scopedEmployee(req, res, Number(req.params.id), "employees");
+  if (!employee) return;
+  res.json({ ...employee, fixedComponentValues: json(employee.fixedComponentValues, {}) });
+});
+router.get("/employees/:id/salary-templates", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.employees.salary_structure")) return;
+  if (!await scopedEmployee(req, res, Number(req.params.id), "employees")) return;
+  const templates = await db.select().from(salaryTemplatesTable)
+    .where(eq(salaryTemplatesTable.organizationId, req.crew.org)).orderBy(asc(salaryTemplatesTable.templateName));
+  res.json(templates.filter((template: any) => template.isActive !== false)
+    .map((template: any) => ({ ...template, components: json(template.components, []) })));
+});
 router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.employees.update")) return;
   const old = await scopedEmployee(
@@ -840,8 +855,11 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
       .json({ error: "Protected employee cannot be edited" });
   try {
     const b = { ...req.body };
-    if (b.approvalChain !== undefined) b.approvalChain = JSON.stringify(await validateEmployeeApprovers(b.approvalChain, Number(old.id), req.crew.org));
-    if (b.canApproveOwnAttendance !== undefined) b.canApproveOwnAttendance = b.canApproveOwnAttendance === true;
+    const immediateSalarySnapshot = b.templateSnapshotOption === "immediately";
+    delete b.templateSnapshotOption;
+    delete b.salaryStructureSnapshots;
+    delete b.approvalChain;
+    delete b.canApproveOwnAttendance;
     for (const key of ["phone", "alternatePhone", "emergencyContactPhone"])
       if (b[key] !== undefined && b[key] !== null && b[key] !== "") {
         const normalized = phone(b[key]);
@@ -866,6 +884,14 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
       if (!salaryTemplate || salaryTemplate.isActive === false) return res.status(400).json({ error: "Select an active salary template" });
       const monthlyCtc = Number(b.baseSalary ?? old.baseSalary) || Number(b.annualCtc ?? old.annualCtc) / 12;
       const fixed = b.fixedComponentValues ?? json(old.fixedComponentValues, {});
+      if (immediateSalarySnapshot) {
+        if (!need(req, res, "crew.employees.salary_structure")) return;
+        const month = dateInZone((await attendanceSettings(req.crew.org)).timezone).slice(0, 7);
+        b.salaryStructureSnapshots = JSON.stringify({ ...json(old.salaryStructureSnapshots, {}), [month]: {
+          salaryTemplateId: salaryTemplate.id, templateName: salaryTemplate.templateName,
+          components: json(salaryTemplate.components, []),
+        } });
+      }
       try {
         calculateSalaryTemplateComponents({ templateComponents: json(salaryTemplate.components, []), monthlyCtc, fixedComponentValues: fixed, earnedRatio: 1 });
       } catch (error: any) { return res.status(400).json({ error: error.message }); }
@@ -992,6 +1018,17 @@ router.delete("/employees/:id", async (req: any, res: any): Promise<any> => {
 router.get("/attendance/settings", async (req: any, res: any): Promise<any> => {
   return res.json(req.crew.attendanceSettings);
 });
+router.get("/attendance/self", async (req: any, res: any): Promise<any> => {
+  const employee = await ownEmployee(req);
+  if (!employee) return res.json({ employee: null, logs: [] });
+  const date = dateInZone(req.crew.attendanceSettings.timezone);
+  const rows = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.organizationId, req.crew.org), eq(attendanceLogsTable.employeeId, employee.id), eq(attendanceLogsTable.attendanceDate, date)));
+  const logs = rows.length ? rows.map(row => ({
+    ...row, status: attendanceDisplayStatus(row),
+    canEditPunchOut: row.approvalStatus === "Pending" && Boolean(row.checkOutTime) && !json(row.approvalHistory).length,
+  })) : [{ employeeId: employee.id, attendanceDate: date, status: await attendanceCalendar(employee, date, req.crew.org), derived: true }];
+  return res.json({ employee: { id: employee.id, name: employee.name, employeeCode: employee.employeeCode, userId: employee.userId, email: employee.email }, logs });
+});
 router.get("/attendance", async (req: any, res: any): Promise<any> => {
   if (!can(req, "crew.attendance.view") && !can(req, "crew.attendance.approve") && !can(req, "crew.attendance.reject") && !(await ownEmployee(req)))
     return res.status(403).json({ error: "Crew membership or attendance view permission is required" });
@@ -1003,12 +1040,7 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
   let rows = await scopedRows(req, allRows, "attendance");
   const own = await ownEmployee(req);
   if (can(req, "crew.attendance.approve") || can(req, "crew.attendance.reject")) {
-    const actor = await attendanceActor(req, own);
-    for (const record of allRows) {
-      const chain = await activeAttendanceChain(record, req.crew.org);
-      const assigned = chain.some((l: any) => Number(l.employeeId) === Number(own?.id) && Number(l.level) === Number(record.currentLevel || 1));
-      if ((assigned || req.crew.attendanceSettings.allowOverride && (actor.isSuperAdmin || actor.isAdminRole)) && !rows.some((r: any) => r.id === record.id)) rows.push(record);
-    }
+    rows = [...allRows];
   }
   if (own) {
     const ownLogs = allRows.filter(
@@ -1061,31 +1093,26 @@ router.get("/attendance", async (req: any, res: any): Promise<any> => {
   rows.sort((a: any, b: any) =>
     String(b.attendanceDate).localeCompare(String(a.attendanceDate)),
   );
-  const actor = await attendanceActor(req, own);
-  const settings = req.crew.attendanceSettings;
   const enriched = await Promise.all(rows.map(async (row: any) => {
-    const chain = row.derived ? [] : await activeAttendanceChain(row, req.crew.org);
-    const expected = chain.find((l: any) => Number(l.level) === Number(row.currentLevel || 1));
-    const assigned = !chain.length || Number(expected?.employeeId) === Number(actor.employeeId);
-    const override = settings.allowOverride && (actor.isSuperAdmin || actor.isAdminRole);
-    const self = chain.length > 0 && chain.every((l: any) => l.selfApproval && Number(l.employeeId) === Number(actor.employeeId));
+    const chain: any[] = [];
     const pending = row.approvalStatus === "Pending" && !row.derived;
     let lateFinePreview = null;
     if (pending && row.checkInTime && row.checkOutTime) {
       try { lateFinePreview = await attendanceFinePreview(row, req.crew.org); } catch { /* Approval returns a template configuration error if unresolved. */ }
     }
     return { ...row, status: attendanceDisplayStatus(row), approvalChain: chain, approvalHistory: json(row.approvalHistory), lateFinePreview,
-      canApprove: pending && Boolean(row.checkInTime && row.checkOutTime) && (can(req, "crew.attendance.approve") || self) && (assigned || override || self),
-      canReject: pending && can(req, "crew.attendance.reject") && (assigned || override),
+      canApprove: pending && Boolean(row.checkInTime && row.checkOutTime) && can(req, "crew.attendance.approve"),
+      canReject: pending && can(req, "crew.attendance.reject"),
       canEditPunchOut: pending && Number(row.employeeId) === Number(own?.id) && Boolean(row.checkOutTime) && !json(row.approvalHistory).length };
   }));
   res.json(enriched.filter((row: any) => (!req.query.startDate || row.attendanceDate >= req.query.startDate) && (!req.query.endDate || row.attendanceDate <= req.query.endDate)).map((x: any) => ({ ...x, checkInLocation: attendanceLocation(x.checkInLocation), checkOutLocation: attendanceLocation(x.checkOutLocation), auditLogs: json(x.auditLogs) })));
 });
 router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
   const own = await ownEmployee(req);
-  if (!can(req, "crew.attendance.view") && !own)
+  const canReview = can(req, "crew.attendance.approve") || can(req, "crew.attendance.reject");
+  if (!can(req, "crew.attendance.view") && !canReview && !own)
     return res.status(403).json({ error: "Crew membership or attendance view permission is required" });
-  const month = String(req.query.month || today().slice(0, 7));
+  const month = String(req.query.month || dateInZone(req.crew.attendanceSettings.timezone).slice(0, 7));
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
     return res.status(400).json({ error: "Valid month is required" });
   const [year, monthNumber] = month.split("-").map(Number),
@@ -1097,7 +1124,7 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
       .from(employeesTable)
       .where(eq(employeesTable.organizationId, req.crew.org))
   ).filter((e: any) => !e.isDeleted && e.status !== "Offboarded");
-  employees = await scopedRows(req, employees, "attendance");
+  if (!canReview) employees = await scopedRows(req, employees, "attendance");
   if (own && !employees.some((row: any) => Number(row.id) === Number(own.id))) employees.push(own);
   const [logs, leaves, holidayTemplates, patterns] = await Promise.all([
     db
@@ -1118,15 +1145,6 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
       .where(eq(workPatternTemplatesTable.organizationId, req.crew.org)),
   ]);
   const rows = employees.map((employee: any) => {
-    const holidayTemplate = holidayTemplates.find(
-      (t: any) => Number(t.id) === Number(employee.holidayTemplate),
-    );
-    const holidayDates = new Set(
-      json(holidayTemplate?.holidays).map((h: any) => h.date),
-    );
-    const pattern = patterns.find(
-      (t: any) => Number(t.id) === Number(employee.workPatternTemplate),
-    );
     const days = Array.from({ length: daysInMonth }, (_, offset) => {
       const day = offset + 1,
         date = `${month}-${String(day).padStart(2, "0")}`,
@@ -1152,28 +1170,26 @@ router.get("/attendance/register", async (req: any, res: any): Promise<any> => {
           checkInAddress: actual.checkInAddress,
           checkOutAddress: actual.checkOutAddress,
           approvalStatus: actual.approvalStatus,
+          revision: Number(actual.revision || 0),
+          approvalHistory: json(actual.approvalHistory),
+          auditLogs: json(actual.auditLogs),
+          originalPunchValues: json(actual.originalPunchValues),
+          rejectionRemarks: actual.rejectionRemarks,
+          lateFineAmount: actual.lateFineAmount,
+          timezone: actual.timezone,
+          canApprove: actual.approvalStatus === "Pending" && Boolean(actual.checkInTime && actual.checkOutTime) && can(req, "crew.attendance.approve"),
+          canReject: actual.approvalStatus === "Pending" && can(req, "crew.attendance.reject"),
+          canEditPunchOut: actual.approvalStatus === "Pending" && Number(actual.employeeId) === Number(own?.id) && Boolean(actual.checkOutTime) && !json(actual.approvalHistory).length,
           notes: actual.notes,
           locked: actual.locked,
         };
       // Attendance has no meaning until the day arrives. Do not derive an
       // absence (or any other status) for future calendar dates.
-      const leave = leaves.find(
-        (item: any) =>
-          Number(item.employeeId) === Number(employee.id) &&
-          item.status === "Approved" &&
-          item.startDate <= date &&
-          item.endDate >= date,
-      );
-      if (employee.joinDate && date < employee.joinDate || employee.exitDate && date > employee.exitDate) return { date, status: "Not Employed", derived: true };
-      if (leave && leave.leaveType !== "Permission") return { date, status: "On Leave", derived: true };
-      if (holidayDates.has(date))
-        return { date, status: "Holiday", derived: true };
-      const week = Math.min(5, Math.floor((day - 1) / 7) + 1),
-        weekday = new Date(`${date}T00:00:00Z`).getUTCDay(),
-        offDays = json(pattern?.[`week${week}OffDays`]);
-      if (offDays.map(Number).includes(weekday))
-        return { date, status: "Week Off", derived: true };
-      return { date, status: "Absent", derived: true };
+      const calendar = calendarStatus(employee, date, patterns, holidayTemplates, leaves);
+      const halfDayLeave = calendar === "On Leave" && leaves.some((leave: any) =>
+        Number(leave.employeeId) === Number(employee.id) && leave.status === "Approved" && leave.leaveType !== "Permission" &&
+        leave.startDate === date && leave.endDate === date && Number(leave.fromSession) > 0 && Number(leave.fromSession) === Number(leave.toSession));
+      return { date, status: halfDayLeave ? "Half Day" : calendar, derived: true };
     });
     return {
       employeeId: employee.id,
@@ -1215,7 +1231,7 @@ router.post("/attendance", async (req: any, res: any): Promise<any> => {
   );
   if (!employee) return;
   const own = await ownEmployee(req);
-  if (isPunchIn && (!own || Number(own.id) !== Number(employee.id)))
+  if (isPunchIn && (!own || Number(own.id) !== Number(employee.id)) && !(can(req, "crew.attendance.create") && can(req, "crew.attendance.for_others")))
     return res.status(403).json({ error: "You can only punch in for your own crew record" });
   if (
     !can(req, "crew.attendance.create") &&
@@ -1355,7 +1371,7 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
   );
   if (!employee) return;
   const allowedStatuses = new Set([
-    "Present", "Absent", "Late", "Half Day", "On Leave",
+    "Present", "Absent", "Late", "Half Day", "On Leave", "Sick Leave", "Casual Leave",
     "Week Off", "Holiday", "Remote", "WFH",
   ]);
   if (!allowedStatuses.has(String(req.body.status)))
@@ -1376,6 +1392,8 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
         ),
       )
   ).find((row: any) => row.attendanceDate === req.body.attendanceDate);
+  if (req.body.revision !== undefined && Number(req.body.revision) !== Number(existing?.revision || 0))
+    return res.status(409).json({ error: "Attendance changed since you opened it. Refresh before overriding." });
   try { await assertAttendanceMonthOpen(req.crew.org, employee.id, req.body.attendanceDate); } catch (error: any) { return res.status(error.status || 400).json({ error: error.message }); }
   const values: any = {
     approvalStatus: "Approved", currentLevel: null, approvedBy: req.crew.user.id, approvedAt: new Date(), revision: Number(existing?.revision || 0) + 1,
@@ -1383,8 +1401,8 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
     originalPunchValues: existing?.originalPunchValues || (existing ? JSON.stringify({ checkInTime: existing.checkInTime, checkOutTime: existing.checkOutTime }) : null),
     approvalHistory: JSON.stringify([...json(existing?.approvalHistory), { level: existing?.currentLevel || 1, action: "OverrideApproved", actorUserId: req.crew.user.id, actorName: req.crew.user.displayName, remarks: reason, isOverride: true, at: new Date() }]),
     status: req.body.status,
-    checkInTime: req.body.checkInTime || null,
-    checkOutTime: req.body.checkOutTime || null,
+    checkInTime: ["On Leave", "Sick Leave", "Casual Leave", "Holiday", "Week Off"].includes(req.body.status) ? null : req.body.checkInTime || null,
+    checkOutTime: ["On Leave", "Sick Leave", "Casual Leave", "Holiday", "Week Off"].includes(req.body.status) ? null : req.body.checkOutTime || null,
     notes: req.body.notes || null,
     locked: Boolean(req.body.checkOutTime),
     auditLogs: JSON.stringify([
@@ -1428,6 +1446,10 @@ router.post("/attendance/override", async (req: any, res: any): Promise<any> => 
     existing || null,
     row,
   );
+  try {
+    const { refreshAttendancePayroll } = await import("./crewpay");
+    await refreshAttendancePayroll(req.crew.org, row.employeeId, row.attendanceDate.slice(0, 7), req.crew.user);
+  } catch (error: any) { return res.json({ ...row, payrollRefreshWarning: error.message }); }
   return res.json(row);
 });
 router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
@@ -1449,7 +1471,7 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
   // Those permissions remain required for every non-punch-out edit and for
   // punching out another employee's record.
   if (isPunchOut) {
-    if (!own || Number(own.id) !== Number(old.employeeId))
+    if ((!own || Number(own.id) !== Number(old.employeeId)) && !(can(req, "crew.attendance.create") && can(req, "crew.attendance.for_others")))
       return res
         .status(403)
         .json({ error: "You can only punch out for your own crew record" });
@@ -1581,12 +1603,25 @@ router.patch("/attendance/:id", async (req: any, res: any): Promise<any> => {
   }
 });
 
+router.post("/attendance/:id/preview", async (req: any, res: any): Promise<any> => {
+  if (!need(req, res, "crew.attendance.approve")) return;
+  try {
+    const [row] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
+    if (!row) return res.status(404).json({ error: "Attendance not found" });
+    const times = { checkInTime: req.body.checkInTime ?? row.checkInTime, checkOutTime: req.body.checkOutTime ?? row.checkOutTime };
+    if (timeMinutes(times.checkInTime) === null || timeMinutes(times.checkOutTime) === null)
+      return res.status(400).json({ error: "Both valid punch times are required" });
+    return res.json({ lateFinePreview: await attendanceFinePreview({ ...row, ...times }, req.crew.org) });
+  } catch (error: any) { return res.status(error.status || 400).json({ error: error.message }); }
+});
 router.patch("/attendance/:id/approval", async (req: any, res: any): Promise<any> => {
   try {
     const decision = req.body?.decision;
     if (decision !== "Approved" && decision !== "Rejected") return res.status(400).json({ error: "Approval decision must be Approved or Rejected" });
     const [old] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
     if (!old) return res.status(404).json({ error: "Attendance not found" });
+    if (req.body.revision !== undefined && Number(req.body.revision) !== Number(old.revision || 0))
+      return res.status(409).json({ error: "Attendance changed since you opened it. Refresh and review the latest punches." });
     const actor = await attendanceActor(req, await ownEmployee(req));
     const row = await reviewAttendance(old, decision, String(req.body.remarks || "").trim(), req.body.overrides, actor, can(req, decision === "Approved" ? "crew.attendance.approve" : "crew.attendance.reject"));
     void audit(req, "attendance", row.id, row.employeeName, decision.toLowerCase(), old, row);
@@ -1604,6 +1639,8 @@ router.patch("/attendance/:id/punch-out-edit", async (req: any, res: any): Promi
     const own = await ownEmployee(req);
     const [old] = await db.select().from(attendanceLogsTable).where(and(eq(attendanceLogsTable.id, Number(req.params.id)), eq(attendanceLogsTable.organizationId, req.crew.org)));
     if (!old || Number(old.employeeId) !== Number(own?.id)) return res.status(403).json({ error: "Only the employee can correct their punch-out" });
+    if (req.body.revision !== undefined && Number(req.body.revision) !== Number(old.revision || 0))
+      return res.status(409).json({ error: "Attendance changed since you opened it. Refresh and try again." });
     if (old.approvalStatus !== "Pending" || !old.checkOutTime || json(old.approvalHistory).length) return res.status(409).json({ error: "Punch-out can only be corrected before the first approval" });
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(req.body.checkOutTime || ""))) return res.status(400).json({ error: "A valid punch-out time is required" });
     await assertAttendanceMonthOpen(req.crew.org, old.employeeId, old.attendanceDate);
@@ -2814,18 +2851,6 @@ export async function syncAttendanceDeductions(
       .select()
       .from(attendanceTemplatesTable)
       .where(eq(attendanceTemplatesTable.organizationId, org)),
-    approvedOtherLeaves = (
-      await db
-        .select()
-        .from(leaveRequestsTable)
-        .where(eq(leaveRequestsTable.organizationId, org))
-    ).filter(
-      (row: any) =>
-        row.status === "Approved" &&
-        row.leaveType === "Other" &&
-        row.startDate <= `${prefix}-31` &&
-        row.endDate >= `${prefix}-01`,
-    ),
     oldRows = (
       await db
         .select()
@@ -2838,41 +2863,8 @@ export async function syncAttendanceDeductions(
         !paidEmployees.has(Number(row.employeeId)) &&
         String(row.source).toLowerCase() !== "manual",
     );
-  // Approved Other leave is an LOP leave. Represent each chargeable leave day
-  // as a synthetic attendance item so it participates in the same stable,
-  // idempotent deduction flow as an absent day.
-  const lopLeaveLogs: any[] = [];
-  for (const leave of approvedOtherLeaves) {
-    const employee = employees.find(
-      (row: any) => Number(row.id) === Number(leave.employeeId),
-    );
-    if (!employee) continue;
-    const context = await leaveContext(org, employee, year);
-    for (const date of datesBetween(
-      leave.startDate < `${prefix}-01` ? `${prefix}-01` : leave.startDate,
-      leave.endDate > `${prefix}-31` ? `${prefix}-31` : leave.endDate,
-    )) {
-      if (chargeableDays(date, date, "1", "2", context) <= 0) continue;
-      if (
-        logs.some(
-          (log: any) =>
-            Number(log.employeeId) === Number(employee.id) &&
-            log.attendanceDate === date,
-        )
-      )
-        continue;
-      lopLeaveLogs.push({
-        id: -(Number(leave.id) * 100 + Number(date.slice(-2))),
-        employeeId: employee.id,
-        employeeName: employee.name,
-        attendanceDate: date,
-        status: "Other LOP",
-        isOtherLeaveLop: true,
-        leaveFraction: leave.startDate === leave.endDate && String(leave.fromSession) === String(leave.toSession) ? 0.5 : 1,
-      });
-    }
-  }
-  const deductionLogs = [...logs, ...lopLeaveLogs];
+  // Yugam derives punch deductions from attendance; approved leave earns days.
+  const deductionLogs = logs;
   // An attendance deduction is derived data. If its attendance is no longer
   // approved (or was moved out of this payroll month), remove the stale row
   // before recalculating the remaining approved records.
@@ -2905,18 +2897,11 @@ export async function syncAttendanceDeductions(
       source = "attendance_auto_deduction",
       notes = "";
     if (!template) continue;
-    if (log.status === "Absent" || log.isOtherLeaveLop) {
-      amount = daily * (log.isOtherLeaveLop ? log.leaveFraction : 1);
-      reason = log.isOtherLeaveLop ? "Other leave and LOP" : "Absent and LOP";
+    if (log.status === "Absent") {
+      amount = daily;
+      reason = "Absent and LOP";
       source = "Auto";
-      notes = log.isOtherLeaveLop
-        ? `Approved Other leave (LOP) - ${salary.toFixed(2)} / ${days} days`
-        : `Absent and LOP - ${salary.toFixed(2)} / ${days} days`;
-    } else if (log.status === "Half Day") {
-      amount = daily / 2;
-      reason = "Half day absent and LOP";
-      source = "Auto";
-      notes = "Half-day absence and LOP";
+      notes = `Absent and LOP - ${salary.toFixed(2)} / ${days} days`;
     } else if (log.checkInTime && log.checkOutTime) {
       const preview = await attendanceFinePreview(log, org);
       if (preview) {

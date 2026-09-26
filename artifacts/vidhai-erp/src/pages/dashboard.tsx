@@ -1,4 +1,5 @@
 import { responseError } from "@/lib/errorMessage";
+import { lazy, Suspense } from "react";
 import { useGetDashboardSummary, useListBatches, useListCoimbatoreBatches, useListLabBatches, useListOotyGrowingBatches } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ type BusinessMetrics = {
   procurement: { vendors: number; confirmedPurchaseOrders: number; outstandingPayables: number };
   asOf: string;
 };
+const DashboardAttendance = lazy(() => import("./crew/DashboardAttendance"));
 
 const formatCompactInr = (value: number) =>
   new Intl.NumberFormat("en-IN", {
@@ -77,6 +79,10 @@ export default function Dashboard() {
   const coimCount = coimBatches?.length || 0;
   const labCount = labBatches?.length || 0;
   const ootyCount = ootyBatches?.length || 0;
+  const occupancy = summary?.chamberOccupancy;
+  const occupancyPercent = occupancy && occupancy.total > 0
+    ? Math.max(0, Math.min(100, (occupancy.occupied / occupancy.total) * 100))
+    : 0;
 
   return (
     <Shell>
@@ -102,6 +108,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading attendance…</p>}><DashboardAttendance /></Suspense>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Active Batches Multi-Location Card */}
           <Card className="rounded-sm border-0 shadow-lg bg-gradient-to-br from-card to-muted/50 overflow-hidden relative group">
@@ -153,12 +160,12 @@ export default function Dashboard() {
                 <div>
                   <div className="flex justify-between text-xs mb-1 uppercase tracking-wider font-semibold text-muted-foreground">
                     <span>Occupied</span>
-                    <span>{isSummaryLoading ? 0 : Math.round((summary!.chamberOccupancy.occupied / summary!.chamberOccupancy.total) * 100)}%</span>
+                    <span>{Math.round(occupancyPercent)}%</span>
                   </div>
                   <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-primary" 
-                      style={{ width: `${isSummaryLoading ? 0 : (summary!.chamberOccupancy.occupied / summary!.chamberOccupancy.total) * 100}%` }}
+                      style={{ width: `${occupancyPercent}%` }}
                     />
                   </div>
                 </div>

@@ -6,6 +6,7 @@
   "scripts": {
     "test:attendance": "node --test test/attendanceWorkflow.test.mjs",
     "test:crew:frontend": "node --test test/crewFrontend.test.mjs test/uiErrors.test.mjs",
+    "test:salary-structure": "node --test test/salaryStructure.test.mjs",
     "dev": "pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "start": "node --env-file=.env --enable-source-maps ./dist/index.mjs",

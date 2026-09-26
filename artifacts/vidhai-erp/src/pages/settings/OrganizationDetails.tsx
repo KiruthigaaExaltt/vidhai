@@ -38,9 +38,6 @@ export default function OrganizationDetails() {
   const [flexDocBody, setFlexDocBody] = useState("");
   const [defaultCurrency, setDefaultCurrency] = useState("INR");
   const [statutoryPayroll, setStatutoryPayroll] = useState<Record<string, number>>({ pfEmployeeRate: 12, pfEmployerRate: 12, pfMonthlyWageCeiling: 15000, esiEmployeeRate: 0.75, esiEmployerRate: 3.25, esiMonthlyWageCeiling: 21000, esiPwdMonthlyWageCeiling: 25000, esiDailyEmployeeExemption: 137 });
-  const [attendanceApprovalEnabled, setAttendanceApprovalEnabled] = useState(true);
-  const [attendanceApprovalLevels, setAttendanceApprovalLevels] = useState(1);
-  const [allowApprovalOverride, setAllowApprovalOverride] = useState(true);
   const [timezone, setTimezone] = useState("Asia/Kolkata");
 
   useEffect(() => {
@@ -74,9 +71,6 @@ export default function OrganizationDetails() {
         setFlexDocBody(data.flexDocBody || "");
         setDefaultCurrency(data.defaultCurrency || "INR");
         setStatutoryPayroll(current => ({ ...current, ...(data.statutoryPayroll || {}) }));
-        setAttendanceApprovalEnabled(data.attendanceApprovalEnabled !== false);
-        setAttendanceApprovalLevels(Number(data.attendanceApprovalLevels) || 1);
-        setAllowApprovalOverride(data.allowApprovalOverride !== false);
         setTimezone(data.timezone || "Asia/Kolkata");
       })
       .catch((err) => {
@@ -157,7 +151,6 @@ export default function OrganizationDetails() {
       defaultCurrency,
       statutoryPayroll,
       timezone,
-      attendanceApprovalEnabled, attendanceApprovalLevels, allowApprovalOverride,
     };
 
     setSaving(true);
@@ -201,15 +194,6 @@ export default function OrganizationDetails() {
 
       {/* Logos Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="md:col-span-2">
-        <CardHeader><CardTitle>Attendance approvals</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={attendanceApprovalEnabled} onChange={e => setAttendanceApprovalEnabled(e.target.checked)} /> Require the employee's approval chain</label>
-          <p className="text-sm text-muted-foreground">When disabled, attendance still needs one approval from a user with attendance approval permission.</p>
-          <div className="space-y-2"><Label htmlFor="attendance-levels">Required levels (L1–L5)</Label><Input id="attendance-levels" type="number" min={1} max={5} value={attendanceApprovalLevels} disabled={!attendanceApprovalEnabled} onChange={e => setAttendanceApprovalLevels(Number(e.target.value))} /></div>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowApprovalOverride} onChange={e => setAllowApprovalOverride(e.target.checked)} /> Allow Admin / Super Admin to override approval levels</label>
-        </CardContent>
-      </Card>
       <Card className="shadow-none border-border">
           <CardContent className="p-5 space-y-3">
             <Label className="text-sm font-bold block">Org Logo</Label>

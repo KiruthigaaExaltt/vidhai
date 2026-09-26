@@ -53,10 +53,32 @@ test('paid salary slips are locked before any recalculation or deduction synchro
  await assert.rejects(buildSlip(request,employee,'2026-08'),/Paid payroll is locked/);
  assert.equal(records.salarySlipsTable.length,0);
 });
+test('Yugam parity: approved Other and permission leave earn days; rejected leave does not',async()=>{
+ fixture();
+ records.attendanceLogsTable = records.attendanceLogsTable.filter(row=>!['2026-08-03','2026-08-04','2026-08-05'].includes(row.attendanceDate));
+ records.leaveRequestsTable = ['Other','Permission','Casual'].map((leaveType,index)=>({organizationId:1,employeeId:1,startDate:`2026-08-0${index+3}`,endDate:`2026-08-0${index+3}`,fromSession:1,toSession:2,leaveType,status:index===2?'Rejected':'Approved'}));
+ const slip=await buildSlip(request,employee,'2026-08');
+ assert.equal(slip.payableDays,'24');
+ assert.equal(slip.leaveDays,'2');
+ assert.equal(slip.lopAmount,'1200');
+});
 test('partial-month join date uses full scheduled-month divisor and does not count pre-join salary as LOP',async()=>{
  fixture(); const newEmployee={...employee,joinDate:'2026-08-17'};
  const slip=await buildSlip(request,newEmployee,'2026-08');
  assert.equal(slip.payableDays,'13');
  assert.equal(slip.lopAmount,'0');
  assert.equal(slip.earnedBaseSalary,'15600');
+});
+
+
+test('salary structure save replaces the current month snapshot without changing other months', async () => {
+ fixture();
+ await buildSlip(request, employee, '2026-08');
+ const components = [{id:'basic',name:'Basic',calculationType:'percentage_of_ctc',value:60,order:1},{id:'special',name:'Special',calculationType:'residual',order:2}];
+ const updated = {...employee, salaryStructureSnapshots: JSON.stringify({'2026-08':{salaryTemplateId:1,templateName:'Updated structure',components}})};
+ const slip = await buildSlip(request, updated, '2026-08');
+ assert.equal(slip.salaryTemplateName, 'Updated structure');
+ assert.equal(JSON.parse(slip.templateSnapshot).components[0].value, 60);
+ const next = await buildSlip(request, updated, '2026-09');
+ assert.equal(JSON.parse(next.templateSnapshot).components[0].value, 50);
 });

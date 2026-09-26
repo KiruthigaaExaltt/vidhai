@@ -94,7 +94,13 @@ const requireCrewPermissionExceptSelfPunch = (req: any, res: any, next: any) => 
   if (isPunchIn || isPunchOut) return next();
   // These handlers enforce crew membership and return only scoped records.
   if (req.method === "GET" && (req.path === "/attendance" || req.path === "/attendance/register" ||
+      req.path === "/attendance/self" || req.path === "/attendance/settings" ||
       (req.path === "/employees" && req.query.scope === "attendance"))) return next();
+  // These routes authorize their specific action/ownership inside Crew, rather
+  // than requiring the generic view/create/update permission as well.
+  if (req.method === "GET" && /^\/employees\/\d+\/salary-(structure|templates)$/.test(req.path)) return next();
+  if (req.method === "POST" && /^\/attendance\/\d+\/preview$/.test(req.path)) return next();
+  if (req.method === "PATCH" && /^\/attendance\/\d+\/punch-out-edit$/.test(req.path)) return next();
   if (req.method === "POST" && req.path === "/attendance/reverse-geocode") return next();
   // Approval has its own permission; it must not also require update.
   if (req.method === "PATCH" && /^\/attendance\/\d+\/approval$/.test(req.path)) return next();

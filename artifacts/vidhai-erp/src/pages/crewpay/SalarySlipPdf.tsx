@@ -258,7 +258,7 @@ export default function CrewPaySalarySlipPdfDocument({
   slip: CrewPaySalarySlip;
   organization?: OrganizationSettings;
 }) {
-  const companyName = organization?.companyName || "Organization";
+  const companyName = organization?.companyName?.trim() || "VIDHAI";
   const templateComponents = Array.isArray(slip.salaryTemplateComponents)
     ? slip.salaryTemplateComponents
     : [];
@@ -297,7 +297,7 @@ export default function CrewPaySalarySlipPdfDocument({
   const netPay = slip.netPay != null ? Number(slip.netPay) : Math.max(0, grossPay - totalDeductions);
 
   return (
-    <Document>
+    <Document title={`${companyName} - Salary Slip - ${slip.employeeName} - ${slip.payrollMonth}`} author={companyName} creator="Vidhai">
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>

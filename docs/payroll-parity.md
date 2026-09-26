@@ -7,6 +7,7 @@ Vidhai uses the salary component and working-day algorithms from the Yugam refer
 - Salary component order controls percentage references. Earnings must balance monthly CTC; PF, ESI, PT and TDS are deductions. A residual allowance absorbs the remaining earnings.
 - Proration uses scheduled working days in the full month, excluding the assigned work pattern's weekly offs and holidays. Attendance is limited to the employment window and the elapsed portion of the current month.
 - Finalized attendance and approved paid leave earn salary. Half-day attendance and leave retain fractional days. Pending attendance is shown separately.
+- For parity with Yugam, all approved leave types (including Other and Permission) enter the paid-day calculator. Overlapping attendance and leave are capped at one payable day. Permission and half-day leave do not waive punch-time fines; half-day attendance can incur both prorated LOP and a punch fine.
 - LOP is shown for the elapsed unpaid working days and is already reflected in earned salary. It is not subtracted a second time.
 - Approved overtime and allowance/reimbursement claims increase gross pay. Bonuses are recorded separately.
 - Employee PF, VPF and ESI, template deductions, late fines and other approved deductions reduce net pay. Employer contributions reduce the residual allowance within CTC and are shown separately.
@@ -16,7 +17,7 @@ Vidhai uses the salary component and working-day algorithms from the Yugam refer
 ## Configuration and use
 
 1. Set organization rates in Settings > Company Profile > Payroll statutory rates.
-2. Assign the employee's salary, work pattern and holiday templates. Set employee-specific fixed component values and PF/ESI options in Crew > Salary Structure. Contribution changes have an effective month.
+2. Assign the employee's salary, work pattern and holiday templates. Set employee-specific fixed component values in Crew > Salary Structure. This dialog preserves existing PF/ESI settings; it does not edit them. Employee statutory contribution changes currently use the employee API with an effective month.
 3. Generate slips in CrewPay. Review earnings, attendance, deductions and employer contributions; preview or download the PDF.
 4. Use the Payroll tab to synchronize generated slips and advance records through Processing, Processed and Paid.
 5. Regenerate existing unpaid slips to apply the updated calculation engine. Existing saved slips are not bulk rewritten by this code change.

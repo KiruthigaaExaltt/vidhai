@@ -1,5 +1,7 @@
 # Crew and payroll audit — 24 September 2026
 
+Historical audit: payroll assumptions below were superseded by working-day/Yugam parity. See [26 September final verification](qa/completion-2026-09-26.md) for current results.
+
 Automated API/calculation checks and source review completed. This is a green light for the tested logic and continued acceptance testing, not a complete browser/device or production sign-off.
 
 The browser runtime reported no connected browsers. Camera/GPS prompts, photo picker interaction, and the final PDF print preview could not be exercised visually. After the audit, the user requested restoring mandatory photography: both punch actions now require an uploaded camera photo in the UI and API. Regression checks cover missing, empty, and URL-only evidence rejection, and successful photo storage using a PNG fixture.

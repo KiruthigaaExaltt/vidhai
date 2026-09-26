@@ -34,7 +34,7 @@ const pass = (name: string) => { passed++; console.log(`PASS ${name}`); };
 type Client = { token?: string; cookies?: string };
 async function request(client: Client, path: string, method = "GET", body?: any, expected = 200) {
   const response = await fetch(`${base}${path}`, { method, headers: { "Content-Type": "application/json", ...(client.token ? { Authorization: `Bearer ${client.token}` } : {}), ...(client.cookies ? { Cookie: client.cookies } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-  const data = await response.json().catch(() => ({}));
+  const data: any = await response.json().catch(() => ({}));
   assert.equal(response.status, expected, `${method} ${path}: ${JSON.stringify(data)}`);
   const cookies = response.headers.getSetCookie();
   if (cookies.length) {
@@ -71,6 +71,8 @@ try {
   pass("New user default password and linked employee login");
   const self = await request(crew, "/crew/employees?scope=attendance"); assert.equal(self.data.length, 1);
   await request(crew, "/crew/attendance");
+  assert.equal((await request(crew, "/crew/attendance/self")).employee.id, employee.id);
+  assert.ok((await request(crew, "/crew/attendance/settings")).timezone);
   const location = { latitude: 11.0168, longitude: 76.9558, address: "QA address Coimbatore" };
   for (const invalidPhoto of [undefined, "", "/old-photo.png", "data:image/png;base64,"]) {
     const denied = await request(crew, "/crew/attendance", "POST", { employeeId: employee.id, punchAction: "punchIn", location, photoDataUrl: invalidPhoto }, 400);
@@ -89,6 +91,7 @@ try {
   const out = await request(crew, `/crew/attendance/${punch.id}`, "PATCH", { punchAction: "punchOut", photoDataUrl, location, checkInTime: "00:00", organizationId: 99 });
   assert.ok(out.checkOutPhoto);
   assert.equal(out.checkInTime, punch.checkInTime); assert.equal(out.organizationId, 1); assert.equal(out.locked, true);
+  await request(crew, `/crew/attendance/${punch.id}/punch-out-edit`, "PATCH", { checkOutTime: out.checkOutTime, revision: out.revision });
   await request(crew, `/crew/attendance/${punch.id}`, "PATCH", { punchAction: "punchOut", photoDataUrl, location }, 409);
   const logs = await request(crew, "/crew/attendance");
   assert.equal(logs[0].checkOutLocation.latitude, location.latitude); assert.equal(logs[0].checkOutAddress, location.address);
@@ -96,6 +99,10 @@ try {
   await db.insert(rolesTable).values({ name: "Audit Approver", slug: "audit_approver", permissions: JSON.stringify(["crew.attendance.approve", "crew.attendance.view", "crew.attendance.for_others"]) });
   await request(admin, "/users", "POST", { username: "audit_hr", name: "Audit HR", role: "audit_approver" }, 201);
   const hr = await login("audit_hr", "vidhaii123");
+  const preview = await request(hr, `/crew/attendance/${punch.id}/preview`, "POST", { checkInTime: "10:15", checkOutTime: "18:30" });
+  assert.equal(preview.lateFinePreview.totalDeductionMinutes, 30);
+  assert.ok(Number(preview.lateFinePreview.amount) > 0);
+  await request(crew, `/crew/attendance/${punch.id}/preview`, "POST", { checkInTime: "09:30", checkOutTime: "18:30" }, 403);
   const approved = await request(hr, `/crew/attendance/${punch.id}/approval`, "PATCH", { decision: "Approved" }); assert.equal(approved.approvalStatus, "Approved");
   pass("HR approve permission works without attendance update/create permission");
   await request(admin, "/users", "POST", { username: "audit_outsider", name: "Outside Crew", role: "viewer" }, 201);
@@ -111,6 +118,13 @@ try {
   await request(admin, `/crew/employees/${employee.id}`, "PUT", { fixedComponentValues: { basic: 21000 } }, 400);
   await request(admin, `/crew/employees/${employee.id}`, "PUT", { fixedComponentValues: { basic: "20000" }, phone: "9876543210" });
   pass("Employee updates reject invalid phone and negative salary components");
+  await db.insert(rolesTable).values({ name: "Salary Reader", slug: "audit_salary", permissions: JSON.stringify(["crew.employees.salary_structure", "crew.employees.for_others"]) });
+  await request(admin, "/users", "POST", { username: "audit_salary", name: "Salary Reader", role: "audit_salary" }, 201);
+  const salaryReader = await login("audit_salary", "vidhaii123");
+  assert.equal((await request(salaryReader, `/crew/employees/${employee.id}/salary-structure`)).id, employee.id);
+  assert.ok((await request(salaryReader, `/crew/employees/${employee.id}/salary-templates`)).some((row: any) => row.id === salary.id));
+  await request(crew, `/crew/employees/${employee.id}/salary-structure`, "GET", undefined, 403);
+  pass("Salary action permission grants scoped reads without employee-view or Settings permission");
   for (let day = 1; day <= 31; day++) {
     const date = `2026-08-${String(day).padStart(2, "0")}`;
     if ([3,4,5,15,26,28].includes(day) || new Date(`${date}T00:00:00Z`).getUTCDay() === 0) continue;
@@ -119,12 +133,16 @@ try {
   for (const [date,type] of [["03","Casual"],["04","Sick"],["05","Other"]]) await db.insert(leaveRequestsTable).values({ employeeId: employee.id, employeeName: employee.name, startDate: `2026-08-${date}`, endDate: `2026-08-${date}`, leaveType: type, status: "Approved", fromSession: 1, toSession: 2, requestedDays: "1" });
   const generate = async () => (await request(admin, "/crewpay/salary-slips/generate", "POST", { employeeId: employee.id, year: 2026, month: 8 })).results[0].slip;
   let slip = await generate();
-  assert.equal(Number(slip.netPay), 19157.71); assert.equal(Number(slip.payableDays), 30); assert.equal(Number(slip.absentDays), 1); assert.equal(Number(slip.leaveDays), 2);
-  assert.equal(Number(slip.presentDays), 20);
-  assert.equal(slip.deductionSummary.lopAmount, 645.16); assert.equal(slip.deductionSummary.otherDeductionsAmount, 197.13);
-  assert.equal(Number(slip.grossPay), 19354.84); assert.equal(Number(slip.totalDeductions), 197.13);
+  // 31 calendar days - 5 Sundays - 3 holidays = 23 working days.
+  // 20 worked + 3 approved leave days (including Other) pay the full CTC.
+  // Round each fine: 30, 60 and 75 minutes at 20000 / (23 * 9) per hour.
+  assert.equal(Number(slip.netPay), 19734.30); assert.equal(Number(slip.payableDays), 23); assert.equal(Number(slip.absentDays), 0); assert.equal(Number(slip.leaveDays), 3);
+  assert.equal(Number(slip.presentDays), 18); assert.equal(Number(slip.lateDays), 2);
+  assert.equal(slip.deductionSummary.lopAmount, 0); assert.equal(slip.deductionSummary.otherDeductionsAmount, 0);
+  assert.equal(Number(slip.lateFines), 265.70);
+  assert.equal(Number(slip.grossPay), 20000); assert.equal(Number(slip.totalDeductions), 265.70);
   const before = await db.select().from(crewDeductionsTable); await generate(); assert.equal((await db.select().from(crewDeductionsTable)).length, before.length);
-  pass("August salary is 19157.71; 30 payable days, 1 LOP, 2 paid leaves; no double deduction or duplicate auto rows");
+  pass("August salary is 19734.30; 23 payable working days, no LOP, 3 paid leaves; no duplicate auto rows");
   await request(admin, "/crew/leaves", "POST", { employeeId: employee.id, leaveType: "Sick", startDate: "2026-08-12", endDate: "2026-08-12", fromSession: 1, toSession: 2, reason: "Exceeded" }, 400);
   pass("Monthly sick-leave limit enforced");
   for (const date of ["2026-01-05", "2026-02-02", "2026-03-02", "2026-04-06", "2026-05-04"])
@@ -137,25 +155,26 @@ try {
   const ot = await request(admin, "/crew/overtime", "POST", { employeeId: employee.id, attendanceDate: "2026-08-11", title: "QA overtime" }, 201);
   assert.equal(Number((await generate()).overtimeAmount), 0);
   await request(admin, `/crew/overtime/${ot.id}/status`, "PATCH", { status: "Approved" });
-  slip = await generate(); assert.equal(Number(slip.overtimeAmount), 143.36); assert.equal(Number(slip.netPay), 19301.07);
+  slip = await generate(); assert.equal(Number(slip.overtimeAmount), 143.36); assert.equal(Number(slip.netPay), 19877.66);
   pass("Overtime calculation, request, approval, and salary inclusion; pending OT excluded");
   const [otherLeave] = (await db.select().from(leaveRequestsTable)).filter((row: any) => row.leaveType === "Other");
   await db.update(leaveRequestsTable).set({ toSession: 1 }).where(eq(leaveRequestsTable.id, otherLeave.id));
   slip = await generate();
-  assert.equal(Number(slip.payableDays), 30.5); assert.equal(slip.deductionSummary.lopAmount, 322.58);
+  // Reference LOP rounds the daily rate first: 869.57 * 0.5 = 434.79.
+  assert.equal(Number(slip.payableDays), 22.5); assert.equal(slip.deductionSummary.lopAmount, 434.79);
   const halfLop = (await db.select().from(crewDeductionsTable)).find((row: any) => String(row.autoReason).includes("Other leave"));
-  assert.equal(Number(halfLop?.amount), 322.58);
+  assert.equal(halfLop, undefined);
   await db.update(leaveRequestsTable).set({ toSession: 2 }).where(eq(leaveRequestsTable.id, otherLeave.id));
-  pass("Half-day Other leave produces half-day LOP in both deductions and payslip");
+  pass("Half-day Other leave earns half a day; remaining half is LOP without a synthetic extra deduction");
   const [missingLog] = (await db.select().from(attendanceLogsTable)).filter((row: any) => row.attendanceDate === "2026-08-12");
   await db.update(attendanceLogsTable).set({ attendanceDate: "2026-07-12" }).where(eq(attendanceLogsTable.id, missingLog.id));
-  slip = await generate(); assert.equal(Number(slip.payableDays), 29); assert.equal(slip.deductionSummary.lopAmount, 1290.32);
+  slip = await generate(); assert.equal(Number(slip.payableDays), 22); assert.equal(slip.deductionSummary.lopAmount, 869.57);
   await db.update(attendanceLogsTable).set({ attendanceDate: "2026-08-12" }).where(eq(attendanceLogsTable.id, missingLog.id));
   pass("Missing working-day attendance is unpaid and displayed in LOP without an explicit absent log");
   await request(admin, `/attendance-templates/${attendance.id}`, "PUT", { ...attendance, bufferTime: false });
   await generate();
   const noBuffer = (await db.select().from(crewDeductionsTable)).find((row: any) => row.date === "2026-08-06");
-  assert.equal(noBuffer?.lateMinutes, 45); assert.equal(Number(noBuffer?.amount), 53.76);
+  assert.equal(noBuffer?.lateMinutes, 45); assert.equal(Number(noBuffer?.amount), 72.46);
   await request(admin, `/attendance-templates/${attendance.id}`, "PUT", { ...attendance, fineType: "fixed_per_hour", finePerHour: 100 });
   await generate();
   const fixedFine = (await db.select().from(crewDeductionsTable)).find((row: any) => row.date === "2026-08-06");
@@ -175,6 +194,11 @@ try {
   assert.ok(claims.exp - claims.iat <= 259200 && claims.exp - claims.iat > 259100);
   await request(reopened, "/auth/logout", "POST"); await request(reopened, "/auth/refresh", "POST", undefined, 401);
   pass("Cookie-only restoration, 72-hour refresh expiry, explicit logout revocation");
+  if (process.env.CREW_BROWSER_TEST === "1") {
+    const browserModule = "./crew-browser.mjs";
+    const { runBrowserChecks } = await import(browserModule);
+    await runBrowserChecks({ base, adminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD, request, admin, db, schema, pass });
+  }
   console.log(`AUDIT COMPLETE: ${passed} groups passed. Isolated database retained: ${database}`);
 } finally {
   server.closeAllConnections();
