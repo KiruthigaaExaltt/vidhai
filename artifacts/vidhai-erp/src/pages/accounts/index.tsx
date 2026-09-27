@@ -397,6 +397,9 @@ export default function Accounts() {
     [manual, setManual] = useState<any>({});
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [accountImport, setAccountImport] = useState<AccountImportKind | null>(null);
+  const [entryDialog, setEntryDialog] = useState<"ap-bill" | "ap-debit" | "ar-invoice" | "ar-credit" | null>(null);
+  const [entryForm, setEntryForm] = useState<any>({});
+  const [entryError, setEntryError] = useState("");
   const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
   const [accountImportFile, setAccountImportFile] = useState("");
   const [accountImportOptions, setAccountImportOptions] = useState<any | null>(null);
@@ -542,6 +545,37 @@ export default function Accounts() {
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
+  const openReceivablePayableEntry = (type: "ap-bill" | "ap-debit" | "ar-invoice" | "ar-credit") => {
+    setEntryError("");
+    setEntryForm({ partyId: "", number: "", linkedNumber: "", date: today, dueDate: today, amount: "", accountName: "", notes: "" });
+    setEntryDialog(type);
+  };
+  const submitReceivablePayableEntry = async () => {
+    if (!entryDialog) return;
+    setSubmitting(true);
+    setEntryError("");
+    try {
+      const payable = entryDialog.startsWith("ap-");
+      const creditNote = entryDialog === "ar-credit";
+      const debitNote = entryDialog === "ap-debit";
+      const party = (payable ? crmVendors : crmClients).find((contact) => String(contact.id) === String(entryForm.partyId));
+      if (!party || !entryForm.number?.trim() || !entryForm.date || !entryForm.dueDate || !(Number(entryForm.amount) > 0))
+        throw Error("Complete the required fields and enter an amount greater than zero.");
+      if ((creditNote || debitNote) && (!entryForm.linkedNumber?.trim() || !entryForm.accountName?.trim()))
+        throw Error("Choose a linked invoice or bill and enter the adjustment account.");
+      const row = payable
+        ? { entryType: debitNote ? "Debit Note" : "Bill", vendor: party.displayName || party.name, billNumber: entryForm.number.trim(), againstBillNumber: debitNote ? entryForm.linkedNumber : "", billDate: entryForm.date, dueDate: entryForm.dueDate, amount: entryForm.amount, accountName: entryForm.accountName, notes: entryForm.notes }
+        : { entryType: creditNote ? "Credit Note" : "Invoice", customer: party.displayName || party.name, invoiceNumber: entryForm.number.trim(), linkedInvoiceNumber: creditNote ? entryForm.linkedNumber : "", invoiceDate: entryForm.date, dueDate: entryForm.dueDate, amount: entryForm.amount, accountName: entryForm.accountName, notes: entryForm.notes };
+      await api(payable ? "/ap/import" : "/ar/import", { method: "POST", body: JSON.stringify({ createOnly: true, rows: [row] }) });
+      setEntryDialog(null);
+      await load();
+      toast({ title: `${debitNote ? "Debit note" : creditNote ? "Credit note" : payable ? "Bill" : "Invoice"} created` });
+    } catch (e: any) {
+      setEntryError(e.message || "Unable to create entry");
+    } finally {
+      setSubmitting(false);
+    }
+  };
   const submitManual = async () => {
     if (!manualType) return;
     setSubmitting(true);
@@ -659,8 +693,8 @@ export default function Accounts() {
       // DISABLED: Masters module is not required for this phase
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
       ...(can("accounts.accounts_receivable.view") && !bankOptions ? [["clients", "/party-options?type=client&context=ar"]] : []),
-      ...(bankOptions || (can("accounts.bank_cash.view") && !can("accounts.accounts_receivable.view"))
-        ? [["bankOptions", `/bank-cash-transactions/options${fullCoa ? "?clientsOnly=1" : ""}`]] : []),
+      ...(can("accounts.bank_cash.view")
+        ? [["bankOptions", "/bank-cash-transactions/options"]] : []),
       ...(can("accounts.accounts_payable.view") ? [["vendorsOpt", "/party-options?type=vendor&context=ap"]] : []),
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
@@ -709,7 +743,8 @@ export default function Accounts() {
       if (k === "bankOptions") {
         const options = v as any;
         if (options.accounts.length) setCoa(options.accounts);
-        setCrmClients(options.clients);
+        setCrmClients(options.clients.filter((contact: any) => String(contact.type || "client").toLowerCase() === "client"));
+        setCrmVendors(options.clients.filter((contact: any) => String(contact.type || "").toLowerCase() === "vendor"));
       }
       // DISABLED: Masters module is not required for this phase
       // if (k === "m") setMasters(v);
@@ -2669,7 +2704,7 @@ export default function Accounts() {
                             <SelectItem value="__none__">
                               <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
                             </SelectItem>
-                            {crmClients.map((client) => (
+                            {[...crmClients, ...crmVendors].map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
                                 <div className="flex items-center gap-2">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
@@ -2695,7 +2730,7 @@ export default function Accounts() {
                             <SelectItem value="__none__">
                               <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
                             </SelectItem>
-                            {crmClients.map((client) => (
+                            {[...crmClients, ...crmVendors].map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
                                 <div className="flex items-center gap-2">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
@@ -2735,16 +2770,17 @@ export default function Accounts() {
                         </Select>
                       </div>
                       <div className="space-y-1.5 text-sm md:col-span-4">
-                        <Label className="text-xs font-semibold text-slate-700">Credit Name *</Label>
+                        <Label className="text-xs font-semibold text-slate-700">Credit Name (optional)</Label>
                         <Select
-                          value={bankForm.creditContactId ? String(bankForm.creditContactId) : undefined}
-                          onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val })}
+                          value={bankForm.creditContactId ? String(bankForm.creditContactId) : "__none__"}
+                          onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client *" />
+                            <SelectValue placeholder="Select client or vendor (optional)" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                            {crmClients.map((client) => (
+                            <SelectItem value="__none__"><span className="text-muted-foreground italic">None / Unassigned</span></SelectItem>
+                            {[...crmClients, ...crmVendors].map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
                                 <div className="flex items-center gap-2">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
@@ -2784,16 +2820,17 @@ export default function Accounts() {
                         </Select>
                       </div>
                       <div className="space-y-1.5 text-sm md:col-span-4">
-                        <Label className="text-xs font-semibold text-slate-700">Debit Name *</Label>
+                        <Label className="text-xs font-semibold text-slate-700">Debit Name (optional)</Label>
                         <Select
-                          value={bankForm.debitContactId ? String(bankForm.debitContactId) : undefined}
-                          onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val })}
+                          value={bankForm.debitContactId ? String(bankForm.debitContactId) : "__none__"}
+                          onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client *" />
+                            <SelectValue placeholder="Select client or vendor (optional)" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                            {crmClients.map((client) => (
+                            <SelectItem value="__none__"><span className="text-muted-foreground italic">None / Unassigned</span></SelectItem>
+                            {[...crmClients, ...crmVendors].map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
                                 <div className="flex items-center gap-2">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
@@ -2844,7 +2881,7 @@ export default function Accounts() {
                   <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
                   <Button
                     className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}
-                    disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
+                    disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate  || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
                     onClick={() => void submitBankCash()}
                   >
                     {actionLoadingId === "bank-cash-form-submit" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -2945,6 +2982,7 @@ export default function Accounts() {
                 </TabsList>
                 <TabsContent value="bills" className="space-y-3">
                   <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_payable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ap-bill")}><Plus className="mr-1 h-4 w-4" />Add Bill</Button>}
                     {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
                     {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apBill"} onClick={() => void exportAccountXlsx("apBill")} />}
                   </div>
@@ -3084,6 +3122,7 @@ export default function Accounts() {
                 </TabsContent>
                 <TabsContent value="debit-notes" className="space-y-3">
                   <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_payable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ap-debit")}><Plus className="mr-1 h-4 w-4" />Add Debit Note</Button>}
                     {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
                     {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apDebitNote"} onClick={() => void exportAccountXlsx("apDebitNote")} />}
                   </div>
@@ -3114,6 +3153,7 @@ export default function Accounts() {
                 </TabsList>
                 <TabsContent value="invoices" className="space-y-3">
                   <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_receivable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ar-invoice")}><Plus className="mr-1 h-4 w-4" />Add Invoice</Button>}
                     {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
                     {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arInvoice"} onClick={() => void exportAccountXlsx("arInvoice")} />}
                   </div>
@@ -3221,6 +3261,7 @@ export default function Accounts() {
                 </TabsContent>
                 <TabsContent value="credit-notes" className="space-y-3">
                   <div className="flex justify-end gap-2">
+                    {can("accounts.accounts_receivable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ar-credit")}><Plus className="mr-1 h-4 w-4" />Add Credit Note</Button>}
                     {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
                     {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arCreditNote"} onClick={() => void exportAccountXlsx("arCreditNote")} />}
                   </div>
@@ -3289,6 +3330,35 @@ export default function Accounts() {
               <FinancialStatements request={api} can={can} />
             </TabsContent>
           </Tabs>
+          {Boolean(entryDialog) && (
+            <Dialog open={Boolean(entryDialog)} onOpenChange={(open) => { if (!open && !submitting) setEntryDialog(null); }}>
+              <DialogContent className="max-w-xl">
+                <DialogHeader><DialogTitle>{entryDialog === "ap-bill" ? "Add Bill" : entryDialog === "ap-debit" ? "Add Debit Note" : entryDialog === "ar-invoice" ? "Add Invoice" : "Add Credit Note"}</DialogTitle></DialogHeader>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {entryError && <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{entryError}</div>}
+                  <div className="space-y-1.5 sm:col-span-2"><Label>{entryDialog?.startsWith("ap-") ? "Vendor *" : "Customer *"}</Label>
+                    <Select value={entryForm.partyId || ""} onValueChange={(value) => setEntryForm({ ...entryForm, partyId: value })}>
+                      <SelectTrigger><SelectValue placeholder={entryDialog?.startsWith("ap-") ? "Select vendor" : "Select customer"} /></SelectTrigger><SelectContent>
+                        {(entryDialog?.startsWith("ap-") ? crmVendors : crmClients).map((contact) => <SelectItem key={contact.id} value={String(contact.id)}>{contact.displayName || contact.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5"><Label>{entryDialog?.startsWith("ap-") ? (entryDialog === "ap-debit" ? "Debit Note Number *" : "Bill Number *") : (entryDialog === "ar-credit" ? "Credit Note Number *" : "Invoice Number *")}</Label><Input value={entryForm.number || ""} onChange={(e) => setEntryForm({ ...entryForm, number: e.target.value })} /></div>
+                  {(entryDialog === "ap-debit" || entryDialog === "ar-credit") && <div className="space-y-1.5"><Label>{entryDialog === "ap-debit" ? "Against Bill *" : "Linked Invoice *"}</Label>
+                    <Select value={entryForm.linkedNumber || ""} onValueChange={(value) => setEntryForm({ ...entryForm, linkedNumber: value })}><SelectTrigger><SelectValue placeholder="Select linked document" /></SelectTrigger><SelectContent>
+                      {(entryDialog === "ap-debit" ? ap.filter((row) => row.entryType !== "Debit Note") : ar.filter((row) => row.entryType !== "Credit Note")).map((row) => <SelectItem key={row.id} value={String(entryDialog === "ap-debit" ? row.billNumber : row.invoiceNumber)}>{entryDialog === "ap-debit" ? row.billNumber : row.invoiceNumber} — {entryDialog === "ap-debit" ? row.vendorName : row.clientName}</SelectItem>)}
+                    </SelectContent></Select>
+                  </div>}
+                  <div className="space-y-1.5"><Label>{entryDialog?.startsWith("ap-") ? "Bill Date *" : "Invoice Date *"}</Label><Input type="date" value={entryForm.date || ""} onChange={(e) => setEntryForm({ ...entryForm, date: e.target.value })} /></div>
+                  <div className="space-y-1.5"><Label>Due Date *</Label><Input type="date" value={entryForm.dueDate || ""} onChange={(e) => setEntryForm({ ...entryForm, dueDate: e.target.value })} /></div>
+                  <div className="space-y-1.5"><Label>Amount *</Label><Input type="number" min="0.01" step="0.01" value={entryForm.amount || ""} onChange={(e) => setEntryForm({ ...entryForm, amount: e.target.value })} /></div>
+                  {(entryDialog === "ap-debit" || entryDialog === "ar-credit") && <div className="space-y-1.5"><Label>Account Name *</Label><Input value={entryForm.accountName || ""} onChange={(e) => setEntryForm({ ...entryForm, accountName: e.target.value })} placeholder="Enter COA account name or code" /></div>}
+                  <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Input value={entryForm.notes || ""} onChange={(e) => setEntryForm({ ...entryForm, notes: e.target.value })} /></div>
+                </div>
+                <DialogFooter><Button variant="outline" onClick={() => setEntryDialog(null)} disabled={submitting}>Cancel</Button><Button onClick={() => void submitReceivablePayableEntry()} disabled={submitting}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
           {Boolean(manualType) && (
             <Dialog
               open={Boolean(manualType)}

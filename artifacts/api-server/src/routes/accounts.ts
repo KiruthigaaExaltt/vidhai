@@ -820,7 +820,7 @@ async function coa(org: number) {
   await resetGstAccount("Output CGST", purchaseGstLines("cgst"));
   await resetGstAccount("Output SGST", purchaseGstLines("sgst"));
   await resetGstAccount("Output IGST", purchaseGstLines("igst"));
-  decorateHistoryLines(rows as any[], receivableRows as any[], payableRows as any[], salesPaymentRows as any[], vendorPaymentRows as any[], await contactsFor("client"));
+  decorateHistoryLines(rows as any[], receivableRows as any[], payableRows as any[], salesPaymentRows as any[], vendorPaymentRows as any[], await contactsFor());
   return rows;
 }
 function assertJournalBalanced(lines: Array<{ debit?: number; credit?: number }>) {
@@ -1726,8 +1726,10 @@ router.post("/journal-entries/import", async (r: any, s): Promise<any> => {
   s.status(201).json({ created: rows.length });
 });
 router.post("/ap/import", async (r: any, s): Promise<any> => {
-  if (!need(r, s, "accounts.accounts_payable.import")) return;
+  const manualCreate = r.body.createOnly === true;
+  if (!need(r, s, manualCreate ? "accounts.accounts_payable.create" : "accounts.accounts_payable.import")) return;
   const rows = importRows(r.body);
+  if (manualCreate && rows.length !== 1) return s.status(400).json({ error: "Manual creation accepts one record at a time" });
   if (!rows.length) return s.status(400).json({ error: "No import rows found" });
   if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
   const errors: string[] = [];
@@ -1808,8 +1810,10 @@ router.post("/ap/import", async (r: any, s): Promise<any> => {
   s.status(201).json({ created: rows.length });
 });
 router.post("/ar/import", async (r: any, s): Promise<any> => {
-  if (!need(r, s, "accounts.accounts_receivable.import")) return;
+  const manualCreate = r.body.createOnly === true;
+  if (!need(r, s, manualCreate ? "accounts.accounts_receivable.create" : "accounts.accounts_receivable.import")) return;
   const rows = importRows(r.body);
+  if (manualCreate && rows.length !== 1) return s.status(400).json({ error: "Manual creation accepts one record at a time" });
   if (!rows.length) return s.status(400).json({ error: "No import rows found" });
   if (rows.length > ACCOUNT_IMPORT_LIMIT) return s.status(400).json({ error: `Maximum ${ACCOUNT_IMPORT_LIMIT} rows can be imported at once` });
   const errors: string[] = [];
@@ -1899,7 +1903,7 @@ async function bankCashRows(org: number, query: any = {}) {
   const rows = (await db.select().from(bankCashTransactionsTable).where(eq(bankCashTransactionsTable.organizationId, org))).filter(dateRangeFilter(query, "transactionDate"));
   const docs = await documentsFor("bank-cash", rows.map((row: any) => Number(row.id)));
   const [accounts, clients] = await Promise.all([
-    db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org)), contactsFor("client"),
+    db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org)), contactsFor(),
   ]);
   const byId = (id: any) => accounts.find((account: any) => Number(account.id) === Number(id));
   return rows.map((row: any) => {
@@ -1920,10 +1924,10 @@ async function bankCashRows(org: number, query: any = {}) {
 router.get("/bank-cash-transactions/options", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.bank_cash.view")) return;
   const accounts = r.query.clientsOnly === "1" ? [] : (await coa(r.acc.org)).filter((account: any) => account.isActive !== false);
-  const clients = await contactsFor("client");
+  const clients = await contactsFor();
   s.json({
     accounts: accounts.map((account: any) => ({ id: account.id, accountCode: account.accountCode, accountName: account.accountName, accountType: account.accountType, isActive: account.isActive, isBankCash: account.isBankCash })),
-    clients: clients.map((client: any) => ({ id: client.id, name: client.name, displayName: contactLabel(client) })), paymentMethods
+    clients: clients.map((client: any) => ({ id: client.id, name: client.name, type: client.type || "client", displayName: contactLabel(client) })), paymentMethods
   });
 });
 router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
@@ -1938,7 +1942,7 @@ router.get("/bank-cash-transactions", async (r: any, s): Promise<any> => {
 async function createBankCash(r: any, s: any, source: "bank-cash" | "opening-balance") {
   const accounts = await coa(r.acc.org);
   let input: ReturnType<typeof prepareBankCash>;
-  try { input = prepareBankCash(r.body, accounts, await contactsFor("client"), day()); }
+  try { input = prepareBankCash(r.body, accounts, await contactsFor(), day()); }
   catch (error: any) { return s.status(400).json({ error: error.message }); }
   const isOpening = source === "opening-balance";
   const { bankCashTransactionsTable } = await accountTables();
@@ -2004,7 +2008,7 @@ async function approveBankCash(r: any, s: any) {
   let chargeLines: any[] = [];
   try { chargeLines = buildBankChargeJournalLines(entry, accounts); }
   catch (error: any) { return s.status(400).json({ error: error.message }); }
-  const clients = await contactsFor("client");
+  const clients = await contactsFor();
   const journal = await post(r.acc.org, {
     entryDate: entry.transactionDate,
     reference: `AUTO:BANKCASH:${r.acc.org}:${entry.id}`,

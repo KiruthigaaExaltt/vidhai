@@ -414,38 +414,74 @@ test("Bank & Cash transaction auto-generates reference when empty", async () => 
   assert.ok(res.body.reference.startsWith("BC-"));
 });
 
-test("Bank & Cash endpoints enforce mode-specific CRM requirements", async () => {
+test("Bank & Cash Credit and Debit accept optional names; supplied names accept vendors", async () => {
   const f = fixture();
-  // Credit without Credit Name fails
-  const creditFail = await f.call("post", "/bank-cash-transactions", {
-    mode: "Credit",
-    bankCashAccountId: 100,
-    amount: "100",
-    transactionDate: "2026-09-08"
+  const credit = await f.call("post", "/bank-cash-transactions", {
+    mode: "Credit", bankCashAccountId: 100, amount: "100", transactionDate: "2026-09-08",
   });
-  assert.equal(creditFail.statusCode, 400);
+  assert.equal(credit.statusCode, 201);
+  assert.equal(credit.body.creditContactId, null);
 
-  // Debit without Debit Name fails
-  const debitFail = await f.call("post", "/bank-cash-transactions", {
-    mode: "Debit",
-    bankCashAccountId: 100,
-    amount: "100",
-    transactionDate: "2026-09-08"
+  const debit = await f.call("post", "/bank-cash-transactions", {
+    mode: "Debit", bankCashAccountId: 100, amount: "100", transactionDate: "2026-09-08",
   });
-  assert.equal(debitFail.statusCode, 400);
+  assert.equal(debit.statusCode, 201);
+  assert.equal(debit.body.debitContactId, null);
 
-  // Transfer with empty names succeeds
+  f.rows("contactsTable").push({ id: 8, type: "vendor", name: "Vendor B", contactCode: "V8" });
+  const vendorCredit = await f.call("post", "/bank-cash-transactions", {
+    mode: "Credit", bankCashAccountId: 100, creditContactId: 8, amount: "25", transactionDate: "2026-09-08",
+  });
+  assert.equal(vendorCredit.statusCode, 201);
+  assert.equal(vendorCredit.body.creditContactId, 8);
+  const options = (await f.call("get", "/bank-cash-transactions/options", {}, {}, ["accounts.bank_cash.view"])).body;
+  assert.ok(options.clients.some((contact) => contact.type === "vendor" && contact.id === 8));
+
   f.rows("chartOfAccountsTable").push({ id: 999, organizationId: 1, accountCode: "1098", accountName: "Bank B", accountType: "Asset", isActive: true });
-  const transferOk = await f.call("post", "/bank-cash-transactions", {
-    mode: "Transfer",
-    bankCashAccount: "Custom Bank",
-    transferToAccount: "Bank B",
-    amount: "200",
-    transactionDate: "2026-09-08"
+  const transfer = await f.call("post", "/bank-cash-transactions", {
+    mode: "Transfer", bankCashAccount: "Custom Bank", transferToAccount: "Bank B", amount: "200", transactionDate: "2026-09-08",
   });
-  assert.equal(transferOk.statusCode, 201);
+  assert.equal(transfer.statusCode, 201);
 });
 
+test("sample Bank & Cash Credit receipt posts the bank asset on the debit side in Chart of Accounts", async () => {
+  const f = fixture();
+  const created = await f.call("post", "/bank-cash-transactions", {
+    mode: "Credit", bankCashAccountId: 100, amount: "125", transactionDate: "2026-09-08", reference: "SAMPLE-RECEIPT",
+  });
+  assert.equal(created.statusCode, 201);
+  const approved = await f.call("post", "/bank-cash-transactions/:id/approve", {}, { id: created.body.id });
+  assert.equal(approved.statusCode, 200);
+  const account = (await f.call("get", "/coa", {}, {}, ["accounts.chart_of_accounts.view"])).body.find((row) => row.id === 100);
+  const line = account.lines.find((row) => row.metadata?.documentReference === "SAMPLE-RECEIPT");
+  assert.equal(line.debit, 125);
+  assert.equal(line.credit, 0);
+  assert.equal(account.currentBalance, "125");
+});
+
+test("sample journal history listing returns totals but no Debit to Account or Credit to Account fields", async () => {
+  const f = fixture();
+  f.rows("journalEntriesTable").push({
+    id: 33, organizationId: 1, entryDate: "2026-09-08", reference: "SAMPLE-JE-33", description: "Sample journal",
+    totalDebit: 50, totalCredit: 50, status: "Posted", approvalStatus: "Approved", metadata: {},
+  });
+  f.rows("journalLinesTable").push(
+    { id: 1, organizationId: 1, journalEntryId: 33, accountId: 100, accountCode: "1099", accountName: "Custom Bank", debit: 50, credit: 0 },
+    { id: 2, organizationId: 1, journalEntryId: 33, accountId: 101, accountCode: "3000", accountName: "Capital", debit: 0, credit: 50 },
+  );
+  const list = await f.call("get", "/journal-entries", {}, {}, ["accounts.journal_entries.view"]);
+  assert.equal(list.statusCode, 200);
+  assert.equal(list.body.items[0].totalDebit, 50);
+  assert.equal(list.body.items[0].totalCredit, 50);
+  assert.equal(list.body.items[0].debitAccountName, undefined);
+  assert.equal(list.body.items[0].creditAccountName, undefined);
+  const page = await readFile(new URL("../../vidhai-erp/src/pages/accounts/index.tsx", import.meta.url), "utf8");
+  const historyStart = page.indexOf('tableId="journals"');
+  const historyTable = page.slice(historyStart, page.indexOf('</TabsContent>', historyStart));
+  assert.match(historyTable, /\["Debit", "totalDebit"/);
+  assert.match(historyTable, /\["Credit", "totalCredit"/);
+  assert.doesNotMatch(historyTable, /Debit to Account|Credit to Account/);
+});
 
 
 for (const [label, creditContactId, debitContactId, legacyId] of [

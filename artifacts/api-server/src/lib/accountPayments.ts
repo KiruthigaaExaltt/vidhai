@@ -86,25 +86,24 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
   const hasClientId = supplied(body.clientId);
   if (hasClientId) {
     if (!validId(body.clientId)) throw new Error("Client Name: choose a valid existing client ID");
-    const activeClients = clients.filter((client) => norm(client.type || "client") === "client");
-    if (!activeClients.some((c) => Number(c.id) === Number(body.clientId))) {
-      throw new Error("Client Name: choose a valid existing client ID");
+    if (!clients.some((contact) => Number(contact.id) === Number(body.clientId))) {
+      throw new Error("Contact Name: choose a valid existing contact ID");
     }
   }
 
   const resolveContact = (value: unknown, label: string, required = false) => {
     if (!supplied(value) && !required) return null;
-    if (!supplied(value)) throw new Error(`${label}: choose a valid existing client`);
+    if (!supplied(value)) throw new Error(`${label}: choose a valid existing contact`);
 
     const normVal = norm(value);
-    const activeClients = clients.filter((client) => norm(client.type || "client") === "client");
+    const activeContacts = clients;
 
     if (validId(value)) {
-      const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
+      const idMatches = activeContacts.filter((c) => Number(c.id) === Number(value));
       if (idMatches.length === 1) return Number(idMatches[0].id);
     }
 
-    const matches = activeClients.filter((client) => {
+    const matches = activeContacts.filter((client) => {
       const options = [
         client.name,
         client.contactCode ? `${client.name} - ${client.contactCode}` : client.name,
@@ -116,11 +115,11 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
 
     if (matches.length === 1) return Number(matches[0].id);
     if (validId(value)) {
-      const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
+      const idMatches = activeContacts.filter((c) => Number(c.id) === Number(value));
       if (idMatches.length === 1) return Number(idMatches[0].id);
     }
 
-    throw new Error(`${label}: choose a valid, unambiguous existing client`);
+    throw new Error(`${label}: choose a valid, unambiguous existing contact`);
   };
 
   const hasCreditName = supplied(body.creditContactId) || supplied(body.creditContactName) || supplied(body.creditName);
@@ -133,8 +132,8 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
     ? (hasDebitName ? (body.debitContactId || body.debitContactName || body.debitName) : (mode === "Debit" && hasClientId ? body.clientId : body.clientName || body.client))
     : (supplied(body.debitContactId) ? body.debitContactId : "");
 
-  const creditContactId = resolveContact(creditVal, "Credit Name", mode === "Credit");
-  const debitContactId = resolveContact(debitVal, "Debit Name", mode === "Debit");
+  const creditContactId = resolveContact(creditVal, "Credit Name");
+  const debitContactId = resolveContact(debitVal, "Debit Name");
   const clientId = creditContactId || debitContactId || (hasClientId ? Number(body.clientId) : null);
 
   if (mode === "Credit" && details.bankCharges > amount) throw new Error("Bank Charges cannot exceed the receipt amount");

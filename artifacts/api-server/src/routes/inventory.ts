@@ -9,7 +9,7 @@ import {
   salesWorkOrdersTable,
   usersTable,
 } from "@workspace/db";
-import { eq, desc } from "@workspace/db";
+import { and, eq, desc } from "@workspace/db";
 import { paginateQuery, paginatedResponse } from "../lib/pagination";
 import { PROTECTED_VAULT_ITEM_NAMES } from "../lib/ensureDefaultVaultItems";
 import { isCoreProductMasterItem } from "../lib/coreProductMaster";
@@ -340,19 +340,46 @@ router.post("/movements", requireAuth, async (req, res) => {
     .where(eq(materialsTable.id, materialId))
     .limit(1);
   if (!material) return res.status(400).json({ error: "Material not found" });
+  const sourceId = Number(fromLocationId);
+  const destinationId = Number(toLocationId);
+  const quantity = Number(quantityKg);
+  if (!Number.isSafeInteger(Number(materialId)) || Number(materialId) <= 0)
+    return res.status(400).json({ error: "A valid material is required" });
+  if (!Number.isSafeInteger(sourceId) || sourceId <= 0 || !Number.isSafeInteger(destinationId) || destinationId <= 0)
+    return res.status(400).json({ error: "Source and destination warehouses are required" });
+  if (sourceId === destinationId)
+    return res.status(400).json({ error: "Source and destination warehouses must differ" });
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    return res.status(400).json({ error: "Transfer quantity must be greater than zero" });
 
-  const [mov] = await db
-    .insert(inventoryMovementsTable)
-    .values({
-      materialId,
-      fromLocationId: fromLocationId ?? null,
-      toLocationId: toLocationId ?? null,
-      quantityKg: String(quantityKg),
-      reason: reason ?? null,
-      notes: notes ?? null,
-      createdByUserId: userId,
-    })
-    .returning();
+  let mov: any;
+  try {
+    mov = await db.transaction(async (tx) => {
+      const sourceInventory = (await tx.select().from(inventoryTable)
+        .where(and(eq(inventoryTable.materialId, Number(materialId)), eq(inventoryTable.locationId, sourceId))))[0];
+      if (!sourceInventory || Number(sourceInventory.quantityOnHand) < quantity)
+        throw Object.assign(new Error("Insufficient stock at the source warehouse"), { status: 409 });
+      const destinationInventory = (await tx.select().from(inventoryTable)
+        .where(and(eq(inventoryTable.materialId, Number(materialId)), eq(inventoryTable.locationId, destinationId))))[0];
+      const [updatedSource] = await tx.update(inventoryTable)
+        .set({ quantityOnHand: String(Number(sourceInventory.quantityOnHand) - quantity), lastUpdated: new Date() })
+        .where(eq(inventoryTable.id, sourceInventory.id)).returning();
+      if (destinationInventory) {
+        await tx.update(inventoryTable)
+          .set({ quantityOnHand: String(Number(destinationInventory.quantityOnHand) + quantity), lastUpdated: new Date() })
+          .where(eq(inventoryTable.id, destinationInventory.id));
+      } else {
+        await tx.insert(inventoryTable).values({ materialId: Number(materialId), locationId: destinationId, quantityOnHand: String(quantity) });
+      }
+      const [created] = await tx.insert(inventoryMovementsTable).values({
+        materialId: Number(materialId), fromLocationId: sourceId, toLocationId: destinationId,
+        quantityKg: String(quantity), reason: reason ?? null, notes: notes ?? null, createdByUserId: userId,
+      }).returning();
+      return { ...created, sourceQuantityOnHand: Number(updatedSource.quantityOnHand) };
+    });
+  } catch (error: any) {
+    return res.status(error.status || 500).json({ error: error.message || "Unable to transfer stock" });
+  }
 
   return res.status(201).json({
     id: mov.id,
@@ -364,6 +391,7 @@ router.post("/movements", requireAuth, async (req, res) => {
     reason: mov.reason,
     notes: mov.notes,
     createdAt: mov.createdAt,
+    sourceQuantityOnHand: mov.sourceQuantityOnHand,
   });
 });
 

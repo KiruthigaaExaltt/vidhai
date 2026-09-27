@@ -3219,7 +3219,9 @@ export default function InventoryModule() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                  Quantity
+                  Quantity{inventoryItemOptions.find((item) => Number(item.materialId) === Number(movForm.materialId))?.unit
+                    ? ` (${inventoryItemOptions.find((item) => Number(item.materialId) === Number(movForm.materialId)).unit})`
+                    : ""}
                 </Label>
                 <Input
                   type="number"
