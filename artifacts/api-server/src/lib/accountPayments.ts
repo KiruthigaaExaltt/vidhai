@@ -40,15 +40,15 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
     if (!supplied(value) && !required) return null;
     if (!supplied(value)) throw new Error(`${label}: choose a valid active COA account`);
     const activeAccounts = accounts.filter((account) => account.isActive !== false);
-
+ 
     // Tier 1: Explicit Numeric ID Match (when idOnly is true)
     if (idOnly && validId(value)) {
       const idMatches = activeAccounts.filter((a) => Number(a.id) === Number(value));
       if (idMatches.length === 1) return Number(idMatches[0].id);
     }
-
+ 
     const normVal = norm(value);
-
+ 
     // Tier 2: Full Label Match ("accountCode - accountName" or "accountCode-accountName")
     const labelMatches = activeAccounts.filter((a) =>
       [
@@ -57,21 +57,21 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
       ].some((opt) => norm(opt) === normVal)
     );
     if (labelMatches.length === 1) return Number(labelMatches[0].id);
-
+ 
     // Tier 3: Account Code Match
     const codeMatches = activeAccounts.filter((a) => norm(a.accountCode) === normVal);
     if (codeMatches.length === 1) return Number(codeMatches[0].id);
-
+ 
     // Tier 4: Account Name Match
     const nameMatches = activeAccounts.filter((a) => norm(a.accountName) === normVal);
     if (nameMatches.length === 1) return Number(nameMatches[0].id);
-
+ 
     // Tier 5: Account ID Fallback
     if (validId(value)) {
       const idMatches = activeAccounts.filter((a) => Number(a.id) === Number(value));
       if (idMatches.length === 1) return Number(idMatches[0].id);
     }
-
+ 
     throw new Error(`${label}: choose a valid active COA account`);
   };
   const resolveField = (id: unknown, fallback: unknown, label: string, required = false) =>
@@ -82,60 +82,62 @@ export function prepareBankCash(body: Record<string, any>, accounts: any[], clie
     : resolveField(body.counterAccountId, body.counterAccount, "Transfer destination", true);
   const counterAccountId = mode === "Transfer" ? null : resolveField(body.counterAccountId, body.counterAccount, "Counter Account");
   if (transferToAccountId === bankCashAccountId) throw new Error("Transfer accounts must be different");
-
+ 
   const hasClientId = supplied(body.clientId);
   if (hasClientId) {
     if (!validId(body.clientId)) throw new Error("Client Name: choose a valid existing client ID");
-    if (!clients.some((contact) => Number(contact.id) === Number(body.clientId))) {
-      throw new Error("Contact Name: choose a valid existing contact ID");
+    const activeClients = clients.filter((client) => Boolean(client));
+    if (!activeClients.some((c) => Number(c.id) === Number(body.clientId))) {
+      throw new Error("Client Name: choose a valid existing client ID");
     }
   }
-
+ 
   const resolveContact = (value: unknown, label: string, required = false) => {
     if (!supplied(value) && !required) return null;
-    if (!supplied(value)) throw new Error(`${label}: choose a valid existing contact`);
-
+    if (!supplied(value)) throw new Error(`${label}: choose a valid existing client`);
+ 
     const normVal = norm(value);
-    const activeContacts = clients;
-
+    const activeClients = clients.filter((client) => Boolean(client));
+ 
     if (validId(value)) {
-      const idMatches = activeContacts.filter((c) => Number(c.id) === Number(value));
+      const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
       if (idMatches.length === 1) return Number(idMatches[0].id);
     }
-
-    const matches = activeContacts.filter((client) => {
+ 
+    const matches = activeClients.filter((client) => {
       const options = [
         client.name,
         client.contactCode ? `${client.name} - ${client.contactCode}` : client.name,
         client.contactCode ? `${client.contactCode} - ${client.name}` : client.name,
         client.contactCode,
+        client.displayName,
       ].filter(Boolean);
       return options.some((opt) => norm(opt) === normVal);
     });
-
+ 
     if (matches.length === 1) return Number(matches[0].id);
     if (validId(value)) {
-      const idMatches = activeContacts.filter((c) => Number(c.id) === Number(value));
+      const idMatches = activeClients.filter((c) => Number(c.id) === Number(value));
       if (idMatches.length === 1) return Number(idMatches[0].id);
     }
-
-    throw new Error(`${label}: choose a valid, unambiguous existing contact`);
+ 
+    throw new Error(`${label}: choose a valid, unambiguous existing client`);
   };
-
+ 
   const hasCreditName = supplied(body.creditContactId) || supplied(body.creditContactName) || supplied(body.creditName);
   const creditVal = (mode === "Credit" || mode === "Transfer")
     ? (hasCreditName ? (body.creditContactId || body.creditContactName || body.creditName) : (mode === "Credit" && hasClientId ? body.clientId : body.clientName || body.client))
     : (supplied(body.creditContactId) ? body.creditContactId : "");
-
+ 
   const hasDebitName = supplied(body.debitContactId) || supplied(body.debitContactName) || supplied(body.debitName);
   const debitVal = (mode === "Debit" || mode === "Transfer")
     ? (hasDebitName ? (body.debitContactId || body.debitContactName || body.debitName) : (mode === "Debit" && hasClientId ? body.clientId : body.clientName || body.client))
     : (supplied(body.debitContactId) ? body.debitContactId : "");
-
-  const creditContactId = resolveContact(creditVal, "Credit Name");
-  const debitContactId = resolveContact(debitVal, "Debit Name");
+ 
+  const creditContactId = resolveContact(creditVal, "Credit Name", mode === "Credit");
+  const debitContactId = resolveContact(debitVal, "Debit Name", mode === "Debit");
   const clientId = creditContactId || debitContactId || (hasClientId ? Number(body.clientId) : null);
-
+ 
   if (mode === "Credit" && details.bankCharges > amount) throw new Error("Bank Charges cannot exceed the receipt amount");
   return { ...details, amount, mode, bankCashAccountId, transferToAccountId, counterAccountId, clientId, creditContactId, debitContactId };
 }

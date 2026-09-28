@@ -52,7 +52,6 @@ import {
   Receipt,
   RefreshCw,
   Search,
-  Trash2,
   X,
   LogOut,
   LayoutDashboard,
@@ -137,7 +136,23 @@ const inr = (v: any) =>
     maximumFractionDigits: 2,
   }).format(numberValue(v));
 type AccountImportKind = "bankCash" | "apBill" | "apDebitNote" | "arInvoice" | "arCreditNote" | "journal" | "coa";
+type ManualPartyEntryKind = "arInvoice" | "arCreditNote" | "apBill" | "apDebitNote";
 const paymentMethods = ["Bank Transfer", "UPI", "Cheque", "Cash"];
+const emptyPartyEntry = (kind: ManualPartyEntryKind, date: string) => ({
+  kind,
+  partyId: "",
+  reference: "",
+  linkedReference: "",
+  documentDate: date,
+  dueDate: date,
+  amount: "",
+  settledAmount: "",
+  adjustedAmount: "",
+  accountId: "",
+  fromAccountId: "",
+  toAccountId: "",
+  notes: "",
+});
 const emptyBankForm = () => ({ mode: "Credit", transactionTypeId: "", transactionTypeName: "", bankCashAccountId: "", transferToAccountId: "", counterAccountId: "", creditContactId: "", debitContactId: "", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", remarks: "", clientId: "", paymentMethod: "Bank Transfer", period: "", bankCharges: "", transactionFees: "" });
 
 interface AccountsTableContextValue {
@@ -188,6 +203,9 @@ const Table = ({
   const isLoading = tableLoading !== undefined ? tableLoading : Boolean(context?.loading);
   const clientPagination = useClientPagination(serverKey ? [] : rows);
   const displayedRows = serverKey ? rows : clientPagination.paginatedRows;
+  const displayedCols = tableId === "ap-bills" || tableId === "ar-invoices"
+    ? [...cols.filter((column) => column[0] !== "Actions"), ...cols.filter((column) => column[0] === "Actions")]
+    : cols;
   const containerRef = useRef<HTMLDivElement>(null);
   const tableKey = tableId || serverKey || String(cols[0]?.[0] || "table");
 
@@ -242,7 +260,7 @@ const Table = ({
         <table className="w-full text-sm text-left border-collapse min-w-full">
           <thead className="sticky top-0 z-20 bg-slate-100 dark:bg-muted shadow-xs border-b">
             <tr>
-              {cols.map((c) => {
+              {displayedCols.map((c) => {
                 const isNotes = isNotesColumn(c[0], c[1]);
                 return (
                   <th
@@ -260,7 +278,7 @@ const Table = ({
             {isLoading ? (
               <tr className="border-t">
                 <td
-                  colSpan={cols.length}
+                  colSpan={displayedCols.length}
                   className="px-4 py-16 text-center text-muted-foreground"
                 >
                   <div className="flex flex-col items-center justify-center gap-3 py-6">
@@ -284,7 +302,7 @@ const Table = ({
                   key={r.id ?? i}
                   className="border-t hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors"
                 >
-                  {cols.map((c) => {
+                  {displayedCols.map((c) => {
                     const isNotes = isNotesColumn(c[0], c[1]);
                     return (
                       <td
@@ -303,7 +321,7 @@ const Table = ({
             ) : (
               <tr className="border-t">
                 <td
-                  colSpan={cols.length}
+                  colSpan={displayedCols.length}
                   className="px-4 py-14 text-center text-muted-foreground"
                 >
                   No records found.
@@ -395,14 +413,21 @@ export default function Accounts() {
     [settlementAmount, setSettlementAmount] = useState(""),
     [manualType, setManualType] = useState<"account" | "journal" | null>(null),
     [manual, setManual] = useState<any>({});
+  const bankCashContacts = useMemo(() => {
+    const map = new Map<string | number, any>();
+    (crmClients || []).forEach((c) => { if (c && c.id) map.set(c.id, c); });
+    (crmVendors || []).forEach((v) => { if (v && v.id) map.set(v.id, { ...v, type: v.type || "vendor" }); });
+    return Array.from(map.values()).sort((a, b) =>
+      String(a.displayName || a.name).localeCompare(String(b.displayName || b.name))
+    );
+  }, [crmClients, crmVendors]);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [accountImport, setAccountImport] = useState<AccountImportKind | null>(null);
-  const [entryDialog, setEntryDialog] = useState<"ap-bill" | "ap-debit" | "ar-invoice" | "ar-credit" | null>(null);
-  const [entryForm, setEntryForm] = useState<any>({});
-  const [entryError, setEntryError] = useState("");
   const [accountImportRows, setAccountImportRows] = useState<any[]>([]);
   const [accountImportFile, setAccountImportFile] = useState("");
   const [accountImportOptions, setAccountImportOptions] = useState<any | null>(null);
+  const [partyEntry, setPartyEntry] = useState<any | null>(null);
+  const [partyEntryCandidates, setPartyEntryCandidates] = useState<any[]>([]);
   const [apSubTab, setApSubTab] = useState("bills");
   const [arSubTab, setArSubTab] = useState("invoices");
   const [listPaging, setListPaging] = useState<
@@ -464,12 +489,6 @@ export default function Accounts() {
   } | null>(null);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
   const [copiedRef, setCopiedRef] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState<{
-    type: "payable" | "receivable";
-    row: any;
-    title: string;
-    description: string;
-  } | null>(null);
   const accountTabGroups = [
     {
       group: "Overview",
@@ -545,33 +564,113 @@ export default function Accounts() {
   };
   const setManualField = (key: string, value: any) =>
     setManual((current: any) => ({ ...current, [key]: value }));
-  const openReceivablePayableEntry = (type: "ap-bill" | "ap-debit" | "ar-invoice" | "ar-credit") => {
-    setEntryError("");
-    setEntryForm({ partyId: "", number: "", linkedNumber: "", date: today, dueDate: today, amount: "", accountName: "", notes: "" });
-    setEntryDialog(type);
+  const setPartyEntryField = (key: string, value: any) =>
+    setPartyEntry((current: any) => ({ ...current, [key]: value }));
+  const loadPartyEntryCandidates = async (kind: ManualPartyEntryKind, partyId: string) => {
+    if (kind === "arCreditNote") {
+      setPartyEntryCandidates(await api(`/receivable-documents?mode=credit-note&clientId=${partyId}`));
+    } else if (kind === "apDebitNote") {
+      setPartyEntryCandidates(await api(`/payable-documents?mode=debit-note&vendorId=${partyId}`));
+    }
   };
-  const submitReceivablePayableEntry = async () => {
-    if (!entryDialog) return;
+  const openPartyEntry = (kind: ManualPartyEntryKind, existing?: any) => {
+    setError("");
+    const arAcc = String(coa.find((a: any) => a.accountCode === "1100" && a.isActive !== false)?.id || "");
+    const apAcc = String(coa.find((a: any) => a.accountCode === "2100" && a.isActive !== false)?.id || "");
+    const bankAcc = String(coa.find((a: any) => a.accountCode !== "1100" && a.accountCode !== "2100" && a.isActive !== false)?.id || "");
+    const isAr = kind.startsWith("ar");
+    const baseEntry = existing ? {
+      ...existing,
+      kind,
+      settledAmount: String(existing.receivedAmount ?? existing.paidAmount ?? existing.settledAmount ?? ""),
+      fromAccountId: existing.fromAccountId ? String(existing.fromAccountId) : (isAr ? arAcc : bankAcc),
+      toAccountId: existing.toAccountId ? String(existing.toAccountId) : (isAr ? bankAcc : apAcc),
+    } : {
+      ...emptyPartyEntry(kind, today),
+      fromAccountId: isAr ? arAcc : bankAcc,
+      toAccountId: isAr ? bankAcc : apAcc,
+    };
+    setPartyEntry(baseEntry);
+    setPartyEntryCandidates([]);
+  };
+  const submitPartyEntry = async () => {
+    if (!partyEntry) return;
+    const isAr = partyEntry.kind.startsWith("ar");
+    const isNote = partyEntry.kind.endsWith("CreditNote") || partyEntry.kind.endsWith("DebitNote");
+    const amount = numberValue(partyEntry.amount);
+    const settledAmount = numberValue(partyEntry.settledAmount);
+    const adjustedAmount = numberValue(partyEntry.adjustedAmount);
+    if (!partyEntry.partyId || !partyEntry.reference.trim() || !partyEntry.documentDate || !partyEntry.dueDate || !(amount > 0)) {
+      setError("Complete all required fields and enter an amount greater than zero.");
+      return;
+    }
+    if (settledAmount < 0 || adjustedAmount < 0 || settledAmount + adjustedAmount > amount + 0.009) {
+      setError(`${isAr ? "Received" : "Paid"} and adjusted amounts must be non-negative and cannot exceed the amount.`);
+      return;
+    }
+    if (isNote && (!partyEntry.linkedReference || !partyEntry.accountId)) {
+      setError(`${isAr ? "Linked Invoice" : "Against Bill"} and Account Name are required.`);
+      return;
+    }
+    if (!isNote && settledAmount > 0) {
+      if (!partyEntry.fromAccountId || !partyEntry.toAccountId) {
+        setError(`From Account and To Account are required when a ${isAr ? "Received" : "Paid"} Amount is specified.`);
+        return;
+      }
+    }
     setSubmitting(true);
-    setEntryError("");
+    setError("");
     try {
-      const payable = entryDialog.startsWith("ap-");
-      const creditNote = entryDialog === "ar-credit";
-      const debitNote = entryDialog === "ap-debit";
-      const party = (payable ? crmVendors : crmClients).find((contact) => String(contact.id) === String(entryForm.partyId));
-      if (!party || !entryForm.number?.trim() || !entryForm.date || !entryForm.dueDate || !(Number(entryForm.amount) > 0))
-        throw Error("Complete the required fields and enter an amount greater than zero.");
-      if ((creditNote || debitNote) && (!entryForm.linkedNumber?.trim() || !entryForm.accountName?.trim()))
-        throw Error("Choose a linked invoice or bill and enter the adjustment account.");
-      const row = payable
-        ? { entryType: debitNote ? "Debit Note" : "Bill", vendor: party.displayName || party.name, billNumber: entryForm.number.trim(), againstBillNumber: debitNote ? entryForm.linkedNumber : "", billDate: entryForm.date, dueDate: entryForm.dueDate, amount: entryForm.amount, accountName: entryForm.accountName, notes: entryForm.notes }
-        : { entryType: creditNote ? "Credit Note" : "Invoice", customer: party.displayName || party.name, invoiceNumber: entryForm.number.trim(), linkedInvoiceNumber: creditNote ? entryForm.linkedNumber : "", invoiceDate: entryForm.date, dueDate: entryForm.dueDate, amount: entryForm.amount, accountName: entryForm.accountName, notes: entryForm.notes };
-      await api(payable ? "/ap/import" : "/ar/import", { method: "POST", body: JSON.stringify({ createOnly: true, rows: [row] }) });
-      setEntryDialog(null);
+      const body = isAr
+        ? {
+          clientId: Number(partyEntry.partyId),
+          invoiceNumber: partyEntry.reference.trim(),
+          creditNoteNumber: isNote ? partyEntry.reference.trim() : "",
+          linkedInvoiceNumber: isNote ? partyEntry.linkedReference : "",
+          invoiceDate: partyEntry.documentDate,
+          dueDate: partyEntry.dueDate,
+          amount,
+          receivedAmount: isNote ? amount : settledAmount,
+          adjustedAmount: isNote ? 0 : adjustedAmount,
+          coaAccountId: isNote ? Number(partyEntry.accountId) : null,
+          fromAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.fromAccountId) : undefined,
+          toAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.toAccountId) : undefined,
+          settlementAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.toAccountId) : undefined,
+          entryType: isNote ? "Credit Note" : "Invoice",
+          notes: partyEntry.notes || "",
+          sourceType: "Manual",
+        }
+        : {
+          vendorId: Number(partyEntry.partyId),
+          billNumber: partyEntry.reference.trim(),
+          againstBillNumber: isNote ? partyEntry.linkedReference : "",
+          billDate: partyEntry.documentDate,
+          dueDate: partyEntry.dueDate,
+          amount,
+          paidAmount: isNote ? amount : settledAmount,
+          adjustedAmount: isNote ? 0 : adjustedAmount,
+          coaAccountId: isNote ? Number(partyEntry.accountId) : null,
+          fromAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.fromAccountId) : undefined,
+          toAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.toAccountId) : undefined,
+          settlementAccountId: !isNote && settledAmount > 0 ? Number(partyEntry.fromAccountId) : undefined,
+          entryType: isNote ? "Debit Note" : "Bill",
+          notes: partyEntry.notes || "",
+          sourceType: "Manual",
+        };
+      await api(isAr ? "/ar" : "/ap", { method: "POST", body: JSON.stringify(body) });
+      setPartyEntry(null);
+      setPartyEntryCandidates([]);
+      if (isAr) {
+        setArSubTab(isNote ? "credit-notes" : "invoices");
+        setListPaging((current) => ({ ...current, ar: { ...current.ar, page: 1 } }));
+      } else {
+        setApSubTab(isNote ? "debit-notes" : "bills");
+        setListPaging((current) => ({ ...current, ap: { ...current.ap, page: 1 } }));
+      }
       await load();
-      toast({ title: `${debitNote ? "Debit note" : creditNote ? "Credit note" : payable ? "Bill" : "Invoice"} created` });
+      toast({ title: `${isNote ? (isAr ? "Credit note" : "Debit note") : (isAr ? "Invoice" : "Bill")} added successfully` });
     } catch (e: any) {
-      setEntryError(e.message || "Unable to create entry");
+      setError(e.message || "Unable to save entry");
     } finally {
       setSubmitting(false);
     }
@@ -694,7 +793,7 @@ export default function Accounts() {
       // ...(can("accounts.masters.view") ? [["m", "/masters"]] : []),
       ...(can("accounts.accounts_receivable.view") && !bankOptions ? [["clients", "/party-options?type=client&context=ar"]] : []),
       ...(can("accounts.bank_cash.view")
-        ? [["bankOptions", "/bank-cash-transactions/options"]] : []),
+        ? [["bankOptions", `/bank-cash-transactions/options${fullCoa ? "?clientsOnly=1" : ""}`]] : []),
       ...(can("accounts.accounts_payable.view") ? [["vendorsOpt", "/party-options?type=vendor&context=ap"]] : []),
       ...(can("accounts.bank_cash.view") ? [["bc", withListingDates("/bank-cash-transactions")]] : []),
       ...(can("accounts.journal_entries.view")
@@ -743,8 +842,7 @@ export default function Accounts() {
       if (k === "bankOptions") {
         const options = v as any;
         if (options.accounts.length) setCoa(options.accounts);
-        setCrmClients(options.clients.filter((contact: any) => String(contact.type || "client").toLowerCase() === "client"));
-        setCrmVendors(options.clients.filter((contact: any) => String(contact.type || "").toLowerCase() === "vendor"));
+        setCrmClients(options.clients);
       }
       // DISABLED: Masters module is not required for this phase
       // if (k === "m") setMasters(v);
@@ -1137,68 +1235,6 @@ export default function Accounts() {
       await load();
     } catch (e: any) {
       setError(e.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-  const confirmDeleteReceivable = (row: any) => {
-    const isSalesInvoice = row.sourceType === "Sales Invoice";
-    setDeleteConfirmation({
-      type: "receivable",
-      row,
-      title: isSalesInvoice ? "Cancel Sales Invoice" : "Delete Receivable",
-      description: isSalesInvoice
-        ? `Are you sure you want to cancel invoice ${row.invoiceNumber} and remove its receivable and accounting entries?`
-        : `Are you sure you want to delete receivable ${row.invoiceNumber}? This action cannot be undone.`,
-    });
-  };
-
-  const confirmDeletePayable = (row: any) => {
-    if (row.sourceType !== "Manual") return;
-    setDeleteConfirmation({
-      type: "payable",
-      row,
-      title: "Delete Payable",
-      description: `Are you sure you want to delete payable ${row.billNumber}? This action cannot be undone.`,
-    });
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteConfirmation) return;
-    const { type, row } = deleteConfirmation;
-    setSubmitting(true);
-    setError("");
-    try {
-      if (type === "payable") {
-        await api(`/ap/${row.id}`, { method: "DELETE" });
-        toast({
-          title: "Deleted Successfully",
-          description: `Payable ${row.billNumber} has been deleted.`,
-        });
-      } else if (type === "receivable") {
-        if (row.sourceType === "Sales Invoice" && row.sourceId) {
-          await salesApi(`/invoices/${row.sourceId}/cancel`, { method: "POST" });
-          toast({
-            title: "Invoice Cancelled",
-            description: `Invoice ${row.invoiceNumber} has been cancelled and removed.`,
-          });
-        } else {
-          await api(`/ar/${row.id}`, { method: "DELETE" });
-          toast({
-            title: "Deleted Successfully",
-            description: `Receivable ${row.invoiceNumber} has been deleted.`,
-          });
-        }
-      }
-      setDeleteConfirmation(null);
-      await load();
-    } catch (e: any) {
-      setError(e.message);
-      toast({
-        title: "Delete Failed",
-        description: e.message || "Unable to delete record.",
-        variant: "destructive",
-      });
     } finally {
       setSubmitting(false);
     }
@@ -2698,19 +2734,22 @@ export default function Accounts() {
                           onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client (optional)" />
+                            <SelectValue placeholder="Select CRM contact (optional)" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
                             <SelectItem value="__none__">
                               <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
                             </SelectItem>
-                            {[...crmClients, ...crmVendors].map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2724,19 +2763,22 @@ export default function Accounts() {
                           onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select CRM client (optional)" />
+                            <SelectValue placeholder="Select CRM contact (optional)" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
                             <SelectItem value="__none__">
                               <span className="text-muted-foreground group-data-[highlighted]:text-white/80 italic font-normal">None / Unassigned</span>
                             </SelectItem>
-                            {[...crmClients, ...crmVendors].map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2770,23 +2812,25 @@ export default function Accounts() {
                         </Select>
                       </div>
                       <div className="space-y-1.5 text-sm md:col-span-4">
-                        <Label className="text-xs font-semibold text-slate-700">Credit Name (optional)</Label>
+                        <Label className="text-xs font-semibold text-slate-700">Credit Name *</Label>
                         <Select
-                          value={bankForm.creditContactId ? String(bankForm.creditContactId) : "__none__"}
-                          onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val === "__none__" ? "" : val })}
+                          value={bankForm.creditContactId ? String(bankForm.creditContactId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, creditContactId: val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select client or vendor (optional)" />
+                            <SelectValue placeholder="Select CRM contact *" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                            <SelectItem value="__none__"><span className="text-muted-foreground italic">None / Unassigned</span></SelectItem>
-                            {[...crmClients, ...crmVendors].map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2820,23 +2864,25 @@ export default function Accounts() {
                         </Select>
                       </div>
                       <div className="space-y-1.5 text-sm md:col-span-4">
-                        <Label className="text-xs font-semibold text-slate-700">Debit Name (optional)</Label>
+                        <Label className="text-xs font-semibold text-slate-700">Debit Name *</Label>
                         <Select
-                          value={bankForm.debitContactId ? String(bankForm.debitContactId) : "__none__"}
-                          onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val === "__none__" ? "" : val })}
+                          value={bankForm.debitContactId ? String(bankForm.debitContactId) : undefined}
+                          onValueChange={(val) => setBankForm({ ...bankForm, debitContactId: val })}
                         >
                           <SelectTrigger className="h-10 w-full bg-white font-medium shadow-sm">
-                            <SelectValue placeholder="Select client or vendor (optional)" />
+                            <SelectValue placeholder="Select CRM contact *" />
                           </SelectTrigger>
                           <SelectContent className="max-h-72">
-                            <SelectItem value="__none__"><span className="text-muted-foreground italic">None / Unassigned</span></SelectItem>
-                            {[...crmClients, ...crmVendors].map((client) => (
+                            {bankCashContacts.map((client) => (
                               <SelectItem key={client.id} value={String(client.id)}>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 w-full">
                                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
                                     {(client.displayName || client.name || "C").charAt(0).toUpperCase()}
                                   </span>
                                   <span className="truncate">{client.displayName || client.name}</span>
+                                  <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors shrink-0">
+                                    {client.type === "vendor" ? "Vendor" : client.type === "client" ? "Customer" : client.type || "Customer"}
+                                  </span>
                                 </div>
                               </SelectItem>
                             ))}
@@ -2881,7 +2927,7 @@ export default function Accounts() {
                   <label className={`space-y-1 text-sm block w-full ${bankForm.mode === "Transfer" ? "md:col-span-8" : "md:col-span-9"}`}>Notes<Input className="h-10 w-full" value={bankForm.remarks} onChange={(e) => setBankForm({ ...bankForm, remarks: e.target.value })} /></label>
                   <Button
                     className={`h-10 self-end m-0 ${bankForm.mode === "Transfer" ? "md:col-span-4" : "md:col-span-3"}`}
-                    disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate  || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
+                    disabled={Boolean(actionLoadingId) || submitting || !can("accounts.bank_cash.create") || !bankForm.bankCashAccountId || !bankForm.amount || !bankForm.transactionDate || (bankForm.mode === "Credit" && !bankForm.creditContactId) || (bankForm.mode === "Debit" && !bankForm.debitContactId) || (bankForm.mode === "Transfer" && !bankForm.transferToAccountId)}
                     onClick={() => void submitBankCash()}
                   >
                     {actionLoadingId === "bank-cash-form-submit" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -2981,10 +3027,11 @@ export default function Accounts() {
                   <TabsTrigger value="debit-notes">Debit Notes</TabsTrigger>
                 </TabsList>
                 <TabsContent value="bills" className="space-y-3">
-                  <div className="flex justify-end gap-2">
-                    {can("accounts.accounts_payable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ap-bill")}><Plus className="mr-1 h-4 w-4" />Add Bill</Button>}
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apBill")} />}
                     {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apBill"} onClick={() => void exportAccountXlsx("apBill")} />}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apBill")}><Plus className="mr-1.5 h-4 w-4" />Add Bill</Button>}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apDebitNote")}><Plus className="mr-1.5 h-4 w-4" />Add Debit Note</Button>}
                   </div>
                   <Table
                     tableId="ap-bills"
@@ -3062,11 +3109,14 @@ export default function Accounts() {
                               {balance > 0 &&
                                 row.approvalStatus === "Approved" && (
                                   <Button
-                                    size="sm"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    title="Record payment"
+                                    aria-label={`Pay ${row.billNumber}`}
                                     onClick={() => openApPayment(row)}
                                     disabled={submitting}
                                   >
-                                    <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                                    <CreditCard className="h-4 w-4" />
                                   </Button>
                                 )}
                               {row.approvalStatus === "Pending Approval" && (() => {
@@ -3095,23 +3145,6 @@ export default function Accounts() {
                                   </>
                                 );
                               })()}
-                              <Button
-                                size="icon"
-                                className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                                style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                                title={
-                                  row.sourceType === "Manual"
-                                    ? "Delete bill"
-                                    : "Linked bills cannot be deleted"
-                                }
-                                aria-label={`Delete ${row.billNumber}`}
-                                disabled={
-                                  submitting || row.sourceType !== "Manual"
-                                }
-                                onClick={() => confirmDeletePayable(row)}
-                              >
-                                <Trash2 className="h-4 w-4 text-white" />
-                              </Button>
                             </div>
                           );
                         },
@@ -3121,10 +3154,11 @@ export default function Accounts() {
                   />
                 </TabsContent>
                 <TabsContent value="debit-notes" className="space-y-3">
-                  <div className="flex justify-end gap-2">
-                    {can("accounts.accounts_payable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ap-debit")}><Plus className="mr-1 h-4 w-4" />Add Debit Note</Button>}
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_payable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("apDebitNote")} />}
                     {can("accounts.accounts_payable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-apDebitNote"} onClick={() => void exportAccountXlsx("apDebitNote")} />}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apBill")}><Plus className="mr-1.5 h-4 w-4" />Add Bill</Button>}
+                    {can("accounts.accounts_payable.create") && <Button onClick={() => openPartyEntry("apDebitNote")}><Plus className="mr-1.5 h-4 w-4" />Add Debit Note</Button>}
                   </div>
                   <Table
                     tableId="ap-debit-notes"
@@ -3152,10 +3186,11 @@ export default function Accounts() {
                   <TabsTrigger value="credit-notes">Credit Notes</TabsTrigger>
                 </TabsList>
                 <TabsContent value="invoices" className="space-y-3">
-                  <div className="flex justify-end gap-2">
-                    {can("accounts.accounts_receivable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ar-invoice")}><Plus className="mr-1 h-4 w-4" />Add Invoice</Button>}
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arInvoice")} />}
                     {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arInvoice"} onClick={() => void exportAccountXlsx("arInvoice")} />}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arInvoice")}><Plus className="mr-1.5 h-4 w-4" />Add Invoice</Button>}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arCreditNote")}><Plus className="mr-1.5 h-4 w-4" />Add Credit Note</Button>}
                   </div>
                   <Table
                     tableId="ar-invoices"
@@ -3164,6 +3199,7 @@ export default function Accounts() {
                     cols={[
                       ["Invoice", "invoiceNumber"],
                       ["Customer", "clientName"],
+                      ["Invoice Date", "invoiceDate"],
                       ["Due", "dueDate"],
                       ["Amount", "amount", inr],
                       ["Received", "receivedAmount", inr],
@@ -3208,11 +3244,14 @@ export default function Accounts() {
                             {row.approvalStatus === "Approved" &&
                               outstanding(row) > 0 && (
                                 <Button
-                                  size="sm"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  title="Record receipt"
+                                  aria-label={`Record receipt for ${row.invoiceNumber}`}
                                   onClick={() => openPayment(row)}
                                   disabled={submitting}
                                 >
-                                  <CreditCard className="mr-1 h-3.5 w-3.5" /> Pay
+                                  <CreditCard className="h-4 w-4" />
                                 </Button>
                               )}
                             {row.approvalStatus === "Pending Approval" && (() => {
@@ -3241,17 +3280,6 @@ export default function Accounts() {
                                 </>
                               );
                             })()}
-                            <Button
-                              size="icon"
-                              className="h-8 w-8 cursor-pointer text-white border-0 shadow-xs hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                              title="Delete"
-                              aria-label={`Delete ${row.invoiceNumber}`}
-                              onClick={() => confirmDeleteReceivable(row)}
-                              disabled={submitting || row.sourceType !== "Manual"}
-                            >
-                              <Trash2 className="h-4 w-4 text-white" />
-                            </Button>
                           </div>
                         ),
                       ],
@@ -3260,10 +3288,11 @@ export default function Accounts() {
                   />
                 </TabsContent>
                 <TabsContent value="credit-notes" className="space-y-3">
-                  <div className="flex justify-end gap-2">
-                    {can("accounts.accounts_receivable.create") && <Button size="sm" onClick={() => openReceivablePayableEntry("ar-credit")}><Plus className="mr-1 h-4 w-4" />Add Credit Note</Button>}
+                  <div className="flex flex-wrap justify-end gap-2">
                     {can("accounts.accounts_receivable.import") && <ExcelIconButton action="import" onClick={() => openAccountImport("arCreditNote")} />}
                     {can("accounts.accounts_receivable.export") && <ExcelIconButton action="export" loading={actionLoadingId === "export-arCreditNote"} onClick={() => void exportAccountXlsx("arCreditNote")} />}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arInvoice")}><Plus className="mr-1.5 h-4 w-4" />Add Invoice</Button>}
+                    {can("accounts.accounts_receivable.create") && <Button onClick={() => openPartyEntry("arCreditNote")}><Plus className="mr-1.5 h-4 w-4" />Add Credit Note</Button>}
                   </div>
                   <Table
                     tableId="ar-credit-notes"
@@ -3330,35 +3359,6 @@ export default function Accounts() {
               <FinancialStatements request={api} can={can} />
             </TabsContent>
           </Tabs>
-          {Boolean(entryDialog) && (
-            <Dialog open={Boolean(entryDialog)} onOpenChange={(open) => { if (!open && !submitting) setEntryDialog(null); }}>
-              <DialogContent className="max-w-xl">
-                <DialogHeader><DialogTitle>{entryDialog === "ap-bill" ? "Add Bill" : entryDialog === "ap-debit" ? "Add Debit Note" : entryDialog === "ar-invoice" ? "Add Invoice" : "Add Credit Note"}</DialogTitle></DialogHeader>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {entryError && <div className="sm:col-span-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{entryError}</div>}
-                  <div className="space-y-1.5 sm:col-span-2"><Label>{entryDialog?.startsWith("ap-") ? "Vendor *" : "Customer *"}</Label>
-                    <Select value={entryForm.partyId || ""} onValueChange={(value) => setEntryForm({ ...entryForm, partyId: value })}>
-                      <SelectTrigger><SelectValue placeholder={entryDialog?.startsWith("ap-") ? "Select vendor" : "Select customer"} /></SelectTrigger><SelectContent>
-                        {(entryDialog?.startsWith("ap-") ? crmVendors : crmClients).map((contact) => <SelectItem key={contact.id} value={String(contact.id)}>{contact.displayName || contact.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5"><Label>{entryDialog?.startsWith("ap-") ? (entryDialog === "ap-debit" ? "Debit Note Number *" : "Bill Number *") : (entryDialog === "ar-credit" ? "Credit Note Number *" : "Invoice Number *")}</Label><Input value={entryForm.number || ""} onChange={(e) => setEntryForm({ ...entryForm, number: e.target.value })} /></div>
-                  {(entryDialog === "ap-debit" || entryDialog === "ar-credit") && <div className="space-y-1.5"><Label>{entryDialog === "ap-debit" ? "Against Bill *" : "Linked Invoice *"}</Label>
-                    <Select value={entryForm.linkedNumber || ""} onValueChange={(value) => setEntryForm({ ...entryForm, linkedNumber: value })}><SelectTrigger><SelectValue placeholder="Select linked document" /></SelectTrigger><SelectContent>
-                      {(entryDialog === "ap-debit" ? ap.filter((row) => row.entryType !== "Debit Note") : ar.filter((row) => row.entryType !== "Credit Note")).map((row) => <SelectItem key={row.id} value={String(entryDialog === "ap-debit" ? row.billNumber : row.invoiceNumber)}>{entryDialog === "ap-debit" ? row.billNumber : row.invoiceNumber} — {entryDialog === "ap-debit" ? row.vendorName : row.clientName}</SelectItem>)}
-                    </SelectContent></Select>
-                  </div>}
-                  <div className="space-y-1.5"><Label>{entryDialog?.startsWith("ap-") ? "Bill Date *" : "Invoice Date *"}</Label><Input type="date" value={entryForm.date || ""} onChange={(e) => setEntryForm({ ...entryForm, date: e.target.value })} /></div>
-                  <div className="space-y-1.5"><Label>Due Date *</Label><Input type="date" value={entryForm.dueDate || ""} onChange={(e) => setEntryForm({ ...entryForm, dueDate: e.target.value })} /></div>
-                  <div className="space-y-1.5"><Label>Amount *</Label><Input type="number" min="0.01" step="0.01" value={entryForm.amount || ""} onChange={(e) => setEntryForm({ ...entryForm, amount: e.target.value })} /></div>
-                  {(entryDialog === "ap-debit" || entryDialog === "ar-credit") && <div className="space-y-1.5"><Label>Account Name *</Label><Input value={entryForm.accountName || ""} onChange={(e) => setEntryForm({ ...entryForm, accountName: e.target.value })} placeholder="Enter COA account name or code" /></div>}
-                  <div className="space-y-1.5 sm:col-span-2"><Label>Notes</Label><Input value={entryForm.notes || ""} onChange={(e) => setEntryForm({ ...entryForm, notes: e.target.value })} /></div>
-                </div>
-                <DialogFooter><Button variant="outline" onClick={() => setEntryDialog(null)} disabled={submitting}>Cancel</Button><Button onClick={() => void submitReceivablePayableEntry()} disabled={submitting}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
-              </DialogContent>
-            </Dialog>
-          )}
           {Boolean(manualType) && (
             <Dialog
               open={Boolean(manualType)}
@@ -3578,6 +3578,133 @@ export default function Accounts() {
               </DialogContent>
             </Dialog>
           )}
+          {Boolean(partyEntry) && (() => {
+            const isAr = partyEntry.kind.startsWith("ar");
+            const isNote = partyEntry.kind.endsWith("CreditNote") || partyEntry.kind.endsWith("DebitNote");
+            const title = isNote ? (isAr ? "Add Credit Note" : "Add Debit Note") : (isAr ? "Add Invoice" : "Add Bill");
+            const parties = isAr ? crmClients : crmVendors;
+            return (
+              <Dialog open onOpenChange={(open) => { if (!open && !submitting) { setPartyEntry(null); setPartyEntryCandidates([]); setError(""); } }}>
+                <DialogContent className="sm:max-w-2xl">
+                  <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
+                  <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Entry Type</Label>
+                      <Input value={isNote ? (isAr ? "Credit Note" : "Debit Note") : (isAr ? "Invoice" : "Bill")} disabled />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{isAr ? "Customer" : "Vendor"} *</Label>
+                      <Select value={partyEntry.partyId} onValueChange={(value) => { setPartyEntry((current: any) => ({ ...current, partyId: value, linkedReference: "" })); setPartyEntryCandidates([]); setError(""); if (isNote) void loadPartyEntryCandidates(partyEntry.kind, value).catch((e) => setError(e.message)); }}>
+                        <SelectTrigger><SelectValue placeholder={`Select ${isAr ? "customer" : "vendor"}`} /></SelectTrigger>
+                        <SelectContent>{parties.map((party: any) => <SelectItem key={party.id} value={String(party.id)}>{party.displayName || party.name || party.clientName || party.vendorName}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{isNote ? (isAr ? "Credit Note #" : "Debit Note #") : (isAr ? "Invoice #" : "Bill #")} *</Label>
+                      <Input value={partyEntry.reference} onChange={(event) => setPartyEntryField("reference", event.target.value)} />
+                    </div>
+                    {isNote && <div className="space-y-2">
+                      <Label>{isAr ? "Linked Invoice" : "Against Bill"} *</Label>
+                      <Select value={partyEntry.linkedReference} disabled={!partyEntry.partyId} onValueChange={(value) => setPartyEntryField("linkedReference", value)}>
+                        <SelectTrigger><SelectValue placeholder={partyEntry.partyId ? `Select ${isAr ? "invoice" : "bill"}` : `Select ${isAr ? "customer" : "vendor"} first`} /></SelectTrigger>
+                        <SelectContent>{partyEntryCandidates.map((row: any) => <SelectItem key={row.id} value={String(isAr ? row.invoiceNumber : row.billNumber)}>{row.displayName || (isAr ? row.invoiceNumber : row.billNumber)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>}
+                    <div className="space-y-2">
+                      <Label>{isAr ? "Invoice Date" : "Bill Date"} *</Label>
+                      <Input type="date" value={partyEntry.documentDate} onChange={(event) => setPartyEntryField("documentDate", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Due Date *</Label>
+                      <Input type="date" value={partyEntry.dueDate} onChange={(event) => setPartyEntryField("dueDate", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Amount *</Label>
+                      <Input type="number" min="0.01" step="0.01" value={partyEntry.amount} onChange={(event) => setPartyEntryField("amount", event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{isAr ? "Received Amount" : "Paid Amount"}</Label>
+                      <Input type="number" min="0" step="0.01" value={partyEntry.settledAmount} onChange={(event) => setPartyEntryField("settledAmount", event.target.value)} />
+                    </div>
+                    {!isNote && <div className="space-y-2">
+                      <Label>Adjusted Amount</Label>
+                      <Input type="number" min="0" step="0.01" value={partyEntry.adjustedAmount} onChange={(event) => setPartyEntryField("adjustedAmount", event.target.value)} />
+                    </div>}
+                    {!isNote && numberValue(partyEntry.settledAmount) > 0 && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>From Account *</Label>
+                          <Select
+                            value={partyEntry.fromAccountId ? String(partyEntry.fromAccountId) : undefined}
+                            onValueChange={(value) => setPartyEntryField("fromAccountId", value)}
+                          >
+                            <SelectTrigger aria-label="From Account">
+                              <SelectValue placeholder={isAr ? "Select AR account" : "Select disbursement account"} />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {coa
+                                .filter((account: any) => account.isActive !== false && (isAr ? account.accountCode === "1100" : account.accountCode !== "2100"))
+                                .map((account: any) => (
+                                  <SelectItem key={account.id} value={String(account.id)}>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                        {account.accountCode}
+                                      </span>
+                                      <span className="truncate">{account.accountName}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>To Account *</Label>
+                          <Select
+                            value={partyEntry.toAccountId ? String(partyEntry.toAccountId) : undefined}
+                            onValueChange={(value) => setPartyEntryField("toAccountId", value)}
+                          >
+                            <SelectTrigger aria-label="To Account">
+                              <SelectValue placeholder={isAr ? "Select settlement account" : "Select AP account"} />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {coa
+                                .filter((account: any) => account.isActive !== false && (isAr ? account.accountCode !== "1100" : account.accountCode === "2100"))
+                                .map((account: any) => (
+                                  <SelectItem key={account.id} value={String(account.id)}>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                        {account.accountCode}
+                                      </span>
+                                      <span className="truncate">{account.accountName}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+                    {isNote && <div className="space-y-2">
+                      <Label>Account Name *</Label>
+                      <Select value={partyEntry.accountId} onValueChange={(value) => setPartyEntryField("accountId", value)}>
+                        <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                        <SelectContent>{coa.filter((account: any) => account.isActive !== false).map((account: any) => <SelectItem key={account.id} value={String(account.id)}>{account.accountCode} - {account.accountName}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>}
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Notes</Label>
+                      <textarea className="flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" value={partyEntry.notes} onChange={(event) => setPartyEntryField("notes", event.target.value)} />
+                    </div>
+                  </div>
+                  {error && <p className="text-sm text-destructive whitespace-pre-line">{error}</p>}
+                  <DialogFooter>
+                    <Button variant="outline" disabled={submitting} onClick={() => { setPartyEntry(null); setPartyEntryCandidates([]); setError(""); }}>Cancel</Button>
+                    <Button disabled={submitting} onClick={() => void submitPartyEntry()}>{submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{submitting ? "Saving..." : "Save Entry"}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            );
+          })()}
           {Boolean(accountImport) && (
             <Dialog
               open={Boolean(accountImport)}
@@ -3743,29 +3870,109 @@ export default function Accounts() {
                         }
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ap-account-name">Account Name *</Label>
-                      <Select
-                        value={apSettlementAccountId || undefined}
-                        onValueChange={(val) => setApSettlementAccountId(val)}
-                      >
-                        <SelectTrigger id="ap-account-name" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false).map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {numberValue(settlementAmount) > 0 && (
+                      <div className="space-y-3">
+                        {settlement.kind === "ap" ? (
+                          <>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ap-from-account">From Account *</Label>
+                              <Select
+                                value={apSettlementAccountId || undefined}
+                                onValueChange={(val) => setApSettlementAccountId(val)}
+                              >
+                                <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="Select disbursement account" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ap-to-account">To Account *</Label>
+                              <Select
+                                value={String(coa.find((a) => a.accountCode === "2100" && a.isActive !== false)?.id || "")}
+                                disabled
+                              >
+                                <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="2100 - Accounts Payable" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ar-from-account">From Account *</Label>
+                              <Select
+                                value={String(coa.find((a) => a.accountCode === "1100" && a.isActive !== false)?.id || "")}
+                                disabled
+                              >
+                                <SelectTrigger id="ar-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="1100 - Accounts Receivable" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.accountCode === "1100" && account.isActive !== false).map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="ar-to-account">To Account *</Label>
+                              <Select
+                                value={apSettlementAccountId || undefined}
+                                onValueChange={(val) => setApSettlementAccountId(val)}
+                              >
+                                <SelectTrigger id="ar-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                                  <SelectValue placeholder="Select settlement account" />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                                    <SelectItem key={account.id} value={String(account.id)}>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                          {account.accountCode}
+                                        </span>
+                                        <span className="truncate">{account.accountName}</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 <DialogFooter>
@@ -3846,60 +4053,62 @@ export default function Accounts() {
                         onChange={(event) => setPaymentAmount(event.target.value)}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="from-account">From Account *</Label>
-                      <Select
-                        value={arPayment.fromAccountId || undefined}
-                        onValueChange={(val) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            fromAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
-                      <Select
-                        value={arPayment.settlementAccountId || undefined}
-                        onValueChange={(val) =>
-                          setArPayment((value) => ({
-                            ...value,
-                            settlementAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select settlement account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {numberValue(paymentAmount) > 0 && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="from-account">From Account *</Label>
+                        <Select
+                          value={arPayment.fromAccountId || undefined}
+                          onValueChange={(val) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              fromAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.isActive !== false && account.accountCode === "1100").map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Label htmlFor="settlement-account" className="pt-2 block">To Account *</Label>
+                        <Select
+                          value={arPayment.settlementAccountId || undefined}
+                          onValueChange={(val) =>
+                            setArPayment((value) => ({
+                              ...value,
+                              settlementAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="settlement-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select settlement account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.isActive !== false && account.accountCode !== "1100").map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1.5 text-sm">
                         <Label>Payment Date *</Label>
@@ -4083,61 +4292,63 @@ export default function Accounts() {
                         onChange={(event) => setPaymentApAmount(event.target.value)}
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ap-from-account">From Account *</Label>
-                      <Select
-                        value={apPaymentForm.fromAccountId || undefined}
-                        onValueChange={(val) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            fromAccountId: val,
-                            settlementAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select disbursement account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
-                      <Select
-                        value={apPaymentForm.toAccountId || undefined}
-                        onValueChange={(val) =>
-                          setApPaymentForm((value) => ({
-                            ...value,
-                            toAccountId: val,
-                          }))
-                        }
-                      >
-                        <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
-                          <SelectValue placeholder="Select payable account" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
-                            <SelectItem key={account.id} value={String(account.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
-                                  {account.accountCode}
-                                </span>
-                                <span className="truncate">{account.accountName}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {numberValue(paymentApAmount) > 0 && (
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ap-from-account">From Account *</Label>
+                        <Select
+                          value={apPaymentForm.fromAccountId || undefined}
+                          onValueChange={(val) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              fromAccountId: val,
+                              settlementAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="ap-from-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select disbursement account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.isActive !== false && account.accountCode !== "2100").map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Label htmlFor="ap-to-account" className="pt-2 block">To Account *</Label>
+                        <Select
+                          value={apPaymentForm.toAccountId || undefined}
+                          onValueChange={(val) =>
+                            setApPaymentForm((value) => ({
+                              ...value,
+                              toAccountId: val,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="ap-to-account" className="h-10 w-full bg-white font-medium shadow-sm">
+                            <SelectValue placeholder="Select payable account" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {coa.filter((account) => account.accountCode === "2100" && account.isActive !== false).map((account) => (
+                              <SelectItem key={account.id} value={String(account.id)}>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold shrink-0 group-data-[highlighted]:bg-white/25 group-data-[highlighted]:text-white transition-colors">
+                                    {account.accountCode}
+                                  </span>
+                                  <span className="truncate">{account.accountName}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1.5 text-sm">
                         <Label>Payment Date *</Label>
@@ -4583,57 +4794,6 @@ export default function Accounts() {
                     Close
                   </Button>
                 </div>
-              </DialogContent>
-            </Dialog>
-          )}
-          {Boolean(deleteConfirmation) && (
-            <Dialog
-              open={Boolean(deleteConfirmation)}
-              onOpenChange={(open) => {
-                if (!open && !submitting) setDeleteConfirmation(null);
-              }}
-            >
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="h-10 w-10 rounded-full flex items-center justify-center shrink-0"
-                      style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                    >
-                      <Trash2 className="h-5 w-5 text-white" />
-                    </div>
-                    <div>
-                      <DialogTitle className="text-lg font-semibold text-foreground">
-                        {deleteConfirmation?.title || "Confirm Delete"}
-                      </DialogTitle>
-                    </div>
-                  </div>
-                </DialogHeader>
-                <div className="py-2 text-sm text-muted-foreground leading-relaxed">
-                  {deleteConfirmation?.description}
-                </div>
-                <DialogFooter className="gap-2 sm:gap-0 mt-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setDeleteConfirmation(null)}
-                    disabled={submitting}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    style={{ color: "#fff", background: "var(--color-red-500, #ef4444)" }}
-                    className="text-white hover:opacity-90 cursor-pointer border-0"
-                    onClick={() => void handleConfirmDelete()}
-                    disabled={submitting}
-                  >
-                    {submitting ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin text-white" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4 text-white" />
-                    )}
-                    {submitting ? "Deleting..." : "Delete"}
-                  </Button>
-                </DialogFooter>
               </DialogContent>
             </Dialog>
           )}
