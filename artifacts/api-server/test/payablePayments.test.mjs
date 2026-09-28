@@ -35,11 +35,16 @@ const bundled = await build({
 function fixture(snapshot) {
   let data = structuredClone(snapshot || {});
   let failTable = "";
+  let inTransaction = false;
+  let requireTransactionSession = false;
   const table = (name) => new Proxy({ _name: name }, { get: (target, key) => key in target ? target[key] : { name: key } });
   const rows = (name) => data[name] ||= [];
-  function query(kind, target) {
+  function query(kind, target, transactional = false) {
     let predicate = () => true, values, order, limit = Infinity, promise;
     const execute = () => {
+      if (requireTransactionSession && inTransaction && !transactional) {
+        throw new Error("Database access escaped the transaction session");
+      }
       const name = target._name;
       if (kind === "insert") {
         if (failTable === name) throw new Error("Injected write failure");
@@ -66,7 +71,12 @@ function fixture(snapshot) {
     return chain;
   }
   const db = { select: () => query("select"), insert: (t) => query("insert", t), update: (t) => query("update", t), delete: (t) => query("delete", t),
-    transaction: async (fn) => { const before = structuredClone(data); try { return await fn(db); } catch (error) { data = before; throw error; } },
+    transaction: async (fn) => {
+      const before = structuredClone(data);
+      const tx = { select: () => query("select", undefined, true), insert: t => query("insert", t, true), update: t => query("update", t, true), delete: t => query("delete", t, true) };
+      inTransaction = true;
+      try { return await fn(tx); } catch (error) { data = before; throw error; } finally { inTransaction = false; }
+    },
   };
   const module = { exports: {} };
   new Function("require", "module", "exports", "__testDb", bundled.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports, { db, table });
@@ -87,7 +97,7 @@ function fixture(snapshot) {
     );
     rows("contactsTable").push({ id: 8, type: "vendor", name: "Vendor A", contactCode: "V8" });
   }
-  return { call, rows, reload: () => fixture(data), fail: (name) => { failTable = name; }, decorate: module.exports.decorateHistoryLines, post: module.exports.postJournal };
+  return { call, rows, reload: () => fixture(data), enforceTransactionSession: () => { requireTransactionSession = true; }, fail: (name) => { failTable = name; }, decorate: module.exports.decorateHistoryLines, post: module.exports.postJournal };
 }
 
 async function payableFixture() {
@@ -214,6 +224,7 @@ test("disbursement with bank charges and TDS creates properly balanced journal l
 
 test("debit-note correction preserves the bill, reduces AP, updates the ledger, and posts a balanced journal", async () => {
   const { f, body } = await payableFixture();
+  f.enforceTransactionSession();
   const bill = f.rows("accountsPayableTable")[0];
   bill.amount = 1500;
   const expense = f.rows("chartOfAccountsTable").find(row => row.accountCode === "5100");

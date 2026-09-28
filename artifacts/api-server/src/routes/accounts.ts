@@ -1531,7 +1531,9 @@ function importError(errors: string[], index: number, field: string, reason: str
 }
 async function insertImportJournal(tx: any, org: number, b: any, userId?: number) {
   const { totalDebit: dr, totalCredit: cr, lines: ls } = assertJournalBalanced(b.lines || []);
-  const accounts = await coa(org);
+  // Callers initialize accounts before opening the transaction. Running coa()
+  // here writes through the global connection and conflicts with its snapshot.
+  const accounts = await tx.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, org));
   const [entry] = await tx.insert(journalEntriesTable).values({
     organizationId: org,
     entryDate: b.entryDate || day(),

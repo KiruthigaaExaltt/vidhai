@@ -1,0 +1,83 @@
+{"level":30,"time":1790582542600,"pid":7740,"hostname":"DESKTOP-HU6TTM3","uploadRoot":"C:\\Aakash\\updates\\vidhai\\artifacts\\api-server\\uploads","msg":"Upload storage ready"}
+{"level":30,"time":1790582542611,"pid":7740,"hostname":"DESKTOP-HU6TTM3","migratedRoles":0,"migratedUsers":0,"msg":"RBAC permission migration complete"}
+{"level":30,"time":1790582542618,"pid":7740,"hostname":"DESKTOP-HU6TTM3","created":0,"normalized":0,"totalDefaults":23,"msg":"Default Coimbatore casing-soil chambers ready"}
+{"level":30,"time":1790582542624,"pid":7740,"hostname":"DESKTOP-HU6TTM3","created":0,"updated":0,"total":42,"locationMissing":false,"msg":"Default Ooty growing rooms ready"}
+{"level":30,"time":1790582542796,"pid":7740,"hostname":"DESKTOP-HU6TTM3","createdItems":0,"createdStockRows":0,"deletedItems":0,"totalDefaults":20,"msg":"Default Vault items ready"}
+{"level":30,"time":1790582542800,"pid":7740,"hostname":"DESKTOP-HU6TTM3","msg":"Authenticated notification Socket.IO gateway ready"}
+{"level":30,"time":1790582542801,"pid":7740,"hostname":"DESKTOP-HU6TTM3","workerId":"DESKTOP-HU6TTM3:7740","concurrency":4,"maxAttempts":5,"msg":"Notification worker ready"}
+{"level":30,"time":1790582542802,"pid":7740,"hostname":"DESKTOP-HU6TTM3","msg":"Idempotent chamber reminder scheduler ready"}
+{"level":30,"time":1790582542802,"pid":7740,"hostname":"DESKTOP-HU6TTM3","msg":"Fleet maintenance reminder scheduler ready"}
+{"level":30,"time":1790582542807,"pid":7740,"hostname":"DESKTOP-HU6TTM3","port":5001,"msg":"Server listening"}
+{"level":30,"time":1790582544714,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":1,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":11,"msg":"request completed"}
+{"level":30,"time":1790582546614,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":2,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582551636,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":3,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":17,"msg":"request completed"}
+{"level":30,"time":1790582556627,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":4,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582557211,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":5,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":3,"msg":"request completed"}
+{"level":30,"time":1790582557370,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":6,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+{"level":30,"time":1790582561648,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":7,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":26,"msg":"request completed"}
+{"level":30,"time":1790582566625,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":8,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":9,"msg":"request completed"}
+{"level":30,"time":1790582571641,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":9,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1790582576637,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":10,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582581623,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":11,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582586630,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":12,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":16,"msg":"request completed"}
+{"level":30,"time":1790582591627,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":13,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":10,"msg":"request completed"}
+{"level":30,"time":1790582596629,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":14,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582601647,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":15,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":15,"msg":"request completed"}
+{"level":30,"time":1790582606633,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":16,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582611640,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":17,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582616634,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":18,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582621643,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":19,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582626631,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":20,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582631632,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":21,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582636639,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":22,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":13,"msg":"request completed"}
+{"level":30,"time":1790582641631,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":23,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582646641,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":24,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582651641,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":25,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":11,"msg":"request completed"}
+{"level":30,"time":1790582656630,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":26,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582661627,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":27,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582666639,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":28,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582671636,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":29,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582676629,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":30,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582681631,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":31,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582686626,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":32,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":9,"msg":"request completed"}
+{"level":30,"time":1790582691633,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":33,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582696622,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":34,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+{"level":30,"time":1790582701643,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":35,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":12,"msg":"request completed"}
+{"level":30,"time":1790582706630,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":36,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582711630,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":37,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582716627,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":38,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582721628,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":39,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":12,"msg":"request completed"}
+{"level":30,"time":1790582726628,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":40,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582731642,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":41,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582736637,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":42,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":13,"msg":"request completed"}
+{"level":30,"time":1790582741628,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":43,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582746626,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":44,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582751632,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":45,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":13,"msg":"request completed"}
+{"level":30,"time":1790582756634,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":46,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582761634,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":47,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582766631,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":48,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582771639,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":49,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582776622,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":50,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582781643,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":51,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":21,"msg":"request completed"}
+{"level":30,"time":1790582786630,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":52,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582791643,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":53,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582796642,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":54,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":11,"msg":"request completed"}
+{"level":30,"time":1790582801629,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":55,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":9,"msg":"request completed"}
+{"level":30,"time":1790582806633,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":56,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582811633,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":57,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582816645,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":58,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":14,"msg":"request completed"}
+{"level":30,"time":1790582821623,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":59,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582826645,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":60,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":13,"msg":"request completed"}
+{"level":30,"time":1790582831633,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":61,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":8,"msg":"request completed"}
+{"level":30,"time":1790582836643,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":62,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":13,"msg":"request completed"}
+{"level":30,"time":1790582842126,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":63,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582847141,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":64,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582852122,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":65,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":4,"msg":"request completed"}
+{"level":30,"time":1790582857120,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":66,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+{"level":30,"time":1790582862123,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":67,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":12,"msg":"request completed"}
+{"level":30,"time":1790582867127,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":68,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":5,"msg":"request completed"}
+{"level":30,"time":1790582870562,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":69,"method":"GET","url":"/api/accounts/business-dashboard"},"res":{"statusCode":423},"responseTime":80,"msg":"request completed"}
+{"level":30,"time":1790582870566,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":71,"method":"GET","url":"/api/auth/me"},"res":{"statusCode":200},"responseTime":19,"msg":"request completed"}
+{"level":30,"time":1790582870575,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":70,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":39,"msg":"request completed"}
+{"level":30,"time":1790582872129,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":72,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
+{"level":30,"time":1790582877131,"pid":7740,"hostname":"DESKTOP-HU6TTM3","req":{"id":73,"method":"GET","url":"/api/notifications/count"},"res":{"statusCode":200},"responseTime":7,"msg":"request completed"}
