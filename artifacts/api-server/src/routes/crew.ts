@@ -591,7 +591,7 @@ router.post(
         leaveTemplate: Number(b.leaveTemplate),
         salaryTemplateId: Number(b.salaryTemplateId),
         annualCtc: Number(b.annualCtc),
-        baseSalary: Number(b.baseSalary || 0),
+        baseSalary: monthlyFromAnnual(b.annualCtc) ?? Number(b.baseSalary || 0),
         skills: tags(b.skills),
         certifications: tags(b.certifications),
         fixedComponentValues:
@@ -840,6 +840,12 @@ router.get("/employees/:id/salary-templates", async (req: any, res: any): Promis
   res.json(templates.filter((template: any) => template.isActive !== false)
     .map((template: any) => ({ ...template, components: json(template.components, []) })));
 });
+const monthlyFromAnnual = (annual: unknown) => {
+  const value = Number(annual);
+  return annual !== undefined && annual !== null && annual !== "" && Number.isFinite(value) && value >= 0
+    ? Math.round((value / 12) * 100) / 100
+    : undefined;
+};
 router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
   if (!need(req, res, "crew.employees.update")) return;
   const old = await scopedEmployee(
@@ -871,6 +877,8 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
     for (const key of ["annualCtc", "baseSalary"])
       if (b[key] !== undefined && (!Number.isFinite(Number(b[key])) || Number(b[key]) < 0))
         return res.status(400).json({ error: `${key} must be a non-negative number` });
+    // Monthly CTC is always derived from the annual CTC entered on the member form.
+    if (b.annualCtc !== undefined) b.baseSalary = String(monthlyFromAnnual(b.annualCtc) ?? b.baseSalary ?? 0);
     if (b.salaryTemplateId !== undefined) {
       const [template] = await db.select().from(salaryTemplatesTable).where(and(eq(salaryTemplatesTable.id, Number(b.salaryTemplateId)), eq(salaryTemplatesTable.organizationId, req.crew.org)));
       if (!template || template.isActive === false) return res.status(400).json({ error: "Select an active salary template" });

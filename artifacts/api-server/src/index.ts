@@ -40,6 +40,7 @@ import {
   materialsTable,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
+import { backfillEmployeeMonthlyCtc } from "./lib/backfillEmployeeMonthlyCtc";
 import { getUploadRoot } from "./lib/uploadStorage";
 import { ensureDefaultVaultItems } from "./lib/ensureDefaultVaultItems";
 import { ensureDefaultCoimbatoreCasingChambers } from "./lib/ensureDefaultCoimbatoreCasingChambers";
@@ -211,6 +212,9 @@ logger.info({ uploadRoot }, "Upload storage ready");
 
 const permissionMigration = await migratePermissionData();
 logger.info(permissionMigration, "RBAC permission migration complete");
+
+const monthlyCtcBackfill = await backfillEmployeeMonthlyCtc();
+logger.info(monthlyCtcBackfill, "Employee monthly CTC backfill complete");
 
 const defaultCoimbatoreChambers = await ensureDefaultCoimbatoreCasingChambers();
 logger.info(defaultCoimbatoreChambers, "Default Coimbatore casing-soil chambers ready");
