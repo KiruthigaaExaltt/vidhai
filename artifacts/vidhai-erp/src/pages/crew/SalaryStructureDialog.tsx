@@ -14,7 +14,9 @@ import { responseError } from "@/lib/errorMessage";
 import { useLocation } from "wouter";
 import {
   calculateSalaryTemplateComponents,
+  fixedSalaryComponents,
   initializeSalaryFixedValues,
+  monthlyCtcFor,
   type SalaryTemplate,
   type EmployeeRecord,
 } from "./salaryStructure";
@@ -73,17 +75,15 @@ export default function SalaryStructureDialog({
         if (cancelled) return;
         setMember(record);
         setTemplates(list);
-        setTemplateId(
+        const assignedId =
           record.salaryTemplateId == null
             ? ""
-            : String(record.salaryTemplateId),
+            : String(record.salaryTemplateId);
+        const assignedTemplate = list.find(
+          (t) => String(t.id) === assignedId,
         );
-        setValues(
-          initializeValues(
-            list.find((t) => t.id === record.salaryTemplateId),
-            record,
-          ),
-        );
+        setTemplateId(assignedId);
+        setValues(initializeValues(assignedTemplate, record));
       })
       .catch((err) => {
         if (!cancelled)
@@ -98,20 +98,20 @@ export default function SalaryStructureDialog({
   }, [employee.id]);
 
   const template = templates.find((t) => String(t.id) === templateId);
+  const fixedComponents = useMemo(
+    () => fixedSalaryComponents(template),
+    [template],
+  );
+  const monthlyCtc = monthlyCtcFor(member);
   const preview = useMemo(() => {
     if (!template)
       return {
         rows: [],
         error: "Select an available salary template to view the structure.",
       };
-    if (
-      !Number.isFinite(Number(member.baseSalary)) ||
-      Number(member.baseSalary) < 0
-    )
+    if (!Number.isFinite(monthlyCtc) || monthlyCtc <= 0)
       return { rows: [], error: "The employee needs a valid monthly CTC." };
-    for (const c of template.components.filter(
-      (c) => c.calculationType === "fixed",
-    )) {
+    for (const c of fixedComponents) {
       if (
         !values[c.id]?.trim() ||
         !Number.isFinite(Number(values[c.id])) ||
@@ -127,7 +127,7 @@ export default function SalaryStructureDialog({
       return {
         rows: calculateSalaryTemplateComponents({
           templateComponents: template.components,
-          monthlyCtc: Number(member.baseSalary),
+          monthlyCtc,
           fixedComponentValues: Object.fromEntries(
             Object.entries(values).map(([id, value]) => [id, Number(value)]),
           ),
@@ -144,7 +144,7 @@ export default function SalaryStructureDialog({
             : "Unable to preview salary structure",
       };
     }
-  }, [template, values, member.baseSalary]);
+  }, [template, fixedComponents, values, monthlyCtc]);
 
   const save = async () => {
     if (!canEdit || !template || preview.error || loading || saving) return;
@@ -156,6 +156,7 @@ export default function SalaryStructureDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           salaryTemplateId: template.id,
+          baseSalary: monthlyCtc,
           fixedComponentValues: Object.fromEntries(
             Object.entries(values).map(([id, value]) => [id, Number(value)]),
           ),
@@ -247,51 +248,57 @@ export default function SalaryStructureDialog({
                 <input
                   id="structure-ctc"
                   readOnly
-                  value={currency(Number(member.baseSalary))}
+                  value={currency(monthlyCtc)}
                   className="w-full rounded-md border bg-blue-50 px-3 py-2 text-sm"
                 />
               </div>
             </div>
-            {template?.components.some(
-              (c) => c.calculationType === "fixed",
-            ) && (
+            {fixedComponents.length > 0 && (
               <div className="space-y-3 rounded-2xl border bg-gray-50 p-4">
                 <div>
                   <p className="text-sm font-semibold">Fixed Amounts</p>
+                  <p className="text-xs text-gray-500">
+                    These come from template components set to Fixed Amount.
+                    Enter the monthly amount for this employee; other
+                    components calculate from monthly CTC.
+                  </p>
                 </div>
-                {template.components
-                  .filter((c) => c.calculationType === "fixed")
-                  .map((c) => (
-                    <div key={c.id}>
-                      <label
-                        htmlFor={`fixed-${c.id}`}
-                        className="mb-1 block text-sm"
-                      >
-                        {c.name}
-                      </label>
-                      <input
-                        id={`fixed-${c.id}`}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        disabled={!canEdit || saving}
-                        value={values[c.id] ?? ""}
-                        onChange={(e) =>
-                          setValues((current) => ({
-                            ...current,
-                            [c.id]: e.target.value,
-                          }))
-                        }
-                        className="w-full rounded-md border px-3 py-2 text-sm focus:border-orange-400"
-                      />
-                    </div>
-                  ))}
+                {fixedComponents.map((c) => (
+                  <div key={c.id}>
+                    <label
+                      htmlFor={`fixed-${c.id}`}
+                      className="mb-1 block text-sm"
+                    >
+                      {c.name} (monthly fixed amount)
+                    </label>
+                    <input
+                      id={`fixed-${c.id}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder={
+                        c.value != null && String(c.value).trim() !== ""
+                          ? `Template default: ${c.value}`
+                          : "Enter fixed amount"
+                      }
+                      disabled={!canEdit || saving}
+                      value={values[c.id] ?? ""}
+                      onChange={(e) =>
+                        setValues((current) => ({
+                          ...current,
+                          [c.id]: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-md border px-3 py-2 text-sm focus:border-orange-400"
+                    />
+                  </div>
+                ))}
               </div>
             )}
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm text-gray-500">
                 {member.salaryTemplateId
-                  ? `Current template: ${templates.find((t) => t.id === member.salaryTemplateId)?.templateName || "Unavailable template"}`
+                  ? `Current template: ${templates.find((t) => String(t.id) === String(member.salaryTemplateId))?.templateName || "Unavailable template"}`
                   : "No salary template assigned yet."}
               </p>
               {hasPermission("settings.templates.view") && (
@@ -355,10 +362,10 @@ export default function SalaryStructureDialog({
                     <tr>
                       <td className="p-3">Total CTC</td>
                       <td className="p-3 whitespace-nowrap">
-                        {currency(Number(member.baseSalary))}
+                        {currency(monthlyCtc)}
                       </td>
                       <td className="p-3 whitespace-nowrap">
-                        {currency(Number(member.baseSalary) * 12)}
+                        {currency(monthlyCtc * 12)}
                       </td>
                     </tr>
                   </tfoot>
