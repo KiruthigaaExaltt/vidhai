@@ -120,8 +120,10 @@ router.get("/", requireAuth, async (req, res) => {
       (row) =>
         row.sku !== "VLT-FP-SPAWN" &&
         row.sku !== "VLT-FP-CASING-SOIL" &&
+        row.sku !== "VLT-RM-GROW-BAG" &&
         row.sku !== "VLT-EXT-SPAWN" &&
-        row.sku !== "VLT-EXT-CASING-SOIL",
+        row.sku !== "VLT-EXT-CASING-SOIL" &&
+        row.sku !== "VLT-EXT-GROW-BAG",
     );
   const search = String(req.query.search || "")
     .trim()

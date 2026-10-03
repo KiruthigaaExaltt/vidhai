@@ -25,7 +25,12 @@ import {
   spawnVaultTransactionsTable,
   casingSoilInventorySourcesTable,
   casingSoilTransactionsTable,
+  growBagInventorySourcesTable,
 } from "@workspace/db";
+import {
+  GROW_BAG_EXT_SKU,
+  growBagExternalSourceKey,
+} from "../lib/growBagVault";
 
 const router = Router();
 function paginatedList(req: any, res: any, input: any[]) {
@@ -1681,7 +1686,9 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
     const externalVaultType = String(requested.externalVaultType || "");
     const isExternalVaultItem =
       isManualItem &&
-      (externalVaultType === "spawn" || externalVaultType === "casing_soil");
+      (externalVaultType === "spawn" ||
+        externalVaultType === "casing_soil" ||
+        externalVaultType === "grow_bag");
     if (!materialId && !isExternalVaultItem)
       return res
         .status(400)
@@ -1695,22 +1702,40 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       : [];
     if (!material && isExternalVaultItem) {
       const specialName =
-        externalVaultType === "spawn" ? "Spawn" : "Casing Soil";
+        externalVaultType === "spawn"
+          ? "Spawn"
+          : externalVaultType === "casing_soil"
+            ? "Casing Soil"
+            : "Grow Bag";
+      const specialSku =
+        externalVaultType === "spawn"
+          ? "VLT-EXT-SPAWN"
+          : externalVaultType === "casing_soil"
+            ? "VLT-EXT-CASING-SOIL"
+            : GROW_BAG_EXT_SKU;
+      const specialUnit = externalVaultType === "grow_bag" ? "Nos" : "kg";
       [material] = await db
         .select()
         .from(materialsTable)
-        .where(eq(materialsTable.name, specialName))
+        .where(eq(materialsTable.sku, specialSku))
         .limit(1);
+      if (!material && externalVaultType !== "grow_bag") {
+        [material] = await db
+          .select()
+          .from(materialsTable)
+          .where(eq(materialsTable.name, specialName))
+          .limit(1);
+      }
       if (!material) {
         [material] = await db
           .insert(materialsTable)
           .values({
             name: specialName,
-            sku: `VLT-EXT-${externalVaultType === "spawn" ? "SPAWN" : "CASING-SOIL"}`,
-            unit: "kg",
+            sku: specialSku,
+            unit: specialUnit,
             itemType: "Raw Material",
             category: "raw_material",
-            itemIdentifier: `VLT-EXT-${externalVaultType === "spawn" ? "SPAWN" : "CASING-SOIL"}`,
+            itemIdentifier: specialSku,
             qrPayload: `/product/${externalVaultType}`,
             criticalLevel: "0",
             buyPricePerUnit: "0",
@@ -1897,6 +1922,7 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
   const spawnVaultEntryIds: number[] = [];
   const casingVaultSourceIds: number[] = [];
   const casingTransactionIds: number[] = [];
+  const growBagVaultSourceIds: number[] = [];
   const purchaseOrderRollbacks: Array<{ id: number; status: string }> = [];
   try {
     for (const line of receiptLines) {
@@ -2099,6 +2125,59 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
           .returning();
         casingTransactionIds.push(transaction.id);
       }
+      if (line.externalVaultType === "grow_bag") {
+        const externalReference = String(line.externalReference || "");
+        const sourceKey = growBagExternalSourceKey(externalReference);
+        const receivedBags = Math.round(Number(line.receivedQty || 0));
+        const [existingSource] = await db
+          .select()
+          .from(growBagInventorySourcesTable)
+          .where(eq(growBagInventorySourcesTable.sourceKey, sourceKey))
+          .limit(1);
+        let source: any;
+        if (existingSource) {
+          const nextAvailable =
+            Number(existingSource.availableBags || 0) + receivedBags;
+          [source] = await db
+            .update(growBagInventorySourcesTable)
+            .set({
+              originalBags:
+                Number(existingSource.originalBags || 0) + receivedBags,
+              availableBags: nextAvailable,
+              stockDate: receivedDate,
+              origin: "external",
+              status: nextAvailable > 0 ? "available" : existingSource.status,
+              inventoryId: inventoryStockId,
+              warehouseId: locationId,
+            })
+            .where(eq(growBagInventorySourcesTable.id, existingSource.id))
+            .returning();
+        } else {
+          [source] = await db
+            .insert(growBagInventorySourcesTable)
+            .values({
+              sourceKey,
+              sourceType: "purchased",
+              origin: "external",
+              annurBatchId: null,
+              reference: externalReference,
+              materialId: Number(line.itemId),
+              warehouseId: locationId,
+              inventoryId: inventoryStockId,
+              inventoryAdjustmentId: null,
+              originalBags: receivedBags,
+              allocatedBags: 0,
+              availableBags: receivedBags,
+              reservedBags: 0,
+              stockDate: receivedDate,
+              notes: `Received through ${created.grnNumber}`,
+              status: "available",
+              createdByUserId: userId,
+            })
+            .returning();
+          growBagVaultSourceIds.push(source.id);
+        }
+      }
     }
 
     for (const po of purchaseOrders) {
@@ -2189,6 +2268,10 @@ router.post("/goods-receipts", requireAuth, async (req, res) => {
       }
     }
   } catch (error) {
+    for (const sourceId of [...growBagVaultSourceIds].reverse())
+      await db
+        .delete(growBagInventorySourcesTable)
+        .where(eq(growBagInventorySourcesTable.id, sourceId));
     for (const transactionId of [...casingTransactionIds].reverse())
       await db
         .delete(casingSoilTransactionsTable)

@@ -16,6 +16,7 @@ import {
   inventoryAdjustmentsTable,
   labSpawnOutputTable,
   annurDispatchInventoryPostingsTable,
+  growBagInventorySourcesTable,
   spawnEntriesTable,
   spawnVaultTransactionsTable,
   annurSpawnUsagesTable,
@@ -28,6 +29,7 @@ import {
   isAvailableChamber,
   validateProducedBags,
 } from "../lib/annurProduction";
+import { growBagProducedSourceKey } from "../lib/growBagVault";
 import { resolveUploadPath } from "../lib/uploadStorage";
 import { chronologyError, resolveProductionDateTime } from "../lib/productionDateTime";
 import { consumeAnnurBatchMaterials, consumeAnnurMaterialIncreases } from "../lib/annurInventoryConsumption";
@@ -971,6 +973,34 @@ router.post("/:id/advance", requireAuth, async (req, res) => {
         warehouseId: warehouse.id,
         producedBags: produced.producedBags,
       });
+      const vaultSourceKey = growBagProducedSourceKey(batchId);
+      const [existingVaultLot] = await tx
+        .select()
+        .from(growBagInventorySourcesTable)
+        .where(eq(growBagInventorySourcesTable.sourceKey, vaultSourceKey))
+        .limit(1);
+      if (!existingVaultLot) {
+        const stockDate = exitedAt.toISOString().slice(0, 10);
+        await tx.insert(growBagInventorySourcesTable).values({
+          sourceKey: vaultSourceKey,
+          sourceType: "produced",
+          origin: "internal",
+          annurBatchId: batchId,
+          reference: batch.batchCode,
+          materialId: material.id,
+          warehouseId: warehouse.id,
+          inventoryId: stock.id,
+          inventoryAdjustmentId: adjustment.id,
+          originalBags: produced.producedBags,
+          allocatedBags: 0,
+          availableBags: produced.producedBags,
+          reservedBags: 0,
+          stockDate,
+          notes: `Annur Dispatch | Batch: ${batch.batchCode}`,
+          status: "available",
+          createdByUserId: userId,
+        });
+      }
     }
     const [row] = await tx
       .update(batchesTable)

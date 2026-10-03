@@ -149,6 +149,42 @@ export const casingSoilInventorySourcesTable = mongoTable(
       .defaultNow(),
   },
 );
+
+// Authoritative lot balances for finished grow bags (Annur produced + GRN purchased).
+export const growBagInventorySourcesTable = mongoTable(
+  "grow_bag_inventory_sources",
+  {
+    id: serial("id").primaryKey(),
+    sourceKey: text("source_key").notNull().unique(),
+    sourceType: text("source_type").notNull(),
+    origin: text("origin").notNull().default("internal"),
+    annurBatchId: integer("annur_batch_id").references(() => batchesTable.id),
+    reference: text("reference").notNull(),
+    materialId: integer("material_id")
+      .notNull()
+      .references(() => materialsTable.id),
+    warehouseId: integer("warehouse_id").references(
+      () => inventoryLocationsTable.id,
+    ),
+    inventoryId: integer("inventory_id").references(() => inventoryTable.id),
+    inventoryAdjustmentId: integer("inventory_adjustment_id").references(
+      () => inventoryAdjustmentsTable.id,
+    ),
+    originalBags: integer("original_bags").notNull(),
+    allocatedBags: integer("allocated_bags").notNull().default(0),
+    availableBags: integer("available_bags").notNull(),
+    reservedBags: integer("reserved_bags").notNull().default(0),
+    stockDate: text("stock_date").notNull(),
+    notes: text("notes"),
+    status: text("status").notNull().default("available"),
+    createdByUserId: integer("created_by_user_id").references(
+      () => usersTable.id,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+);
 export const vaultSalesReservationsTable = mongoTable(
   "vault_sales_reservations",
   {

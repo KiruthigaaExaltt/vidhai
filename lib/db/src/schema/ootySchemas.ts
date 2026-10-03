@@ -12,7 +12,10 @@ import { z } from "zod/v4";
 import { locationsTable } from "./locations";
 import { batchesTable } from "./batches";
 import { usersTable } from "./users";
-import { casingSoilInventorySourcesTable } from "./inventory";
+import {
+  casingSoilInventorySourcesTable,
+  growBagInventorySourcesTable,
+} from "./inventory";
 
 export const ootyRoomsTable = mongoTable("ooty_rooms", {
   id: serial("id").primaryKey(),
@@ -134,15 +137,16 @@ export const ootyCasingRunConsumptionsTable = mongoTable(
   },
 );
 
-// Batch sources — many-to-many: one Annur batch can supply multiple Ooty rooms
+// Batch sources — many-to-many: one Annur/external grow-bag lot can supply multiple Ooty rooms
 export const ootyBatchSourcesTable = mongoTable("ooty_batch_sources", {
   id: serial("id").primaryKey(),
   growingBatchId: integer("growing_batch_id")
     .notNull()
     .references(() => ootyGrowingBatchesTable.id, { onDelete: "cascade" }),
-  annurBatchId: integer("annur_batch_id")
-    .notNull()
-    .references(() => batchesTable.id),
+  annurBatchId: integer("annur_batch_id").references(() => batchesTable.id),
+  growBagSourceId: integer("grow_bag_source_id").references(
+    () => growBagInventorySourcesTable.id,
+  ),
   bagCount: integer("bag_count"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
