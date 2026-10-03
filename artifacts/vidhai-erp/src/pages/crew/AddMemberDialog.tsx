@@ -398,7 +398,11 @@ export function AddMemberDialog({
           : null,
         salaryTemplateId: Number(f.salaryTemplateId),
         annualCtc: Number(f.annualCtc),
-        baseSalary: Number(f.baseSalary || 0),
+        baseSalary:
+          Number(f.baseSalary) ||
+          (Number.isFinite(Number(f.annualCtc)) && Number(f.annualCtc) > 0
+            ? Number(f.annualCtc) / 12
+            : 0),
         email: f.email.trim().toLowerCase(),
         phone: digits(f.phone),
         alternatePhone: f.alternatePhone ? digits(f.alternatePhone) : null,

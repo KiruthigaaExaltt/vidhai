@@ -1,4 +1,5 @@
 import SalaryStructureDialog from "./SalaryStructureDialog";
+import { monthlyCtcFor } from "./salaryStructure";
 import { useEffect, useMemo, useState } from "react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Shell } from "@/components/layout/Shell";
@@ -105,13 +106,6 @@ const emptyEmployee = {
   accountHolderName: "",
   accountNumber: "",
   ifscCode: "",
-};
-const monthlyCtcFor = (employee?: { baseSalary?: unknown; annualCtc?: unknown }) => {
-  const baseSalary = Number(employee?.baseSalary);
-  if (Number.isFinite(baseSalary) && baseSalary > 0) return baseSalary;
-
-  const annualCtc = Number(employee?.annualCtc);
-  return Number.isFinite(annualCtc) && annualCtc > 0 ? annualCtc / 12 : 0;
 };
 const readFile = (file: File) =>
   new Promise<string>((resolve, reject) => {

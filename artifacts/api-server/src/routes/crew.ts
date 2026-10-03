@@ -591,7 +591,11 @@ router.post(
         leaveTemplate: Number(b.leaveTemplate),
         salaryTemplateId: Number(b.salaryTemplateId),
         annualCtc: Number(b.annualCtc),
-        baseSalary: Number(b.baseSalary || 0),
+        baseSalary:
+          Number(b.baseSalary) ||
+          (Number.isFinite(Number(b.annualCtc)) && Number(b.annualCtc) > 0
+            ? Number(b.annualCtc) / 12
+            : 0),
         skills: tags(b.skills),
         certifications: tags(b.certifications),
         fixedComponentValues:

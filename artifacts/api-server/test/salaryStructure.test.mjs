@@ -21,13 +21,23 @@ test("real RBAC accepts salary access for superadmin and explicit grants, but re
  assert.equal(permissionSetHas(granted, "crew.employees.salary_structure"), true);
 });
 const result = await build({ entryPoints: [new URL("../../vidhai-erp/src/pages/crew/salaryStructure.ts", import.meta.url).pathname.replace(/^\/(?=[A-Za-z]:)/, "")], bundle: true, write: false, format: "esm", platform: "node" });
-const { initializeSalaryFixedValues, calculateSalaryTemplateComponents } = await import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"));
+const { initializeSalaryFixedValues, calculateSalaryTemplateComponents, monthlyCtcFor, fixedSalaryComponents } = await import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"));
 const template = {id:1,components:[{id:"basic",name:"Basic",calculationType:"fixed",value:1000,order:1},{id:"special",name:"Special",calculationType:"residual",order:2}]};
-test("fixed values use saved IDs or legacy names, preserve zero, and reset for a different template", () => {
+test("fixed values use saved IDs or legacy names, preserve zero, seed template defaults, and reset for a different template", () => {
  assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:1,fixedComponentValues:{basic:0}}),{basic:"0"});
  assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:1,fixedComponentValues:{Basic:1250}}),{basic:"1250"});
- assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:2,fixedComponentValues:{basic:1250}}),{basic:""});
- assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:1}),{basic:""});
+ assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:2,fixedComponentValues:{basic:1250}}),{basic:"1000"});
+ assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:1}),{basic:"1000"});
+ // string/number template id mismatch must still load employee + template defaults
+ assert.deepEqual(initializeSalaryFixedValues(template,{salaryTemplateId:"1",fixedComponentValues:{basic:2500}}),{basic:"2500"});
+ assert.equal(fixedSalaryComponents(template).length,1);
+ assert.equal(fixedSalaryComponents(template)[0].id,"basic");
+});
+test("monthly CTC falls back from annual CTC when base salary is missing", () => {
+ assert.equal(monthlyCtcFor({baseSalary:25000,annualCtc:360000}),25000);
+ assert.equal(monthlyCtcFor({baseSalary:0,annualCtc:360000}),30000);
+ assert.equal(monthlyCtcFor({baseSalary:"",annualCtc:240000}),20000);
+ assert.equal(monthlyCtcFor({baseSalary:0,annualCtc:0}),0);
 });
 test("salary preview computes fixed and residual amounts and rejects excess earnings", () => {
  const rows = calculateSalaryTemplateComponents({templateComponents:template.components,monthlyCtc:3000,fixedComponentValues:{basic:1250},earnedRatio:1});
