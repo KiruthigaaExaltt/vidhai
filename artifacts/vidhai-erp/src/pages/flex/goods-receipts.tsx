@@ -68,7 +68,7 @@ export interface GRNLineItem {
   igstPct: number;
   total: number;
   manualItem?: boolean;
-  externalVaultType?: "spawn" | "casing_soil";
+  externalVaultType?: "spawn" | "casing_soil" | "grow_bag";
   externalReference?: string;
   markComplete?: boolean;
 }
@@ -208,7 +208,7 @@ export default function GoodsReceipts() {
   const [notes, setNotes] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
   const [externalItemType, setExternalItemType] = useState<
-    "spawn" | "casing_soil" | null
+    "spawn" | "casing_soil" | "grow_bag" | null
   >(null);
   const [externalIdNumber, setExternalIdNumber] = useState("");
   const [externalOrderedKg, setExternalOrderedKg] = useState("");
@@ -240,7 +240,15 @@ export default function GoodsReceipts() {
     () =>
       itemOptions.filter((item) => {
         const name = String(item.name || "").trim().toLowerCase();
-        return name !== "spawn" && name !== "casing soil";
+        const sku = String(item.sku || "").trim().toUpperCase();
+        return (
+          name !== "spawn" &&
+          name !== "casing soil" &&
+          name !== "grow bag" &&
+          name !== "grow bags" &&
+          sku !== "VLT-RM-GROW-BAG" &&
+          sku !== "VLT-EXT-GROW-BAG"
+        );
       }),
     [itemOptions],
   );
@@ -256,6 +264,7 @@ export default function GoodsReceipts() {
       });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
       queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
+      queryClient.invalidateQueries({ queryKey: ["grow-bag-vault"] });
       toast.success(`${created.grnNumber} saved successfully`);
       setIsAddOpen(false);
       resetForm();
@@ -360,7 +369,7 @@ export default function GoodsReceipts() {
 
   const addInventoryItem = (
     item: any,
-    externalVaultType?: "spawn" | "casing_soil",
+    externalVaultType?: "spawn" | "casing_soil" | "grow_bag",
     externalReference?: string,
     orderedQty = 1,
     receivedQty = 1,
@@ -424,7 +433,10 @@ export default function GoodsReceipts() {
       setExternalOrderedKg(String(balance.orderedQuantity));
       setExternalAlreadyReceivedKg(Number(balance.receivedQuantity || 0));
       setExternalReceivedKg(String(balance.remainingQuantity));
-      toast.info(`${balance.remainingQuantity} kg remains for ${reference}`);
+      const unitLabel = externalItemType === "grow_bag" ? "bags" : "kg";
+      toast.info(
+        `${balance.remainingQuantity} ${unitLabel} remain for ${reference}`,
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to load balance");
     } finally {
@@ -437,15 +449,25 @@ export default function GoodsReceipts() {
       toast.error("Enter the numeric external ID");
       return;
     }
-    const orderedKg = Number(externalOrderedKg);
-    const receivedKg = Number(externalReceivedKg);
-    if (!(orderedKg > 0) || !(receivedKg > 0)) {
-      toast.error("Enter ordered and received quantities in kg");
+    const orderedQty = Number(externalOrderedKg);
+    const receivedQty = Number(externalReceivedKg);
+    const unitLabel = externalItemType === "grow_bag" ? "bags" : "kg";
+    if (!(orderedQty > 0) || !(receivedQty > 0)) {
+      toast.error(`Enter ordered and received quantities in ${unitLabel}`);
       return;
     }
-    const remainingKg = Math.max(0, orderedKg - externalAlreadyReceivedKg);
-    if (receivedKg > remainingKg) {
-      toast.error(`Received quantity cannot exceed the remaining ${remainingKg} kg`);
+    if (
+      externalItemType === "grow_bag" &&
+      (!Number.isInteger(orderedQty) || !Number.isInteger(receivedQty))
+    ) {
+      toast.error("Grow bag quantities must be whole numbers");
+      return;
+    }
+    const remainingQty = Math.max(0, orderedQty - externalAlreadyReceivedKg);
+    if (receivedQty > remainingQty) {
+      toast.error(
+        `Received quantity cannot exceed the remaining ${remainingQty} ${unitLabel}`,
+      );
       return;
     }
     const externalReference = `EXT-${externalIdNumber}`;
@@ -459,22 +481,38 @@ export default function GoodsReceipts() {
       toast.error(`${externalReference} is already added to Line Items`);
       return;
     }
-    const displayName = externalItemType === "spawn" ? "Spawn" : "Casing Soil";
+    const displayName =
+      externalItemType === "spawn"
+        ? "Spawn"
+        : externalItemType === "casing_soil"
+          ? "Casing Soil"
+          : "Grow Bag";
     const expectedName = displayName.toLowerCase();
-    const item = itemOptions.find((candidate) =>
-      candidate.name.toLowerCase().includes(expectedName),
-    ) ?? {
-      id: 0,
-      name: displayName,
-      unit: "kg",
-      buyPricePerUnit: 0,
-    };
+    const item =
+      externalItemType === "grow_bag"
+        ? itemOptions.find(
+            (candidate) =>
+              String(candidate.sku || "").toUpperCase() === "VLT-EXT-GROW-BAG",
+          ) ?? {
+            id: 0,
+            name: displayName,
+            unit: "Nos",
+            buyPricePerUnit: 0,
+          }
+        : itemOptions.find((candidate) =>
+            candidate.name.toLowerCase().includes(expectedName),
+          ) ?? {
+            id: 0,
+            name: displayName,
+            unit: "kg",
+            buyPricePerUnit: 0,
+          };
     addInventoryItem(
       item,
       externalItemType,
       externalReference,
-      orderedKg,
-      receivedKg,
+      orderedQty,
+      receivedQty,
       externalAlreadyReceivedKg,
       externalMarkComplete,
     );
@@ -1264,6 +1302,9 @@ export default function GoodsReceipts() {
                         <DropdownMenuItem onClick={() => setExternalItemType("spawn")}>
                           Spawn
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setExternalItemType("grow_bag")}>
+                          Grow Bags
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setExternalItemType("casing_soil")}>
                           Casing Soil
                         </DropdownMenuItem>
@@ -1274,7 +1315,7 @@ export default function GoodsReceipts() {
                     <div className="border border-dashed border-border rounded-lg p-6 text-center text-xs text-muted-foreground bg-muted/20">
                       {mappedPoIds.length
                         ? "All items on the selected Purchase Orders have already been received."
-                        : "Choose an item from Item list. Spawn and Casing Soil require external details."}
+                        : "Choose an item from Item list. Spawn, Grow Bags, and Casing Soil require external details."}
                     </div>
                   ) : (
                     <div className="border border-border/80 rounded-lg overflow-x-auto bg-background">
@@ -1566,7 +1607,12 @@ export default function GoodsReceipts() {
                   className="w-full max-w-sm space-y-4 rounded-md border border-border bg-background p-6 shadow-2xl"
                 >
                   <h2 id="external-item-title" className="text-lg font-semibold">
-                    Add External {externalItemType === "spawn" ? "Spawn" : "Casing Soil"}
+                    Add External{" "}
+                    {externalItemType === "spawn"
+                      ? "Spawn"
+                      : externalItemType === "grow_bag"
+                        ? "Grow Bags"
+                        : "Casing Soil"}
                   </h2>
                   <div className="space-y-1.5">
                     <Label>External ID *</Label>
@@ -1591,26 +1637,30 @@ export default function GoodsReceipts() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label>Ordered *</Label>
+                      <Label>
+                        Ordered {externalItemType === "grow_bag" ? "(bags)" : "(kg)"} *
+                      </Label>
                       <Input
                         type="number"
-                        min="0.01"
-                        step="0.01"
+                        min={externalItemType === "grow_bag" ? "1" : "0.01"}
+                        step={externalItemType === "grow_bag" ? "1" : "0.01"}
                         value={externalOrderedKg}
                         onChange={(event) => setExternalOrderedKg(event.target.value)}
-                        placeholder="0.00"
+                        placeholder={externalItemType === "grow_bag" ? "0" : "0.00"}
                         disabled={externalAlreadyReceivedKg > 0}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Received *</Label>
+                      <Label>
+                        Received {externalItemType === "grow_bag" ? "(bags)" : "(kg)"} *
+                      </Label>
                       <Input
                         type="number"
-                        min="0.01"
-                        step="0.01"
+                        min={externalItemType === "grow_bag" ? "1" : "0.01"}
+                        step={externalItemType === "grow_bag" ? "1" : "0.01"}
                         value={externalReceivedKg}
                         onChange={(event) => setExternalReceivedKg(event.target.value)}
-                        placeholder="0.00"
+                        placeholder={externalItemType === "grow_bag" ? "0" : "0.00"}
                       />
                     </div>
                   </div>

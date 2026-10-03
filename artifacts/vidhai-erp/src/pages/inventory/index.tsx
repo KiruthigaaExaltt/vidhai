@@ -62,12 +62,14 @@ import {
   Trash2,
   X,
   FlaskConical,
+  PackageOpen,
 } from "lucide-react";
 import { CategoryDialog } from "./components/CategoryDialog";
 import { WarehouseDialog } from "./components/WarehouseDialog";
 import { ItemNameDialog } from "./components/ItemNameDialog";
 import { AssetManagement } from "./components/AssetManagement";
 import { SpawnVaultPanel } from "./spawn";
+import { GrowBagVaultPanel } from "./grow-bags";
 import { toast } from "sonner";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { useClientPagination } from "@/hooks/use-client-pagination";
@@ -141,6 +143,7 @@ const NAV = [
   { id: "warehouses", icon: Warehouse, label: "Warehouses & Stores" },
   { id: "movements", icon: ArrowRightLeft, label: "Stock Movements" },
   { id: "spawn-vault", icon: FlaskConical, label: "Spawn Vault" },
+  { id: "grow-bag-vault", icon: PackageOpen, label: "Grow Bag Vault" },
   { id: "casing-vault", icon: Layers, label: "Casing Soil Vault" },
   { id: "indents", icon: ClipboardList, label: "Material Issue" },
   { id: "assets", icon: Wrench, label: "Asset Management" },
@@ -2611,6 +2614,12 @@ export default function InventoryModule() {
               className="outline-none mt-0 space-y-6"
             >
               <SpawnVaultPanel />
+            </TabsContent>
+            <TabsContent
+              value="grow-bag-vault"
+              className="outline-none mt-0 space-y-6"
+            >
+              <GrowBagVaultPanel />
             </TabsContent>
 
             {/* ── ASSET MANAGEMENT ── */}

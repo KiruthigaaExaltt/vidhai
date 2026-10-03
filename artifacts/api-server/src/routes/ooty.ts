@@ -20,9 +20,14 @@ import {
   ootyCookoutInventoryPostingsTable,
   ootyGrowBagInventoryPostingsTable,
   casingSoilInventorySourcesTable,
+  growBagInventorySourcesTable,
   ootyCasingRunConsumptionsTable,
 } from "@workspace/db";
 import { eq, desc, inArray, isNull, and, gte } from "@workspace/db";
+import {
+  freeAvailableGrowBags,
+  growBagProducedSourceKey,
+} from "../lib/growBagVault";
 import {
   flushNumberForStage,
   harvestInventoryPostingKey,
@@ -107,7 +112,9 @@ async function markFullyAllocatedAnnurBatchesFinished(
   tx: any,
   annurBatchIds: number[],
 ) {
-  for (const annurBatchId of new Set(annurBatchIds.map(Number))) {
+  for (const annurBatchId of new Set(
+    annurBatchIds.map(Number).filter((id) => Number.isInteger(id) && id > 0),
+  )) {
     const [annurBatch] = await tx
       .select({ actualBags: batchesTable.actualBags })
       .from(batchesTable)
@@ -205,18 +212,28 @@ router.get("/rooms", requireAuth, async (req, res) => {
             .where(eq(ootyObservationsTable.growingBatchId, b.id))
             .orderBy(desc(ootyObservationsTable.observationDate))
             .limit(1);
-          // Fetch batch sources with Annur batch codes
+          // Fetch batch sources with Annur / grow-bag lot references
           const sources = await db
             .select({
               id: ootyBatchSourcesTable.id,
               annurBatchId: ootyBatchSourcesTable.annurBatchId,
+              growBagSourceId: ootyBatchSourcesTable.growBagSourceId,
               bagCount: ootyBatchSourcesTable.bagCount,
               batchCode: batchesTable.batchCode,
+              growBagReference: growBagInventorySourcesTable.reference,
+              growBagOrigin: growBagInventorySourcesTable.origin,
             })
             .from(ootyBatchSourcesTable)
             .leftJoin(
               batchesTable,
               eq(ootyBatchSourcesTable.annurBatchId, batchesTable.id),
+            )
+            .leftJoin(
+              growBagInventorySourcesTable,
+              eq(
+                ootyBatchSourcesTable.growBagSourceId,
+                growBagInventorySourcesTable.id,
+              ),
             )
             .where(eq(ootyBatchSourcesTable.growingBatchId, b.id));
           currentBatch = {
@@ -348,19 +365,21 @@ router.post(
         batch,
       ]),
     );
-    const existingSources = await db.select().from(ootyBatchSourcesTable);
-    const allocatedByBatch = new Map<number, number>();
-    for (const source of existingSources)
-      allocatedByBatch.set(
-        source.annurBatchId,
-        (allocatedByBatch.get(source.annurBatchId) ?? 0) +
-          Number(source.bagCount || 0),
-      );
+    const vaultLots = await db.select().from(growBagInventorySourcesTable);
+    const vaultByAnnurBatchId = new Map(
+      vaultLots
+        .filter((lot) => lot.annurBatchId)
+        .map((lot) => [Number(lot.annurBatchId), lot]),
+    );
+    const remainingByVaultId = new Map(
+      vaultLots.map((lot) => [lot.id, freeAvailableGrowBags(lot)]),
+    );
 
     const sourceValidated: Array<{
       rowNumber: number;
       value: (typeof assignmentPending)[number]["value"];
       annurBatch: any;
+      vaultLot: any;
     }> = [];
     for (const item of assignmentPending) {
       const annurBatch = annurByCode.get(
@@ -369,7 +388,7 @@ router.post(
       if (
         !annurBatch ||
         annurBatch.currentStage !== "COMPLETED" ||
-        annurBatch.status !== "dispatched" ||
+        !["dispatched", "finished"].includes(String(annurBatch.status || "")) ||
         !annurBatch.actualBags
       ) {
         results.push({
@@ -380,8 +399,17 @@ router.post(
         });
         continue;
       }
-      const alreadyAllocated = allocatedByBatch.get(annurBatch.id) ?? 0;
-      const remaining = Number(annurBatch.actualBags) - alreadyAllocated;
+      const vaultLot = vaultByAnnurBatchId.get(annurBatch.id);
+      if (!vaultLot) {
+        results.push({
+          rowNumber: item.rowNumber,
+          name: item.value.name,
+          status: "failed",
+          reason: `Grow Bag Vault lot for ${annurBatch.batchCode} is missing`,
+        });
+        continue;
+      }
+      const remaining = remainingByVaultId.get(vaultLot.id) ?? 0;
       if (item.value.bagsAllocated > remaining) {
         results.push({
           rowNumber: item.rowNumber,
@@ -391,58 +419,24 @@ router.post(
         });
         continue;
       }
-      allocatedByBatch.set(
-        annurBatch.id,
-        alreadyAllocated + item.value.bagsAllocated,
+      remainingByVaultId.set(
+        vaultLot.id,
+        remaining - item.value.bagsAllocated,
       );
-      sourceValidated.push({ ...item, annurBatch });
+      sourceValidated.push({ ...item, annurBatch, vaultLot });
     }
 
     if (sourceValidated.length) {
-      const [growBagMaterial] = await db
-        .select()
-        .from(materialsTable)
-        .where(eq(materialsTable.sku, "VLT-RM-GROW-BAG"))
-        .limit(1);
-      const [annurWarehouse] = await db
-        .select()
-        .from(inventoryLocationsTable)
-        .where(eq(inventoryLocationsTable.systemCode, "ANNUR"))
-        .limit(1);
       const [annurLocation] = await db
         .select()
         .from(locationsTable)
         .where(eq(locationsTable.code, "A"))
         .limit(1);
-      if (!growBagMaterial || !annurWarehouse || !annurLocation)
+      if (!annurLocation)
         return res
           .status(409)
-          .json({ error: "Annur Grow Bag inventory configuration is missing" });
-      const [availableStock] = await db
-        .select()
-        .from(inventoryTable)
-        .where(
-          and(
-            eq(inventoryTable.materialId, growBagMaterial.id),
-            eq(inventoryTable.locationId, annurWarehouse.id),
-          ),
-        )
-        .limit(1);
-      let vaultRemaining = Number(availableStock?.quantityOnHand || 0);
-      const ready: typeof sourceValidated = [];
-      for (const item of sourceValidated) {
-        if (item.value.bagsAllocated > vaultRemaining) {
-          results.push({
-            rowNumber: item.rowNumber,
-            name: item.value.name,
-            status: "failed",
-            reason: `Only ${vaultRemaining} grow bags are available in the Annur Vault`,
-          });
-          continue;
-        }
-        vaultRemaining -= item.value.bagsAllocated;
-        ready.push(item);
-      }
+          .json({ error: "Annur location configuration is missing" });
+      const ready = sourceValidated;
 
       if (ready.length)
         await db.transaction(async (tx) => {
@@ -465,31 +459,7 @@ router.post(
             return false;
           });
           if (!importReady.length) return;
-          const [stock] = await tx
-            .select()
-            .from(inventoryTable)
-            .where(
-              and(
-                eq(inventoryTable.materialId, growBagMaterial.id),
-                eq(inventoryTable.locationId, annurWarehouse.id),
-              ),
-            )
-            .limit(1);
-          const totalBags = importReady.reduce(
-            (sum, item) => sum + item.value.bagsAllocated,
-            0,
-          );
-          if (!stock || Number(stock.quantityOnHand) < totalBags)
-            throw new Error("Insufficient Annur Grow Bag stock");
           const now = new Date();
-          const [updatedStock] = await tx
-            .update(inventoryTable)
-            .set({
-              quantityOnHand: String(Number(stock.quantityOnHand) - totalBags),
-              lastUpdated: now,
-            })
-            .where(eq(inventoryTable.id, stock.id))
-            .returning();
           const existingGrowingBatches = await tx
             .select()
             .from(ootyGrowingBatchesTable);
@@ -535,19 +505,70 @@ router.post(
               enteredAt: batchStartedAt,
               recordedByUserId: userId,
             });
+
+            const [vaultLot] = await tx
+              .select()
+              .from(growBagInventorySourcesTable)
+              .where(eq(growBagInventorySourcesTable.id, item.vaultLot.id))
+              .limit(1);
+            if (!vaultLot) throw new Error("Grow bag vault lot not found");
+            const freeBags = freeAvailableGrowBags(vaultLot);
+            if (item.value.bagsAllocated > freeBags)
+              throw new Error(
+                `Only ${freeBags} bags remain available from ${vaultLot.reference}`,
+              );
+            const nextAvailable =
+              Number(vaultLot.availableBags || 0) - item.value.bagsAllocated;
+            const nextAllocated =
+              Number(vaultLot.allocatedBags || 0) + item.value.bagsAllocated;
+            await tx
+              .update(growBagInventorySourcesTable)
+              .set({
+                availableBags: nextAvailable,
+                allocatedBags: nextAllocated,
+                status: nextAvailable > 0 ? "available" : "depleted",
+              })
+              .where(eq(growBagInventorySourcesTable.id, vaultLot.id));
+
             await tx.insert(ootyBatchSourcesTable).values({
               growingBatchId: batch.id,
               annurBatchId: item.annurBatch.id,
+              growBagSourceId: vaultLot.id,
               bagCount: item.value.bagsAllocated,
             });
             await markFullyAllocatedAnnurBatchesFinished(tx, [
               item.annurBatch.id,
             ]);
+
+            const materialId = Number(vaultLot.materialId);
+            const warehouseId = Number(vaultLot.warehouseId);
+            const [stock] = await tx
+              .select()
+              .from(inventoryTable)
+              .where(
+                and(
+                  eq(inventoryTable.materialId, materialId),
+                  eq(inventoryTable.locationId, warehouseId),
+                ),
+              )
+              .limit(1);
+            if (!stock || Number(stock.quantityOnHand) < item.value.bagsAllocated)
+              throw new Error("Insufficient Annur Grow Bag stock");
+            const [updatedStock] = await tx
+              .update(inventoryTable)
+              .set({
+                quantityOnHand: String(
+                  Number(stock.quantityOnHand) - item.value.bagsAllocated,
+                ),
+                lastUpdated: now,
+              })
+              .where(eq(inventoryTable.id, stock.id))
+              .returning();
             const traceNotes = `Ooty Growing Room Excel import | Growing Batch: ${batch.batchCode} (#${batch.id}) | Room: ${room.name} (#${room.id}) | Annur Batch: ${item.annurBatch.batchCode} (#${item.annurBatch.id}) | Total Bags: ${item.value.bagsAllocated}`;
             const [adjustment] = await tx
               .insert(inventoryAdjustmentsTable)
               .values({
-                materialId: growBagMaterial.id,
+                materialId,
                 locationId: annurLocation.id,
                 quantityDelta: String(-item.value.bagsAllocated),
                 reason: "production_consumption",
@@ -560,7 +581,7 @@ router.post(
               growingBatchId: batch.id,
               inventoryId: updatedStock.id,
               inventoryAdjustmentId: adjustment.id,
-              warehouseId: annurWarehouse.id,
+              warehouseId,
               allocatedBags: item.value.bagsAllocated,
             });
             await tx
@@ -808,12 +829,13 @@ router.get("/room-history", requireAuth, async (_req, res) => {
   );
   return res.json(history);
 });
-// Create growing batch — accepts batchSources: [{annurBatchId, bagCount}]
+// Create growing batch — accepts growBagSourceId (preferred) or legacy annurBatchId
 router.post("/growing-batches", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
   const {
     roomId,
     annurBatchId,
+    growBagSourceId,
     coimBatchId,
     spawnRunStartDate,
     batchStartedAt,
@@ -853,91 +875,120 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
   }, 0) + 1;
   const code = `${codePrefix}${String(nextSequence).padStart(3, "0")}`;
 
-  const requestedSources: Array<{ annurBatchId: number; bagCount?: number }> =
+  type RequestedSource = {
+    growBagSourceId?: number;
+    annurBatchId?: number | null;
+    bagCount?: number | null;
+  };
+  let requestedSources: RequestedSource[] =
     Array.isArray(batchSources) && batchSources.length > 0
       ? batchSources
-      : annurBatchId
-        ? [{ annurBatchId: Number(annurBatchId), bagCount: bagCount ?? null }]
-        : [];
+      : growBagSourceId
+        ? [
+            {
+              growBagSourceId: Number(growBagSourceId),
+              bagCount: bagCount ?? null,
+            },
+          ]
+        : annurBatchId
+          ? [
+              {
+                annurBatchId: Number(annurBatchId),
+                bagCount: bagCount ?? null,
+              },
+            ]
+          : [];
+
+  // Resolve legacy Annur-only requests to vault lots.
+  const resolvedSources: Array<{
+    vaultLot: any;
+    bagCount: number;
+  }> = [];
   for (const source of requestedSources) {
-    const [annurBatch] = await db
-      .select()
-      .from(batchesTable)
-      .where(eq(batchesTable.id, Number(source.annurBatchId)))
-      .limit(1);
-    if (
-      !annurBatch ||
-      annurBatch.currentStage !== "COMPLETED" ||
-      annurBatch.status !== "dispatched" ||
-      !annurBatch.actualBags
-    )
-      return res
-        .status(400)
-        .json({ error: "Select a completed Annur batch with produced bags" });
-    const allocated = (
-      await db
-        .select()
-        .from(ootyBatchSourcesTable)
-        .where(eq(ootyBatchSourcesTable.annurBatchId, annurBatch.id))
-    ).reduce((sum, row) => sum + Number(row.bagCount || 0), 0);
     const requested = Number(source.bagCount || 0);
-    if (
-      !Number.isInteger(requested) ||
-      requested <= 0 ||
-      allocated + requested > annurBatch.actualBags
-    )
+    if (!Number.isInteger(requested) || requested <= 0)
       return res.status(400).json({
-        error: `Only ${annurBatch.actualBags - allocated} produced bags remain available from ${annurBatch.batchCode}`,
+        error: "Bags allocated must be a whole number greater than zero",
       });
+
+    let vaultLot: any = null;
+    if (source.growBagSourceId) {
+      [vaultLot] = await db
+        .select()
+        .from(growBagInventorySourcesTable)
+        .where(
+          eq(
+            growBagInventorySourcesTable.id,
+            Number(source.growBagSourceId),
+          ),
+        )
+        .limit(1);
+    } else if (source.annurBatchId) {
+      const sourceKey = growBagProducedSourceKey(Number(source.annurBatchId));
+      [vaultLot] = await db
+        .select()
+        .from(growBagInventorySourcesTable)
+        .where(eq(growBagInventorySourcesTable.sourceKey, sourceKey))
+        .limit(1);
+      if (!vaultLot) {
+        const [annurBatch] = await db
+          .select()
+          .from(batchesTable)
+          .where(eq(batchesTable.id, Number(source.annurBatchId)))
+          .limit(1);
+        if (
+          !annurBatch ||
+          annurBatch.currentStage !== "COMPLETED" ||
+          annurBatch.status !== "dispatched" ||
+          !annurBatch.actualBags
+        )
+          return res.status(400).json({
+            error: "Select a completed Annur batch with produced bags",
+          });
+        return res.status(409).json({
+          error: `Grow Bag Vault lot for ${annurBatch.batchCode} is missing. Refresh and try again.`,
+        });
+      }
+    }
+
+    if (!vaultLot)
+      return res.status(400).json({
+        error: "Select a grow bag lot from the Grow Bag Vault",
+      });
+    const freeBags = freeAvailableGrowBags(vaultLot);
+    if (requested > freeBags)
+      return res.status(400).json({
+        error: `Only ${freeBags} bags remain available from ${vaultLot.reference}`,
+      });
+    resolvedSources.push({ vaultLot, bagCount: requested });
   }
-  if (requestedSources.length === 0)
+
+  if (resolvedSources.length === 0)
     return res.status(400).json({
-      error: "Select a completed Annur batch and enter the bags allocated",
+      error: "Select a grow bag lot and enter the bags allocated",
     });
-  const totalAllocatedBags = requestedSources.reduce(
-    (sum, source) => sum + Number(source.bagCount || 0),
+  const totalAllocatedBags = resolvedSources.reduce(
+    (sum, source) => sum + source.bagCount,
     0,
   );
   if (room.capacity && totalAllocatedBags > room.capacity)
     return res.status(400).json({
       error: `${room.name} capacity is ${room.capacity} bags. You cannot allocate ${totalAllocatedBags} bags.`,
     });
-  const [growBagMaterial] = await db
-    .select()
-    .from(materialsTable)
-    .where(eq(materialsTable.sku, "VLT-RM-GROW-BAG"))
-    .limit(1);
-  const [annurWarehouse] = await db
-    .select()
-    .from(inventoryLocationsTable)
-    .where(eq(inventoryLocationsTable.systemCode, "ANNUR"))
-    .limit(1);
   const [annurLocation] = await db
     .select()
     .from(locationsTable)
     .where(eq(locationsTable.code, "A"))
     .limit(1);
-  if (!growBagMaterial || !annurWarehouse || !annurLocation)
+  if (!annurLocation)
     return res
       .status(409)
-      .json({ error: "Annur Grow Bag inventory configuration is missing" });
-  const [availableStock] = await db
-    .select()
-    .from(inventoryTable)
-    .where(
-      and(
-        eq(inventoryTable.materialId, growBagMaterial.id),
-        eq(inventoryTable.locationId, annurWarehouse.id),
-      ),
-    )
-    .limit(1);
-  if (
-    !availableStock ||
-    Number(availableStock.quantityOnHand) < totalAllocatedBags
-  )
-    return res.status(409).json({
-      error: `Only ${Number(availableStock?.quantityOnHand || 0)} grow bags are available in the Annur Vault`,
-    });
+      .json({ error: "Annur location configuration is missing" });
+
+  const primaryAnnurBatchId =
+    resolvedSources.find((source) => source.vaultLot.annurBatchId)?.vaultLot
+      .annurBatchId ??
+    (annurBatchId ? Number(annurBatchId) : null);
 
   const result = await db.transaction(async (tx) => {
     const [batch] = await tx
@@ -945,7 +996,7 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
       .values({
         batchCode: code,
         roomId,
-        annurBatchId: annurBatchId ?? null,
+        annurBatchId: primaryAnnurBatchId,
         coimBatchId: coimBatchId ?? null,
         currentPhase: "SPAWN_RUN",
         currentStage: "SPAWN_RUN",
@@ -958,7 +1009,6 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
       })
       .returning();
 
-    // Create stage log for the initial stage
     await tx.insert(ootyStageLogsTable).values({
       growingBatchId: batch.id,
       stage: "SPAWN_RUN",
@@ -966,67 +1016,111 @@ router.post("/growing-batches", requireAuth, async (req, res) => {
       recordedByUserId: userId,
     });
 
-    // Handle batch sources (many-to-many Annur batch linkage)
-    const sources = requestedSources;
-    for (const src of sources) {
-      if (src.annurBatchId) {
-        await tx.insert(ootyBatchSourcesTable).values({
-          growingBatchId: batch.id,
-          annurBatchId: src.annurBatchId,
-          bagCount: src.bagCount ?? null,
-        });
-      }
+    let postingInventoryId: number | null = null;
+    let postingWarehouseId: number | null = null;
+    let postingAdjustmentId: number | null = null;
+
+    for (const source of resolvedSources) {
+      const [vaultLot] = await tx
+        .select()
+        .from(growBagInventorySourcesTable)
+        .where(eq(growBagInventorySourcesTable.id, source.vaultLot.id))
+        .limit(1);
+      if (!vaultLot) throw new Error("Grow bag vault lot not found");
+      const freeBags = freeAvailableGrowBags(vaultLot);
+      if (source.bagCount > freeBags)
+        throw new Error(
+          `Only ${freeBags} bags remain available from ${vaultLot.reference}`,
+        );
+
+      const nextAvailable = Number(vaultLot.availableBags || 0) - source.bagCount;
+      const nextAllocated = Number(vaultLot.allocatedBags || 0) + source.bagCount;
+      await tx
+        .update(growBagInventorySourcesTable)
+        .set({
+          availableBags: nextAvailable,
+          allocatedBags: nextAllocated,
+          status: nextAvailable > 0 ? "available" : "depleted",
+        })
+        .where(eq(growBagInventorySourcesTable.id, vaultLot.id));
+
+      await tx.insert(ootyBatchSourcesTable).values({
+        growingBatchId: batch.id,
+        annurBatchId: vaultLot.annurBatchId ?? null,
+        growBagSourceId: vaultLot.id,
+        bagCount: source.bagCount,
+      });
+
+      const materialId = Number(vaultLot.materialId);
+      const warehouseId = Number(vaultLot.warehouseId);
+      if (!materialId || !warehouseId)
+        throw new Error("Grow bag vault lot is missing inventory linkage");
+      const [stock] = await tx
+        .select()
+        .from(inventoryTable)
+        .where(
+          and(
+            eq(inventoryTable.materialId, materialId),
+            eq(inventoryTable.locationId, warehouseId),
+          ),
+        )
+        .limit(1);
+      if (!stock || Number(stock.quantityOnHand) < source.bagCount)
+        throw new Error(
+          `Insufficient grow bag stock for lot ${vaultLot.reference}`,
+        );
+      const [updatedStock] = await tx
+        .update(inventoryTable)
+        .set({
+          quantityOnHand: String(
+            Number(stock.quantityOnHand) - source.bagCount,
+          ),
+          lastUpdated: now,
+        })
+        .where(eq(inventoryTable.id, stock.id))
+        .returning();
+      const originLabel =
+        vaultLot.origin === "external" ? "EXTERNAL" : "INTERNAL";
+      const traceNotes = `Ooty Growing Room assignment | Growing Batch: ${batch.batchCode} (#${batch.id}) | Room: ${room.name} (#${room.id}) | Grow Bag Lot: ${vaultLot.reference} (${originLabel}) | Bags: ${source.bagCount}`;
+      const [adjustment] = await tx
+        .insert(inventoryAdjustmentsTable)
+        .values({
+          materialId,
+          locationId: annurLocation.id,
+          quantityDelta: String(-source.bagCount),
+          reason: "production_consumption",
+          notes: traceNotes,
+          adjustedByUserId: userId,
+        })
+        .returning();
+      postingInventoryId = updatedStock.id;
+      postingWarehouseId = warehouseId;
+      postingAdjustmentId = adjustment.id;
     }
+
     await markFullyAllocatedAnnurBatchesFinished(
       tx,
-      sources.map((source) => Number(source.annurBatchId)),
+      resolvedSources
+        .map((source) => Number(source.vaultLot.annurBatchId))
+        .filter((id) => Number.isInteger(id) && id > 0),
     );
 
-    // Consume assigned grow bags from Annur Vault in the same transaction.
-    const [stock] = await tx
-      .select()
-      .from(inventoryTable)
-      .where(
-        and(
-          eq(inventoryTable.materialId, growBagMaterial.id),
-          eq(inventoryTable.locationId, annurWarehouse.id),
-        ),
-      )
-      .limit(1);
-    if (!stock || Number(stock.quantityOnHand) < totalAllocatedBags)
-      throw new Error("Insufficient Annur Grow Bag stock");
-    const [updatedStock] = await tx
-      .update(inventoryTable)
-      .set({
-        quantityOnHand: String(
-          Number(stock.quantityOnHand) - totalAllocatedBags,
-        ),
-        lastUpdated: now,
-      })
-      .where(eq(inventoryTable.id, stock.id))
-      .returning();
-    const traceNotes = `Ooty Growing Room assignment | Growing Batch: ${batch.batchCode} (#${batch.id}) | Room: ${room.name} (#${room.id}) | Annur Sources: ${requestedSources.map((source) => `#${source.annurBatchId}: ${source.bagCount} bags`).join(", ")} | Total Bags: ${totalAllocatedBags}`;
-    const [adjustment] = await tx
-      .insert(inventoryAdjustmentsTable)
-      .values({
-        materialId: growBagMaterial.id,
-        locationId: annurLocation.id,
-        quantityDelta: String(-totalAllocatedBags),
-        reason: "production_consumption",
-        notes: traceNotes,
-        adjustedByUserId: userId,
-      })
-      .returning();
+    if (
+      postingInventoryId == null ||
+      postingWarehouseId == null ||
+      postingAdjustmentId == null
+    )
+      throw new Error("Grow bag inventory posting could not be created");
+
     await tx.insert(ootyGrowBagInventoryPostingsTable).values({
       postingKey: `ooty-grow-bag-assignment:${batch.id}`,
       growingBatchId: batch.id,
-      inventoryId: updatedStock.id,
-      inventoryAdjustmentId: adjustment.id,
-      warehouseId: annurWarehouse.id,
+      inventoryId: postingInventoryId,
+      inventoryAdjustmentId: postingAdjustmentId,
+      warehouseId: postingWarehouseId,
       allocatedBags: totalAllocatedBags,
     });
 
-    // Set room to active
     await tx
       .update(ootyRoomsTable)
       .set({ status: "active", currentGrowingBatchId: batch.id })

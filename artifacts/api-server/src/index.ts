@@ -37,6 +37,7 @@ import {
   annurSpawnUsagesTable,
   coimbatoreTurnAssignmentsTable,
   casingSoilInventoryPostingsTable,
+  growBagInventorySourcesTable,
   materialsTable,
 } from "@workspace/db";
 import { migratePermissionData } from "./lib/migratePermissions";
@@ -45,6 +46,7 @@ import { getUploadRoot } from "./lib/uploadStorage";
 import { ensureDefaultVaultItems } from "./lib/ensureDefaultVaultItems";
 import { ensureDefaultCoimbatoreCasingChambers } from "./lib/ensureDefaultCoimbatoreCasingChambers";
 import { ensureDefaultOotyRooms } from "./lib/ensureDefaultOotyRooms";
+import { ensureGrowBagVaultBackfill } from "./lib/growBagVault";
 
 const rawPort = process.env["PORT"];
 
@@ -71,6 +73,7 @@ await syncTableIndexes(spawnEntriesTable);
 await syncTableIndexes(spawnVaultTransactionsTable);
 await syncTableIndexes(annurSpawnUsagesTable);
 await syncTableIndexes(casingSoilInventoryPostingsTable);
+await syncTableIndexes(growBagInventorySourcesTable);
 await syncTableCustomIndexes(coimbatoreTurnAssignmentsTable, [
   { key: { batchId: 1, turnNumber: 1 }, name: "coimbatore_batch_turn_assignment", unique: true },
   { key: { chamberId: 1, releasedAt: 1 }, name: "coimbatore_active_chamber_assignment" },
@@ -259,6 +262,9 @@ for (const material of await db.select().from(materialsTable)) {
       .where(eq(materialsTable.id, material.id));
 }
 logger.info(defaultVaultItems, "Default Vault items ready");
+
+await ensureGrowBagVaultBackfill();
+logger.info("Grow Bag Vault backfill ready");
 
 const server = createServer(app);
 initializeNotificationGateway(server, sessionMiddleware);

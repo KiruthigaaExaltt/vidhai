@@ -7,6 +7,7 @@ import alertColorsRouter from "./alertColors";
 import materialsRouter from "./materials";
 import inventoryRouter from "./inventory";
 import spawnRouter from "./spawn";
+import growBagsRouter from "./growBags";
 import batchesRouter from "./batches";
 import chambersRouter from "./chambers";
 import dashboardRouter from "./dashboard";
@@ -166,6 +167,11 @@ router.use(
   "/spawn",
   requireModulePermission("production.spawn_batches"),
   spawnRouter,
+);
+router.use(
+  "/grow-bags",
+  requireModulePermission("inventory.stock"),
+  growBagsRouter,
 );
 router.use(
   "/batches",

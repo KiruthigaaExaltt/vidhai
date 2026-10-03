@@ -8,7 +8,6 @@ import {
   useCreateOotyRoom,
   useUpdateOotyRoom,
   useDeleteOotyRoom,
-  useListBatches,
 } from "@workspace/api-client-react";
 import { Shell } from "@/components/layout/Shell";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,7 +52,7 @@ import {
   History,
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { GrowingRoomImportDialog } from "./GrowingRoomImportDialog";
@@ -136,18 +135,40 @@ export default function OotyRooms() {
   const { can } = useAuth();
   const [importOpen, setImportOpen] = useState(false);
   const { data: rooms, isLoading } = useListOotyRooms();
-  const { data: annurBatches } = useListBatches();
-  const completedAnnurBatches =
-    (annurBatches as any[] | undefined)?.filter(
-      (batch: any) =>
-        batch.currentStage === "COMPLETED" &&
-        batch.status === "dispatched" &&
-        Number(batch.actualBags) > 0,
-    ) ?? [];
+  const growBagVaultQuery = useQuery({
+    queryKey: ["grow-bag-vault", "available"],
+    queryFn: async () => {
+      const response = await fetch("/api/grow-bags?availableOnly=true", {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Unable to load Grow Bag Vault");
+      }
+      return response.json();
+    },
+  });
+  const availableGrowBagLots = (growBagVaultQuery.data as any[] | undefined) ?? [];
+  // Excel import still validates Annur batch codes; map INTERNAL vault lots for that.
+  const completedAnnurBatches = availableGrowBagLots
+    .filter(
+      (lot: any) =>
+        lot.origin !== "external" &&
+        (lot.annurBatchId || lot.reference) &&
+        Number(lot.freeAvailableBags ?? lot.availableBags ?? 0) > 0,
+    )
+    .map((lot: any) => ({
+      id: lot.annurBatchId ?? lot.id,
+      batchCode: lot.reference,
+      actualBags: Number(lot.freeAvailableBags ?? lot.availableBags ?? 0),
+      currentStage: "COMPLETED",
+      status: "dispatched",
+    }));
 
   const refetch = () => {
     queryClient.invalidateQueries({ queryKey: getListOotyRoomsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getListBatchesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: ["grow-bag-vault"] });
   };
 
   // ── Create room ──
@@ -262,17 +283,28 @@ export default function OotyRooms() {
   // ── Assign batch ──
   const [assignRoom, setAssignRoom] = useState<any>(null);
   const [assignForm, setAssignForm] = useState({
-    annurBatchId: "",
+    growBagSourceId: "",
     bagCount: "",
     startDate: "",
     notes: "",
   });
   const [assignPending, setAssignPending] = useState(false);
   const bagCountInputRef = useRef<HTMLInputElement>(null);
+  const selectedGrowBagLot = availableGrowBagLots.find(
+    (lot: any) => String(lot.id) === String(assignForm.growBagSourceId),
+  );
 
   const handleAssign = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignRoom) return;
+    if (!assignForm.growBagSourceId) {
+      toast({
+        title: "Select grow bag lot",
+        description: "Choose an internal or external grow bag lot from the vault.",
+        variant: "destructive",
+      });
+      return;
+    }
     const bagCount = Number(bagCountInputRef.current?.value ?? "");
     if (!Number.isInteger(bagCount) || bagCount <= 0) {
       toast({
@@ -291,6 +323,19 @@ export default function OotyRooms() {
       });
       return;
     }
+    const available = Number(
+      selectedGrowBagLot?.freeAvailableBags ??
+        selectedGrowBagLot?.availableBags ??
+        0,
+    );
+    if (bagCount > available) {
+      toast({
+        title: "Not enough bags in lot",
+        description: `Only ${available} bags remain available from ${selectedGrowBagLot?.reference}.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setAssignPending(true);
     try {
       const res = await fetch("/api/ooty/growing-batches", {
@@ -299,9 +344,7 @@ export default function OotyRooms() {
         credentials: "include",
         body: JSON.stringify({
           roomId: assignRoom.id,
-          annurBatchId: assignForm.annurBatchId
-            ? Number(assignForm.annurBatchId)
-            : null,
+          growBagSourceId: Number(assignForm.growBagSourceId),
           bagCount,
           spawnRunStartDate: assignForm.startDate
             ? assignForm.startDate.slice(0, 10)
@@ -324,7 +367,7 @@ export default function OotyRooms() {
       refetch();
       setAssignRoom(null);
       setAssignForm({
-        annurBatchId: "",
+        growBagSourceId: "",
         bagCount: "",
         startDate: "",
         notes: "",
@@ -500,8 +543,15 @@ export default function OotyRooms() {
                           <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
                             {batch.batchSources.map((source: any) => (
                               <span key={source.id} className="font-mono">
-                                Annur:{" "}
-                                {source.batchCode ?? `#${source.annurBatchId}`}
+                                {source.growBagOrigin === "external"
+                                  ? "External"
+                                  : "Annur"}
+                                :{" "}
+                                {source.batchCode ||
+                                  source.growBagReference ||
+                                  (source.annurBatchId
+                                    ? `#${source.annurBatchId}`
+                                    : "Lot")}
                                 {source.bagCount
                                   ? ` - ${source.bagCount} bags`
                                   : ""}
@@ -727,30 +777,36 @@ export default function OotyRooms() {
           <form onSubmit={handleAssign} className="space-y-4 pt-4">
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-                Annur Bag Batch
+                Grow Bag Lot
               </Label>
               <select
                 className="w-full h-9 px-3 rounded-md border border-border bg-background text-sm"
-                value={assignForm.annurBatchId}
+                value={assignForm.growBagSourceId}
                 onChange={(e) =>
-                  setAssignForm({ ...assignForm, annurBatchId: e.target.value })
+                  setAssignForm({
+                    ...assignForm,
+                    growBagSourceId: e.target.value,
+                  })
                 }
+                required
               >
-                <option value="">— Select Annur batch —</option>
-                {completedAnnurBatches.map((b: any) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batchCode} — {b.actualBags} produced bags
+                <option value="">— Select grow bag lot —</option>
+                {availableGrowBagLots.map((lot: any) => (
+                  <option key={lot.id} value={lot.id}>
+                    {lot.reference} —{" "}
+                    {Number(lot.freeAvailableBags ?? lot.availableBags ?? 0)}{" "}
+                    available ({lot.originLabel || (lot.origin === "external" ? "EXTERNAL" : "INTERNAL")})
                   </option>
                 ))}
-                {completedAnnurBatches.length === 0 && (
+                {availableGrowBagLots.length === 0 && (
                   <option value="" disabled>
-                    No completed Annur batches available
+                    No available grow bag lots in the vault
                   </option>
                 )}
               </select>
               <p className="text-[11px] text-muted-foreground">
-                Only completed Annur batches with produced bags are shown. One
-                Annur batch can supply multiple rooms.
+                Shows finished Annur bags (INTERNAL) and GRN-purchased bags
+                (EXTERNAL) with remaining quantity.
               </p>
             </div>
             <div className="space-y-2">
@@ -811,8 +867,11 @@ export default function OotyRooms() {
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 font-mono text-sm shadow-sm outline-none focus:ring-1 focus:ring-ring"
               />
               <p className="text-[11px] text-muted-foreground">
-                How many bags from this Annur batch are going into{" "}
+                How many bags from this vault lot are going into{" "}
                 {assignRoom?.name}?
+                {selectedGrowBagLot
+                  ? ` (${Number(selectedGrowBagLot.freeAvailableBags ?? selectedGrowBagLot.availableBags ?? 0)} available)`
+                  : ""}
               </p>
             </div>
             <div className="space-y-2">
