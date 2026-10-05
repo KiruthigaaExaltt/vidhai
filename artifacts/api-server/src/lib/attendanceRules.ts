@@ -85,6 +85,18 @@ export function attendanceFine(
         : fine;
   return Number((rate * Math.max(0, deductionHours)).toFixed(2));
 }
+// Employment dates are stored as text. Older writers stored full timestamps
+// (e.g. "2026-10-05T10:15:00.000+05:30"), which break plain string comparison
+// against a YYYY-MM-DD attendance date, so normalise before comparing.
+export function employmentDate(value: unknown) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
 export function calendarStatus(
   employee: any,
   date: string,
@@ -92,10 +104,14 @@ export function calendarStatus(
   holidays: any[],
   leaves: any[] = [],
 ) {
-  if (
-    (employee.joinDate && date < employee.joinDate) ||
-    (employee.exitDate && date > employee.exitDate)
-  )
+  const joinDate = employmentDate(employee.joinDate);
+  // An Active employee is currently employed; a leftover exit date from an
+  // earlier offboarding/deactivation must not lock them out of attendance.
+  const exitDate =
+    String(employee.status || "").toLowerCase() === "active"
+      ? null
+      : employmentDate(employee.exitDate);
+  if ((joinDate && date < joinDate) || (exitDate && date > exitDate))
     return "Not Employed";
   const holiday = holidays.find(
     (t) =>

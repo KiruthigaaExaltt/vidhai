@@ -919,6 +919,18 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
     }
     delete b.statutoryEffectiveFromMonth;
     if (b.userId !== undefined) b.userId = b.userId ? Number(b.userId) : null;
+    // A member made Active again is employed now; drop the exit date left by an
+    // earlier offboarding or user deactivation (the edit form re-sends it).
+    if (b.status === "Active" || b.status === "On Leave") b.exitDate = null;
+    else if (b.exitDate === "") b.exitDate = null;
+    const joinDate = b.joinDate ?? old.joinDate,
+      exitDate = b.exitDate !== undefined ? b.exitDate : old.exitDate;
+    if (
+      (b.joinDate !== undefined && !iso(b.joinDate)) ||
+      (b.exitDate && !iso(b.exitDate)) ||
+      (exitDate && iso(exitDate) && iso(joinDate) && exitDate < joinDate)
+    )
+      return res.status(400).json({ error: "Valid employment dates are required" });
     if (b.photoDataUrl)
       b.photoUrl = await saveDataUrl(b.photoDataUrl, "employees");
     delete b.photoDataUrl;
@@ -974,13 +986,19 @@ router.put("/employees/:id", async (req: any, res: any): Promise<any> => {
             eq(usersTable.organizationId, req.crew.org),
           ),
         );
+    // The employee Role is the linked user's RBAC role. Only push it to the user
+    // when it was actually changed here (or the link is new); otherwise an
+    // unrelated employee edit would revert a role assigned from Users/Roles.
+    const pushRole =
+      row.role &&
+      (Number(old.userId) !== Number(row.userId) || row.role !== old.role);
     if (row.userId)
       await db
         .update(usersTable)
         .set({
           employeeId: row.id,
           employeeName: row.name,
-          role: row.role,
+          ...(pushRole ? { role: row.role } : {}),
           department: row.department,
         })
         .where(eq(usersTable.id, row.userId));

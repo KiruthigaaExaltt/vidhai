@@ -409,6 +409,11 @@ export function AddMemberDialog({
         certifications: tags(f.certifications),
       };
       delete normalized.employeePhotoFile;
+      // Statutory settings are edited elsewhere; the row copy holds them as
+      // stored JSON strings, which the API rejects.
+      delete normalized.statutoryContributions;
+      delete normalized.statutoryContributionHistory;
+      delete normalized.statutoryEffectiveFromMonth;
       if (editingEmployee) {
         if (f.employeePhotoFile)
           normalized.photoDataUrl = await fileToDataUrl(f.employeePhotoFile);

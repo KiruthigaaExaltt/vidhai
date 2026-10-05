@@ -201,7 +201,11 @@ export default function Crew() {
   };
   const begin = (row?: any) => {
     setEditing(row || null);
-    if (tab === "employees") setForm(row ? { ...row } : emptyEmployee);
+    if (tab === "employees") {
+      // Statutory settings are stored as JSON strings and edited elsewhere.
+      const { statutoryContributions, statutoryContributionHistory, ...rest } = row || {};
+      setForm(row ? rest : emptyEmployee);
+    }
     else setForm(defaultForm(tab, row, employees));
     setOpen(true);
   };

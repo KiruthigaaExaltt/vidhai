@@ -945,6 +945,11 @@ async function reverseJournal(org: number, journalEntryId: number) {
           })
           .where(eq(chartOfAccountsTable.id, account.id));
     }
+    // coa() recomputes balances from journal lines, so orphaned lines would
+    // keep counting after the entry is gone.
+    await tx
+      .delete(journalLinesTable)
+      .where(eq(journalLinesTable.journalEntryId, journalEntryId));
     await tx
       .delete(journalEntriesTable)
       .where(eq(journalEntriesTable.id, journalEntryId));
@@ -2702,6 +2707,7 @@ for (const c of [
     if (c.p === "ar" && r.body.adjustedAmount !== undefined) return s.status(400).json({ error: "Use the approved credit-note workflow" });
     const [o] = await db.select().from(c.t).where(and(eq(c.t.organizationId, r.acc.org), eq(c.t.id, Number(r.params.id)))).limit(1);
     if (!o) return s.status(404).json({ error: `${c.p.toUpperCase()} entry not found` });
+    if (isOpeningRow(o)) return s.status(400).json({ error: `Edit opening balances from the ${c.p === "ap" ? "Vendor" : "Customer"} Ledger` });
     if (c.p === "ar" && r.body.receivedAmount !== undefined && o.sourceType !== "Manual") return s.status(400).json({ error: "Use Sales Payment for linked sales invoices" });
     if (c.p === "ar" && r.body.receivedAmount !== undefined) r.body.receivedAmount = Math.min(m(o.amount), Math.max(0, m(r.body.receivedAmount)));
     const b = { ...o, ...r.body }, covered = m(b[c.paid]) + m(b.adjustedAmount);
@@ -2720,6 +2726,8 @@ for (const c of [
   });
   router.delete(`/${c.p}/:id`, async (r: any, s): Promise<any> => {
     if (need(r, s, `${c.k}.delete`)) {
+      const [o] = await db.select().from(c.t).where(and(eq(c.t.organizationId, r.acc.org), eq(c.t.id, Number(r.params.id)))).limit(1);
+      if (isOpeningRow(o)) return s.status(400).json({ error: `Clear opening balances from the ${c.p === "ap" ? "Vendor" : "Customer"} Ledger` });
       await db.delete(c.t).where(eq(c.t.id, Number(r.params.id)));
       s.status(204).send();
     }
@@ -3480,19 +3488,186 @@ router.get("/financial-statements/download", async (r: any, s): Promise<any> => 
     return s.status(error?.status || 500).json({ error: error?.message || "Failed to download financial statements" });
   }
 });
+// Party opening balances capture dues that existed before the ERP went live.
+// A normal opening due is an AR/AP row (settled through the usual Receive/Pay
+// workflow); an opening advance is a party ledger entry so it never inflates
+// receivable/payable totals. Both post against Capital (3000), mirroring the
+// Bank & Cash opening balance. Every ledger transaction is treated as posted
+// after the opening balance, whatever its date.
+const OPENING_BALANCE = "Opening Balance";
+const OPENING_ADVANCE = "Opening Advance";
+function isOpeningRow(row: any) {
+  return row?.sourceType === OPENING_BALANCE;
+}
+function isOpeningAdvance(row: any) {
+  return row?.entryType === OPENING_ADVANCE;
+}
+async function saveOpeningBalance(r: any, s: any, kind: "client" | "vendor") {
+  const isClient = kind === "client";
+  if (!need(r, s, isClient ? "accounts.customer_ledger.update" : "accounts.vendor_ledger.update")) return;
+  try {
+    const org = Number(r.acc.org);
+    const amount = m(r.body?.amount);
+    const date = String(r.body?.date || "").slice(0, 10);
+    const advance = String(r.body?.direction || "").toLowerCase() === "advance";
+    const notes = String(r.body?.notes || "").trim();
+    if (!(amount >= 0)) return s.status(400).json({ error: "Opening balance cannot be negative" });
+    if (amount > 0 && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return s.status(400).json({ error: "Opening balance date is required" });
+    const contact = await resolveContact(kind, r.params.id);
+    if (!contact) return s.status(404).json({ error: isClient ? "CRM Client not found" : "CRM Vendor not found" });
+    const accounts = await coa(org);
+    const control = accounts.find((account: any) => account.accountCode === (isClient ? "1100" : "2100"));
+    const capital = accounts.find((account: any) => account.accountCode === "3000");
+    if (!control || !capital) return s.status(409).json({ error: "Receivable/Payable or Capital account is not configured" });
+
+    const dueTable: any = isClient ? accountsReceivableTable : accountsPayableTable;
+    const settledField = isClient ? "receivedAmount" : "paidAmount";
+    const partyType = isClient ? "customer" : "vendor";
+    const idField = isClient ? "clientId" : "vendorId";
+    const [dueRows, partyRows] = await Promise.all([
+      db.select().from(dueTable).where(eq(dueTable.organizationId, org)),
+      db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, org)),
+    ]);
+    const existingDue = (dueRows as any[]).find((row) => isOpeningRow(row) && Number(row.sourceId) === Number(contact.id));
+    const existingAdvance = (partyRows as any[]).find((row) => isOpeningAdvance(row) && String(row.partyType || "").toLowerCase() === partyType && Number(row[idField]) === Number(contact.id));
+
+    // Replace the previous opening journal(s) so COA balances follow the edit.
+    for (const journalId of [existingDue?.journalEntryId, existingAdvance?.journalEntryId])
+      if (journalId) await reverseJournal(org, Number(journalId));
+
+    const dueAmount = amount > 0 && !advance ? amount : 0;
+    const advanceAmount = amount > 0 && advance ? amount : 0;
+    // A customer due / vendor advance debits the control account; the reverse credits it.
+    const debitControl = isClient !== advance;
+    const reference = existingDue?.[isClient ? "invoiceNumber" : "billNumber"] || existingAdvance?.reference || await nextReference(org, "OB");
+    const result = await db.transaction(async (tx) => {
+      let journal: any = null;
+      if (amount > 0) {
+        journal = await insertImportJournal(tx, org, {
+          entryDate: date,
+          reference: `AUTO:${isClient ? "AR" : "AP"}:OPENING:${org}:${contact.id}`,
+          description: `${advance ? OPENING_ADVANCE : OPENING_BALANCE} - ${contact.name}`,
+          sourceType: isClient ? "Customer Opening Balance" : "Vendor Opening Balance",
+          sourceId: Number(contact.id),
+          // documentReference ties the journal to the opening due row so coa()
+          // doesn't derive a second AR/AP line for it.
+          metadata: { [idField]: contact.id, direction: advance ? "advance" : isClient ? "receivable" : "payable", amount, notes, ...(advance ? {} : { documentReference: reference }) },
+          lines: [
+            { accountId: control.id, debit: debitControl ? amount : 0, credit: debitControl ? 0 : amount, memo: reference },
+            { accountId: capital.id, debit: debitControl ? 0 : amount, credit: debitControl ? amount : 0, memo: reference },
+          ],
+        }, r.acc.user.id);
+      }
+
+      // Opening due row. Rows that already carry receipts/payments are kept at
+      // zero rather than deleted so the settlement history stays in the ledger.
+      if (existingDue || dueAmount > 0) {
+        const settled = m(existingDue?.[settledField]) + m(existingDue?.adjustedAmount);
+        if (!dueAmount && existingDue && settled <= 0) {
+          await tx.delete(dueTable).where(eq(dueTable.id, existingDue.id));
+        } else {
+          const values: any = {
+            organizationId: org,
+            [idField]: contact.id,
+            [isClient ? "clientName" : "vendorName"]: contact.name,
+            [isClient ? "invoiceNumber" : "billNumber"]: reference,
+            [isClient ? "invoiceDate" : "billDate"]: date || existingDue?.[isClient ? "invoiceDate" : "billDate"] || day(),
+            dueDate: date || existingDue?.dueDate || day(),
+            amount: dueAmount,
+            status: settled >= dueAmount - 0.009 ? (isClient ? "Received" : "Paid") : settled > 0 ? "Partial" : "Pending",
+            approvalStatus: "Approved",
+            approvalLevel: 1,
+            requiredApprovals: 1,
+            entryType: OPENING_BALANCE,
+            sourceType: OPENING_BALANCE,
+            sourceId: Number(contact.id),
+            journalEntryId: dueAmount > 0 ? journal?.id ?? null : null,
+            notes,
+          };
+          if (existingDue) await tx.update(dueTable).set(values).where(eq(dueTable.id, existingDue.id));
+          else await tx.insert(dueTable).values({ ...values, [settledField]: 0, adjustedAmount: 0 });
+        }
+      }
+
+      if (existingAdvance && !advanceAmount)
+        await tx.delete(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.id, existingAdvance.id));
+      else if (advanceAmount) {
+        const values: any = {
+          organizationId: org,
+          partyType,
+          [idField]: contact.id,
+          [isClient ? "clientName" : "vendorName"]: contact.name,
+          entryType: OPENING_ADVANCE,
+          amount: advanceAmount,
+          drCr: isClient ? "Credit" : "Debit",
+          entryDate: date,
+          reference,
+          notes,
+          journalEntryId: journal?.id ?? null,
+          updatedAt: new Date(),
+        };
+        if (existingAdvance) await tx.update(partyLedgerEntriesTable).set(values).where(eq(partyLedgerEntriesTable.id, existingAdvance.id));
+        else await tx.insert(partyLedgerEntriesTable).values(values);
+      }
+      return { [idField]: contact.id, amount, date: amount > 0 ? date : "", direction: advance ? "advance" : isClient ? "receivable" : "payable", journalEntryId: journal?.id ?? null };
+    });
+    return s.json(result);
+  } catch (error: any) {
+    return s.status(error?.status || 500).json({ error: error?.message || "Failed to save opening balance" });
+  }
+}
+// Not "/opening-balance": permissionAction() treats any "/open" path as a download.
+router.put("/customer-ledger/:id/initial-balance", (r: any, s) => saveOpeningBalance(r, s, "client"));
+router.put("/vendor-ledger/:id/initial-balance", (r: any, s) => saveOpeningBalance(r, s, "vendor"));
+// Splits ledger rows around the requested period: rows before dateFrom are
+// carried into the period's opening, rows after dateTo are ignored.
+function ledgerPeriod(query: any) {
+  const dateFrom = String(query?.dateFrom || "").slice(0, 10);
+  const dateTo = String(query?.dateTo || "").slice(0, 10);
+  if (dateFrom && dateTo && dateFrom > dateTo)
+    throw Object.assign(new Error("From date must be on or before To date"), { status: 400 });
+  return (value: any) => {
+    const dateKey = String(value || "").slice(0, 10);
+    if (dateFrom && dateKey < dateFrom) return "before";
+    if (dateTo && dateKey > dateTo) return "after";
+    return "in";
+  };
+}
+function finishLedgerGroups(groups: Map<string, any>, contacts: any[], keyPrefix: string, blank: (contact: any) => any, dateField: string) {
+  for (const contact of [...contacts].sort((a: any, b: any) => String(a.name || "").localeCompare(String(b.name || ""))))
+    if (!groups.has(`${keyPrefix}:${contact.id}`)) groups.set(`${keyPrefix}:${contact.id}`, blank(contact));
+  return [...groups.values()].map((row) => {
+    const isClient = keyPrefix === "client";
+    const raised = isClient ? row.invoiced : row.billed;
+    const settled = isClient ? row.received : row.paid;
+    const periodOpening = m(row.openingBalance + row.broughtForward);
+    return {
+      ...row,
+      openingBalance: m(row.openingBalance),
+      broughtForward: m(row.broughtForward),
+      periodOpening,
+      closingBalance: m(periodOpening + raised - settled - row.credited),
+      sources: [...row.sources],
+      records: row.records.sort((a: any, b: any) => (b.isOpening ? 1 : 0) - (a.isOpening ? 1 : 0) || String(b[dateField]).localeCompare(String(a[dateField]))),
+    };
+  });
+}
 router.get("/customer-ledger", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.customer_ledger.view")) return;
   try {
-    const receivableDateRange = dateRangeFilter(r.query, "invoiceDate");
-    const partyDateRange = dateRangeFilter(r.query, "entryDate");
-    const [receivableRows, partyEntries, payments, journals, accounts] = await Promise.all([
+    const period = ledgerPeriod(r.query);
+    const [receivableRows, partyEntries, payments, journals, accounts, clients] = await Promise.all([
       db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
       db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
       db.select().from(salesPaymentsTable),
       db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)),
       db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org)),
+      contactsFor("client"),
     ]);
-    const receivables = await enrichReceivables((receivableRows as any[]).filter(receivableDateRange));
+    const enriched = await enrichReceivables(receivableRows as any[]);
+    const openingRows = enriched.filter(isOpeningRow);
+    const receivables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.invoiceDate) === "in");
+    const priorReceivables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.invoiceDate) === "before");
     const groups = new Map<string, any>();
     const ensureGroup = (row: any) => {
       const key = row.clientId ? `client:${row.clientId}` : `legacy:${norm(row.clientName)}`;
@@ -3501,6 +3676,11 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
         clientCode: row.clientCode || "",
         clientName: row.clientName || "Unassigned Customer",
         customerDisplay: row.customerDisplay || row.clientName || "Unassigned Customer",
+        openingBalance: 0,
+        openingDate: "",
+        openingDirection: "",
+        openingNotes: "",
+        broughtForward: 0,
         invoiced: 0,
         received: 0,
         credited: 0,
@@ -3511,6 +3691,71 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
       groups.set(key, group);
       return group;
     };
+    for (const row of openingRows) {
+      const group = ensureGroup(row);
+      const amount = m(row.amount);
+      const received = m(row.receivedAmount);
+      const credited = m(row.adjustedAmount);
+      const outstanding = receivableOutstanding(row);
+      const receipts = manualArPayments(row, journals, accounts);
+      group.sources.add("accounts_receivable");
+      group.openingBalance += amount;
+      if (amount > 0) {
+        group.openingDate = String(row.invoiceDate || "").slice(0, 10);
+        group.openingDirection = "receivable";
+        group.openingNotes = row.notes || "";
+      }
+      group.received += received;
+      group.credited += credited;
+      group.outstanding += outstanding;
+      group.records.push({
+        id: row.id,
+        isOpening: true,
+        invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.invoiceDate,
+        invoicedAmount: amount,
+        receivedAmount: received,
+        credits: credited,
+        outstanding,
+        paidDate: outstanding <= 0 ? receipts.map((payment) => String(payment.paymentDate || "").slice(0, 10)).filter(Boolean).sort().pop() || "" : received > 0 ? "Partial" : "",
+        status: OPENING_BALANCE,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        payments: receipts.map((payment) => ({
+          id: payment.id, paymentDate: payment.paymentDate,
+          fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId,
+          fromAccountName: payment.fromAccountName, toAccountName: payment.toAccountName,
+          amount: m(payment.amount), reference: payment.reference || "",
+        })),
+        creditNotes: [],
+      });
+    }
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "customer" && isOpeningAdvance(x))) {
+      const contact = clients.find((client: any) => Number(client.id) === Number(row.clientId));
+      const group = ensureGroup({ clientId: row.clientId, clientCode: contact?.contactCode, clientName: contact?.name || row.clientName, customerDisplay: contactLabel(contact, row.clientName) });
+      const amount = m(row.amount);
+      group.sources.add("party_ledger_entries");
+      group.openingBalance -= amount;
+      group.openingDate = String(row.entryDate || "").slice(0, 10);
+      group.openingDirection = "advance";
+      group.openingNotes = row.notes || "";
+      group.records.push({
+        id: row.id, isOpening: true, invoiceNumber: row.reference, invoiceDate: row.entryDate,
+        invoicedAmount: -amount, receivedAmount: 0, credits: 0, outstanding: 0, paidDate: "",
+        status: OPENING_ADVANCE, sourceType: OPENING_ADVANCE, sourceId: row.id, payments: [], creditNotes: [],
+      });
+    }
+    // Activity before the period rolls into that period's opening balance.
+    for (const row of priorReceivables) {
+      const group = ensureGroup(row);
+      group.broughtForward += row.entryType === "Credit Note"
+        ? (priorReceivables.some((invoice: any) => invoice.entryType !== "Credit Note" && norm(invoice.invoiceNumber) === norm(row.linkedInvoiceNumber)) ? 0 : -m(row.amount))
+        : m(row.amount) - m(row.receivedAmount) - m(row.adjustedAmount);
+    }
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "customer" && !x.linkedArId && !isOpeningAdvance(x) && period(x.entryDate) === "before")) {
+      const group = ensureGroup({ clientId: row.clientId, clientName: row.clientName || "Unassigned Customer" });
+      group.broughtForward += String(row.drCr || "").toLowerCase() === "debit" ? m(row.amount) : -m(row.amount);
+    }
     const creditNotes = receivables.filter((row: any) => row.entryType === "Credit Note");
     for (const row of receivables.filter((entry: any) => entry.entryType !== "Credit Note")) {
       const group = ensureGroup(row);
@@ -3555,7 +3800,7 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
       });
     }
     for (const credit of creditNotes) {
-      const hasInvoice = receivables.some((row: any) => row.entryType !== "Credit Note" && norm(row.invoiceNumber) === norm(credit.linkedInvoiceNumber));
+      const hasInvoice = [...receivables, ...openingRows].some((row: any) => row.entryType !== "Credit Note" && norm(row.invoiceNumber) === norm(credit.linkedInvoiceNumber));
       if (hasInvoice) continue;
       const group = ensureGroup(credit);
       group.sources.add("accounts_receivable");
@@ -3576,7 +3821,7 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
         payments: [],
       });
     }
-    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "customer" && !x.linkedArId && partyDateRange(x))) {
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "customer" && !x.linkedArId && !isOpeningAdvance(x) && period(x.entryDate) === "in")) {
       const group = ensureGroup({ clientId: row.clientId, clientName: row.clientName || "Unassigned Customer" });
       const value = m(row.amount);
       const drCr = String(row.drCr || "").toLowerCase();
@@ -3587,7 +3832,7 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
       else group.received += value;
       group.outstanding = Math.max(0, group.invoiced - group.received - group.credited);
     }
-    s.json([...groups.values()].map((row) => ({ ...row, sources: [...row.sources], records: row.records.sort((a: any, b: any) => String(b.invoiceDate).localeCompare(String(a.invoiceDate))) })));
+    s.json(finishLedgerGroups(groups, clients, "client", (contact) => ensureGroup({ clientId: contact.id, clientCode: contact.contactCode, clientName: contact.name, customerDisplay: contactLabel(contact) }), "invoiceDate"));
   } catch (error: any) {
     s.status(error?.status || 500).json({ error: error?.message || "Failed to load customer ledger" });
   }
@@ -3595,16 +3840,19 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
 router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
   if (!need(r, s, "accounts.vendor_ledger.view")) return;
   try {
-    const payableDateRange = dateRangeFilter(r.query, "billDate");
-    const partyDateRange = dateRangeFilter(r.query, "entryDate");
-    const [payableRows, partyEntries, payments, journals, accounts] = await Promise.all([
+    const period = ledgerPeriod(r.query);
+    const [payableRows, partyEntries, payments, journals, accounts, vendors] = await Promise.all([
       db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
       db.select().from(partyLedgerEntriesTable).where(eq(partyLedgerEntriesTable.organizationId, r.acc.org)),
       db.select().from(vendorPaymentsTable).where(eq(vendorPaymentsTable.organizationId, r.acc.org)),
       db.select().from(journalEntriesTable).where(eq(journalEntriesTable.organizationId, r.acc.org)),
       db.select().from(chartOfAccountsTable).where(eq(chartOfAccountsTable.organizationId, r.acc.org)),
+      contactsFor("vendor"),
     ]);
-    const payables = await enrichPayables((payableRows as any[]).filter(payableDateRange));
+    const enriched = await enrichPayables(payableRows as any[]);
+    const openingRows = enriched.filter(isOpeningRow);
+    const payables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.billDate) === "in");
+    const priorPayables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.billDate) === "before");
     const groups = new Map<string, any>();
     const ensureGroup = (row: any) => {
       const key = row.vendorId ? `vendor:${row.vendorId}` : `legacy:${norm(row.vendorName)}`;
@@ -3613,6 +3861,11 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
         vendorCode: row.vendorCode || "",
         vendorName: row.vendorName || "Unassigned Vendor",
         vendorDisplay: row.vendorDisplay || row.vendorName || "Unassigned Vendor",
+        openingBalance: 0,
+        openingDate: "",
+        openingDirection: "",
+        openingNotes: "",
+        broughtForward: 0,
         billed: 0,
         paid: 0,
         credited: 0,
@@ -3623,6 +3876,71 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
       groups.set(key, group);
       return group;
     };
+    for (const row of openingRows) {
+      const group = ensureGroup(row);
+      const amount = m(row.amount);
+      const paid = m(row.paidAmount);
+      const credited = m(row.adjustedAmount);
+      const outstanding = payableOutstanding(row);
+      const billPayments = manualApPayments(row, journals, accounts);
+      group.sources.add("accounts_payable");
+      group.openingBalance += amount;
+      if (amount > 0) {
+        group.openingDate = String(row.billDate || "").slice(0, 10);
+        group.openingDirection = "payable";
+        group.openingNotes = row.notes || "";
+      }
+      group.paid += paid;
+      group.credited += credited;
+      group.outstanding += outstanding;
+      group.records.push({
+        id: row.id,
+        isOpening: true,
+        billNumber: row.billNumber,
+        billedDate: row.billDate,
+        billedAmount: amount,
+        paidAmount: paid,
+        debitNote: credited,
+        outstanding,
+        paidDate: outstanding <= 0 ? billPayments.map((payment) => String(payment.paymentDate || "").slice(0, 10)).filter(Boolean).sort().pop() || "" : paid > 0 ? "Partial" : "",
+        status: OPENING_BALANCE,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        payments: billPayments.map((payment) => ({
+          id: payment.id, paymentDate: payment.paymentDate,
+          fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId,
+          fromAccountName: payment.fromAccountName, toAccountName: payment.toAccountName,
+          amount: m(payment.amount), reference: payment.reference || "",
+        })),
+        debitNotes: [],
+      });
+    }
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "vendor" && isOpeningAdvance(x))) {
+      const contact = vendors.find((vendor: any) => Number(vendor.id) === Number(row.vendorId));
+      const group = ensureGroup({ vendorId: row.vendorId, vendorCode: contact?.contactCode, vendorName: contact?.name || row.vendorName, vendorDisplay: contactLabel(contact, row.vendorName) });
+      const amount = m(row.amount);
+      group.sources.add("party_ledger_entries");
+      group.openingBalance -= amount;
+      group.openingDate = String(row.entryDate || "").slice(0, 10);
+      group.openingDirection = "advance";
+      group.openingNotes = row.notes || "";
+      group.records.push({
+        id: row.id, isOpening: true, billNumber: row.reference, billedDate: row.entryDate,
+        billedAmount: -amount, paidAmount: 0, debitNote: 0, outstanding: 0, paidDate: "",
+        status: OPENING_ADVANCE, sourceType: OPENING_ADVANCE, sourceId: row.id, payments: [], debitNotes: [],
+      });
+    }
+    // Activity before the period rolls into that period's opening balance.
+    for (const row of priorPayables) {
+      const group = ensureGroup(row);
+      group.broughtForward += row.entryType === "Debit Note"
+        ? (priorPayables.some((bill: any) => bill.entryType !== "Debit Note" && norm(bill.billNumber) === norm(row.againstBillNumber)) ? 0 : -m(row.amount))
+        : m(row.amount) - m(row.paidAmount) - m(row.adjustedAmount);
+    }
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "vendor" && !x.linkedApId && !isOpeningAdvance(x) && period(x.entryDate) === "before")) {
+      const group = ensureGroup({ vendorId: row.vendorId, vendorName: row.vendorName || "Unassigned Vendor" });
+      group.broughtForward += String(row.drCr || "").toLowerCase() === "credit" ? m(row.amount) : -m(row.amount);
+    }
     const debitNotes = payables.filter((row: any) => row.entryType === "Debit Note");
     for (const row of payables.filter((entry: any) => entry.entryType !== "Debit Note")) {
       const group = ensureGroup(row);
@@ -3668,7 +3986,7 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
       });
     }
     for (const debit of debitNotes) {
-      const hasBill = payables.some((row: any) => row.entryType !== "Debit Note" && norm(row.billNumber) === norm(debit.againstBillNumber));
+      const hasBill = [...payables, ...openingRows].some((row: any) => row.entryType !== "Debit Note" && norm(row.billNumber) === norm(debit.againstBillNumber));
       if (hasBill) continue;
       const group = ensureGroup(debit);
       group.sources.add("accounts_payable");
@@ -3689,7 +4007,7 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
         payments: [],
       });
     }
-    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "vendor" && !x.linkedApId && partyDateRange(x))) {
+    for (const row of (partyEntries as any[]).filter((x) => String(x.partyType || "").toLowerCase() === "vendor" && !x.linkedApId && !isOpeningAdvance(x) && period(x.entryDate) === "in")) {
       const group = ensureGroup({ vendorId: row.vendorId, vendorName: row.vendorName || "Unassigned Vendor" });
       const value = m(row.amount);
       const drCr = String(row.drCr || "").toLowerCase();
@@ -3700,7 +4018,7 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
       else group.paid += value;
       group.outstanding = Math.max(0, group.billed - group.paid - group.credited);
     }
-    s.json([...groups.values()].map((row) => ({ ...row, sources: [...row.sources], records: row.records.sort((a: any, b: any) => String(b.billedDate).localeCompare(String(a.billedDate))) })));
+    s.json(finishLedgerGroups(groups, vendors, "vendor", (contact) => ensureGroup({ vendorId: contact.id, vendorCode: contact.contactCode, vendorName: contact.name, vendorDisplay: contactLabel(contact) }), "billedDate"));
   } catch (error: any) {
     s.status(error?.status || 500).json({ error: error?.message || "Failed to load vendor ledger" });
   }

@@ -72,6 +72,25 @@ async function syncEmployeeLink(
   return employee;
 }
 
+// Employee employment dates are YYYY-MM-DD text; never store a raw timestamp.
+const isoDate = (instant: Date) =>
+  instant.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+// The linked employee's Role mirrors the user's RBAC role; keep it in step so a
+// later Crew employee save cannot revert a role assigned here.
+async function syncEmployeeRole(user: any) {
+  if (!user?.employeeId || !user.role) return;
+  await db
+    .update(employeesTable)
+    .set({ role: user.role, updatedAt: new Date() })
+    .where(
+      and(
+        eq(employeesTable.id, Number(user.employeeId)),
+        eq(employeesTable.organizationId, Number(user.organizationId ?? 1)),
+      ),
+    );
+}
+
 async function activeUsers(org: number) {
   return (
     await db.select().from(usersTable).where(eq(usersTable.organizationId, org))
@@ -295,6 +314,7 @@ router.post(
           .where(eq(usersTable.id, user.id))
           .returning();
         Object.assign(user, linked);
+        await syncEmployeeRole(user);
       }
       return res
         .status(201)
@@ -384,6 +404,8 @@ router.put(
         updated.department = employee.department;
       }
     }
+    if (req.body.role !== undefined || req.body.employeeId !== undefined)
+      await syncEmployeeRole(updated);
     return res.json(safe(updated));
   },
 );
@@ -457,6 +479,8 @@ router.patch(
           id,
           req.body.employeeId ? Number(req.body.employeeId) : null,
         );
+      if (req.body.role !== undefined || req.body.employeeId !== undefined)
+        await syncEmployeeRole(updated);
       return res.json(safe(updated));
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
@@ -624,7 +648,7 @@ router.patch(
     if (u.employeeId)
       await db
         .update(employeesTable)
-        .set({ status: "inactive", exitDate: now, updatedAt: now })
+        .set({ status: "inactive", exitDate: isoDate(now), updatedAt: now })
         .where(
           and(
             eq(employeesTable.id, Number(u.employeeId)),
@@ -659,7 +683,7 @@ router.patch(
     if (req.body.restoreEmployee && u.employeeId)
       await db
         .update(employeesTable)
-        .set({ status: "active", exitDate: null, updatedAt: new Date() })
+        .set({ status: "Active", exitDate: null, updatedAt: new Date() })
         .where(
           and(
             eq(employeesTable.id, Number(u.employeeId)),
@@ -715,7 +739,7 @@ router.delete(
           status: "inactive",
           deletedAt: now,
           deletedBy: actor?.id ?? null,
-          exitDate: now,
+          exitDate: isoDate(now),
           updatedAt: now,
         })
         .where(

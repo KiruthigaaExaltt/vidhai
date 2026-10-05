@@ -346,3 +346,77 @@ test("full AR payment LIVE-AR-003-PAY-001 appears in COA 1100 ledger movement wi
   assert.equal(bankPayLine.referenceId, "LIVE-AR-003-PAY-001");
 });
 
+
+test("party ledgers list every CRM contact and carry editable opening balances into closing", async () => {
+  const { f, body } = await receivableFixture();
+  f.rows("contactsTable").push({ id: 8, type: "client", name: "Client B", contactCode: "C8" }, { id: 9, type: "vendor", name: "Vendor V", contactCode: "V9" });
+  const coaBalance = async (code) => { const res = await f.call("get", "/coa"); const list = Array.isArray(res.body) ? res.body : res.body.items || res.body.data; return Number(list.find(row => row.accountCode === code).currentBalance); };
+  const base = { "1100": await coaBalance("1100"), "2100": await coaBalance("2100"), "3000": await coaBalance("3000") };
+  const balance = async (code) => (await coaBalance(code)) - base[code];
+  const journalNet = (code) => f.rows("journalLinesTable").filter(line => line.accountCode === code && f.rows("journalEntriesTable").some(entry => entry.id === line.journalEntryId)).reduce((sum, line) => sum + Number(line.debit || 0) - Number(line.credit || 0), 0);
+  const customer = async (id, query = {}) => (await f.call("get", "/customer-ledger", {}, {}, ["*"], 1, query)).body.find(row => row.clientId === id);
+
+  // Contacts without any transaction are still listed.
+  const empty = await customer(8);
+  assert.equal(empty.records.length, 0);
+  assert.equal(empty.closingBalance, 0);
+  const vendorEmpty = (await f.call("get", "/vendor-ledger")).body.find(row => row.vendorId === 9);
+  assert.equal(vendorEmpty.closingBalance, 0);
+
+  // Receivable opening balance posts Dr Receivable / Cr Capital.
+  let saved = await f.call("put", "/customer-ledger/:id/initial-balance", { amount: 5000, date: "2026-04-01", direction: "receivable" }, { id: 8 });
+  assert.equal(saved.statusCode, 200);
+  const openingRow = f.rows("accountsReceivableTable").find(row => row.sourceType === "Opening Balance" && row.sourceId === 8);
+  assert.equal(openingRow.amount, 5000);
+  assert.equal(journalNet("1100"), 5000);
+  assert.equal(await balance("1100"), 5000, "COA must not double-count the opening due");
+  assert.equal(await balance("3000"), -5000);
+  let row = await customer(8);
+  assert.equal(row.openingBalance, 5000);
+  assert.equal(row.closingBalance, 5000);
+  assert.equal(row.invoiced, 0);
+
+  // Receipts settle the opening due through the normal AR workflow.
+  const receipt = await f.call("post", "/ar/:id/payment", { ...body, amount: 2000, receiptId: "ob-receipt" }, { id: openingRow.id });
+  assert.equal(receipt.statusCode, 201);
+  assert.equal((await customer(8)).closingBalance, 3000);
+
+  // Editing below what was received is allowed; the excess becomes an advance.
+  await f.call("put", "/customer-ledger/:id/initial-balance", { amount: 1000, date: "2026-04-01", direction: "receivable" }, { id: 8 });
+  row = await customer(8);
+  assert.equal(row.openingBalance, 1000);
+  assert.equal(row.closingBalance, -1000);
+  assert.equal(journalNet("1100"), -1000);
+  assert.equal(f.rows("journalEntriesTable").filter(j => j.sourceType === "Customer Opening Balance").length, 1);
+
+  // Switching to an advance keeps the settled due row (at zero) and its receipt.
+  await f.call("put", "/customer-ledger/:id/initial-balance", { amount: 500, date: "2026-04-01", direction: "advance" }, { id: 8 });
+  row = await customer(8);
+  assert.equal(row.openingBalance, -500);
+  assert.equal(row.openingDirection, "advance");
+  assert.equal(row.closingBalance, -2500);
+  assert.equal(journalNet("1100"), -2500);
+  assert.equal(f.rows("accountsReceivableTable").find(r => r.id === openingRow.id).amount, 0);
+
+  // Clearing removes the advance; AR-tab deletes of opening rows are refused.
+  await f.call("put", "/customer-ledger/:id/initial-balance", { amount: 0, direction: "receivable" }, { id: 8 });
+  assert.equal((await customer(8)).closingBalance, -2000);
+  assert.equal(f.rows("partyLedgerEntriesTable").length, 0);
+  assert.equal(await balance("3000"), 0);
+  assert.equal((await f.call("delete", "/ar/:id", {}, { id: openingRow.id })).statusCode, 400);
+
+  // Vendor payable opening balance: Dr Capital / Cr Payable.
+  await f.call("put", "/vendor-ledger/:id/initial-balance", { amount: 4000, date: "2026-04-01", direction: "payable" }, { id: 9 });
+  const vendor = (await f.call("get", "/vendor-ledger")).body.find(row => row.vendorId === 9);
+  assert.equal(vendor.closingBalance, 4000);
+  assert.equal(journalNet("2100"), -4000);
+
+  // Activity before the selected period rolls into that period's opening.
+  await f.call("put", "/customer-ledger/:id/initial-balance", { amount: 1500, date: "2026-04-01", direction: "receivable" }, { id: 7 });
+  const period = await customer(7, { dateFrom: "2026-10-01" });
+  assert.equal(period.openingBalance, 1500);
+  assert.equal(period.broughtForward, 10000);
+  assert.equal(period.periodOpening, 11500);
+  assert.equal(period.invoiced, 0);
+  assert.equal(period.closingBalance, 11500);
+});

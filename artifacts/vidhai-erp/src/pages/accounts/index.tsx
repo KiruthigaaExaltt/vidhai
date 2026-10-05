@@ -74,6 +74,7 @@ import {
   Check,
   Printer,
   ShieldCheck,
+  Pencil,
 } from "lucide-react";
 import { DataPagination } from "@/components/ui/data-pagination";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -82,6 +83,7 @@ import { useToast } from "@/hooks/use-toast";
 import { notifyModuleLocked, lockModule } from "@/components/security/ModuleEncryptionGate";
 import { FinancialStatements } from "./FinancialStatements";
 import { FinanceDashboard } from "./FinanceDashboard";
+import { OpeningBalanceDialog, type OpeningBalanceParty } from "./OpeningBalanceDialog";
 import { parseBankCashSheet } from "./bankCashImport";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
@@ -488,6 +490,7 @@ export default function Accounts() {
     payments: any[];
   } | null>(null);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
+  const [openingParty, setOpeningParty] = useState<OpeningBalanceParty | null>(null);
   const [copiedRef, setCopiedRef] = useState(false);
   const accountTabGroups = [
     {
@@ -2163,14 +2166,29 @@ export default function Accounts() {
                   No customer records found.
                 </Card>
               ) : (
-                f(customers).map((customer) => {
+                <>
+                <div className="flex items-center gap-2 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex flex-1 items-center justify-between gap-4">
+                    <span>Customer</span>
+                    <div className="grid min-w-[700px] grid-cols-5 gap-3 text-right">
+                      <span>Opening</span>
+                      <span>Invoiced</span>
+                      <span>Received</span>
+                      <span>Credits</span>
+                      <span>Closing</span>
+                    </div>
+                  </div>
+                  {can("accounts.customer_ledger.update") && <span className="w-8 shrink-0" />}
+                </div>
+                {f(customers).map((customer) => {
                   const key = String(customer.clientId || customer.clientName);
                   const open = Boolean(expandedCustomers[key]);
                   return (
                     <Card key={key} className="overflow-hidden rounded-md">
+                      <div className="flex items-center gap-2 pr-4 hover:bg-muted/40 transition-colors">
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
+                        className="flex flex-1 items-center justify-between gap-4 px-4 py-3 text-left group cursor-pointer"
                         onClick={() => toggleCustomer(key)}
                         title={open ? "Close detail view" : "Open detail view"}
                       >
@@ -2190,13 +2208,38 @@ export default function Accounts() {
                           </span>
                           <span className="truncate">{customer.customerDisplay || customer.clientName}</span>
                         </div>
-                        <div className="grid min-w-[560px] grid-cols-4 gap-3 text-right text-sm">
+                        <div className="grid min-w-[700px] grid-cols-5 gap-3 text-right text-sm">
+                          <span title={customer.broughtForward ? `Opening ${inr(customer.openingBalance)} + brought forward ${inr(customer.broughtForward)}` : undefined}>{inr(customer.periodOpening)}</span>
                           <span>{inr(customer.invoiced)}</span>
                           <span>{inr(customer.received)}</span>
                           <span>{inr(customer.credited)}</span>
-                          <span className="font-semibold">{inr(customer.outstanding)}</span>
+                          <span className={`font-semibold ${Number(customer.closingBalance) < 0 ? "text-amber-600" : ""}`} title={Number(customer.closingBalance) < 0 ? "Advance held for customer" : undefined}>{inr(customer.closingBalance)}</span>
                         </div>
                       </button>
+                      {can("accounts.customer_ledger.update") && customer.clientId && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+                          title="Edit opening balance"
+                          aria-label="Edit opening balance"
+                          onClick={() =>
+                            setOpeningParty({
+                              kind: "customer",
+                              id: Number(customer.clientId),
+                              name: customer.customerDisplay || customer.clientName,
+                              openingBalance: customer.openingBalance,
+                              openingDate: customer.openingDate,
+                              openingDirection: customer.openingDirection,
+                              openingNotes: customer.openingNotes,
+                            })
+                          }
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      </div>
                       {open && (
                         <div className="overflow-x-auto max-h-96 overflow-y-auto border-t accounts-scroll">
                           <table className="w-full text-sm min-w-full">
@@ -2213,8 +2256,13 @@ export default function Accounts() {
                               </tr>
                             </thead>
                             <tbody>
+                              {!(customer.records || []).length && (
+                                <tr className="border-t">
+                                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-muted-foreground">No transactions yet.</td>
+                                </tr>
+                              )}
                               {(customer.records || []).map((record: any) => (
-                                <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                                <tr key={`${record.sourceType || "row"}-${record.id}`} className={`border-t hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors ${record.isOpening ? "bg-primary/5" : ""}`}>
                                   <td className="px-4 py-2.5 whitespace-nowrap align-middle">{record.invoiceNumber}</td>
                                   <td className="px-4 py-2.5 whitespace-nowrap align-middle">{String(record.invoiceDate || "").slice(0, 10)}</td>
                                   <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.invoicedAmount)}</td>
@@ -2252,7 +2300,9 @@ export default function Accounts() {
                       )}
                     </Card>
                   );
-                }))}
+                })}
+                </>
+              )}
             </TabsContent>
             <TabsContent value="vendors" className="space-y-3">
               {loading ? (
@@ -2276,14 +2326,29 @@ export default function Accounts() {
                   No vendor records found.
                 </Card>
               ) : (
-                f(vendors).map((vendor) => {
+                <>
+                <div className="flex items-center gap-2 px-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex flex-1 items-center justify-between gap-4">
+                    <span>Vendor</span>
+                    <div className="grid min-w-[560px] grid-cols-5 gap-3 text-right">
+                      <span>Opening</span>
+                      <span>Billed</span>
+                      <span>Paid</span>
+                      <span>Debit Notes</span>
+                      <span>Closing</span>
+                    </div>
+                  </div>
+                  {can("accounts.vendor_ledger.update") && <span className="w-8 shrink-0" />}
+                </div>
+                {f(vendors).map((vendor) => {
                   const key = String(vendor.vendorId || vendor.vendorName);
                   const open = Boolean(expandedVendors[key]);
                   return (
                     <Card key={key} className="overflow-hidden rounded-md">
+                      <div className="flex items-center gap-2 pr-4 hover:bg-muted/40 transition-colors">
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-muted/40 group transition-colors cursor-pointer"
+                        className="flex flex-1 items-center justify-between gap-4 px-4 py-3 text-left group cursor-pointer"
                         onClick={() => toggleVendor(key)}
                         title={open ? "Close detail view" : "Open detail view"}
                       >
@@ -2303,13 +2368,38 @@ export default function Accounts() {
                           </span>
                           <span className="truncate">{vendor.vendorDisplay || vendor.vendorName}</span>
                         </div>
-                        <div className="grid min-w-[420px] grid-cols-4 gap-3 text-right text-sm">
+                        <div className="grid min-w-[560px] grid-cols-5 gap-3 text-right text-sm">
+                          <span title={vendor.broughtForward ? `Opening ${inr(vendor.openingBalance)} + brought forward ${inr(vendor.broughtForward)}` : undefined}>{inr(vendor.periodOpening)}</span>
                           <span>{inr(vendor.billed)}</span>
                           <span>{inr(vendor.paid)}</span>
                           <span>{inr(vendor.credited)}</span>
-                          <span className="font-semibold">{inr(vendor.outstanding)}</span>
+                          <span className={`font-semibold ${Number(vendor.closingBalance) < 0 ? "text-amber-600" : ""}`} title={Number(vendor.closingBalance) < 0 ? "Advance paid to vendor" : undefined}>{inr(vendor.closingBalance)}</span>
                         </div>
                       </button>
+                      {can("accounts.vendor_ledger.update") && vendor.vendorId && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-primary"
+                          title="Edit opening balance"
+                          aria-label="Edit opening balance"
+                          onClick={() =>
+                            setOpeningParty({
+                              kind: "vendor",
+                              id: Number(vendor.vendorId),
+                              name: vendor.vendorDisplay || vendor.vendorName,
+                              openingBalance: vendor.openingBalance,
+                              openingDate: vendor.openingDate,
+                              openingDirection: vendor.openingDirection,
+                              openingNotes: vendor.openingNotes,
+                            })
+                          }
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      </div>
                       {open && (
                         <div className="overflow-x-auto max-h-96 overflow-y-auto border-t accounts-scroll">
                           <table className="w-full text-sm min-w-full">
@@ -2326,8 +2416,13 @@ export default function Accounts() {
                               </tr>
                             </thead>
                             <tbody>
+                              {!(vendor.records || []).length && (
+                                <tr className="border-t">
+                                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-muted-foreground">No transactions yet.</td>
+                                </tr>
+                              )}
                               {(vendor.records || []).map((record: any) => (
-                                <tr key={`${record.sourceType || "row"}-${record.id}`} className="border-t hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                                <tr key={`${record.sourceType || "row"}-${record.id}`} className={`border-t hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors ${record.isOpening ? "bg-primary/5" : ""}`}>
                                   <td className="px-4 py-2.5 whitespace-nowrap align-middle">{record.billNumber}</td>
                                   <td className="px-4 py-2.5 whitespace-nowrap align-middle">{String(record.billedDate || "").slice(0, 10)}</td>
                                   <td className="px-4 py-2.5 text-right whitespace-nowrap align-middle">{inr(record.billedAmount)}</td>
@@ -2365,7 +2460,9 @@ export default function Accounts() {
                       )}
                     </Card>
                   );
-                }))}
+                })}
+                </>
+              )}
             </TabsContent>
             <TabsContent value="coa" className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4477,6 +4574,14 @@ export default function Accounts() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+          )}
+          {openingParty && (
+            <OpeningBalanceDialog
+              party={openingParty}
+              request={api}
+              onClose={() => setOpeningParty(null)}
+              onSaved={load}
+            />
           )}
           {Boolean(historyModal) && (
             <Dialog
