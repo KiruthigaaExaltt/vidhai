@@ -696,15 +696,6 @@ router.post(
           return res
             .status(400)
             .json({ error: `${label} template is unavailable` });
-        if (
-          table === holidayTemplatesTable &&
-          (Number(item.effectiveYear) < Number(today().slice(0, 4)) ||
-            Number(item.effectiveYear) !== Number(v.joinDate.slice(0, 4)))
-        )
-          return res.status(400).json({
-            error:
-              "Holiday template is expired or not applicable to the joining year",
-          });
       }
       stored = await saveEmployeePhoto(req.file);
       const row = await db.transaction(async (tx) => {

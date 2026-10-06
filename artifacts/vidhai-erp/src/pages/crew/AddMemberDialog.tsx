@@ -1061,22 +1061,16 @@ function Template({
   required?: boolean;
   items: any[];
 }) {
-  const { f } = useMemberForm();
-  const joiningYear = Number(String(f.joinDate || today()).slice(0, 4));
   const holiday = k === "holidayTemplate";
   return (
     <Choice
       k={k}
       label={label}
       required={required}
-      items={items.map((item: any) => {
-        const wrongYear = holiday && Number(item.effectiveYear) !== joiningYear;
-        return {
-          value: String(item.id),
-          disabled: wrongYear,
-          label: `${item.templateName}${holiday && item.effectiveYear ? ` (${item.effectiveYear})` : ""}${wrongYear ? " - Not applicable to joining year" : ""}`,
-        };
-      })}
+      items={items.map((item: any) => ({
+        value: String(item.id),
+        label: `${item.templateName}${holiday && item.effectiveYear ? ` (${item.effectiveYear})` : ""}`,
+      }))}
     />
   );
 }

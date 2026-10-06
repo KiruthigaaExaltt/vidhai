@@ -155,12 +155,13 @@ try {
     assert.equal(res.status, 201, JSON.stringify(res.data));
   });
 
-  // 6. Legitimate Not Employed cases must still block.
-  await check("6. Future join date still shows Not Employed and blocks punch (expected)", async () => {
+  // 6. Joining date never blocks punch; date format is still validated.
+  await check("6. Future join date does not block punch (joining date is informational)", async () => {
     const m = await member("Future Joiner", { joinDate: shift(10) });
     const c = await login(m.username, m.password);
-    assert.equal(await todayStatus(c), "Not Employed");
-    assert.equal((await punchIn(c, m.employee.id)).status, 403);
+    assert.notEqual(await todayStatus(c), "Not Employed");
+    const res = await punchIn(c, m.employee.id);
+    assert.equal(res.status, 201, JSON.stringify(res.data));
   });
   await check("6b. Invalid join date on employee edit is rejected", async () => {
     const m = await member("Bad Date");

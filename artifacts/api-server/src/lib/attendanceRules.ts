@@ -104,15 +104,14 @@ export function calendarStatus(
   holidays: any[],
   leaves: any[] = [],
 ) {
-  const joinDate = employmentDate(employee.joinDate);
+  // Joining date is informational only; it never blocks attendance.
   // An Active employee is currently employed; a leftover exit date from an
   // earlier offboarding/deactivation must not lock them out of attendance.
   const exitDate =
     String(employee.status || "").toLowerCase() === "active"
       ? null
       : employmentDate(employee.exitDate);
-  if ((joinDate && date < joinDate) || (exitDate && date > exitDate))
-    return "Not Employed";
+  if (exitDate && date > exitDate) return "Not Employed";
   const holiday = holidays.find(
     (t) =>
       t.isActive !== false && Number(t.id) === Number(employee.holidayTemplate),
