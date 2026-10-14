@@ -53,7 +53,7 @@ export const quotationsTable = mongoTable("quotations", {
   rootQuoteNumber: text("root_quote_number").notNull().default(""),
   clientId: integer("client_id").notNull(),
   clientName: text("client_name").notNull().default(""),
-  customerMobile: text("customer_mobile").notNull().default(""),
+  customerMobile: text("customer_mobile").default(""),
   customerWhatsappNumber: text("customer_whatsapp_number").default(""),
   customerCompany: text("customer_company").default(""),
   customerAddress: text("customer_address").default(""),
