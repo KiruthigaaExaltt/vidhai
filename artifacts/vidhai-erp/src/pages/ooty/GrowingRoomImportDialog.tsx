@@ -167,7 +167,7 @@ export function GrowingRoomImportDialog({
     [completedAnnurBatches],
   );
   const sampleBatchCode =
-    completedAnnurBatches[0]?.batchCode ?? "A-YYYYMMDD-001";
+    completedAnnurBatches[0]?.batchCode ?? "A-001";
   const existingNames = useMemo(
     () => new Set(existingRooms.map((room) => normalizeName(room.name))),
     [existingRooms],

@@ -232,11 +232,7 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: "Batch initialization date and time is invalid" });
   if (Number.isNaN(stageStartedAt.getTime()))
     return res.status(400).json({ error: "Invalid batch date" });
-  const [year, month, day] = selectedDate.split("-");
-  const yy = year.slice(-2);
-  const mm = month;
-  const dd = day;
-  const codePrefix = `${loc.code}-${yy}${mm}${dd}-`;
+  const codePrefix = `${loc.code}-`;
   const existingBatches = await db.select().from(batchesTable);
   const highestSequence = existingBatches.reduce((highest, existingBatch) => {
     const existingCode = String(existingBatch.batchCode ?? "");
