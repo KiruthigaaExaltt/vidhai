@@ -49,6 +49,8 @@ export const inventoryAdjustmentsTable = mongoTable("inventory_adjustments", {
   adjustedByUserId: integer("adjusted_by_user_id").references(
     () => usersTable.id,
   ),
+  // User-chosen business date (YYYY-MM-DD); null for system-generated entries.
+  movementDate: text("movement_date"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -85,6 +87,7 @@ export const inventoryMovementsTable = mongoTable("inventory_movements", {
   createdByUserId: integer("created_by_user_id").references(
     () => usersTable.id,
   ),
+  movementDate: text("movement_date"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

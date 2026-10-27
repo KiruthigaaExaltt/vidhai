@@ -16,4 +16,9 @@ export interface InventoryAdjustmentInput {
   reference?: string | null;
   /** @nullable */
   notes?: string | null;
+  /**
+     * YYYY-MM-DD; today or earlier. Defaults to today.
+     * @nullable
+     */
+  movementDate?: string | null;
 }

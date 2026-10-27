@@ -21,6 +21,21 @@ const normalizeUom = (unit: unknown) => {
   return value.toLowerCase() === "l" ? "Litres" : value;
 };
 
+const todayIst = () =>
+  new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+
+// Movement dates may be today or any past date, never in the future.
+// Returns null when the value is not a valid, non-future YYYY-MM-DD date.
+const parseMovementDate = (value: unknown) => {
+  if (value === undefined || value === null || value === "") return todayIst();
+  const date = String(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date)
+    return null;
+  return date > todayIst() ? null : date;
+};
+
 function requireAuth(req: any, res: any, next: any) {
   if (!(req.session as any)?.userId)
     return res.status(401).json({ error: "Not authenticated" });
@@ -154,6 +169,11 @@ router.post("/", requireAuth, async (req, res) => {
   const userId = (req.session as any).userId;
   const { materialId, locationId, quantityDelta, reason, reference, notes } =
     req.body;
+  const movementDate = parseMovementDate(req.body.movementDate);
+  if (!movementDate)
+    return res
+      .status(400)
+      .json({ error: "Movement date must be valid and cannot be in the future" });
 
   // Validate material exists
   const [material] = await db
@@ -198,6 +218,7 @@ router.post("/", requireAuth, async (req, res) => {
     reference: reference ?? null,
     notes: notes ?? null,
     adjustedByUserId: userId,
+    movementDate,
   });
 
   return res.status(201).json({
@@ -269,6 +290,7 @@ router.get("/movements", requireAuth, async (req, res) => {
       reference: row.mov.reason,
       notes: row.mov.notes,
       createdByName: row.createdByName ?? null,
+      movementDate: row.mov.movementDate ?? null,
       createdAt: row.mov.createdAt,
     })),
     ...adjustmentRows.map((row: any) => {
@@ -289,6 +311,7 @@ router.get("/movements", requireAuth, async (req, res) => {
         reference: row.adjustment.reference ?? null,
         notes: row.adjustment.notes,
         createdByName: row.createdByName ?? null,
+        movementDate: row.adjustment.movementDate ?? null,
         createdAt: row.adjustment.createdAt,
       };
     }),
@@ -353,6 +376,9 @@ router.post("/movements", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Source and destination warehouses must differ" });
   if (!Number.isFinite(quantity) || quantity <= 0)
     return res.status(400).json({ error: "Transfer quantity must be greater than zero" });
+  const movementDate = parseMovementDate(req.body.movementDate);
+  if (!movementDate)
+    return res.status(400).json({ error: "Movement date must be valid and cannot be in the future" });
 
   let mov: any;
   try {
@@ -376,6 +402,7 @@ router.post("/movements", requireAuth, async (req, res) => {
       const [created] = await tx.insert(inventoryMovementsTable).values({
         materialId: Number(materialId), fromLocationId: sourceId, toLocationId: destinationId,
         quantityKg: String(quantity), reason: reason ?? null, notes: notes ?? null, createdByUserId: userId,
+        movementDate,
       }).returning();
       return { ...created, sourceQuantityOnHand: Number(updatedSource.quantityOnHand) };
     });
@@ -392,6 +419,7 @@ router.post("/movements", requireAuth, async (req, res) => {
     quantityKg: Number(mov.quantityKg),
     reason: mov.reason,
     notes: mov.notes,
+    movementDate: mov.movementDate,
     createdAt: mov.createdAt,
     sourceQuantityOnHand: mov.sourceQuantityOnHand,
   });

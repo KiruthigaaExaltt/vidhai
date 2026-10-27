@@ -2092,6 +2092,7 @@ components:
         reason: { type: string }
         reference: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
+        movementDate: { type: ["string", "null"], description: "YYYY-MM-DD; today or earlier. Defaults to today." }
 
     InventoryMovement:
       type: object
@@ -2108,6 +2109,7 @@ components:
         reason: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
         createdByName: { type: ["string", "null"] }
+        movementDate: { type: ["string", "null"] }
         createdAt: { type: string }
 
     InventoryMovementInput:
@@ -2120,6 +2122,7 @@ components:
         quantityKg: { type: number }
         reason: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
+        movementDate: { type: ["string", "null"], description: "YYYY-MM-DD; today or earlier. Defaults to today." }
 
     SpawnEntry:
       type: object

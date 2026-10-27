@@ -437,7 +437,8 @@ export const CreateInventoryAdjustmentBody = zod.object({
   "quantityDelta": zod.number(),
   "reason": zod.string(),
   "reference": zod.string().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "movementDate": zod.string().nullish().describe('YYYY-MM-DD; today or earlier. Defaults to today.')
 })
 
 export const CreateInventoryAdjustmentResponse = zod.object({
@@ -2605,6 +2606,7 @@ export const ListInventoryMovementsResponseItem = zod.object({
   "reason": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "createdByName": zod.string().nullish(),
+  "movementDate": zod.string().nullish(),
   "createdAt": zod.string()
 })
 export const ListInventoryMovementsResponse = zod.array(ListInventoryMovementsResponseItem)
@@ -2616,7 +2618,8 @@ export const CreateInventoryMovementBody = zod.object({
   "toLocationId": zod.number().nullish(),
   "quantityKg": zod.number(),
   "reason": zod.string().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "movementDate": zod.string().nullish().describe('YYYY-MM-DD; today or earlier. Defaults to today.')
 })
 
 export const CreateInventoryMovementResponse = zod.object({
@@ -2631,6 +2634,7 @@ export const CreateInventoryMovementResponse = zod.object({
   "reason": zod.string().nullish(),
   "notes": zod.string().nullish(),
   "createdByName": zod.string().nullish(),
+  "movementDate": zod.string().nullish(),
   "createdAt": zod.string()
 })
 

@@ -25,5 +25,7 @@ export interface InventoryMovement {
   notes?: string | null;
   /** @nullable */
   createdByName?: string | null;
+  /** @nullable */
+  movementDate?: string | null;
   createdAt: string;
 }

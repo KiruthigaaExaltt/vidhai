@@ -294,6 +294,11 @@ export interface InventoryAdjustmentInput {
   reference?: string | null;
   /** @nullable */
   notes?: string | null;
+  /**
+     * YYYY-MM-DD; today or earlier. Defaults to today.
+     * @nullable
+     */
+  movementDate?: string | null;
 }
 
 export interface InventoryMovement {
@@ -315,6 +320,8 @@ export interface InventoryMovement {
   notes?: string | null;
   /** @nullable */
   createdByName?: string | null;
+  /** @nullable */
+  movementDate?: string | null;
   createdAt: string;
 }
 
@@ -329,6 +336,11 @@ export interface InventoryMovementInput {
   reason?: string | null;
   /** @nullable */
   notes?: string | null;
+  /**
+     * YYYY-MM-DD; today or earlier. Defaults to today.
+     * @nullable
+     */
+  movementDate?: string | null;
 }
 
 export type SpawnEntryStatus = typeof SpawnEntryStatus[keyof typeof SpawnEntryStatus];
@@ -2139,3 +2151,4 @@ export type GetReportBatchCostingParams = {
 batchId?: number;
 locationCode?: string;
 };
+

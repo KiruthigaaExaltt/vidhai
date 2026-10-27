@@ -8,7 +8,6 @@ import {
   getListInventoryQueryKey,
   useCreateInventoryAdjustment,
   useCreateInventoryMovement,
-  useListLocations,
 } from "@workspace/api-client-react";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Shell } from "@/components/layout/Shell";
@@ -187,7 +186,6 @@ export default function InventoryModule() {
     }));
 
   const { data: materials } = useListMaterials();
-  const { data: locations } = useListLocations();
   const inventoryMasterQuery = useQuery({
     queryKey: [
       "inventory-master-paged",
@@ -311,6 +309,10 @@ export default function InventoryModule() {
         setMovForm(EMPTY_MOV);
         toast.success("Stock movement recorded");
       },
+      onError: (error: any) =>
+        toast.error(
+          error?.data?.error || error?.message || "Failed to record movement",
+        ),
     },
   });
   const createMovement = useCreateInventoryMovement({
@@ -326,6 +328,10 @@ export default function InventoryModule() {
         setTransferForm(EMPTY_TRANSFER);
         toast.success("Transfer recorded");
       },
+      onError: (error: any) =>
+        toast.error(
+          error?.data?.error || error?.message || "Failed to record transfer",
+        ),
     },
   });
 
@@ -636,6 +642,10 @@ export default function InventoryModule() {
     imageUrl: "",
     warehouseStocks: [{ warehouseId: "", stock: "" }],
   };
+  // Movement dates are business dates in IST; today or any past date is allowed.
+  const todayIst = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
   const EMPTY_MOV = {
     materialId: "",
     quantityDelta: "",
@@ -643,6 +653,7 @@ export default function InventoryModule() {
     reference: "",
     reason: "receipt",
     notes: "",
+    movementDate: todayIst,
   };
   const EMPTY_TRANSFER = {
     materialId: "",
@@ -650,6 +661,7 @@ export default function InventoryModule() {
     toLocationId: "",
     quantityKg: "",
     notes: "",
+    movementDate: todayIst,
   };
   const EMPTY_WAREHOUSE = { name: "", type: "general", capacity: "" };
   const EMPTY_ASSET = { sku: "", name: "", purchaseValue: "", notes: "" };
@@ -674,6 +686,14 @@ export default function InventoryModule() {
   } | null>(null);
   const [movForm, setMovForm] = useState(EMPTY_MOV);
   const [transferForm, setTransferForm] = useState(EMPTY_TRANSFER);
+  // Stock is held per warehouse, so a transfer can only start from a
+  // warehouse that currently holds the selected item.
+  const transferSourceOptions: any[] = inventory.filter(
+    (row) =>
+      Number(row.materialId) === Number(transferForm.materialId) &&
+      row.locationId != null &&
+      Number(row.quantityOnHand) > 0,
+  );
   const [warehouseForm, setWarehouseForm] = useState(EMPTY_WAREHOUSE);
   const [assetForm, setAssetForm] = useState(EMPTY_ASSET);
   const [indentForm, setIndentForm] = useState(EMPTY_INDENT);
@@ -840,6 +860,7 @@ export default function InventoryModule() {
         reason: movForm.reason,
         reference: movForm.reference || null,
         notes: movForm.notes || null,
+        movementDate: movForm.movementDate,
       },
     });
   };
@@ -857,6 +878,7 @@ export default function InventoryModule() {
           : null,
         quantityKg: Number(transferForm.quantityKg),
         notes: transferForm.notes || null,
+        movementDate: transferForm.movementDate,
       },
     });
   };
@@ -2228,13 +2250,19 @@ export default function InventoryModule() {
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => setTransferOpen(true)}
+                    onClick={() => {
+                      setTransferForm(EMPTY_TRANSFER);
+                      setTransferOpen(true);
+                    }}
                     className="rounded-sm h-9 px-3 text-sm gap-2"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" /> Transfer
                   </Button>
                   <Button
-                    onClick={() => setMovOpen(true)}
+                    onClick={() => {
+                      setMovForm(EMPTY_MOV);
+                      setMovOpen(true);
+                    }}
                     className="rounded-sm h-9 px-3 text-sm gap-2"
                   >
                     <Plus className="w-3.5 h-3.5" /> New Movement
@@ -2284,7 +2312,11 @@ export default function InventoryModule() {
                               className="hover:bg-muted/30 transition-colors h-[44px]"
                             >
                               <td className="px-4 font-mono text-xs text-muted-foreground">
-                                {new Date(m.createdAt).toLocaleDateString()}
+                                {new Date(
+                                  m.movementDate
+                                    ? `${m.movementDate}T00:00:00`
+                                    : m.createdAt,
+                                ).toLocaleDateString()}
                               </td>
                               <td className="px-4">
                                 <span
@@ -3204,6 +3236,21 @@ export default function InventoryModule() {
             </div>
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Movement Date
+              </Label>
+              <Input
+                type="date"
+                required
+                max={todayIst}
+                value={movForm.movementDate}
+                onChange={(e) =>
+                  setMovForm({ ...movForm, movementDate: e.target.value })
+                }
+                className="rounded-sm h-10 font-mono"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Item
               </Label>
               <Select
@@ -3301,12 +3348,35 @@ export default function InventoryModule() {
           <form onSubmit={handleTransferSubmit} className="space-y-4 pt-2">
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                Transfer Date
+              </Label>
+              <Input
+                type="date"
+                required
+                max={todayIst}
+                value={transferForm.movementDate}
+                onChange={(e) =>
+                  setTransferForm({
+                    ...transferForm,
+                    movementDate: e.target.value,
+                  })
+                }
+                className="rounded-sm h-10 font-mono"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                 Item
               </Label>
               <Select
                 value={transferForm.materialId}
                 onValueChange={(v) =>
-                  setTransferForm({ ...transferForm, materialId: v })
+                  setTransferForm({
+                    ...transferForm,
+                    materialId: v,
+                    fromLocationId: "",
+                    toLocationId: "",
+                  })
                 }
               >
                 <SelectTrigger className="rounded-sm h-10">
@@ -3332,18 +3402,36 @@ export default function InventoryModule() {
                 <Select
                   value={transferForm.fromLocationId}
                   onValueChange={(v) =>
-                    setTransferForm({ ...transferForm, fromLocationId: v })
+                    setTransferForm({
+                      ...transferForm,
+                      fromLocationId: v,
+                      toLocationId:
+                        transferForm.toLocationId === v
+                          ? ""
+                          : transferForm.toLocationId,
+                    })
                   }
+                  disabled={!transferForm.materialId}
                 >
                   <SelectTrigger className="rounded-sm h-10">
                     <SelectValue placeholder="Source" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(locations ?? []).map((l) => (
-                      <SelectItem key={l.id} value={l.id.toString()}>
-                        {l.name}
-                      </SelectItem>
-                    ))}
+                    {transferSourceOptions.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No stock in any warehouse
+                      </div>
+                    ) : (
+                      transferSourceOptions.map((row) => (
+                        <SelectItem
+                          key={row.locationId}
+                          value={String(row.locationId)}
+                        >
+                          {row.locationName} ({Number(row.quantityOnHand)}{" "}
+                          {row.unit})
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -3361,11 +3449,16 @@ export default function InventoryModule() {
                     <SelectValue placeholder="Destination" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(locations ?? []).map((l) => (
-                      <SelectItem key={l.id} value={l.id.toString()}>
-                        {l.name}
-                      </SelectItem>
-                    ))}
+                    {vaultLocations
+                      .filter(
+                        (w: any) =>
+                          String(w.id) !== transferForm.fromLocationId,
+                      )
+                      .map((w: any) => (
+                        <SelectItem key={w.id} value={String(w.id)}>
+                          {w.locationName}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>

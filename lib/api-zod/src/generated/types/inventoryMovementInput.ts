@@ -17,4 +17,9 @@ export interface InventoryMovementInput {
   reason?: string | null;
   /** @nullable */
   notes?: string | null;
+  /**
+     * YYYY-MM-DD; today or earlier. Defaults to today.
+     * @nullable
+     */
+  movementDate?: string | null;
 }
