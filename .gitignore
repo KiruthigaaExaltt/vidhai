@@ -65,3 +65,18 @@ uploads/
 /yugam-source-code/
 /docs/qa/*.log
 /docs/qa/browser/failure-*
+
+# Log files (server output, debug runs, audit runs)
+*.log
+logs/
+
+# One-off audit/debug scripts (not run by any package.json script)
+/scripts/test/debit-note-live-audit.ts
+/scripts/test/demo-focused-audit.ts
+/scripts/test/inspect-payslip.mjs
+/scripts/src/inspect-payroll-qa.ts
+
+# Database dumps and backups
+backup/
+*.gz
+*.archive
