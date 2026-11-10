@@ -4023,6 +4023,67 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
     s.status(error?.status || 500).json({ error: error?.message || "Failed to load vendor ledger" });
   }
 });
+
+// Open items a ledger receipt/payment can be allocated against, oldest first
+// (FIFO by document date, then document number). Only approved, unsettled
+// documents are returned; each one is still paid through its existing
+// workflow (sales payment, AR receipt, vendor payment or AP payment).
+const fifoOrder = (a: any, b: any) =>
+  String(a.documentDate).localeCompare(String(b.documentDate)) ||
+  String(a.documentNumber).localeCompare(String(b.documentNumber), undefined, { numeric: true }) ||
+  Number(a.id) - Number(b.id);
+router.get("/customer-ledger/:id/open-items", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_receivable.view")) return;
+  const clientId = Number(r.params.id);
+  const [rows, invoices] = await Promise.all([
+    db.select().from(accountsReceivableTable).where(eq(accountsReceivableTable.organizationId, r.acc.org)),
+    db.select().from(salesInvoicesTable),
+  ]);
+  const invoicesById = new Map((invoices as any[]).map((invoice) => [Number(invoice.id), invoice]));
+  const items = (await enrichReceivables(rows as any[]))
+    .filter((row: any) => Number(row.clientId) === clientId)
+    .filter((row: any) => row.entryType !== "Credit Note" && row.approvalStatus === "Approved")
+    .map((row: any) => {
+      let outstanding = receivableOutstanding(row);
+      if (row.sourceType === "Sales Invoice") {
+        const invoice = invoicesById.get(Number(row.sourceId));
+        if (!invoice || !["Approved", "Paid"].includes(String(invoice.status))) return null;
+        outstanding = Math.min(outstanding, Math.max(0, m(invoice.balanceDue ?? invoice.grandTotal)));
+      }
+      return {
+        id: row.id, sourceType: row.sourceType || "Manual", sourceId: row.sourceId ?? null,
+        isOpening: isOpeningRow(row), documentNumber: row.invoiceNumber, documentDate: String(row.invoiceDate || "").slice(0, 10),
+        amount: m(row.amount), settledAmount: m(row.receivedAmount), adjustedAmount: m(row.adjustedAmount), outstanding: m(outstanding),
+      };
+    })
+    .filter((item: any) => item && item.outstanding > 0.009)
+    .sort(fifoOrder);
+  s.json(items);
+});
+router.get("/vendor-ledger/:id/open-items", async (r: any, s): Promise<any> => {
+  if (!need(r, s, "accounts.accounts_payable.view")) return;
+  const vendorId = Number(r.params.id);
+  const [rows, invoices] = await Promise.all([
+    db.select().from(accountsPayableTable).where(eq(accountsPayableTable.organizationId, r.acc.org)),
+    db.select().from(purchaseInvoicesTable).where(eq(purchaseInvoicesTable.organizationId, r.acc.org)),
+  ]);
+  // The vendor-payment workflow matches the vendor name exactly as stored on
+  // the purchase invoice / bill, so keep that rather than the CRM display name.
+  const rawNames = new Map((rows as any[]).map((row) => [Number(row.id), row.vendorName]));
+  const invoiceVendor = new Map((invoices as any[]).map((invoice) => [String(invoice.invoiceNumber), invoice.vendorName]));
+  const items = (await enrichPayables(rows as any[]))
+    .filter((row: any) => Number(row.vendorId) === vendorId)
+    .filter((row: any) => row.entryType !== "Debit Note" && row.approvalStatus === "Approved")
+    .map((row: any) => ({
+      id: row.id, sourceType: row.sourceType || "Manual", sourceId: row.sourceId ?? null,
+      vendorName: invoiceVendor.get(String(row.billNumber)) || rawNames.get(Number(row.id)),
+      isOpening: isOpeningRow(row), documentNumber: row.billNumber, documentDate: String(row.billDate || "").slice(0, 10),
+      amount: m(row.amount), settledAmount: m(row.paidAmount), adjustedAmount: m(row.adjustedAmount), outstanding: m(payableOutstanding(row)),
+    }))
+    .filter((item: any) => item.outstanding > 0.009)
+    .sort(fifoOrder);
+  s.json(items);
+});
 router.get("/business-dashboard", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view"))
     s.redirect(307, "./dashboard-summary");

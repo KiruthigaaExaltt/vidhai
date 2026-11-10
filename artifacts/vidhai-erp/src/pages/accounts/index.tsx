@@ -84,6 +84,7 @@ import { notifyModuleLocked, lockModule } from "@/components/security/ModuleEncr
 import { FinancialStatements } from "./FinancialStatements";
 import { FinanceDashboard } from "./FinanceDashboard";
 import { OpeningBalanceDialog, type OpeningBalanceParty } from "./OpeningBalanceDialog";
+import { LedgerPaymentDialog, type LedgerPaymentParty } from "./LedgerPaymentDialog";
 import { parseBankCashSheet } from "./bankCashImport";
 const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "",
   api = (p: string, o?: RequestInit) =>
@@ -491,6 +492,7 @@ export default function Accounts() {
   } | null>(null);
   const [activeHistoryIdx, setActiveHistoryIdx] = useState(0);
   const [openingParty, setOpeningParty] = useState<OpeningBalanceParty | null>(null);
+  const [ledgerPaymentParty, setLedgerPaymentParty] = useState<LedgerPaymentParty | null>(null);
   const [copiedRef, setCopiedRef] = useState(false);
   const accountTabGroups = [
     {
@@ -2178,6 +2180,7 @@ export default function Accounts() {
                       <span>Closing</span>
                     </div>
                   </div>
+                  {can("accounts.accounts_receivable.edit") && <span className="w-8 shrink-0" />}
                   {can("accounts.customer_ledger.update") && <span className="w-8 shrink-0" />}
                 </div>
                 {f(customers).map((customer) => {
@@ -2216,6 +2219,30 @@ export default function Accounts() {
                           <span className={`font-semibold ${Number(customer.closingBalance) < 0 ? "text-amber-600" : ""}`} title={Number(customer.closingBalance) < 0 ? "Advance held for customer" : undefined}>{inr(customer.closingBalance)}</span>
                         </div>
                       </button>
+                      {can("accounts.accounts_receivable.edit") && (
+                        <span className="w-8 shrink-0">
+                          {customer.clientId && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="Receive payment"
+                              aria-label="Receive payment"
+                              onClick={() =>
+                                setLedgerPaymentParty({
+                                  kind: "customer",
+                                  id: Number(customer.clientId),
+                                  name: customer.customerDisplay || customer.clientName,
+                                  settled: numberValue(customer.received) + numberValue(customer.credited),
+                                  closing: numberValue(customer.closingBalance),
+                                })
+                              }
+                            >
+                              <CreditCard className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </span>
+                      )}
                       {can("accounts.customer_ledger.update") && customer.clientId && (
                         <Button
                           type="button"
@@ -2338,6 +2365,7 @@ export default function Accounts() {
                       <span>Closing</span>
                     </div>
                   </div>
+                  {can("accounts.accounts_payable.edit") && <span className="w-8 shrink-0" />}
                   {can("accounts.vendor_ledger.update") && <span className="w-8 shrink-0" />}
                 </div>
                 {f(vendors).map((vendor) => {
@@ -2376,6 +2404,30 @@ export default function Accounts() {
                           <span className={`font-semibold ${Number(vendor.closingBalance) < 0 ? "text-amber-600" : ""}`} title={Number(vendor.closingBalance) < 0 ? "Advance paid to vendor" : undefined}>{inr(vendor.closingBalance)}</span>
                         </div>
                       </button>
+                      {can("accounts.accounts_payable.edit") && (
+                        <span className="w-8 shrink-0">
+                          {vendor.vendorId && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="Make payment"
+                              aria-label="Make payment"
+                              onClick={() =>
+                                setLedgerPaymentParty({
+                                  kind: "vendor",
+                                  id: Number(vendor.vendorId),
+                                  name: vendor.vendorDisplay || vendor.vendorName,
+                                  settled: numberValue(vendor.paid) + numberValue(vendor.credited),
+                                  closing: numberValue(vendor.closingBalance),
+                                })
+                              }
+                            >
+                              <CreditCard className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </span>
+                      )}
                       {can("accounts.vendor_ledger.update") && vendor.vendorId && (
                         <Button
                           type="button"
@@ -4581,6 +4633,17 @@ export default function Accounts() {
               request={api}
               onClose={() => setOpeningParty(null)}
               onSaved={load}
+            />
+          )}
+          {ledgerPaymentParty && (
+            <LedgerPaymentDialog
+              party={ledgerPaymentParty}
+              coa={coa}
+              request={api}
+              salesRequest={salesApi}
+              flexRequest={flexApi}
+              onClose={() => setLedgerPaymentParty(null)}
+              onPosted={load}
             />
           )}
           {Boolean(historyModal) && (
