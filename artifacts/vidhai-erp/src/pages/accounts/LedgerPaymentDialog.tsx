@@ -106,8 +106,10 @@ export function LedgerPaymentDialog({
   const [manual, setManual] = useState<Record<number, string>>({});
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [referenceEdited, setReferenceEdited] = useState(false);
+  const [confirmAdvance, setConfirmAdvance] = useState(false);
   // Stable retry identities for the AR/AP endpoints that support them.
   const [retryIds] = useState<Record<number, string>>({});
+  const [advanceId] = useState(() => crypto.randomUUID());
   const controlAccount = coa.find((account) => account.accountCode === controlCode && account.isActive !== false);
   const [form, setForm] = useState(() => ({
     paymentDate: today(),
@@ -157,29 +159,30 @@ export function LedgerPaymentDialog({
   }, [method, items, paid, totals.outstanding, manual, selected]);
   const allocated = round2(Object.values(allocationById).reduce((sum, value) => sum + value, 0));
   const unallocated = round2(paid - allocated);
+  // Whatever is not settled against a document is held as the party's advance.
+  const advance = unallocated > 0.009 ? unallocated : 0;
   const allocatedRows = items.filter((item) => (allocationById[item.id] || 0) > 0);
   const autoReference = allocatedRows.map((item) => item.documentNumber).join(", ");
   const reference = referenceEdited ? form.reference : autoReference;
 
   const validationError = (() => {
     if (!(paid > 0)) return "Enter an amount greater than zero.";
-    if (paid > totals.outstanding + 0.009)
-      return `Amount cannot exceed the total outstanding of ${inr(totals.outstanding)}; advance payments are not allowed.`;
     for (const item of items) {
       const value = allocationById[item.id];
       if (value === undefined) continue;
       if (value < 0) return `${item.documentNumber}: allocation cannot be negative.`;
       if (value > item.outstanding + 0.009) return `${item.documentNumber}: allocation cannot exceed its outstanding ${inr(item.outstanding)}.`;
     }
-    if (method === "manual" && Math.abs(unallocated) > 0.009)
-      return unallocated > 0
-        ? `Allocate the remaining ${inr(unallocated)} to ${docLabel.toLowerCase()}s.`
-        : `Allocations exceed the amount by ${inr(-unallocated)}.`;
-    if (!allocatedRows.length) return `Allocate the amount to at least one ${docLabel.toLowerCase()}.`;
+    if (unallocated < -0.009) return `Allocations exceed the amount by ${inr(-unallocated)}.`;
+    if (advance > 0 && !confirmAdvance)
+      return `${inr(advance)} is not allocated to any ${docLabel.toLowerCase()}. Allocate it, or tick the box to record it as an advance.`;
     const tds = num(form.tdsAmount);
     const charges = num(form.bankCharges);
     if (tds < 0 || charges < 0) return "TDS and bank charges cannot be negative.";
-    if (tds + charges > paid + 0.009) return "TDS and bank charges cannot exceed the amount.";
+    // TDS/charges are shared across document settlements; the advance is the
+    // plain amount held for the party.
+    if (tds + charges > allocated + 0.009)
+      return `TDS and bank charges cannot exceed the amount allocated to ${docLabel.toLowerCase()}s (${inr(allocated)}).`;
     const early = allocatedRows.find((item) => item.documentDate && form.paymentDate < item.documentDate);
     if (early) return `Payment date cannot be earlier than ${early.documentNumber} (${early.documentDate}).`;
     return "";
@@ -245,8 +248,8 @@ export function LedgerPaymentDialog({
     // cannot reuse the bare invoice number. Tag this submission uniquely.
     const batchTag = `LP-${Date.now().toString(36).toUpperCase()}`;
     try {
+      const typed = referenceEdited ? form.reference.trim() : "";
       for (const row of rows) {
-        const typed = referenceEdited ? form.reference.trim() : "";
         const rowReference = typed
           ? rows.length > 1 ? `${typed} / ${row.item.documentNumber}` : typed
           : `${row.item.documentNumber} / ${batchTag}`;
@@ -257,9 +260,24 @@ export function LedgerPaymentDialog({
         }
         posted.push(`${row.item.documentNumber} (${inr(row.amount)})`);
       }
+      if (advance > 0) {
+        try {
+          await request(`/${isCustomer ? "customer" : "vendor"}-ledger/${party.id}/advance`, {
+            method: "POST",
+            body: JSON.stringify({
+              amount: advance, advanceId, paymentDate: form.paymentDate, paymentMethod: form.paymentMethod,
+              settlementAccountId: Number(form.settlementAccountId),
+              reference: typed ? `${typed} / Advance` : `Advance / ${batchTag}`, notes: form.notes,
+            }),
+          });
+        } catch (e: any) {
+          throw new Error(`Advance: ${e.message}`);
+        }
+        posted.push(`advance (${inr(advance)})`);
+      }
       toast({
         title: isCustomer ? "Payment received" : "Payment recorded",
-        description: `${inr(paid)} allocated to ${posted.join(", ")}.`,
+        description: `${inr(paid)} recorded: ${posted.join(", ")}.`,
       });
       await onPosted();
       onClose();
@@ -339,10 +357,6 @@ export function LedgerPaymentDialog({
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading outstanding {docLabel.toLowerCase()}s...
             </div>
-          ) : !items.length ? (
-            <div className="rounded-md border p-6 text-center text-sm text-muted-foreground">
-              No approved outstanding {docLabel.toLowerCase()}s for this {party.kind}.
-            </div>
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -353,7 +367,6 @@ export function LedgerPaymentDialog({
                     type="number"
                     min="0.01"
                     step="0.01"
-                    max={totals.outstanding}
                     value={amount}
                     onChange={(event) => setAmount(event.target.value)}
                   />
@@ -375,7 +388,12 @@ export function LedgerPaymentDialog({
                   </div>
                 </div>
               </div>
-              <div className="rounded-md border overflow-x-auto">
+              {!items.length && (
+                <div className="rounded-md border p-4 text-center text-sm text-muted-foreground">
+                  No approved outstanding {docLabel.toLowerCase()}s for this {party.kind}. Any amount entered is recorded as an advance.
+                </div>
+              )}
+              {items.length > 0 && <div className="rounded-md border overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-100 dark:bg-muted text-xs uppercase tracking-wider text-muted-foreground">
                     <tr>
@@ -447,13 +465,27 @@ export function LedgerPaymentDialog({
                   <tfoot className="border-t bg-muted/30 text-sm font-semibold">
                     <tr>
                       <td colSpan={method === "manual" ? 6 : 5} className="px-3 py-2 text-right">
-                        Allocated {inr(allocated)} · Unallocated {inr(Math.max(0, unallocated))}
+                        Allocated {inr(allocated)} · Advance {inr(advance)}
                       </td>
                       <td colSpan={3} />
                     </tr>
                   </tfoot>
                 </table>
-              </div>
+              </div>}
+              {advance > 0 && (
+                <label className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-primary"
+                    checked={confirmAdvance}
+                    onChange={(event) => setConfirmAdvance(event.target.checked)}
+                  />
+                  <span>
+                    Record {inr(advance)} as an advance {isCustomer ? "from" : "to"} {party.name}. It will show in the ledger
+                    and the closing balance will go negative by this amount.
+                  </span>
+                </label>
+              )}
               {paid > 0 && validationError && (
                 <p className="text-xs text-destructive">{validationError}</p>
               )}

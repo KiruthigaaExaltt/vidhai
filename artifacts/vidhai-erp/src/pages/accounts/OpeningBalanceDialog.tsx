@@ -74,6 +74,9 @@ export function OpeningBalanceDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
+          {error && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
+          )}
           <label className="block space-y-1.5 text-sm">
             <Label>Balance Type</Label>
             <Select value={direction} onValueChange={setDirection}>
@@ -99,7 +102,6 @@ export function OpeningBalanceDialog({
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
           </label>
           <p className="text-xs text-muted-foreground">Set the amount to 0 to clear the opening balance.</p>
-          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>

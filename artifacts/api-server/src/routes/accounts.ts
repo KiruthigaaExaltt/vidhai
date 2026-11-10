@@ -3530,6 +3530,19 @@ async function saveOpeningBalance(r: any, s: any, kind: "client" | "vendor") {
     ]);
     const existingDue = (dueRows as any[]).find((row) => isOpeningRow(row) && Number(row.sourceId) === Number(contact.id));
     const existingAdvance = (partyRows as any[]).find((row) => isOpeningAdvance(row) && String(row.partyType || "").toLowerCase() === partyType && Number(row[idField]) === Number(contact.id));
+    // Like a Chart of Accounts ledger, the opening balance is locked once the
+    // party has any transaction: invoices/bills, credit/debit notes, receipts
+    // or payments (including against the opening due) and advances. Editing it
+    // afterwards would leave those transactions settling the wrong figure.
+    const nameField = isClient ? "clientName" : "vendorName";
+    const isParty = (row: any) =>
+      Number(row?.[idField]) === Number(contact.id) || (!row?.[idField] && norm(row?.[nameField]) === norm(contact.name));
+    const hasTransactions =
+      (dueRows as any[]).some((row) => isParty(row) && !isOpeningRow(row)) ||
+      m(m(existingDue?.[settledField]) + m(existingDue?.adjustedAmount)) > 0 ||
+      (partyRows as any[]).some((row) => String(row.partyType || "").toLowerCase() === partyType && isParty(row) && !isOpeningAdvance(row));
+    if (hasTransactions)
+      return s.status(409).json({ error: "This ledger account already has transactions and cannot be edited." });
 
     // Replace the previous opening journal(s) so COA balances follow the edit.
     for (const journalId of [existingDue?.journalEntryId, existingAdvance?.journalEntryId])
@@ -3831,6 +3844,13 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
       else if (entryType.includes("credit")) group.credited += value;
       else group.received += value;
       group.outstanding = Math.max(0, group.invoiced - group.received - group.credited);
+      if (row.entryType === LEDGER_ADVANCE.client)
+        group.records.push({
+          id: `advance-${row.id}`, invoiceNumber: row.reference, invoiceDate: row.entryDate,
+          invoicedAmount: 0, receivedAmount: value, credits: 0, outstanding: 0,
+          paidDate: String(row.entryDate || "").slice(0, 10), status: LEDGER_ADVANCE.client,
+          sourceType: LEDGER_ADVANCE.client, sourceId: row.id, payments: [], creditNotes: [],
+        });
     }
     s.json(finishLedgerGroups(groups, clients, "client", (contact) => ensureGroup({ clientId: contact.id, clientCode: contact.contactCode, clientName: contact.name, customerDisplay: contactLabel(contact) }), "invoiceDate"));
   } catch (error: any) {
@@ -4017,6 +4037,13 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
       else if (entryType.includes("debit") || entryType.includes("credit")) group.credited += value;
       else group.paid += value;
       group.outstanding = Math.max(0, group.billed - group.paid - group.credited);
+      if (row.entryType === LEDGER_ADVANCE.vendor)
+        group.records.push({
+          id: `advance-${row.id}`, billNumber: row.reference, billedDate: row.entryDate,
+          billedAmount: 0, paidAmount: value, debitNote: 0, outstanding: 0,
+          paidDate: String(row.entryDate || "").slice(0, 10), status: LEDGER_ADVANCE.vendor,
+          sourceType: LEDGER_ADVANCE.vendor, sourceId: row.id, payments: [], debitNotes: [],
+        });
     }
     s.json(finishLedgerGroups(groups, vendors, "vendor", (contact) => ensureGroup({ vendorId: contact.id, vendorCode: contact.contactCode, vendorName: contact.name, vendorDisplay: contactLabel(contact) }), "billedDate"));
   } catch (error: any) {
@@ -4084,6 +4111,83 @@ router.get("/vendor-ledger/:id/open-items", async (r: any, s): Promise<any> => {
     .sort(fifoOrder);
   s.json(items);
 });
+// Excess of a ledger receipt/payment over the party's open documents. Stored
+// as a party ledger entry (the ledger counts it as received/paid, so closing
+// goes negative = advance) and posted Dr Bank / Cr Receivable for customers,
+// Dr Payable / Cr Bank for vendors — the same control-account side as an
+// opening advance.
+const LEDGER_ADVANCE = { client: "Advance Receipt", vendor: "Advance Payment" } as const;
+async function recordLedgerAdvance(r: any, s: any, kind: "client" | "vendor") {
+  const isClient = kind === "client";
+  if (!need(r, s, isClient ? "accounts.accounts_receivable.edit" : "accounts.accounts_payable.edit")) return;
+  try {
+    const org = Number(r.acc.org);
+    const amount = m(r.body?.amount);
+    const date = String(r.body?.paymentDate || "").slice(0, 10);
+    const advanceId = String(r.body?.advanceId || "");
+    if (!(amount > 0)) return s.status(400).json({ error: "Advance amount must be greater than zero" });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return s.status(400).json({ error: "Payment date is required" });
+    if (!/^[a-zA-Z0-9-]{1,80}$/.test(advanceId)) return s.status(400).json({ error: "Advance identity is required for retry protection" });
+    const contact = await resolveContact(kind, r.params.id);
+    if (!contact) return s.status(404).json({ error: isClient ? "CRM Client not found" : "CRM Vendor not found" });
+    const accounts = await coa(org);
+    const control = accounts.find((account: any) => account.accountCode === (isClient ? "1100" : "2100"));
+    const settlement = accounts.find((account: any) => Number(account.id) === Number(r.body?.settlementAccountId) && account.isActive !== false);
+    if (!control) return s.status(409).json({ error: "Receivable/Payable account is not configured" });
+    if (!settlement || Number(settlement.id) === Number(control.id))
+      return s.status(400).json({ error: "Choose a valid active bank or cash account" });
+    const journalRef = `AUTO:${isClient ? "AR" : "AP"}:ADVANCE:${org}:${contact.id}:${advanceId}`;
+    const [existing] = await db.select().from(journalEntriesTable)
+      .where(and(eq(journalEntriesTable.organizationId, org), eq(journalEntriesTable.reference, journalRef))).limit(1);
+    if (existing) {
+      if (m((existing.metadata as any)?.amount) !== amount)
+        return s.status(409).json({ error: "Advance identity was already used with a different amount" });
+      return s.json({ journalEntryId: existing.id, amount });
+    }
+    const reference = String(r.body?.reference || "").trim() || `ADV-${advanceId.slice(0, 8).toUpperCase()}`;
+    const notes = String(r.body?.notes || "").trim();
+    const idField = isClient ? "clientId" : "vendorId";
+    const result = await db.transaction(async (tx) => {
+      const journal = await insertImportJournal(tx, org, {
+        entryDate: date,
+        reference: journalRef,
+        description: `${LEDGER_ADVANCE[kind]} - ${contact.name}`,
+        voucherType: isClient ? "Receipt" : "Payment",
+        sourceType: isClient ? "Customer Advance" : "Vendor Advance",
+        sourceId: Number(contact.id),
+        metadata: {
+          [idField]: contact.id, direction: "advance", amount, notes, paymentDate: date,
+          paymentMethod: String(r.body?.paymentMethod || ""), advanceReference: reference,
+          settlementAccountId: settlement.id,
+          fromAccountId: isClient ? control.id : settlement.id, toAccountId: isClient ? settlement.id : control.id,
+          fromAccountName: isClient ? control.accountName : settlement.accountName, toAccountName: isClient ? settlement.accountName : control.accountName,
+        },
+        lines: isClient
+          ? [{ accountId: settlement.id, debit: amount, credit: 0, memo: reference }, { accountId: control.id, debit: 0, credit: amount, memo: reference }]
+          : [{ accountId: control.id, debit: amount, credit: 0, memo: reference }, { accountId: settlement.id, debit: 0, credit: amount, memo: reference }],
+      }, r.acc.user.id);
+      const [entry] = await tx.insert(partyLedgerEntriesTable).values({
+        organizationId: org,
+        partyType: isClient ? "customer" : "vendor",
+        [idField]: contact.id,
+        [isClient ? "clientName" : "vendorName"]: contact.name,
+        entryType: LEDGER_ADVANCE[kind],
+        amount,
+        drCr: isClient ? "Credit" : "Debit",
+        entryDate: date,
+        reference,
+        notes,
+        journalEntryId: journal.id,
+      }).returning();
+      return { journalEntryId: journal.id, partyLedgerEntryId: entry.id, amount, reference };
+    });
+    return s.status(201).json(result);
+  } catch (error: any) {
+    return s.status(error?.status || 500).json({ error: error?.message || "Unable to record advance" });
+  }
+}
+router.post("/customer-ledger/:id/advance", (r: any, s) => recordLedgerAdvance(r, s, "client"));
+router.post("/vendor-ledger/:id/advance", (r: any, s) => recordLedgerAdvance(r, s, "vendor"));
 router.get("/business-dashboard", async (r: any, s): Promise<any> => {
   if (need(r, s, "accounts.finance_dashboard.view"))
     s.redirect(307, "./dashboard-summary");
