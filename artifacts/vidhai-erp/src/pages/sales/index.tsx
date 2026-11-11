@@ -705,12 +705,13 @@ export default function Sales() {
                               </td>
                               {activeTab === "Invoices" && (
                                 <td className="px-4 py-3 text-right">
-                                  Rs {numeric(row.amountPaid).toFixed(2)}
+                                  {/* Before approval the advance is only noted on the invoice, so add it here; on approval it is posted as a receipt and is already in amountPaid / balanceDue. */}
+                                  Rs {(numeric(row.amountPaid) + (["Approved", "Paid"].includes(row.status) ? 0 : numeric(row.advanceAmount))).toFixed(2)}
                                 </td>
                               )}
                               {activeTab === "Invoices" && (
                                 <td className="px-4 py-3 text-right">
-                                  Rs {numeric(row.balanceDue).toFixed(2)}
+                                  Rs {Math.max(0, numeric(row.balanceDue) - (["Approved", "Paid"].includes(row.status) ? 0 : numeric(row.advanceAmount))).toFixed(2)}
                                 </td>
                               )}
                               {activeTab === "Invoices" && (

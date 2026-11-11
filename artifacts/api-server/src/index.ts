@@ -47,6 +47,7 @@ import { ensureDefaultVaultItems } from "./lib/ensureDefaultVaultItems";
 import { ensureDefaultCoimbatoreCasingChambers } from "./lib/ensureDefaultCoimbatoreCasingChambers";
 import { ensureDefaultOotyRooms } from "./lib/ensureDefaultOotyRooms";
 import { ensureGrowBagVaultBackfill } from "./lib/growBagVault";
+import { backfillCustomerAdvanceApplications, backfillInvoiceAdvances } from "./lib/salesAccounting";
 
 const rawPort = process.env["PORT"];
 
@@ -265,6 +266,17 @@ logger.info(defaultVaultItems, "Default Vault items ready");
 
 await ensureGrowBagVaultBackfill();
 logger.info("Grow Bag Vault backfill ready");
+
+try {
+  logger.info(await backfillInvoiceAdvances(), "Invoice advance backfill ready");
+} catch (error) {
+  logger.error(error, "Invoice advance backfill failed");
+}
+try {
+  logger.info(await backfillCustomerAdvanceApplications(), "Customer advance application ready");
+} catch (error) {
+  logger.error(error, "Customer advance application failed");
+}
 
 const server = createServer(app);
 initializeNotificationGateway(server, sessionMiddleware);

@@ -408,6 +408,8 @@ export function SalesDocumentForm({
           contactNumber: document.billedByContactNumber || "",
         });
         setDiscountAmount(numericValue(document.discountAmount));
+        setTransportCharges(numericValue(document.transportCharges));
+        setAmountPaid(numericValue(document.advanceAmount));
         setItems(
           (document.items || []).map((line: any) => {
             const igstHalf = numericValue(line.igstPercent) / 2;
@@ -556,7 +558,7 @@ export function SalesDocumentForm({
   const isInterState = Boolean(
     companyStateCode && placeOfSupply && companyStateCode !== placeOfSupply,
   );
-  const isLocked = [
+  const lockedStatuses = [
     "Approved",
     "Rejected",
     "Dispatched",
@@ -564,7 +566,23 @@ export function SalesDocumentForm({
     "Credit Issued",
     "Paid",
     "Cancelled",
-  ].includes(status);
+  ];
+  // Picking an older revision from the history dropdown loads that revision's
+  // own status (e.g. "Draft"), so the lock must also follow the latest
+  // revision: once it is approved/paid, no revision is editable, and older
+  // revisions are always view-only history.
+  const latestVersion =
+    versions.find((version: any) => version.isLatestVersion === true) ||
+    [...versions].sort((a: any, b: any) => Number(b.id) - Number(a.id))[0];
+  const viewingOlderRevision = Boolean(
+    latestVersion &&
+      Number(viewDocumentId || savedDocumentId) &&
+      Number(latestVersion.id) !== Number(viewDocumentId || savedDocumentId),
+  );
+  const isLocked =
+    lockedStatuses.includes(status) ||
+    lockedStatuses.includes(String(latestVersion?.status || "")) ||
+    viewingOlderRevision;
 
   const loadVersions = async (quotationId: number) => {
     const response = await fetch(
@@ -695,6 +713,8 @@ export function SalesDocumentForm({
           document.billedByContactNumber || billingDetails.contactNumber,
       });
       setDiscountAmount(numericValue(document.discountAmount));
+      setTransportCharges(numericValue(document.transportCharges));
+      setAmountPaid(numericValue(document.advanceAmount));
       setItems(
         (document.items || []).map((line: any) => {
           const igstHalf = numericValue(line.igstPercent) / 2;
@@ -1251,6 +1271,8 @@ export function SalesDocumentForm({
       paymentStatus: "Unpaid",
       restock: isReturn,
       discountAmount,
+      transportCharges,
+      advanceAmount: amountPaid,
       roundOff: 0,
       terms,
       bankName,

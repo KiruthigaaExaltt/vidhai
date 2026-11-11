@@ -73,6 +73,9 @@ export const quotationsTable = mongoTable("quotations", {
   igstTotal: numeric("igst_total").notNull().default("0"),
   grandTotal: numeric("grand_total").notNull().default("0"),
   discountAmount: numeric("discount_amount").notNull().default("0"),
+  transportCharges: numeric("transport_charges").notNull().default("0"),
+  // Advance noted on the document; informational, not a recorded payment.
+  advanceAmount: numeric("advance_amount").notNull().default("0"),
   roundOff: numeric("round_off").notNull().default("0"),
   terms: text("terms").default(""),
   bankName: text("bank_name").default(""),
@@ -197,6 +200,9 @@ export const proformaInvoicesTable = mongoTable("proforma_invoices", {
   igstTotal: numeric("igst_total").notNull().default("0"),
   grandTotal: numeric("grand_total").notNull().default("0"),
   discountAmount: numeric("discount_amount").notNull().default("0"),
+  transportCharges: numeric("transport_charges").notNull().default("0"),
+  // Advance noted on the document; informational, not a recorded payment.
+  advanceAmount: numeric("advance_amount").notNull().default("0"),
   roundOff: numeric("round_off").notNull().default("0"),
   terms: text("terms").default(""),
   bankName: text("bank_name").default(""),
@@ -371,6 +377,9 @@ export const salesInvoicesTable = mongoTable("sales_invoices", {
   grandTotal: numeric("grand_total").notNull().default("0"),
   discountAmount: numeric("discount_amount").notNull().default("0"),
   transportCharges: numeric("transport_charges").notNull().default("0"),
+  // Advance noted on the invoice; informational. Real receipts live in
+  // amountPaid, which is recalculated from sales payments.
+  advanceAmount: numeric("advance_amount").notNull().default("0"),
   amountPaid: numeric("amount_paid").notNull().default("0"),
   balanceDue: numeric("balance_due").notNull().default("0"),
   paymentStatus: text("payment_status").notNull().default("Unpaid"),

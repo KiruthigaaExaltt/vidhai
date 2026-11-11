@@ -3678,6 +3678,7 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
       contactsFor("client"),
     ]);
     const enriched = await enrichReceivables(receivableRows as any[]);
+    const receivableAccountName = (accounts as any[]).find((account) => account.accountCode === "1100")?.accountName || "Accounts Receivable";
     const openingRows = enriched.filter(isOpeningRow);
     const receivables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.invoiceDate) === "in");
     const priorReceivables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.invoiceDate) === "before");
@@ -3737,7 +3738,8 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
         payments: receipts.map((payment) => ({
           id: payment.id, paymentDate: payment.paymentDate,
           fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId,
-          fromAccountName: payment.fromAccountName, toAccountName: payment.toAccountName,
+          fromAccountName: payment.fromAccountName || receivableAccountName, toAccountName: payment.toAccountName,
+          paymentMethod: payment.paymentMethod || "",
           amount: m(payment.amount), reference: payment.reference || "",
         })),
         creditNotes: [],
@@ -3799,8 +3801,10 @@ router.get("/customer-ledger", async (r: any, s): Promise<any> => {
           id: payment.id,
           paymentDate: payment.paymentDate,
           fromAccountId: payment.fromAccountId ?? null, toAccountId: payment.toAccountId ?? payment.settlementAccountId ?? null,
-          fromAccountName: payment.fromAccountName || "",
+          // Sales-module payments don't store a "from" account; they always credit Receivable.
+          fromAccountName: payment.fromAccountName || receivableAccountName,
           toAccountName: payment.toAccountName || accounts.find((account: any) => Number(account.id) === Number(payment.settlementAccountId))?.accountName || "",
+          paymentMethod: payment.paymentMethod || "",
           amount: m(payment.amount),
           reference: payment.reference || payment.paymentNumber || "",
         })),
@@ -3870,6 +3874,7 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
       contactsFor("vendor"),
     ]);
     const enriched = await enrichPayables(payableRows as any[]);
+    const payableAccountName = (accounts as any[]).find((account) => account.accountCode === "2100")?.accountName || "Accounts Payable";
     const openingRows = enriched.filter(isOpeningRow);
     const payables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.billDate) === "in");
     const priorPayables = enriched.filter((row: any) => !isOpeningRow(row) && period(row.billDate) === "before");
@@ -3929,7 +3934,8 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
         payments: billPayments.map((payment) => ({
           id: payment.id, paymentDate: payment.paymentDate,
           fromAccountId: payment.fromAccountId, toAccountId: payment.toAccountId,
-          fromAccountName: payment.fromAccountName, toAccountName: payment.toAccountName,
+          fromAccountName: payment.fromAccountName, toAccountName: payment.toAccountName || payableAccountName,
+          paymentMethod: payment.paymentMethod || "",
           amount: m(payment.amount), reference: payment.reference || "",
         })),
         debitNotes: [],
@@ -3993,7 +3999,9 @@ router.get("/vendor-ledger", async (r: any, s): Promise<any> => {
           fromAccountId: payment.fromAccountId ?? payment.settlementAccountId ?? null,
           toAccountId: payment.toAccountId ?? null,
           fromAccountName: payment.fromAccountName || accounts.find((account: any) => Number(account.id) === Number(payment.settlementAccountId))?.accountName || "",
-          toAccountName: payment.toAccountName || "",
+          // Procurement vendor payments don't store a "to" account; they always debit Payable.
+          toAccountName: payment.toAccountName || payableAccountName,
+          paymentMethod: payment.paymentMethod || payment.paymentMode || "",
           amount: m(payment.amount),
           reference: payment.reference || payment.transactionReference || payment.paymentNumber || "",
         })),

@@ -45,6 +45,8 @@ import {
   recalculateInvoiceAccounting,
   triggerInvoiceApproved,
   triggerPaymentReceived,
+  postInvoiceAdvance,
+  applyCustomerAdvances,
   triggerReceivableAdjustment,
   triggerSalesReturnCredited,
 } from "../lib/salesAccounting";
@@ -71,6 +73,8 @@ const quotationNumericFields = [
   "igstTotal",
   "grandTotal",
   "discountAmount",
+  "transportCharges",
+  "advanceAmount",
   "roundOff",
 ] as const;
 function serializeQuotation<T extends Record<string, any>>(row: T) {
@@ -231,6 +235,8 @@ function proformaData(payload: any) {
     igstTotal: String(payload.igstTotal ?? 0),
     grandTotal: String(payload.grandTotal ?? 0),
     discountAmount: String(payload.discountAmount ?? 0),
+    transportCharges: String(payload.transportCharges ?? 0),
+    advanceAmount: String(payload.advanceAmount ?? 0),
     roundOff: String(payload.roundOff ?? 0),
     terms: payload.termsAndConditions ?? payload.terms ?? "",
     bankName: payload.bankName || "",
@@ -352,6 +358,7 @@ function invoiceData(payload: any) {
     grandTotal: String(payload.grandTotal ?? 0),
     discountAmount: String(payload.discountAmount ?? 0),
     transportCharges: String(payload.transportCharges ?? 0),
+    advanceAmount: String(payload.advanceAmount ?? 0),
     amountPaid: String(payload.amountPaid ?? 0),
     balanceDue: String(payload.balanceDue ?? payload.grandTotal ?? 0),
     paymentStatus: payload.paymentStatus || "Unpaid",
@@ -909,6 +916,8 @@ async function createQuotationVersion(
       igstTotal: source.igstTotal,
       grandTotal: source.grandTotal,
       discountAmount: source.discountAmount,
+      transportCharges: source.transportCharges ?? "0",
+      advanceAmount: source.advanceAmount ?? "0",
       roundOff: source.roundOff,
       terms: source.terms,
       bankName: source.bankName,
@@ -1034,6 +1043,8 @@ router.post("/quotations", requireAuth, async (req, res) => {
       igstTotal: String(payload.igstTotal || 0),
       grandTotal: String(payload.grandTotal || 0),
       discountAmount: String(payload.discountAmount || 0),
+      transportCharges: String(payload.transportCharges || 0),
+      advanceAmount: String(payload.advanceAmount || 0),
       roundOff: String(payload.roundOff || 0),
       terms: payload.terms || "",
       bankName: payload.bankName || "",
@@ -1166,6 +1177,8 @@ router.patch("/quotations/:id", requireAuth, async (req, res) => {
       "igstTotal",
       "grandTotal",
       "discountAmount",
+      "transportCharges",
+      "advanceAmount",
       "roundOff",
       "terms",
       "bankName",
@@ -1402,6 +1415,12 @@ router.post("/quotations/:id/send", requireAuth, async (req, res) => {
       discountAmount: String(
         req.body.discountAmount ?? existing.discountAmount,
       ),
+      transportCharges: String(
+        req.body.transportCharges ?? existing.transportCharges ?? 0,
+      ),
+      advanceAmount: String(
+        req.body.advanceAmount ?? existing.advanceAmount ?? 0,
+      ),
       terms: req.body.terms ?? existing.terms,
       bankName: req.body.bankName ?? existing.bankName,
       accountNumber: req.body.accountNumber ?? existing.accountNumber,
@@ -1631,6 +1650,8 @@ router.post(
               igstTotal: existing.igstTotal,
               grandTotal: existing.grandTotal,
               discountAmount: existing.discountAmount,
+              transportCharges: existing.transportCharges ?? "0",
+              advanceAmount: existing.advanceAmount ?? "0",
               roundOff: existing.roundOff,
               terms: existing.terms,
               bankName: existing.bankName,
@@ -2730,6 +2751,11 @@ router.post(
           context.organizationId,
           context.userId,
         );
+        // Only the balance after the invoice's advance stays outstanding.
+        await postInvoiceAdvance(id, context.organizationId, context.userId);
+        // Money already held for this customer settles the new invoice too.
+        if (updated.clientId)
+          await applyCustomerAdvances(context.organizationId, Number(updated.clientId));
         if (accounting?.ar)
           await publishAccountsReceivableEntryNotification(req, accounting.ar);
         await publishNotification({
