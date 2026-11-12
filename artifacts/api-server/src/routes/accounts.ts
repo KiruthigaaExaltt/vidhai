@@ -27,6 +27,7 @@ import {
 import { paginateQuery, paginationMetadata } from "../lib/pagination";
 import { postMatchedPurchaseInvoice } from "../lib/procurementAutomation";
 import { effectivePermissions, getAuthUser } from "../lib/access";
+import { normalizePermissionKey } from "../lib/permissionCatalog";
 import { resolveUploadPath } from "../lib/uploadStorage";
 import { addBankChargeLines, bankCashExportRow, buildBankChargeJournalLines, paymentDetails, paymentMethods, paymentMoney, prepareBankCash } from "../lib/accountPayments";
 const router = Router(),
@@ -98,7 +99,10 @@ router.use(async (req: any, res, next): Promise<any> => {
   };
   next();
 });
-const can = (r: any, k: string) => r.acc.p.includes("*") || r.acc.p.includes(k),
+// Stored permissions are normalized (e.g. "...edit" is saved as "...update"),
+// so normalize the requested key the same way before comparing.
+const can = (r: any, k: string) =>
+    r.acc.p.includes("*") || r.acc.p.includes(k) || r.acc.p.includes(normalizePermissionKey(k) ?? k),
   need = (r: any, s: any, k: string) =>
     can(r, k)
       ? true
